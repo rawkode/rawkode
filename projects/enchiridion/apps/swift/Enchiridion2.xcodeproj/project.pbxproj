@@ -1,0 +1,1188 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		006A7412C1DE3DB58A81BEB2 /* Enchiridion2iOSShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE0C1AE7C78C2CB702868951 /* Enchiridion2iOSShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		019E211EEDA24307D13FE75D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1866EA172E377D92AE8C4744 /* WidgetKit.framework */; };
+		1A5F95F4E0A97CFAB7B46894 /* Enchiridion2MacWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4A28F8C6F014070A5CB70D60 /* Enchiridion2MacWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2FDEA7AA31937B5C83DB6FE3 /* Enchiridion2MacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6380210D9D2E43956345B4E0 /* Enchiridion2MacApp.swift */; };
+		330777874927088D97A30BAD /* EnchiridionWatchKit in Frameworks */ = {isa = PBXBuildFile; productRef = C93CB75B0592BA5AC769656C /* EnchiridionWatchKit */; };
+		37F894913B57A8DF85103E92 /* Enchiridion2iOSWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1E4F618D7FA8E8D83C9C21C3 /* Enchiridion2iOSWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		45839D84EEBC3070FD3763DB /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 38075E7668058B3ABBC2437E /* AppKit.framework */; };
+		525C4841AB3526F6030BAB72 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC66F612C52DA1281A4CB148 /* ShareViewController.swift */; };
+		588E6C6255C8D73BEE9C64CD /* EnchiridionStore in Frameworks */ = {isa = PBXBuildFile; productRef = D09F3DFD51323447540FA39E /* EnchiridionStore */; };
+		5B35CA4328CC6A1D2D556ACB /* Enchiridion2MacWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE1CA25930A4A65500AA86F /* Enchiridion2MacWidgetBundle.swift */; };
+		5CD39204B1C666C4D64966E6 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 073053FEF7B2161871C1F5D5 /* RootView.swift */; };
+		6A329B72040D9AD0D68F06EC /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F724FBBD60C04F4B57890E89 /* ShareViewController.swift */; };
+		71887033E2F22F02C2EB9DD8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36A0993889DFA5B91790BF85 /* SwiftUI.framework */; };
+		7DBF4298615F4C1A73E6F1AF /* Enchiridion2App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 993A44C11649D1CDEA852BF2 /* Enchiridion2App.swift */; };
+		7EEA0352503A8F715937229C /* EnchiridionSync in Frameworks */ = {isa = PBXBuildFile; productRef = EF44C79D8CC9B70D80190D59 /* EnchiridionSync */; };
+		8F431D35C752E2DB6132E0E3 /* Enchiridion2iOSWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2813751219DCD41ABEAAF9CD /* Enchiridion2iOSWidgetBundle.swift */; };
+		9AF4485EC30C5F7E6874B51A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FAF1F63DC8DF697AD6979D /* RootView.swift */; };
+		9BDA9816D4C1633E40EDB031 /* EnchiridionUI in Frameworks */ = {isa = PBXBuildFile; productRef = BD0E8939D099838E15A65C40 /* EnchiridionUI */; };
+		A21E574B4F32BF0F2B28BFEF /* EnchiridionStore in Frameworks */ = {isa = PBXBuildFile; productRef = 90585A7784E1DC50F54132F8 /* EnchiridionStore */; };
+		A7489126913AE857DEAB615C /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1C4DA31FFBA2DACE385BD96 /* EnchiridionCore */; };
+		BA3227FF497B6012D708424B /* WorkoutCaptureRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB484A5478413823A30548C /* WorkoutCaptureRootView.swift */; };
+		CD14CFAB00844616B3B2B0EA /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36A0993889DFA5B91790BF85 /* SwiftUI.framework */; };
+		CD3D01E434094982DC56F778 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36A0993889DFA5B91790BF85 /* SwiftUI.framework */; };
+		CDBE9A30D5FA3C697FB9A95D /* EnchiridionSync in Frameworks */ = {isa = PBXBuildFile; productRef = FFB0FA0E2908138DE849A86E /* EnchiridionSync */; };
+		CF1E9D910AC69521F6F29E2C /* Enchiridion2WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222CB92BF1785C53BA1C330C /* Enchiridion2WatchApp.swift */; };
+		D05F2904D488798A83F89B3F /* Enchiridion2MacShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F114D4D063D99EC51A03B788 /* Enchiridion2MacShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D0AB695FADD77D91152D9F50 /* EnchiridionSync in Frameworks */ = {isa = PBXBuildFile; productRef = 986170DF89E75AD713A50C28 /* EnchiridionSync */; };
+		D8480C42751C1220B99FE2EC /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4FF9D63BED76ADE86CD0DD1 /* HealthKit.framework */; };
+		D8BEB44A41343E01DEDCB38B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CFC783F730A06CAF31F6C5E5 /* UIKit.framework */; };
+		D9DF212A5FB12C4B36BE0778 /* EnchiridionShareKit in Frameworks */ = {isa = PBXBuildFile; productRef = 13EF0B2DDA057D4F60292E7D /* EnchiridionShareKit */; };
+		E185AFAD465CAAD4A23161D1 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1866EA172E377D92AE8C4744 /* WidgetKit.framework */; };
+		ED30921C65FD047FFA7B32E1 /* EnchiridionStore in Frameworks */ = {isa = PBXBuildFile; productRef = 98A86889DCB4A3BDF6D4FB13 /* EnchiridionStore */; };
+		F05C6AD8C1459D43635998C8 /* EnchiridionShareKit in Frameworks */ = {isa = PBXBuildFile; productRef = A5A301379B8E8CB09221AFA8 /* EnchiridionShareKit */; };
+		F1B6EB959725EFFFBA26D7B0 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 80CF7B6DBE06515A7ABBC6C1 /* EnchiridionCore */; };
+		F435595E25B3B474AC19857E /* EnchiridionWidgetKit in Frameworks */ = {isa = PBXBuildFile; productRef = F51153D2F832BCA3B4A4D43C /* EnchiridionWidgetKit */; };
+		F8810B53B2F2964F285E9553 /* EnchiridionWidgetKit in Frameworks */ = {isa = PBXBuildFile; productRef = 03BF34DB63F898D3BF6C7A82 /* EnchiridionWidgetKit */; };
+		FA49FEBC805E3E1B92C3FA6C /* EnchiridionSchema in Frameworks */ = {isa = PBXBuildFile; productRef = C0576B2A898C8CFA8190699F /* EnchiridionSchema */; };
+		FA88BA124775ABC688837572 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3EE88C6B034521343D5B3497 /* EnchiridionCore */; };
+		FE27666F4F1FA2C727530DD9 /* EnchiridionUI in Frameworks */ = {isa = PBXBuildFile; productRef = F6536EA8797710D1580951DA /* EnchiridionUI */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		99329E5FED363D02A6ED11E3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 57F1F7BD3893C3B5B697BBEF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 02DFBB7D97EC80F72CDC8D5C;
+			remoteInfo = Enchiridion2MacShareExtension;
+		};
+		A840B95E0BD46D56C2BCAC97 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 57F1F7BD3893C3B5B697BBEF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 54B660DB9867D0F8B2EC0F7B;
+			remoteInfo = Enchiridion2iOSShareExtension;
+		};
+		C47460F6A83FA8A20A593D71 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 57F1F7BD3893C3B5B697BBEF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 959A52F63E7CC524FC491265;
+			remoteInfo = Enchiridion2MacWidget;
+		};
+		E4065ECD19F3A24ADFE25C8B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 57F1F7BD3893C3B5B697BBEF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 023655575A920D65613CE3D7;
+			remoteInfo = Enchiridion2iOSWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1D5073412636026177C196B8 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				37F894913B57A8DF85103E92 /* Enchiridion2iOSWidget.appex in Embed Foundation Extensions */,
+				006A7412C1DE3DB58A81BEB2 /* Enchiridion2iOSShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F751492D19B079E8CC6FC9CE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1A5F95F4E0A97CFAB7B46894 /* Enchiridion2MacWidget.appex in Embed Foundation Extensions */,
+				D05F2904D488798A83F89B3F /* Enchiridion2MacShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		073053FEF7B2161871C1F5D5 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		1866EA172E377D92AE8C4744 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		1AE1CA25930A4A65500AA86F /* Enchiridion2MacWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enchiridion2MacWidgetBundle.swift; sourceTree = "<group>"; };
+		1BB484A5478413823A30548C /* WorkoutCaptureRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCaptureRootView.swift; sourceTree = "<group>"; };
+		1E4F618D7FA8E8D83C9C21C3 /* Enchiridion2iOSWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Enchiridion2iOSWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		222CB92BF1785C53BA1C330C /* Enchiridion2WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enchiridion2WatchApp.swift; sourceTree = "<group>"; };
+		2813751219DCD41ABEAAF9CD /* Enchiridion2iOSWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enchiridion2iOSWidgetBundle.swift; sourceTree = "<group>"; };
+		36A0993889DFA5B91790BF85 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		38075E7668058B3ABBC2437E /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		4A28F8C6F014070A5CB70D60 /* Enchiridion2MacWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Enchiridion2MacWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E5A9C9B8C6B8E4ECC645CB9 /* Enchiridion2Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion2Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6380210D9D2E43956345B4E0 /* Enchiridion2MacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enchiridion2MacApp.swift; sourceTree = "<group>"; };
+		993A44C11649D1CDEA852BF2 /* Enchiridion2App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enchiridion2App.swift; sourceTree = "<group>"; };
+		B7FAF1F63DC8DF697AD6979D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		C4FF9D63BED76ADE86CD0DD1 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
+		CD840DE516518EC8AA115F1A /* Enchiridion2.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Enchiridion2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CFC783F730A06CAF31F6C5E5 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		DB210239C46B39B6D0BC9E58 /* swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = swift; path = .; sourceTree = SOURCE_ROOT; };
+		E82558F0C7813C93D997407C /* Enchiridion2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion2.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC66F612C52DA1281A4CB148 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		F114D4D063D99EC51A03B788 /* Enchiridion2MacShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Enchiridion2MacShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F724FBBD60C04F4B57890E89 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		FE0C1AE7C78C2CB702868951 /* Enchiridion2iOSShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Enchiridion2iOSShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0A7A5F195FAA872C30B8D737 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1B6EB959725EFFFBA26D7B0 /* EnchiridionCore in Frameworks */,
+				D0AB695FADD77D91152D9F50 /* EnchiridionSync in Frameworks */,
+				A21E574B4F32BF0F2B28BFEF /* EnchiridionStore in Frameworks */,
+				9BDA9816D4C1633E40EDB031 /* EnchiridionUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		37974614A4BD21E401E7875B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E185AFAD465CAAD4A23161D1 /* WidgetKit.framework in Frameworks */,
+				CD3D01E434094982DC56F778 /* SwiftUI.framework in Frameworks */,
+				F8810B53B2F2964F285E9553 /* EnchiridionWidgetKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		76AE37E7CB1F9A206E3C42C8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45839D84EEBC3070FD3763DB /* AppKit.framework in Frameworks */,
+				F05C6AD8C1459D43635998C8 /* EnchiridionShareKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8B820F63EF2750C703A798EC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7489126913AE857DEAB615C /* EnchiridionCore in Frameworks */,
+				CDBE9A30D5FA3C697FB9A95D /* EnchiridionSync in Frameworks */,
+				ED30921C65FD047FFA7B32E1 /* EnchiridionStore in Frameworks */,
+				FE27666F4F1FA2C727530DD9 /* EnchiridionUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		96C27FAD8875FAB2E370AB25 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8480C42751C1220B99FE2EC /* HealthKit.framework in Frameworks */,
+				CD14CFAB00844616B3B2B0EA /* SwiftUI.framework in Frameworks */,
+				FA88BA124775ABC688837572 /* EnchiridionCore in Frameworks */,
+				7EEA0352503A8F715937229C /* EnchiridionSync in Frameworks */,
+				588E6C6255C8D73BEE9C64CD /* EnchiridionStore in Frameworks */,
+				FA49FEBC805E3E1B92C3FA6C /* EnchiridionSchema in Frameworks */,
+				330777874927088D97A30BAD /* EnchiridionWatchKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE86A7688418638C59E6AB02 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				019E211EEDA24307D13FE75D /* WidgetKit.framework in Frameworks */,
+				71887033E2F22F02C2EB9DD8 /* SwiftUI.framework in Frameworks */,
+				F435595E25B3B474AC19857E /* EnchiridionWidgetKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50F8F3F9CDB2F3E6C1A7D01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8BEB44A41343E01DEDCB38B /* UIKit.framework in Frameworks */,
+				D9DF212A5FB12C4B36BE0778 /* EnchiridionShareKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0321BF4A2F48F34896EB4377 /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				6380210D9D2E43956345B4E0 /* Enchiridion2MacApp.swift */,
+				073053FEF7B2161871C1F5D5 /* RootView.swift */,
+			);
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		20B6B235144DC00CCDE85540 /* iOSShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				F724FBBD60C04F4B57890E89 /* ShareViewController.swift */,
+			);
+			path = iOSShareExtension;
+			sourceTree = "<group>";
+		};
+		216420193A93396EA55C4678 /* macOSWidget */ = {
+			isa = PBXGroup;
+			children = (
+				1AE1CA25930A4A65500AA86F /* Enchiridion2MacWidgetBundle.swift */,
+			);
+			path = macOSWidget;
+			sourceTree = "<group>";
+		};
+		2B70932350E51EA0352B1BEE /* macOSShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				EC66F612C52DA1281A4CB148 /* ShareViewController.swift */,
+			);
+			path = macOSShareExtension;
+			sourceTree = "<group>";
+		};
+		325CE89D580DDF6D8BB5E327 /* iOSWidget */ = {
+			isa = PBXGroup;
+			children = (
+				2813751219DCD41ABEAAF9CD /* Enchiridion2iOSWidgetBundle.swift */,
+			);
+			path = iOSWidget;
+			sourceTree = "<group>";
+		};
+		39E69D16AB7398C9516EB4DA /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				222CB92BF1785C53BA1C330C /* Enchiridion2WatchApp.swift */,
+				1BB484A5478413823A30548C /* WorkoutCaptureRootView.swift */,
+			);
+			path = watchOS;
+			sourceTree = "<group>";
+		};
+		4EF609635789D1055B4C6693 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				993A44C11649D1CDEA852BF2 /* Enchiridion2App.swift */,
+				B7FAF1F63DC8DF697AD6979D /* RootView.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		55E7C05380C05906FC2094BC = {
+			isa = PBXGroup;
+			children = (
+				92D18A813F5B60C5DF428E6A /* Packages */,
+				CFEEF14A99172C54374A9501 /* Sources */,
+				D7544CABB4E3FFD2F23A1D78 /* Frameworks */,
+				B687318173FAA77035E84DA6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		92D18A813F5B60C5DF428E6A /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				DB210239C46B39B6D0BC9E58 /* swift */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		B687318173FAA77035E84DA6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E82558F0C7813C93D997407C /* Enchiridion2.app */,
+				CD840DE516518EC8AA115F1A /* Enchiridion2.app */,
+				FE0C1AE7C78C2CB702868951 /* Enchiridion2iOSShareExtension.appex */,
+				1E4F618D7FA8E8D83C9C21C3 /* Enchiridion2iOSWidget.appex */,
+				F114D4D063D99EC51A03B788 /* Enchiridion2MacShareExtension.appex */,
+				4A28F8C6F014070A5CB70D60 /* Enchiridion2MacWidget.appex */,
+				5E5A9C9B8C6B8E4ECC645CB9 /* Enchiridion2Watch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CFEEF14A99172C54374A9501 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				4EF609635789D1055B4C6693 /* iOS */,
+				20B6B235144DC00CCDE85540 /* iOSShareExtension */,
+				325CE89D580DDF6D8BB5E327 /* iOSWidget */,
+				0321BF4A2F48F34896EB4377 /* macOS */,
+				2B70932350E51EA0352B1BEE /* macOSShareExtension */,
+				216420193A93396EA55C4678 /* macOSWidget */,
+				39E69D16AB7398C9516EB4DA /* watchOS */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		D7544CABB4E3FFD2F23A1D78 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				38075E7668058B3ABBC2437E /* AppKit.framework */,
+				C4FF9D63BED76ADE86CD0DD1 /* HealthKit.framework */,
+				36A0993889DFA5B91790BF85 /* SwiftUI.framework */,
+				CFC783F730A06CAF31F6C5E5 /* UIKit.framework */,
+				1866EA172E377D92AE8C4744 /* WidgetKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		023655575A920D65613CE3D7 /* Enchiridion2iOSWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7583506B86F1BAFC9311C54E /* Build configuration list for PBXNativeTarget "Enchiridion2iOSWidget" */;
+			buildPhases = (
+				A8113DEA71B16CC04E54754E /* Sources */,
+				37974614A4BD21E401E7875B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Enchiridion2iOSWidget;
+			packageProductDependencies = (
+				03BF34DB63F898D3BF6C7A82 /* EnchiridionWidgetKit */,
+			);
+			productName = Enchiridion2iOSWidget;
+			productReference = 1E4F618D7FA8E8D83C9C21C3 /* Enchiridion2iOSWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		02DFBB7D97EC80F72CDC8D5C /* Enchiridion2MacShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C3A16A9964DDBE92249C70D /* Build configuration list for PBXNativeTarget "Enchiridion2MacShareExtension" */;
+			buildPhases = (
+				D12FE1178F8EF8CFBBE8D74E /* Sources */,
+				76AE37E7CB1F9A206E3C42C8 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Enchiridion2MacShareExtension;
+			packageProductDependencies = (
+				A5A301379B8E8CB09221AFA8 /* EnchiridionShareKit */,
+			);
+			productName = Enchiridion2MacShareExtension;
+			productReference = F114D4D063D99EC51A03B788 /* Enchiridion2MacShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		4A40AB34338E6A2188615AE2 /* Enchiridion2Watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 58A08A3A12606FF92C9EF863 /* Build configuration list for PBXNativeTarget "Enchiridion2Watch" */;
+			buildPhases = (
+				FAD3F9C03962CA8778569278 /* Sources */,
+				96C27FAD8875FAB2E370AB25 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Enchiridion2Watch;
+			packageProductDependencies = (
+				3EE88C6B034521343D5B3497 /* EnchiridionCore */,
+				EF44C79D8CC9B70D80190D59 /* EnchiridionSync */,
+				D09F3DFD51323447540FA39E /* EnchiridionStore */,
+				C0576B2A898C8CFA8190699F /* EnchiridionSchema */,
+				C93CB75B0592BA5AC769656C /* EnchiridionWatchKit */,
+			);
+			productName = Enchiridion2Watch;
+			productReference = 5E5A9C9B8C6B8E4ECC645CB9 /* Enchiridion2Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		54B660DB9867D0F8B2EC0F7B /* Enchiridion2iOSShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C02C6A7A57FFB6D555F3473A /* Build configuration list for PBXNativeTarget "Enchiridion2iOSShareExtension" */;
+			buildPhases = (
+				E9ADF812B32EC2142EDB7C7F /* Sources */,
+				E50F8F3F9CDB2F3E6C1A7D01 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Enchiridion2iOSShareExtension;
+			packageProductDependencies = (
+				13EF0B2DDA057D4F60292E7D /* EnchiridionShareKit */,
+			);
+			productName = Enchiridion2iOSShareExtension;
+			productReference = FE0C1AE7C78C2CB702868951 /* Enchiridion2iOSShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		6FC78E51C23D70AFE5475D1A /* Enchiridion2iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 44CD7EACA37F24579279FCDD /* Build configuration list for PBXNativeTarget "Enchiridion2iOS" */;
+			buildPhases = (
+				975072D74050CA0426265B84 /* Sources */,
+				8B820F63EF2750C703A798EC /* Frameworks */,
+				1D5073412636026177C196B8 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B58B672F7C08AAA82D27D420 /* PBXTargetDependency */,
+				3A7C7AB656E8C2A003F781B7 /* PBXTargetDependency */,
+			);
+			name = Enchiridion2iOS;
+			packageProductDependencies = (
+				A1C4DA31FFBA2DACE385BD96 /* EnchiridionCore */,
+				FFB0FA0E2908138DE849A86E /* EnchiridionSync */,
+				98A86889DCB4A3BDF6D4FB13 /* EnchiridionStore */,
+				F6536EA8797710D1580951DA /* EnchiridionUI */,
+			);
+			productName = Enchiridion2iOS;
+			productReference = CD840DE516518EC8AA115F1A /* Enchiridion2.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8F5E02BDD2A41656BCD53BC8 /* Enchiridion2Mac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAC8D0A3BD062A5951CB18AD /* Build configuration list for PBXNativeTarget "Enchiridion2Mac" */;
+			buildPhases = (
+				31DE0F733E3151D5CE67D829 /* Sources */,
+				0A7A5F195FAA872C30B8D737 /* Frameworks */,
+				F751492D19B079E8CC6FC9CE /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				22B551F990C0A2FE5DA19331 /* PBXTargetDependency */,
+				3890E178F8B1C55EBF0E0664 /* PBXTargetDependency */,
+			);
+			name = Enchiridion2Mac;
+			packageProductDependencies = (
+				80CF7B6DBE06515A7ABBC6C1 /* EnchiridionCore */,
+				986170DF89E75AD713A50C28 /* EnchiridionSync */,
+				90585A7784E1DC50F54132F8 /* EnchiridionStore */,
+				BD0E8939D099838E15A65C40 /* EnchiridionUI */,
+			);
+			productName = Enchiridion2Mac;
+			productReference = E82558F0C7813C93D997407C /* Enchiridion2.app */;
+			productType = "com.apple.product-type.application";
+		};
+		959A52F63E7CC524FC491265 /* Enchiridion2MacWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 09EA8AA8699061CF28B39207 /* Build configuration list for PBXNativeTarget "Enchiridion2MacWidget" */;
+			buildPhases = (
+				C6CD2DCD2C3AB6567EDA3245 /* Sources */,
+				AE86A7688418638C59E6AB02 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Enchiridion2MacWidget;
+			packageProductDependencies = (
+				F51153D2F832BCA3B4A4D43C /* EnchiridionWidgetKit */,
+			);
+			productName = Enchiridion2MacWidget;
+			productReference = 4A28F8C6F014070A5CB70D60 /* Enchiridion2MacWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		57F1F7BD3893C3B5B697BBEF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					023655575A920D65613CE3D7 = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					02DFBB7D97EC80F72CDC8D5C = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					4A40AB34338E6A2188615AE2 = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					54B660DB9867D0F8B2EC0F7B = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					6FC78E51C23D70AFE5475D1A = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					8F5E02BDD2A41656BCD53BC8 = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+					959A52F63E7CC524FC491265 = {
+						DevelopmentTeam = 3NU4DUDS5C;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 892720D5ED52148064B95398 /* Build configuration list for PBXProject "Enchiridion2" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 55E7C05380C05906FC2094BC;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6E4372DFEC263D0A7AD8389B /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8F5E02BDD2A41656BCD53BC8 /* Enchiridion2Mac */,
+				02DFBB7D97EC80F72CDC8D5C /* Enchiridion2MacShareExtension */,
+				959A52F63E7CC524FC491265 /* Enchiridion2MacWidget */,
+				4A40AB34338E6A2188615AE2 /* Enchiridion2Watch */,
+				6FC78E51C23D70AFE5475D1A /* Enchiridion2iOS */,
+				54B660DB9867D0F8B2EC0F7B /* Enchiridion2iOSShareExtension */,
+				023655575A920D65613CE3D7 /* Enchiridion2iOSWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		31DE0F733E3151D5CE67D829 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2FDEA7AA31937B5C83DB6FE3 /* Enchiridion2MacApp.swift in Sources */,
+				5CD39204B1C666C4D64966E6 /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		975072D74050CA0426265B84 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7DBF4298615F4C1A73E6F1AF /* Enchiridion2App.swift in Sources */,
+				9AF4485EC30C5F7E6874B51A /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A8113DEA71B16CC04E54754E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F431D35C752E2DB6132E0E3 /* Enchiridion2iOSWidgetBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C6CD2DCD2C3AB6567EDA3245 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B35CA4328CC6A1D2D556ACB /* Enchiridion2MacWidgetBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D12FE1178F8EF8CFBBE8D74E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				525C4841AB3526F6030BAB72 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E9ADF812B32EC2142EDB7C7F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A329B72040D9AD0D68F06EC /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FAD3F9C03962CA8778569278 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF1E9D910AC69521F6F29E2C /* Enchiridion2WatchApp.swift in Sources */,
+				BA3227FF497B6012D708424B /* WorkoutCaptureRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		22B551F990C0A2FE5DA19331 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 959A52F63E7CC524FC491265 /* Enchiridion2MacWidget */;
+			targetProxy = C47460F6A83FA8A20A593D71 /* PBXContainerItemProxy */;
+		};
+		3890E178F8B1C55EBF0E0664 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 02DFBB7D97EC80F72CDC8D5C /* Enchiridion2MacShareExtension */;
+			targetProxy = 99329E5FED363D02A6ED11E3 /* PBXContainerItemProxy */;
+		};
+		3A7C7AB656E8C2A003F781B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 54B660DB9867D0F8B2EC0F7B /* Enchiridion2iOSShareExtension */;
+			targetProxy = A840B95E0BD46D56C2BCAC97 /* PBXContainerItemProxy */;
+		};
+		B58B672F7C08AAA82D27D420 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 023655575A920D65613CE3D7 /* Enchiridion2iOSWidget */;
+			targetProxy = E4065ECD19F3A24ADFE25C8B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0B2C005B3BE971FAA988E829 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOSWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOSWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.widget;
+				PRODUCT_NAME = Enchiridion2iOSWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		136554EE6C289ADC394CE586 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		19E3D9057BB2AF0D02024383 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMacWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMacWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac.widget;
+				PRODUCT_NAME = Enchiridion2MacWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		2A583CC04101B4D9DD9597CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionWatch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.watchkitapp;
+				PRODUCT_NAME = Enchiridion2Watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		33EE30A5398B42027727CA2A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOSShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOSShareExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.share;
+				PRODUCT_NAME = Enchiridion2iOSShareExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		48E4B59885CD22E3AAAF18EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8CF9CACD7BAA8D1F882641E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOSWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOSWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.widget;
+				PRODUCT_NAME = Enchiridion2iOSWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		910DC5B47E50A1868B4E8F1A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3NU4DUDS5C;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		AADDF51ADADC78CFF8400989 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMacShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMacShareExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac.share;
+				PRODUCT_NAME = Enchiridion2MacShareExtension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		BDD7A13C608CFC3349105263 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMacWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMacWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac.widget;
+				PRODUCT_NAME = Enchiridion2MacWidget;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		C6F29038B192033990EAAB30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D394B0C2E825223B2EE1443D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOSShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOSShareExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.share;
+				PRODUCT_NAME = Enchiridion2iOSShareExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DA52D8B76A0445AA080AC393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionIOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E39576434C97EBD46924E1CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3NU4DUDS5C;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		EB69D5925FF1FC4F08814D19 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMacShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMacShareExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.mac.share;
+				PRODUCT_NAME = Enchiridion2MacShareExtension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		FD5CD23855BCDA1EC44BAF5D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionWatch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion2.ios.watchkitapp;
+				PRODUCT_NAME = Enchiridion2Watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		09EA8AA8699061CF28B39207 /* Build configuration list for PBXNativeTarget "Enchiridion2MacWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				19E3D9057BB2AF0D02024383 /* Debug */,
+				BDD7A13C608CFC3349105263 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1C3A16A9964DDBE92249C70D /* Build configuration list for PBXNativeTarget "Enchiridion2MacShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB69D5925FF1FC4F08814D19 /* Debug */,
+				AADDF51ADADC78CFF8400989 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		44CD7EACA37F24579279FCDD /* Build configuration list for PBXNativeTarget "Enchiridion2iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA52D8B76A0445AA080AC393 /* Debug */,
+				48E4B59885CD22E3AAAF18EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		58A08A3A12606FF92C9EF863 /* Build configuration list for PBXNativeTarget "Enchiridion2Watch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2A583CC04101B4D9DD9597CD /* Debug */,
+				FD5CD23855BCDA1EC44BAF5D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7583506B86F1BAFC9311C54E /* Build configuration list for PBXNativeTarget "Enchiridion2iOSWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0B2C005B3BE971FAA988E829 /* Debug */,
+				8CF9CACD7BAA8D1F882641E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		892720D5ED52148064B95398 /* Build configuration list for PBXProject "Enchiridion2" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				910DC5B47E50A1868B4E8F1A /* Debug */,
+				E39576434C97EBD46924E1CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AAC8D0A3BD062A5951CB18AD /* Build configuration list for PBXNativeTarget "Enchiridion2Mac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C6F29038B192033990EAAB30 /* Debug */,
+				136554EE6C289ADC394CE586 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C02C6A7A57FFB6D555F3473A /* Build configuration list for PBXNativeTarget "Enchiridion2iOSShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33EE30A5398B42027727CA2A /* Debug */,
+				D394B0C2E825223B2EE1443D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		6E4372DFEC263D0A7AD8389B /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		03BF34DB63F898D3BF6C7A82 /* EnchiridionWidgetKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWidgetKit;
+		};
+		13EF0B2DDA057D4F60292E7D /* EnchiridionShareKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionShareKit;
+		};
+		3EE88C6B034521343D5B3497 /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+		80CF7B6DBE06515A7ABBC6C1 /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+		90585A7784E1DC50F54132F8 /* EnchiridionStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionStore;
+		};
+		986170DF89E75AD713A50C28 /* EnchiridionSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionSync;
+		};
+		98A86889DCB4A3BDF6D4FB13 /* EnchiridionStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionStore;
+		};
+		A1C4DA31FFBA2DACE385BD96 /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+		A5A301379B8E8CB09221AFA8 /* EnchiridionShareKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionShareKit;
+		};
+		BD0E8939D099838E15A65C40 /* EnchiridionUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionUI;
+		};
+		C0576B2A898C8CFA8190699F /* EnchiridionSchema */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionSchema;
+		};
+		C93CB75B0592BA5AC769656C /* EnchiridionWatchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWatchKit;
+		};
+		D09F3DFD51323447540FA39E /* EnchiridionStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionStore;
+		};
+		EF44C79D8CC9B70D80190D59 /* EnchiridionSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionSync;
+		};
+		F51153D2F832BCA3B4A4D43C /* EnchiridionWidgetKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWidgetKit;
+		};
+		F6536EA8797710D1580951DA /* EnchiridionUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionUI;
+		};
+		FFB0FA0E2908138DE849A86E /* EnchiridionSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionSync;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 57F1F7BD3893C3B5B697BBEF /* Project object */;
+}

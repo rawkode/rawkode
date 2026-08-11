@@ -1,0 +1,7 @@
+// Test-only local Workerd configuration. No production Worker route imports it.
+{
+  "name": "enchiridion-vault-devices-p256-test",
+  "main": "workerd-p256-entry.test.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"]
+}

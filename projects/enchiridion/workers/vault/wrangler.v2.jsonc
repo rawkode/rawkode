@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-vault-v2",
+  "main": "src/v2/entry/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" },
+      { "name": "OWNER_VAULT_V2_DO", "class_name": "OwnerVaultV2" }
+    ]
+  },
+  "r2_buckets": [
+    { "binding": "BLOB_R2", "bucket_name": "enchiridion-v2-owner-vault-blobs" },
+    { "binding": "BACKUP_R2", "bucket_name": "enchiridion-v2-owner-vault-backups" }
+  ],
+  "vars": {
+    "ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON": "{\"blob\":{\"maximumBlobBytes\":8388608,\"maximumVaultBytes\":100663296,\"maximumOrphanBytes\":8388608,\"maximumOrphanCount\":32,\"maximumActiveLeasesPerVault\":32,\"maximumActiveLeasesPerFinal\":32,\"stageTTLSeconds\":900,\"tombstoneGraceSeconds\":86400},\"catalog\":{\"maximumObjects\":4096,\"maximumObjectBytes\":8388608,\"maximumTotalBytes\":100663296,\"maximumPageEntries\":128,\"targetPageBytes\":24576,\"maximumPageBytes\":32768,\"maximumRootBytes\":8192},\"backup\":{\"maximumPageBytes\":524288,\"maximumPageEntries\":128,\"maximumObjectBytes\":8388608,\"maximumTotalBytes\":100663296,\"maximumManifestBytes\":1048576,\"maximumRestoreJournalBytes\":65536,\"maximumObjects\":4096},\"pins\":{\"maximumPins\":1024,\"gcChunk\":128,\"retentionSeconds\":86400},\"r2\":{\"maximumKeyBytes\":1024,\"maximumObjectBytes\":8388608,\"maximumCursorBytes\":1024,\"maximumListPageSize\":128}}",
+    "ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID": "manifest-current",
+    "ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64": "",
+    "ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON": "[]",
+    "ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON": "[]",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID": "owner-vault-socket-current",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON": "[]",
+    "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID": "owner-vault-control-current",
+    "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON": "[]"
+  },
+  // Manifest PKCS#8 and all socket-admission/ovdc1 control secret inputs are Wrangler secrets; never add them to vars.
+  // `ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON` contains prior HMAC material.
+  // `ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON` contains prior ovdc1 HMAC material.
+  "migrations": [
+    { "tag": "v2-directory", "new_sqlite_classes": ["CredentialDirectoryDO"] },
+    { "tag": "v2-owner-vault", "new_sqlite_classes": ["OwnerVaultV2"] }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "vcs": { "useIgnoreFile": false },
+  "files": {
+    "ignoreUnknown": true,
+    "include": ["**/src/**/*.ts", "**/*.json", "**/*.jsonc"],
+    "ignore": [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.build/**",
+      "**/.swiftpm/**",
+      "**/*.xcodeproj/**"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "json": {
+    "parser": {
+      "allowComments": true,
+      "allowTrailingCommas": true
+    }
+  }
+}

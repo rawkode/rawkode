@@ -1,0 +1,1899 @@
+{
+  "errorEnvelope": {
+    "mediaType": "application/json",
+    "schema": "ErrorEnvelope"
+  },
+  "httpOperations": [
+    {
+      "body": "canonical-json",
+      "method": "POST",
+      "operationID": "createDeviceChallenge",
+      "path": "/v2/devices/challenge",
+      "requestSchema": "DeviceChallengeRequest",
+      "successSchema": "DeviceChallengeResponse"
+    },
+    {
+      "body": "canonical-json",
+      "method": "POST",
+      "operationID": "registerDevice",
+      "path": "/v2/devices/register",
+      "requestSchema": "DeviceRegisterRequest",
+      "successSchema": "DeviceRegisterResponse"
+    },
+    {
+      "body": "canonical-json",
+      "method": "POST",
+      "operationID": "revokeDevice",
+      "path": "/v2/devices/{deviceId}/revoke",
+      "requestSchema": "DeviceRevokeRequest",
+      "successSchema": "DeviceRevokeResponse"
+    },
+    {
+      "body": "canonical-json",
+      "method": "POST",
+      "operationID": "submitMutation",
+      "path": "/v2/mutations",
+      "requestSchema": "MutationRequest",
+      "successSchema": "MutationResponse"
+    },
+    {
+      "body": "binary",
+      "method": "PUT",
+      "operationID": "putBlob",
+      "path": "/v2/blobs/{sha256}",
+      "requestSchema": "ContentAddressedBlobOperation",
+      "signedRequestHeader": true,
+      "successSchema": "MutationResponse"
+    },
+    {
+      "body": "none",
+      "method": "DELETE",
+      "operationID": "deleteBlob",
+      "path": "/v2/blobs/{sha256}",
+      "requestSchema": "BlobDeleteRequest",
+      "signedRequestHeader": true,
+      "successSchema": "MutationResponse"
+    }
+  ],
+  "protocolVersion": 2,
+  "schemas": {
+    "BlobDeleteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "blobSHA256": {
+          "format": "sha256-hex",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "type": {
+          "const": "blobDelete"
+        }
+      },
+      "required": ["type", "blobSHA256"],
+      "type": "object"
+    },
+    "BlobDeleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "additionalProperties": false,
+          "properties": {
+            "blobSHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "type": {
+              "const": "blobDelete"
+            }
+          },
+          "required": ["type", "blobSHA256"],
+          "type": "object"
+        },
+        "envelope": {
+          "additionalProperties": false,
+          "properties": {
+            "actorDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "bodySHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "canonicalPath": {
+              "format": "canonical-path",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "canonicalQuery": {
+              "format": "canonical-query",
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceSignature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "issuedAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "method": {
+              "enum": ["POST", "PUT", "DELETE"]
+            },
+            "nonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "ownerID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "requestID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "targetDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "method",
+            "canonicalPath",
+            "canonicalQuery",
+            "bodySHA256",
+            "requestID",
+            "idempotencyKey",
+            "ownerID",
+            "vaultID",
+            "generationEpoch",
+            "actorDeviceID",
+            "authEpoch",
+            "credentialEpoch",
+            "issuedAt",
+            "expiresAt",
+            "nonce",
+            "deviceSignature"
+          ],
+          "type": "object"
+        }
+      },
+      "required": ["envelope", "command"],
+      "type": "object"
+    },
+    "ClientWebSocketFrame": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "connectionNonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "deviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "deviceSignature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "resumeToken": {
+              "format": "base64url-canonical",
+              "maxLength": 512,
+              "minLength": 22,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "type": {
+              "const": "hello"
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "connectionNonce",
+            "deviceID",
+            "authEpoch",
+            "deviceSignature"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "assertionExpiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "causalVersion": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "deviceSignature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "frameID": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "observedHighWater": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "operationID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "payloadBase64": {
+              "format": "base64-canonical",
+              "maxLength": 1398104,
+              "minLength": 4,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "payloadSHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "sessionNonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "signingPayloadVersion": {
+              "const": 1
+            },
+            "sourceKind": {
+              "const": "websocket"
+            },
+            "type": {
+              "const": "syncChange"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "vaultID",
+            "deviceID",
+            "authEpoch",
+            "credentialEpoch",
+            "generationEpoch",
+            "sessionNonce",
+            "assertionExpiresAt",
+            "operationID",
+            "sourceKind",
+            "payloadSHA256",
+            "observedHighWater",
+            "frameID",
+            "signingPayloadVersion",
+            "payloadBase64",
+            "deviceSignature"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ContentAddressedBlobOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "blobSHA256": {
+          "format": "sha256-hex",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "contentLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "enum": ["blobPut", "blobDelete"]
+        }
+      },
+      "required": ["type", "blobSHA256"],
+      "type": "object"
+    },
+    "DeviceChallengeProof": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeAudience": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "challengeBase64": {
+          "format": "base64-canonical",
+          "maxLength": 1398104,
+          "minLength": 4,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "challengeID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "devicePublicKey": {
+          "format": "p256-spki-der",
+          "maxLength": 124,
+          "minLength": 124,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "nonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "signature": {
+          "format": "p256-ecdsa-der-low-s",
+          "maxLength": 96,
+          "minLength": 12,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "challengeID",
+        "challengeAudience",
+        "challengeBase64",
+        "expiresAt",
+        "nonce",
+        "devicePublicKey",
+        "signature"
+      ],
+      "type": "object"
+    },
+    "DeviceChallengeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeAudience": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "devicePublicKey": {
+          "format": "p256-spki-der",
+          "maxLength": 124,
+          "minLength": 124,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": ["protocolVersion", "devicePublicKey", "challengeAudience"],
+      "type": "object"
+    },
+    "DeviceChallengeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeBase64": {
+          "format": "base64-canonical",
+          "maxLength": 1398104,
+          "minLength": 4,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "challengeID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": ["protocolVersion", "challengeID", "challengeBase64", "expiresAt"],
+      "type": "object"
+    },
+    "DeviceRegisterRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeProof": {
+          "additionalProperties": false,
+          "properties": {
+            "challengeAudience": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "challengeBase64": {
+              "format": "base64-canonical",
+              "maxLength": 1398104,
+              "minLength": 4,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "challengeID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "devicePublicKey": {
+              "format": "p256-spki-der",
+              "maxLength": 124,
+              "minLength": 124,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "nonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "signature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "challengeID",
+            "challengeAudience",
+            "challengeBase64",
+            "expiresAt",
+            "nonce",
+            "devicePublicKey",
+            "signature"
+          ],
+          "type": "object"
+        },
+        "idempotencyKey": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": ["challengeProof", "idempotencyKey"],
+      "type": "object"
+    },
+    "DeviceRegisterResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "ownerID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": ["protocolVersion", "ownerID", "deviceID", "authEpoch"],
+      "type": "object"
+    },
+    "DeviceRevokeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actorDeviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "targetDeviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "type": {
+          "const": "deviceRevoke"
+        }
+      },
+      "required": ["type", "actorDeviceID", "targetDeviceID"],
+      "type": "object"
+    },
+    "DeviceRevokeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "additionalProperties": false,
+          "properties": {
+            "actorDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "targetDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "type": {
+              "const": "deviceRevoke"
+            }
+          },
+          "required": ["type", "actorDeviceID", "targetDeviceID"],
+          "type": "object"
+        },
+        "envelope": {
+          "additionalProperties": false,
+          "properties": {
+            "actorDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "bodySHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "canonicalPath": {
+              "format": "canonical-path",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "canonicalQuery": {
+              "format": "canonical-query",
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceSignature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "issuedAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "method": {
+              "enum": ["POST", "PUT", "DELETE"]
+            },
+            "nonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "ownerID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "requestID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "targetDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "method",
+            "canonicalPath",
+            "canonicalQuery",
+            "bodySHA256",
+            "requestID",
+            "idempotencyKey",
+            "ownerID",
+            "vaultID",
+            "generationEpoch",
+            "actorDeviceID",
+            "authEpoch",
+            "credentialEpoch",
+            "issuedAt",
+            "expiresAt",
+            "nonce",
+            "deviceSignature"
+          ],
+          "type": "object"
+        }
+      },
+      "required": ["envelope", "command"],
+      "type": "object"
+    },
+    "DeviceRevokeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "ownerID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "revokedAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        }
+      },
+      "required": ["protocolVersion", "ownerID", "deviceID", "authEpoch", "revokedAt"],
+      "type": "object"
+    },
+    "ErrorBody": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "access_token_invalid",
+            "authorization_failed",
+            "device_revoked",
+            "invalid_request",
+            "not_found",
+            "protocol_version_unsupported",
+            "replay_detected",
+            "request_conflict",
+            "temporarily_unavailable",
+            "unauthorized"
+          ]
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "supportedProtocolVersions": {
+          "items": {
+            "const": 2
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": ["code", "message", "retryable"],
+      "type": "object"
+    },
+    "ErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "access_token_invalid",
+                "authorization_failed",
+                "device_revoked",
+                "invalid_request",
+                "not_found",
+                "protocol_version_unsupported",
+                "replay_detected",
+                "request_conflict",
+                "temporarily_unavailable",
+                "unauthorized"
+              ]
+            },
+            "message": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "supportedProtocolVersions": {
+              "items": {
+                "const": 2
+              },
+              "maxItems": 1,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": ["code", "message", "retryable"],
+          "type": "object"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": ["protocolVersion", "error"],
+      "type": "object"
+    },
+    "HelloAcceptedFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "assertionExpiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "credentialEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "generationEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ownerID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "resumeToken": {
+          "format": "base64url-canonical",
+          "maxLength": 512,
+          "minLength": 22,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "sessionNonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "helloAccepted"
+        },
+        "vaultID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "ownerID",
+        "vaultID",
+        "deviceID",
+        "authEpoch",
+        "credentialEpoch",
+        "generationEpoch",
+        "sessionNonce",
+        "resumeToken",
+        "assertionExpiresAt"
+      ],
+      "type": "object"
+    },
+    "HelloFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connectionNonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "deviceSignature": {
+          "format": "p256-ecdsa-der-low-s",
+          "maxLength": 96,
+          "minLength": 12,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "resumeToken": {
+          "format": "base64url-canonical",
+          "maxLength": 512,
+          "minLength": 22,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "type": {
+          "const": "hello"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "connectionNonce",
+        "deviceID",
+        "authEpoch",
+        "deviceSignature"
+      ],
+      "type": "object"
+    },
+    "MutationCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "causalVersion": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "operationID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "payloadBase64": {
+          "format": "base64-canonical",
+          "maxLength": 1398104,
+          "minLength": 4,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "payloadSHA256": {
+          "format": "sha256-hex",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "sourceKind": {
+          "const": "http"
+        },
+        "type": {
+          "const": "mutation"
+        }
+      },
+      "required": [
+        "type",
+        "operationID",
+        "deviceID",
+        "sourceKind",
+        "payloadSHA256",
+        "payloadBase64"
+      ],
+      "type": "object"
+    },
+    "MutationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "additionalProperties": false,
+          "properties": {
+            "causalVersion": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "operationID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "payloadBase64": {
+              "format": "base64-canonical",
+              "maxLength": 1398104,
+              "minLength": 4,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "payloadSHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "sourceKind": {
+              "const": "http"
+            },
+            "type": {
+              "const": "mutation"
+            }
+          },
+          "required": [
+            "type",
+            "operationID",
+            "deviceID",
+            "sourceKind",
+            "payloadSHA256",
+            "payloadBase64"
+          ],
+          "type": "object"
+        },
+        "envelope": {
+          "additionalProperties": false,
+          "properties": {
+            "actorDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "bodySHA256": {
+              "format": "sha256-hex",
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "canonicalPath": {
+              "format": "canonical-path",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "canonicalQuery": {
+              "format": "canonical-query",
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceSignature": {
+              "format": "p256-ecdsa-der-low-s",
+              "maxLength": 96,
+              "minLength": 12,
+              "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "expiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotencyKey": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "issuedAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "method": {
+              "enum": ["POST", "PUT", "DELETE"]
+            },
+            "nonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "ownerID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "requestID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "targetDeviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "method",
+            "canonicalPath",
+            "canonicalQuery",
+            "bodySHA256",
+            "requestID",
+            "idempotencyKey",
+            "ownerID",
+            "vaultID",
+            "generationEpoch",
+            "actorDeviceID",
+            "authEpoch",
+            "credentialEpoch",
+            "issuedAt",
+            "expiresAt",
+            "nonce",
+            "deviceSignature"
+          ],
+          "type": "object"
+        }
+      },
+      "required": ["envelope", "command"],
+      "type": "object"
+    },
+    "MutationResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "logSequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operationID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": ["protocolVersion", "operationID", "logSequence"],
+      "type": "object"
+    },
+    "ProtocolErrorFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "access_token_invalid",
+                "authorization_failed",
+                "device_revoked",
+                "invalid_request",
+                "not_found",
+                "protocol_version_unsupported",
+                "replay_detected",
+                "request_conflict",
+                "temporarily_unavailable",
+                "unauthorized"
+              ]
+            },
+            "message": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "supportedProtocolVersions": {
+              "items": {
+                "const": 2
+              },
+              "maxItems": 1,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": ["code", "message", "retryable"],
+          "type": "object"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "type": {
+          "const": "error"
+        }
+      },
+      "required": ["type", "protocolVersion", "error"],
+      "type": "object"
+    },
+    "ServerHelloChallengeFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connectionNonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "credentialEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "generationEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issuedAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "ownerID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "type": {
+          "const": "serverHelloChallenge"
+        },
+        "vaultID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "connectionNonce",
+        "issuedAt",
+        "expiresAt",
+        "ownerID",
+        "vaultID",
+        "authEpoch",
+        "credentialEpoch",
+        "generationEpoch"
+      ],
+      "type": "object"
+    },
+    "ServerWebSocketFrame": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "connectionNonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "issuedAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "ownerID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "type": {
+              "const": "serverHelloChallenge"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "connectionNonce",
+            "issuedAt",
+            "expiresAt",
+            "ownerID",
+            "vaultID",
+            "authEpoch",
+            "credentialEpoch",
+            "generationEpoch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "assertionExpiresAt": {
+              "maximum": 4102444800000,
+              "minimum": 1700000000000,
+              "type": "integer"
+            },
+            "authEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "credentialEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "deviceID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "generationEpoch": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ownerID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "resumeToken": {
+              "format": "base64url-canonical",
+              "maxLength": 512,
+              "minLength": 22,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "sessionNonce": {
+              "format": "base64url-128",
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "helloAccepted"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "ownerID",
+            "vaultID",
+            "deviceID",
+            "authEpoch",
+            "credentialEpoch",
+            "generationEpoch",
+            "sessionNonce",
+            "resumeToken",
+            "assertionExpiresAt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "logSequence": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "operationID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "type": {
+              "const": "syncAcknowledged"
+            },
+            "vaultID": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          },
+          "required": ["type", "protocolVersion", "vaultID", "operationID", "logSequence"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "enum": [
+                    "access_token_invalid",
+                    "authorization_failed",
+                    "device_revoked",
+                    "invalid_request",
+                    "not_found",
+                    "protocol_version_unsupported",
+                    "replay_detected",
+                    "request_conflict",
+                    "temporarily_unavailable",
+                    "unauthorized"
+                  ]
+                },
+                "message": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "requestID": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9._~-]+$",
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                },
+                "supportedProtocolVersions": {
+                  "items": {
+                    "const": 2
+                  },
+                  "maxItems": 1,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": ["code", "message", "retryable"],
+              "type": "object"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "type": {
+              "const": "error"
+            }
+          },
+          "required": ["type", "protocolVersion", "error"],
+          "type": "object"
+        }
+      ]
+    },
+    "SignedDeviceRequestEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "actorDeviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bodySHA256": {
+          "format": "sha256-hex",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "canonicalPath": {
+          "format": "canonical-path",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "canonicalQuery": {
+          "format": "canonical-query",
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "credentialEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceSignature": {
+          "format": "p256-ecdsa-der-low-s",
+          "maxLength": 96,
+          "minLength": 12,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "generationEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotencyKey": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "issuedAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "method": {
+          "enum": ["POST", "PUT", "DELETE"]
+        },
+        "nonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "ownerID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "requestID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "targetDeviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "vaultID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "method",
+        "canonicalPath",
+        "canonicalQuery",
+        "bodySHA256",
+        "requestID",
+        "idempotencyKey",
+        "ownerID",
+        "vaultID",
+        "generationEpoch",
+        "actorDeviceID",
+        "authEpoch",
+        "credentialEpoch",
+        "issuedAt",
+        "expiresAt",
+        "nonce",
+        "deviceSignature"
+      ],
+      "type": "object"
+    },
+    "SyncAcknowledgedFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "logSequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operationID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "type": {
+          "const": "syncAcknowledged"
+        },
+        "vaultID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": ["type", "protocolVersion", "vaultID", "operationID", "logSequence"],
+      "type": "object"
+    },
+    "SyncChangeFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "assertionExpiresAt": {
+          "maximum": 4102444800000,
+          "minimum": 1700000000000,
+          "type": "integer"
+        },
+        "authEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "causalVersion": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "credentialEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deviceID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "deviceSignature": {
+          "format": "p256-ecdsa-der-low-s",
+          "maxLength": 96,
+          "minLength": 12,
+          "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "frameID": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "generationEpoch": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observedHighWater": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operationID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "payloadBase64": {
+          "format": "base64-canonical",
+          "maxLength": 1398104,
+          "minLength": 4,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "payloadSHA256": {
+          "format": "sha256-hex",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "sessionNonce": {
+          "format": "base64url-128",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "signingPayloadVersion": {
+          "const": 1
+        },
+        "sourceKind": {
+          "const": "websocket"
+        },
+        "type": {
+          "const": "syncChange"
+        },
+        "vaultID": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "vaultID",
+        "deviceID",
+        "authEpoch",
+        "credentialEpoch",
+        "generationEpoch",
+        "sessionNonce",
+        "assertionExpiresAt",
+        "operationID",
+        "sourceKind",
+        "payloadSHA256",
+        "observedHighWater",
+        "frameID",
+        "signingPayloadVersion",
+        "payloadBase64",
+        "deviceSignature"
+      ],
+      "type": "object"
+    }
+  },
+  "supportedProtocolVersions": [2],
+  "websocket": {
+    "clientSchema": "ClientWebSocketFrame",
+    "handshake": {
+      "acceptedFrame": "HelloAcceptedFrame",
+      "clientHelloFrame": "HelloFrame",
+      "connectionNonce": "canonical 128-bit base64url CSPRNG value",
+      "resumeToken": "optional canonical base64url in Hello; required rotated canonical base64url in HelloAccepted",
+      "serverFirstFrame": "ServerHelloChallengeFrame",
+      "signingPayload": {
+        "algorithm": "p256-sha256-der-low-s",
+        "canonicalBytes": "After rejecting challenge lifetimes outside 1,000..300,000ms and expiresAt <= caller nowMilliseconds, ASCII magic ENCHWSHELLO, u8 1, then u32-big-endian UTF-8 byte length and bytes for: hello type, challenge protocolVersion, connectionNonce, issuedAt, expiresAt, ownerID, vaultID, authEpoch, credentialEpoch, generationEpoch, hello protocolVersion, hello connectionNonce, resumeToken or literal null, deviceID, hello authEpoch.",
+        "magic": "ENCHWSHELLO",
+        "version": 1
+      }
+    },
+    "httpNegotiationFailureStatus": 426,
+    "negotiationFailureCloseCode": 4426,
+    "path": "/v2/sync",
+    "serverSchema": "ServerWebSocketFrame",
+    "syncChangeProof": {
+      "algorithm": "p256-sha256-der",
+      "canonicalBytes": "ASCII magic ENCHSYNC, u8 signingPayloadVersion, then u32-big-endian UTF-8 byte length and bytes for: protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, operationID, sourceKind, payloadSHA256, causalVersion-or-empty, frameID, payloadBase64.",
+      "replayKey": "deviceID:frameID:credentialEpoch:generationEpoch",
+      "signingPayloadVersion": 1
+    }
+  }
+}

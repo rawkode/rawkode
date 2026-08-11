@@ -1,0 +1,195 @@
+// GoogleAccountDO (src/google-account-do.ts) is a real implementation as of
+// "P2: Google OAuth — GoogleAccountDO + authorize/callback routes" — OAuth
+// token storage/refresh, generic sync-cursor storage, and CSRF state
+// handling are all real (see that file and its sibling modules:
+// oauth-client.ts, oauth-config.ts, oauth-state.ts, token-store.ts,
+// token-refresh.ts, oauth-routes.ts).
+//
+// Calendar cron ingest + Event/Person materialization + the approval-gated
+// write-model ("P2: Calendar gatekeeper") are real as of this pass too —
+// see src/calendar-ingest.ts, src/materialized-doc.ts, src/write-model.ts.
+//
+// Gmail chunked/resumable backfill + history.list incremental sync +
+// EmailThread/Person materialization + the participant quality gate
+// ("P3: Gmail") are real as of this pass — see src/gmail-ingest.ts,
+// src/gmail-materialized-doc.ts, src/gmail-thread-materialization.ts.
+//
+// Gmail message bodies + attachments (the plan's "Message bodies stay out
+// of the CRDT graph — bodies in gatekeeper DO SQLite, attachments in R2
+// (same content-addressed scheme), served via server-only GraphQL fields
+// (`thread.messages`, `emailSearch`)") are real as of THIS pass — see
+// src/gmail-body-ingest.ts, src/gmail-mime.ts, src/gmail-body-store.ts,
+// src/gmail-attachment-store.ts, and `GmailReadModel`
+// (getMessagesForThreads/searchEmailMessages) in src/index.ts /
+// src/gmail-read-model.ts. NOTE: these two operations were originally
+// shipped as plain HTTP routes (`/gmail/messages`/`/gmail/search`) with
+// zero application-layer authentication — an adversarial-review BLOCKER,
+// fixed by converting them to the `GmailReadModel` Workers-RPC entrypoint
+// above (see src/gmail-read-model.ts's file header). Gmail has NO HTTP
+// route surface at all now. `sendEmail()` remains follow-up work — see
+// src/index.ts's file header, "STILL NOT IMPLEMENTED".
+//
+// See /Users/rawkode/.claude/plans/cheeky-greeting-lampson.md, plan §Google
+// gatekeeper (Calendar P2, Gmail P3).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-gatekeeper-google",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // GoogleAccountDO holds OAuth tokens + a generic per-resource sync-cursor
+  // table ("calendar" today; "gmail" in a future P3 pass), the calendar
+  // materialization change-detection cache, and the approval-gate/action-log
+  // tables for the write-model — see src/schema.ts. This worker manages
+  // exactly one Google account (single-user scope), resolved via a single
+  // fixed DO name (src/google-account-stub.ts), so there is only ever one
+  // live instance.
+  //
+  // VAULT is a CROSS-SCRIPT Durable Object binding (`script_name` points at
+  // `workers/vault`'s own `name`, read from workers/vault/wrangler.jsonc —
+  // NOT modified by this pass, only read for its `name` value) to VaultDO,
+  // the class `workers/vault/src/index.ts` exports. This is deliberately a
+  // DO binding, not a plain Cloudflare Service Binding (`services: [...]`,
+  // which would only give `env.VAULT.fetch(request)` against vault's HTTP
+  // routes) — vault's write-model is VaultDO's own RPC methods
+  // (createOrUpdatePage/tombstonePage, per the plan's "Writes are RPC, not
+  // GraphQL mutations" pin), and there is no HTTP route in
+  // workers/vault/src/index.ts that calls them on an external caller's
+  // behalf (nor should this task add one — workers/vault/src/ is
+  // untouched). A cross-script DO binding resolves the SAME VaultDO
+  // instance a device's `/sync` WebSocket talks to (both sides use
+  // `idFromName("default")` — see src/vault-client.ts and
+  // workers/vault/src/vault-stub.ts) and calls its RPC methods directly,
+  // still zero HTTP egress between workers (Workers RPC over a DO
+  // binding), matching the plan's "no HTTP egress between workers" goal for
+  // cross-worker calls even though this specific pairing (gatekeeper ->
+  // vault, RPC-shaped) isn't the `env.GATEKEEPER_GOOGLE.fetch(...)`
+  // Service Binding direction the plan's "Cross-worker field resolution"
+  // pin describes (that pin covers vault's resolvers calling INTO
+  // gatekeeper-google over a plain Service Binding; this is the reverse
+  // direction, gatekeeper-google calling INTO vault's own write-model RPC
+  // surface, which is DO-shaped, not fetch-shaped). No `migrations` entry
+  // is needed for VAULT here — migrations only apply to DO classes THIS
+  // worker deploys/owns (GoogleAccountDO); VaultDO's storage migration
+  // lives in workers/vault/wrangler.jsonc, unmodified.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GOOGLE_ACCOUNT_DO",
+        "class_name": "GoogleAccountDO"
+      },
+      {
+        "name": "VAULT",
+        "class_name": "VaultDO",
+        "script_name": "enchiridion-vault"
+      }
+    ]
+  },
+
+  // `new_sqlite_classes` (not `new_classes`) so the DO gets SQLite storage
+  // — matches VaultDO's migration shape in workers/vault/wrangler.jsonc.
+  // Only GoogleAccountDO is listed — see the VAULT binding comment above on
+  // why VaultDO needs no migration entry in this worker's config.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GoogleAccountDO"]
+    }
+  ],
+
+  // "Cron-triggered polling (Calendar syncToken, Gmail historyId), 5-min
+  // cadence" (plan §Google gatekeeper) — src/index.ts's scheduled() handler
+  // now runs Calendar incremental sync + materialization
+  // (src/calendar-ingest.ts), Gmail thread backfill/incremental sync +
+  // materialization (src/gmail-ingest.ts), AND the separate Gmail
+  // message-body/attachment ingest sweep (src/gmail-body-ingest.ts) on this
+  // cadence, each independently try/caught.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  // R2 BUCKET-OWNERSHIP DECISION (Gmail attachments): this worker gets ITS
+  // OWN bucket, `enchiridion-gmail-attachments` — NOT a shared binding to
+  // `workers/vault`'s `enchiridion-blobs` bucket. Chosen for the reasons the
+  // task brief flagged as the default ("cleaner isolation, simplest to
+  // reason about") and confirmed here, not just assumed:
+  //   - Different lifecycle/GC policy: vault's `enchiridion-blobs` has a
+  //     real (if still P0-conservative) pending-references + 30-day-grace
+  //     GC contract tied to LIVE PAGE REFERENCES in vault's own graph
+  //     (`blob-store.ts`'s `isBlobReferencedByLivePage`). A Gmail
+  //     attachment's lifecycle is tied to its EMAIL MESSAGE, which never
+  //     appears in the graph at all (plan: "message bodies stay out of the
+  //     CRDT graph") — vault's GC logic has no reference to check against
+  //     for these objects and never should, so sharing the bucket would mean
+  //     either (a) teaching vault's GC about a second, graph-external
+  //     reference source, or (b) Gmail attachments silently becoming
+  //     eligible for a GC sweep that was never designed to reason about
+  //     them. Neither is "cleaner"; a separate bucket sidesteps the question
+  //     entirely.
+  //   - Independent deploy/ownership: this worker's own credentials/OAuth
+  //     scope already gate who can ever cause a write into this bucket
+  //     (Gmail ingest, behind `hasScope(GMAIL_READONLY_SCOPE)`) — a shared
+  //     bucket would mean vault's blob routes (Access-authenticated device
+  //     uploads) and this worker's Gmail ingest both writing into the same
+  //     namespace under two different authorization models, for a `blob_`
+  //     id space that's already dedupable ACROSS buckets via
+  //     `deriveBlobId`'s content-addressing (see schema.ts's point 13 doc
+  //     comment) — sharing the bucket buys no additional dedup benefit
+  //     `deriveBlobId` doesn't already provide across separate buckets.
+  //   - Blast radius: a bug in this worker's attachment-upload path (a
+  //     malformed `put()` call, a runaway ingest loop) can only ever affect
+  //     THIS bucket, never vault's own blob storage.
+  //
+  // MANUAL PREREQUISITE before first deploy (mirrors workers/vault/
+  // wrangler.jsonc's identical `enchiridion-blobs` prerequisite comment):
+  // the bucket must actually exist — `wrangler r2 bucket create
+  // enchiridion-gmail-attachments` — this config only declares the binding.
+  "r2_buckets": [
+    {
+      "binding": "GMAIL_ATTACHMENTS",
+      "bucket_name": "enchiridion-gmail-attachments"
+    }
+  ],
+
+  // Google OAuth client config (plan §Google OAuth pin: "Server-side
+  // auth-code flow; app registered Internal on the rawkode.academy
+  // Workspace"). `GOOGLE_CLIENT_ID` and `GOOGLE_OAUTH_REDIRECT_URI` are
+  // non-secret (a client id and a redirect URL are not credentials an
+  // attacker could authenticate with — see src/oauth-config.ts), so plain
+  // `vars` is fine, matching workers/vault/wrangler.jsonc's identical
+  // reasoning for ACCESS_TEAM_DOMAIN/ACCESS_AUD. `GOOGLE_CLIENT_SECRET` IS
+  // a real credential and must NEVER go here — see GOOGLE_OAUTH_SETUP.md
+  // for the `wrangler secret put GOOGLE_CLIENT_SECRET` step.
+  //
+  // MANUAL PREREQUISITE before first deploy: register the OAuth
+  // application (Internal, on the rawkode.academy Workspace) and fill in
+  // the real values below — see GOOGLE_OAUTH_SETUP.md for the full
+  // walkthrough. Placeholder values here make every OAuth route fail
+  // closed with a 500 (src/oauth-config.ts's `loadOAuthConfig`), not
+  // silently allow anything through.
+  //
+  // ACCESS_TEAM_DOMAIN / ACCESS_AUD (Fix 1 — plan §Google gatekeeper: "OAuth
+  // routes must sit behind Cloudflare Access like every other worker") —
+  // Cloudflare Access verification for `/oauth/google/authorize`/`/callback`
+  // (`src/access-auth` import from `@enchiridion/access-auth`, the same
+  // package `workers/vault` uses). This is THIS WORKER'S OWN Access
+  // Application — its own hostname/route and its own AUD tag, distinct from
+  // `workers/vault/wrangler.jsonc`'s `ACCESS_AUD` (they may share the same
+  // `ACCESS_TEAM_DOMAIN`, since a Cloudflare Access team is account-wide,
+  // but each worker's Application — and therefore AUD — is separate). See
+  // GOOGLE_OAUTH_SETUP.md's Cloudflare Access section for the manual
+  // dashboard steps. Same non-secret reasoning as `GOOGLE_CLIENT_ID` above
+  // (a team domain and an AUD tag are not credentials), and the same
+  // fail-closed placeholder convention as workers/vault/wrangler.jsonc.
+  "vars": {
+    "GOOGLE_CLIENT_ID": "REPLACE_ME.apps.googleusercontent.com",
+    "GOOGLE_OAUTH_REDIRECT_URI": "REPLACE_ME_https://gatekeeper-google.enchiridion.rawkode.academy/oauth/google/callback",
+    "ACCESS_TEAM_DOMAIN": "REPLACE_ME.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_ME_GATEKEEPER_GOOGLE_ACCESS_APPLICATION_AUD_TAG"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

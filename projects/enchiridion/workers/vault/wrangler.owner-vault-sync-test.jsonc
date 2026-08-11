@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-owner-vault-sync-test",
+  "main": "src/owner-vault-sync-test-entry.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "OWNER_VAULT_DO", "class_name": "OwnerVaultDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OwnerVaultDO"] }]
+}

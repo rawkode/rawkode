@@ -1,0 +1,24 @@
+{
+  "name": "@enchiridion/codegen",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --build",
+    "test": "bun test",
+    "generate": "bun scripts/generate.ts"
+  },
+  "dependencies": {
+    "@enchiridion/schema": "workspace:*",
+    "@enchiridion/supertags-core": "workspace:*",
+    "@enchiridion/supertags-email": "workspace:*",
+    "@enchiridion/supertags-workouts": "workspace:*",
+    "@enchiridion/supertags-canvas": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}

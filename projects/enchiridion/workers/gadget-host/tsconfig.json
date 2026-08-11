@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["@cloudflare/workers-types", "@types/bun"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/gadget-gatekeeper-google-rpc-contract" },
+    { "path": "../../packages/gadget-vault-rpc-contract" },
+    { "path": "../../packages/graph-core" },
+    { "path": "../../packages/projection" }
+  ]
+}
