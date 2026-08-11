@@ -34,6 +34,7 @@ import {
   makeDirectoryCredentialTransitionService,
 } from "./credential-transition";
 import { deriveDirectoryInitID, validDirectoryResolution } from "./invariants";
+import { initializationDigest } from "./lifecycle";
 import {
   DirectoryRepository,
   directoryTransactionError,
@@ -107,6 +108,7 @@ const resolution = (): DirectoryResolution => ({
   activeGeneration: 1,
   routingEpoch: 1,
   credentialEpoch: 1,
+  controlEpoch: 1,
 });
 const initial = (): DirectoryState => ({
   aliases: { [binding]: binding },
@@ -116,6 +118,26 @@ const initial = (): DirectoryState => ({
   transitions: {},
   frozenBindings: {},
   retiredAliases: {},
+  initializations: (() => {
+    const resolved = resolution();
+    const command = {
+      ownerID: resolved.ownerID.value,
+      vaultID: resolved.vaultID.value,
+      generationEpoch: resolved.activeGeneration,
+      operationID: "directory-initialization-0001",
+      credentialEpoch: resolved.credentialEpoch,
+      routingEpoch: resolved.routingEpoch,
+      controlEpoch: 1,
+    };
+    const initialized = { ...command, initDigest: initializationDigest(command) };
+    return {
+      [binding]: {
+        ...initialized,
+        durableReceipt: "owner-vault-receipt-0001",
+      },
+    };
+  })(),
+  privateGenerations: {},
 });
 const otherResolution = (): DirectoryResolution => ({
   ownerID: required(ownerID("owner-transition-00000002")),
@@ -125,6 +147,7 @@ const otherResolution = (): DirectoryResolution => ({
   activeGeneration: 1,
   routingEpoch: 1,
   credentialEpoch: 1,
+  controlEpoch: 1,
 });
 const request = (operationID = "credential-transition-0001"): DirectoryTransitionRequest => ({
   operationID,
@@ -916,6 +939,7 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         activeGeneration: 1,
         routingEpoch: 1,
         credentialEpoch: 1,
+        controlEpoch: 1,
       };
       return completedTransition(operationID, now + 300, bindingID, expected);
     });
@@ -930,6 +954,8 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         ...initial(),
         aliases: {},
         bindings: {},
+        initializations: {},
+        privateGenerations: {},
         transitions: saturated,
         retiredAliases,
       }),

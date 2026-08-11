@@ -74,6 +74,7 @@ export class OwnerVaultSyncError extends Data.TaggedError("OwnerVaultSyncError")
     | "identity_conflict"
     | "invalid_frame"
     | "nonce_replayed"
+    | "observed_high_water_ahead"
     | "quota_exceeded"
     | "replay_conflict"
     | "session_expired"
@@ -81,6 +82,25 @@ export class OwnerVaultSyncError extends Data.TaggedError("OwnerVaultSyncError")
     | "signature_invalid"
     | "version_unsupported";
 }> {}
+
+/**
+ * Enforces the client-provided read frontier against the OwnerVault's
+ * transactionally reloaded log head. Call this from the same OwnerVault
+ * transaction that writes the operation and its acknowledgement; attachment
+ * state and client `causalVersion` are never authoritative for this check.
+ */
+export const validateObservedHighWater = (
+  frame: SyncChangeFrame,
+  authoritativeLogHead: number,
+): Effect.Effect<void, OwnerVaultSyncError> => {
+  if (
+    !Number.isSafeInteger(authoritativeLogHead) ||
+    authoritativeLogHead < 0 ||
+    frame.observedHighWater > authoritativeLogHead
+  )
+    return Effect.fail(new OwnerVaultSyncError({ reason: "observed_high_water_ahead" }));
+  return Effect.void;
+};
 
 export interface OwnerVaultCapabilityVerifier {
   readonly verify: (
@@ -166,8 +186,10 @@ export interface OwnerVaultMutationStore {
 
 /**
  * P03-06's one durable transaction: it rechecks device/binding/floors after
- * signature verification, claims the frame nonce and capability JTI receipt,
- * applies the mutation, and writes the immutable ACK receipt before returning.
+ * signature verification, rejects `observedHighWater` ahead of its
+ * transactionally reloaded authoritative log head, claims the frame nonce and
+ * capability JTI receipt, applies the mutation, and writes the immutable ACK
+ * receipt before returning.
  */
 export interface OwnerVaultAtomicChange {
   readonly authorizeClaimAndApply: (

@@ -4,6 +4,8 @@ import {
   CapabilityMethod,
   DirectoryControlCapabilityAudience,
   DirectoryControlCapabilityAuthority,
+  type DirectoryControlCredentialTransitionExpectation,
+  type DirectoryControlCredentialTransitionRequestBinding,
   DirectoryControlResource,
   type SignedCapability,
 } from "@enchiridion/runtime";
@@ -67,7 +69,9 @@ export const DirectoryTransitionAuthorizer = Context.GenericTag<DirectoryTransit
 
 /** Internal-only restart authority. P06-03/04 must bind this to a capability for this exact journal. */
 const directoryTransitionResumePath = "/v2/internal/directory/credential-transition/resume";
-const resumeBinding = (transition: DirectoryCredentialTransition) => ({
+const resumeBinding = (
+  transition: DirectoryCredentialTransition,
+): DirectoryControlCredentialTransitionRequestBinding => ({
   resource: DirectoryControlResource.CredentialTransition,
   method: CapabilityMethod.POST,
   path: directoryTransitionResumePath,
@@ -76,7 +80,9 @@ const resumeBinding = (transition: DirectoryCredentialTransition) => ({
   ownerID: transition.expected.ownerID.value,
   vaultID: transition.expected.vaultID.value,
 });
-const resumeExpectation = (transition: DirectoryCredentialTransition) => ({
+const resumeExpectation = (
+  transition: DirectoryCredentialTransition,
+): DirectoryControlCredentialTransitionExpectation => ({
   audience: DirectoryControlCapabilityAudience.DirectoryControl,
   authority: DirectoryControlCapabilityAuthority.DirectoryControl,
   resource: DirectoryControlResource.CredentialTransition,
@@ -489,6 +495,7 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
           let bindings: Record<string, DirectoryResolution> = { ...state.bindings };
           let aliases: Record<string, string> = { ...state.aliases };
           let replacementBindingID: string | undefined;
+          let initializations = { ...state.initializations };
           const retiredAliases: Record<string, DirectoryRetiredAlias> = {
             ...state.retiredAliases,
           };
@@ -498,6 +505,9 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
             );
             aliases = Object.fromEntries(
               Object.entries(aliases).filter(([, value]) => value !== current.bindingID),
+            );
+            initializations = Object.fromEntries(
+              Object.entries(initializations).filter(([key]) => key !== current.bindingID),
             );
           } else {
             replacementBindingID = current.replacementAliases[0];
@@ -520,6 +530,15 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
                 Object.entries(bindings).filter(([key]) => key !== current.bindingID),
               ),
               [replacementBindingID]: rebound,
+            };
+            const initialization = initializations[current.bindingID];
+            if (initialization === undefined)
+              return Effect.fail(transactionError("repository_unavailable"));
+            initializations = {
+              ...Object.fromEntries(
+                Object.entries(initializations).filter(([key]) => key !== current.bindingID),
+              ),
+              [replacementBindingID]: initialization,
             };
             aliases = Object.fromEntries(
               Object.entries(aliases).filter(([, value]) => value !== current.bindingID),
@@ -562,6 +581,7 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
               aliases,
               transitions: { ...state.transitions, [next.operationID]: next },
               retiredAliases,
+              initializations,
             },
           ] as const);
         }),

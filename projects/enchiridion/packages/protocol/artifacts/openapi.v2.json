@@ -225,12 +225,6 @@
                 "minimum": 0,
                 "type": "integer"
               },
-              "changeID": {
-                "maxLength": 128,
-                "minLength": 1,
-                "pattern": "^[A-Za-z0-9._~-]+$",
-                "type": "string"
-              },
               "credentialEpoch": {
                 "minimum": 0,
                 "type": "integer"
@@ -257,11 +251,27 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "observedHighWater": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operationID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
               "payloadBase64": {
                 "format": "base64-canonical",
                 "maxLength": 1398104,
                 "minLength": 4,
                 "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                "type": "string"
+              },
+              "payloadSHA256": {
+                "format": "sha256-hex",
+                "maxLength": 64,
+                "minLength": 64,
                 "type": "string"
               },
               "protocolVersion": {
@@ -274,6 +284,9 @@
               },
               "signingPayloadVersion": {
                 "const": 1
+              },
+              "sourceKind": {
+                "const": "websocket"
               },
               "type": {
                 "const": "syncChange"
@@ -295,8 +308,10 @@
               "generationEpoch",
               "sessionNonce",
               "assertionExpiresAt",
-              "changeID",
-              "causalVersion",
+              "operationID",
+              "sourceKind",
+              "payloadSHA256",
+              "observedHighWater",
               "frameID",
               "signingPayloadVersion",
               "payloadBase64",
@@ -957,13 +972,17 @@
       "MutationCommand": {
         "additionalProperties": false,
         "properties": {
-          "contentSHA256": {
-            "format": "sha256-hex",
-            "maxLength": 64,
-            "minLength": 64,
+          "causalVersion": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
             "type": "string"
           },
-          "mutationID": {
+          "operationID": {
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9._~-]+$",
@@ -976,11 +995,27 @@
             "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
             "type": "string"
           },
+          "payloadSHA256": {
+            "format": "sha256-hex",
+            "maxLength": 64,
+            "minLength": 64,
+            "type": "string"
+          },
+          "sourceKind": {
+            "const": "http"
+          },
           "type": {
             "const": "mutation"
           }
         },
-        "required": ["type", "mutationID", "contentSHA256", "payloadBase64"],
+        "required": [
+          "type",
+          "operationID",
+          "deviceID",
+          "sourceKind",
+          "payloadSHA256",
+          "payloadBase64"
+        ],
         "type": "object"
       },
       "MutationRequest": {
@@ -989,13 +1024,17 @@
           "command": {
             "additionalProperties": false,
             "properties": {
-              "contentSHA256": {
-                "format": "sha256-hex",
-                "maxLength": 64,
-                "minLength": 64,
+              "causalVersion": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "deviceID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
                 "type": "string"
               },
-              "mutationID": {
+              "operationID": {
                 "maxLength": 128,
                 "minLength": 1,
                 "pattern": "^[A-Za-z0-9._~-]+$",
@@ -1008,11 +1047,27 @@
                 "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
                 "type": "string"
               },
+              "payloadSHA256": {
+                "format": "sha256-hex",
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              "sourceKind": {
+                "const": "http"
+              },
               "type": {
                 "const": "mutation"
               }
             },
-            "required": ["type", "mutationID", "contentSHA256", "payloadBase64"],
+            "required": [
+              "type",
+              "operationID",
+              "deviceID",
+              "sourceKind",
+              "payloadSHA256",
+              "payloadBase64"
+            ],
             "type": "object"
           },
           "envelope": {
@@ -1140,12 +1195,11 @@
       "MutationResponse": {
         "additionalProperties": false,
         "properties": {
-          "acceptedAt": {
-            "maximum": 4102444800000,
-            "minimum": 1700000000000,
+          "logSequence": {
+            "minimum": 1,
             "type": "integer"
           },
-          "mutationID": {
+          "operationID": {
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9._~-]+$",
@@ -1155,7 +1209,7 @@
             "const": 2
           }
         },
-        "required": ["protocolVersion", "mutationID", "acceptedAt"],
+        "required": ["protocolVersion", "operationID", "logSequence"],
         "type": "object"
       },
       "ProtocolErrorFrame": {
@@ -1417,11 +1471,11 @@
           {
             "additionalProperties": false,
             "properties": {
-              "causalVersion": {
-                "minimum": 0,
+              "logSequence": {
+                "minimum": 1,
                 "type": "integer"
               },
-              "changeID": {
+              "operationID": {
                 "maxLength": 128,
                 "minLength": 1,
                 "pattern": "^[A-Za-z0-9._~-]+$",
@@ -1440,7 +1494,7 @@
                 "type": "string"
               }
             },
-            "required": ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"],
+            "required": ["type", "protocolVersion", "vaultID", "operationID", "logSequence"],
             "type": "object"
           },
           {
@@ -1622,11 +1676,11 @@
       "SyncAcknowledgedFrame": {
         "additionalProperties": false,
         "properties": {
-          "causalVersion": {
-            "minimum": 0,
+          "logSequence": {
+            "minimum": 1,
             "type": "integer"
           },
-          "changeID": {
+          "operationID": {
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9._~-]+$",
@@ -1645,7 +1699,7 @@
             "type": "string"
           }
         },
-        "required": ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"],
+        "required": ["type", "protocolVersion", "vaultID", "operationID", "logSequence"],
         "type": "object"
       },
       "SyncChangeFrame": {
@@ -1663,12 +1717,6 @@
           "causalVersion": {
             "minimum": 0,
             "type": "integer"
-          },
-          "changeID": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9._~-]+$",
-            "type": "string"
           },
           "credentialEpoch": {
             "minimum": 0,
@@ -1696,11 +1744,27 @@
             "minimum": 0,
             "type": "integer"
           },
+          "observedHighWater": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
           "payloadBase64": {
             "format": "base64-canonical",
             "maxLength": 1398104,
             "minLength": 4,
             "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type": "string"
+          },
+          "payloadSHA256": {
+            "format": "sha256-hex",
+            "maxLength": 64,
+            "minLength": 64,
             "type": "string"
           },
           "protocolVersion": {
@@ -1713,6 +1777,9 @@
           },
           "signingPayloadVersion": {
             "const": 1
+          },
+          "sourceKind": {
+            "const": "websocket"
           },
           "type": {
             "const": "syncChange"
@@ -1734,8 +1801,10 @@
           "generationEpoch",
           "sessionNonce",
           "assertionExpiresAt",
-          "changeID",
-          "causalVersion",
+          "operationID",
+          "sourceKind",
+          "payloadSHA256",
+          "observedHighWater",
           "frameID",
           "signingPayloadVersion",
           "payloadBase64",

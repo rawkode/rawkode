@@ -16,6 +16,10 @@ import { validDirectoryResolution } from "../directory/invariants";
 import { accessAssertionHeadersFromWorkerHeaders } from "../foundation/access";
 import { InternalCapabilityFactory } from "../foundation/crypto";
 import {
+  type OwnerVaultSocketAdmissionFault,
+  makeOwnerVaultDO,
+} from "../owner-vault/owner-vault-do";
+import {
   type VaultV2EntryCompositionOptions,
   makeVaultV2EntryCompositionCache,
   parseVaultV2EntryEnv,
@@ -74,6 +78,17 @@ const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const ownerVaultSocketAdmissionFault = (
+  raw: unknown,
+): OwnerVaultSocketAdmissionFault | undefined => {
+  const value = record(raw)?.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_TEST_FAULT;
+  return value === "accept-failure" ||
+    value === "early-callback" ||
+    value === "finalize-loss" ||
+    value === "prepared-loss"
+    ? value
+    : undefined;
+};
 
 /**
  * Directory is an authority boundary: success is accepted only when every
@@ -101,6 +116,7 @@ const validResponse = (
         "activeGeneration",
         "routingEpoch",
         "credentialEpoch",
+        "controlEpoch",
       ]) ||
       typeof resolution.ownerID !== "string" ||
       !identifier.test(resolution.ownerID) ||
@@ -111,7 +127,8 @@ const validResponse = (
       !positive(resolution.generationEpoch) ||
       !positive(resolution.activeGeneration) ||
       !positive(resolution.routingEpoch) ||
-      !positive(resolution.credentialEpoch)
+      !positive(resolution.credentialEpoch) ||
+      !positive(resolution.controlEpoch)
     )
       return undefined;
     const ownerID = resolution.ownerID;
@@ -124,6 +141,7 @@ const validResponse = (
       activeGeneration: resolution.activeGeneration,
       routingEpoch: resolution.routingEpoch,
       credentialEpoch: resolution.credentialEpoch,
+      controlEpoch: resolution.controlEpoch,
     };
     if (!aliases.some((binding) => validDirectoryResolution(binding, candidate))) return undefined;
     return root;
@@ -235,7 +253,12 @@ export const makeVaultV2Entry = (
     const resolvedComposition = env === undefined ? undefined : resolveComposition(env);
     return resolvedComposition === undefined
       ? undefined
-      : { capabilities: resolvedComposition.capabilities, random: resolvedComposition.random };
+      : {
+          capabilities: resolvedComposition.capabilities,
+          controls: resolvedComposition.directoryControls,
+          random: resolvedComposition.random,
+          ownerVault: { client: resolvedComposition.ownerVaultInitialization },
+        };
   });
   return {
     CredentialDirectoryDO,
@@ -246,6 +269,29 @@ export const makeVaultV2Entry = (
 const productionEntry = makeVaultV2Entry();
 const boundary = makeWorkerBoundary(productionEntry.handler);
 export const CredentialDirectoryDO = productionEntry.CredentialDirectoryDO;
+const ownerVaultComposition = makeVaultV2EntryCompositionCache();
+export const OwnerVaultV2 = makeOwnerVaultDO((raw) => {
+  const resolved = ownerVaultComposition(raw);
+  return resolved === undefined
+    ? undefined
+    : {
+        controls: resolved.directoryControls,
+        ownerVaultCapabilities: resolved.capabilities,
+        ownerVaultControls: resolved.ownerVaultDirectoryControls,
+        production: resolved.ownerVaultProduction,
+        socketAdmissions: resolved.ownerVaultSocketAdmission,
+        socketAdmissionFault: ownerVaultSocketAdmissionFault(raw),
+        // P02 sync frame IDs are fixed 16-byte base64url values. Retain the
+        // production CSPRNG source but bind only that exact protocol width.
+        socketNonce: () =>
+          makeP256Crypto()
+            .random32()
+            .pipe(
+              Effect.map((bytes) => base64url(bytes.slice(0, 16))),
+              Effect.orDie,
+            ),
+      };
+});
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
     boundary.handle(request, env, ctx),

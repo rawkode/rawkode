@@ -411,6 +411,12 @@ const nonNegativeInt = Schema.Number.pipe(
   Schema.nonNegative(),
   named("NonNegativeInt"),
 );
+/** Server-owned, monotonically assigned position in an OwnerVault mutation log. */
+export const LogSequenceSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(1),
+  named("LogSequence"),
+);
 
 /** Application identity is opaque: it is never an Access subject or email. */
 export const OwnerIDSchema = identifier("OwnerID");
@@ -645,12 +651,25 @@ export const DeviceRevokeResponseSchema = Schema.Struct({
   revokedAt: SignedTimestampSchema,
 }).pipe(named("DeviceRevokeResponse"));
 
-/** Canonical JSON body for POST /v2/mutations. */
+/** The ingress surface that carried an opaque logical operation. */
+export const OpaqueMutationSourceKindSchema = Schema.Literal("http", "websocket").pipe(
+  named("OpaqueMutationSourceKind"),
+);
+
+/**
+ * Canonical JSON body for POST /v2/mutations. `operationID` is shared with
+ * WebSocket sync: it is one vault-wide logical-operation namespace, never an
+ * HTTP-only idempotency key. The payload digest is of decoded payload bytes.
+ */
 export const MutationCommandSchema = Schema.Struct({
   type: Schema.Literal("mutation"),
-  mutationID: identifier("Identifier"),
-  contentSHA256: SHA256DigestSchema,
+  operationID: identifier("Identifier"),
+  deviceID: DeviceIDSchema,
+  sourceKind: Schema.Literal("http"),
+  payloadSHA256: SHA256DigestSchema,
   payloadBase64: Base64PayloadSchema,
+  /** Client causal metadata only; never an authoritative server log position. */
+  causalVersion: Schema.optional(nonNegativeInt),
 }).pipe(named("MutationCommand"));
 
 export const MutationRequestSchema = Schema.Struct({
@@ -660,8 +679,9 @@ export const MutationRequestSchema = Schema.Struct({
 
 export const MutationResponseSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
-  mutationID: identifier("Identifier"),
-  acceptedAt: SignedTimestampSchema,
+  operationID: identifier("Identifier"),
+  /** Assigned by OwnerVault only after the operation and receipt commit. */
+  logSequence: LogSequenceSchema,
 }).pipe(named("MutationResponse"));
 
 export const BlobOperationTypeSchema = Schema.Literal("blobPut", "blobDelete").pipe(
@@ -744,8 +764,18 @@ export const SyncChangeFrameSchema = Schema.Struct({
   generationEpoch: GenerationEpochSchema,
   sessionNonce: FrameIDSchema,
   assertionExpiresAt: SignedTimestampSchema,
-  changeID: identifier("Identifier"),
-  causalVersion: nonNegativeInt,
+  /** Same vault-wide logical-operation namespace as HTTP MutationCommand. */
+  operationID: identifier("Identifier"),
+  sourceKind: Schema.Literal("websocket"),
+  payloadSHA256: SHA256DigestSchema,
+  /** Client causal metadata only; never an authoritative server log position. */
+  causalVersion: Schema.optional(nonNegativeInt),
+  /**
+   * The sender's last durably observed OwnerVault log sequence. OwnerVault
+   * rejects a value ahead of its authoritative head inside the mutation
+   * transaction; this is client evidence, never a requested log position.
+   */
+  observedHighWater: nonNegativeInt,
   /** Immutable 128-bit base64url nonce. Servers claim it before applying a change. */
   frameID: FrameIDSchema,
   signingPayloadVersion: Schema.Literal(syncFrameSigningPayloadVersion).pipe(
@@ -760,8 +790,9 @@ export const SyncAcknowledgedFrameSchema = Schema.Struct({
   type: Schema.Literal("syncAcknowledged"),
   protocolVersion: ProtocolVersionSchema,
   vaultID: VaultIDSchema,
-  changeID: identifier("Identifier"),
-  causalVersion: nonNegativeInt,
+  operationID: identifier("Identifier"),
+  /** Assigned by OwnerVault only after the operation and receipt commit. */
+  logSequence: LogSequenceSchema,
 }).pipe(named("SyncAcknowledgedFrame"));
 
 export const ProtocolErrorFrameSchema = Schema.Struct({
@@ -821,6 +852,8 @@ export type SignedDeviceRequestEnvelope = Schema.Schema.Type<
 export type DeviceRevokeCommand = Schema.Schema.Type<typeof DeviceRevokeCommandSchema>;
 export type MutationCommand = Schema.Schema.Type<typeof MutationCommandSchema>;
 export type MutationRequest = Schema.Schema.Type<typeof MutationRequestSchema>;
+export type MutationResponse = Schema.Schema.Type<typeof MutationResponseSchema>;
+export type OpaqueMutationSourceKind = Schema.Schema.Type<typeof OpaqueMutationSourceKindSchema>;
 export type ContentAddressedBlobOperation = Schema.Schema.Type<
   typeof ContentAddressedBlobOperationSchema
 >;
@@ -885,7 +918,15 @@ const signedEnvelopeKeys = [
 const revokeCommandKeys = ["type", "actorDeviceID", "targetDeviceID"];
 const revokeRequestKeys = ["envelope", "command"];
 const revokeResponseKeys = ["protocolVersion", "ownerID", "deviceID", "authEpoch", "revokedAt"];
-const mutationCommandKeys = ["type", "mutationID", "contentSHA256", "payloadBase64"];
+const mutationCommandKeys = [
+  "type",
+  "operationID",
+  "deviceID",
+  "sourceKind",
+  "payloadSHA256",
+  "payloadBase64",
+  "causalVersion",
+];
 const mutationRequestKeys = ["envelope", "command"];
 const blobOperationKeys = ["type", "blobSHA256", "contentLength"];
 const blobDeleteCommandKeys = ["type", "blobSHA256"];
@@ -934,14 +975,17 @@ const syncChangeKeys = [
   "generationEpoch",
   "sessionNonce",
   "assertionExpiresAt",
-  "changeID",
+  "operationID",
+  "sourceKind",
+  "payloadSHA256",
   "causalVersion",
+  "observedHighWater",
   "frameID",
   "signingPayloadVersion",
   "payloadBase64",
   "deviceSignature",
 ];
-const syncAcknowledgedKeys = ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"];
+const syncAcknowledgedKeys = ["type", "protocolVersion", "vaultID", "operationID", "logSequence"];
 const protocolErrorKeys = ["type", "protocolVersion", "error"];
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -1276,6 +1320,9 @@ export function decodeMutationRequest(input: unknown): MutationRequest {
   if (envelope.method !== "POST" || envelope.canonicalPath !== "/v2/mutations")
     throw new TypeError("Mutation envelope must bind POST /v2/mutations.");
   const decoded = decodeMutationRequestSchema({ envelope, command });
+  if (decoded.command.deviceID !== decoded.envelope.actorDeviceID)
+    throw new TypeError("Mutation command device must match its signed envelope actor.");
+  assertOpaqueMutationPayload(decoded.command);
   if (decoded.envelope.bodySHA256 !== mutationCommandSHA256(decoded.command))
     throw new TypeError("Mutation envelope body hash must match its canonical command only.");
   return decoded;
@@ -1307,7 +1354,9 @@ export function decodeClientWebSocketFrame(input: unknown): ClientWebSocketFrame
     rejectUnknownKeys(frame, syncChangeKeys, "sync change frame");
     requireCanonicalP256Signature(frame.deviceSignature, "deviceSignature");
   }
-  return decodeClientWebSocketFrameSchema(frame);
+  const decoded = decodeClientWebSocketFrameSchema(frame);
+  if (decoded.type === "syncChange") assertOpaqueMutationPayload(decoded);
+  return decoded;
 }
 
 /**
@@ -1362,8 +1411,11 @@ export function syncChangeSigningPayload(frame: SyncChangeFrame): Uint8Array {
     String(frame.generationEpoch),
     frame.sessionNonce,
     String(frame.assertionExpiresAt),
-    frame.changeID,
-    String(frame.causalVersion),
+    frame.operationID,
+    frame.sourceKind,
+    frame.payloadSHA256,
+    frame.causalVersion === undefined ? "" : String(frame.causalVersion),
+    String(frame.observedHighWater),
     frame.frameID,
     frame.payloadBase64,
   ]);
@@ -1444,12 +1496,28 @@ function revokeCommandJSON(command: DeviceRevokeCommand): CanonicalJSON {
 }
 
 function mutationCommandJSON(command: MutationCommand): CanonicalJSON {
-  return {
+  const base: CanonicalJSON & Record<string, CanonicalJSON> = {
     type: command.type,
-    mutationID: command.mutationID,
-    contentSHA256: command.contentSHA256,
+    operationID: command.operationID,
+    deviceID: command.deviceID,
+    sourceKind: command.sourceKind,
+    payloadSHA256: command.payloadSHA256,
     payloadBase64: command.payloadBase64,
   };
+  if (command.causalVersion !== undefined) base.causalVersion = command.causalVersion;
+  return base;
+}
+
+type OpaqueMutationPayload = Pick<
+  MutationCommand | SyncChangeFrame,
+  "payloadBase64" | "payloadSHA256"
+>;
+
+/** Rejects a digest spelling that does not name the exact canonical payload bytes. */
+function assertOpaqueMutationPayload(operation: OpaqueMutationPayload): void {
+  const payload = canonicalBase64Bytes(operation.payloadBase64);
+  if (payload === undefined || sha256Hex(payload) !== operation.payloadSHA256)
+    throw new TypeError("Opaque mutation payload digest must match its canonical payload bytes.");
 }
 
 /** Body hashes bind only commands, never their enclosing signature envelope. */
@@ -1687,6 +1755,6 @@ export const websocketContract = {
     algorithm: "p256-sha256-der",
     replayKey: "deviceID:frameID:credentialEpoch:generationEpoch",
     canonicalBytes:
-      "ASCII magic ENCHSYNC, u8 signingPayloadVersion, then u32-big-endian UTF-8 byte length and bytes for: protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, changeID, causalVersion, frameID, payloadBase64.",
+      "ASCII magic ENCHSYNC, u8 signingPayloadVersion, then u32-big-endian UTF-8 byte length and bytes for: protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, operationID, sourceKind, payloadSHA256, causalVersion-or-empty, frameID, payloadBase64.",
   },
 } as const;

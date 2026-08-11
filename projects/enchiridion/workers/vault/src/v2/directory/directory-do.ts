@@ -5,11 +5,17 @@ import { makeDurableObjectBoundary, readBoundedRequestBody } from "@enchiridion/
 import { Effect } from "effect";
 import {
   type InternalCapabilityFactory as CapabilityFactory,
+  DirectoryControlCapabilityFactory,
+  type DirectoryControlCapabilityFactory as DirectoryControlFactory,
   InternalCapabilityFactory,
 } from "../foundation/crypto";
 import { isCanonicalDirectoryAlias } from "./invariants";
 import { DirectoryRepository, makeDurableObjectDirectoryRepository } from "./repository";
-import { type DirectoryService, makeDirectoryService } from "./service";
+import {
+  DirectoryOwnerVaultInitializer,
+  type DirectoryService,
+  makeDirectoryService,
+} from "./service";
 import type {
   DirectoryInvocation,
   DirectoryResolution,
@@ -78,7 +84,8 @@ const wireResolution = (
   positive(value.generationEpoch) &&
   positive(value.activeGeneration) &&
   positive(value.routingEpoch) &&
-  positive(value.credentialEpoch)
+  positive(value.credentialEpoch) &&
+  positive(value.controlEpoch)
     ? {
         ownerID: value.ownerID.value,
         vaultID: value.vaultID.value,
@@ -87,6 +94,7 @@ const wireResolution = (
         activeGeneration: value.activeGeneration,
         routingEpoch: value.routingEpoch,
         credentialEpoch: value.credentialEpoch,
+        controlEpoch: value.controlEpoch,
       }
     : undefined;
 
@@ -110,7 +118,9 @@ const requestRoute = (request: Request): Effect.Effect<RequestRoute | undefined>
 
 export interface CredentialDirectoryDODependencies {
   readonly capabilities: CapabilityFactory;
+  readonly controls: DirectoryControlFactory;
   readonly random: DirectorySecureRandom;
+  readonly ownerVault: DirectoryOwnerVaultInitializer;
 }
 export type CredentialDirectoryDependencyProvider = (
   env: unknown,
@@ -140,6 +150,8 @@ export const makeCredentialDirectoryDO = (
                   makeDurableObjectDirectoryRepository(this.boundary.storage),
                 ),
                 Effect.provideService(InternalCapabilityFactory, resolved.capabilities),
+                Effect.provideService(DirectoryControlCapabilityFactory, resolved.controls),
+                Effect.provideService(DirectoryOwnerVaultInitializer, resolved.ownerVault),
               ),
             );
     }

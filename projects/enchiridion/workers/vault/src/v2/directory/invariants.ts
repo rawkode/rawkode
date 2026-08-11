@@ -10,6 +10,8 @@ export const maximumDirectoryControlReplays = 1_024;
 export const maximumDirectoryTransitions = 1_024;
 /** Tombstones are permanent, so this is an explicit operational lifetime bound. */
 export const maximumDirectoryRetiredAliases = 4_096;
+/** Restartable private recovery targets; admission is bounded before persistence. */
+export const maximumDirectoryPrivateGenerations = 1_024;
 
 const encodeBase64URL = (bytes: Uint8Array): string => {
   let binary = "";
@@ -57,4 +59,6 @@ export const validDirectoryResolution = (bindingID: string, value: DirectoryReso
   Number.isSafeInteger(value.routingEpoch) &&
   value.routingEpoch >= 1 &&
   Number.isSafeInteger(value.credentialEpoch) &&
-  value.credentialEpoch >= 1;
+  value.credentialEpoch >= 1 &&
+  Number.isSafeInteger(value.controlEpoch) &&
+  value.controlEpoch >= 1;

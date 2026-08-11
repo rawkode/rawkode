@@ -177,7 +177,7 @@ const decodeFrameReceipt = (value: unknown): DurableFrameReceipt | undefined => 
     typeof value.requestHash !== "string" ||
     !resumeTokenHash.test(value.requestHash) ||
     !isUnknownRecord(value.result) ||
-    !hasExactKeys(value.result, ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"])
+    !hasExactKeys(value.result, ["type", "protocolVersion", "vaultID", "operationID", "logSequence"])
   )
     return undefined;
   const result = value.result;
@@ -185,8 +185,9 @@ const decodeFrameReceipt = (value: unknown): DurableFrameReceipt | undefined => 
     result.type !== "syncAcknowledged" ||
     result.protocolVersion !== protocolVersion ||
     !validIdentifier(result.vaultID) ||
-    !validIdentifier(result.changeID) ||
-    !validEpoch(result.causalVersion)
+    !validIdentifier(result.operationID) ||
+    !validEpoch(result.logSequence) ||
+    result.logSequence < 1
   )
     return undefined;
   return {
@@ -197,8 +198,8 @@ const decodeFrameReceipt = (value: unknown): DurableFrameReceipt | undefined => 
       type: "syncAcknowledged",
       protocolVersion,
       vaultID: result.vaultID,
-      changeID: result.changeID,
-      causalVersion: result.causalVersion,
+      operationID: result.operationID,
+      logSequence: result.logSequence,
     },
   };
 };

@@ -60,6 +60,6 @@ private final class CaptureTransport: @unchecked Sendable, EnchiridionHTTPTransp
   func execute(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
     self.request = request
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-    return (Data(#"{"protocolVersion":2,"mutationID":"delete-1","acceptedAt":1760000000000}"#.utf8), response)
+    return (Data(#"{"protocolVersion":2,"operationID":"delete-1","logSequence":1}"#.utf8), response)
   }
 }

@@ -2,15 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Redacted, Ref } from "effect";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
+  DirectoryControlCapabilityFactory,
   InternalCapabilityFactory,
+  makeDirectoryControlCapabilityFactory,
   makeInternalCapabilityFactory,
   makeVersionedIssuerHasher,
   verifiedAccessIssuer,
 } from "../foundation/crypto";
 import { opaqueAccessSubject, ownerID, vaultID } from "../foundation/schemas";
 import { makeDirectoryInvocation } from "./gateway";
+import { type OwnerVaultInitializationCommand, OwnerVaultInitializationError } from "./lifecycle";
 import { makeInMemoryDirectoryRepository } from "./repository";
-import { makeDirectoryService } from "./service";
+import { DirectoryOwnerVaultInitializer, makeDirectoryService } from "./service";
 import type { DirectorySecureRandom, DirectoryState } from "./types";
 
 const required = <A>(value: A | undefined): A => {
@@ -37,15 +40,25 @@ const input: VaultV2ConfigInput = {
   credentialQuota: 5,
 };
 const now = 1_760_000_000;
+const ownerVaultReceipt = "owner-vault-receipt-0001";
 const random = (() => {
   let value = 0;
   return {
-    identifier: (purpose: "owner" | "vault") =>
-      Effect.succeed(`${purpose}-generated-${String(++value).padStart(16, "0")}`),
+    identifier: (
+      purpose: "owner" | "vault" | "owner-vault-initialization" | "owner-vault-floor-sync",
+    ) => Effect.succeed(`${purpose}-generated-${String(++value).padStart(16, "0")}`),
   };
 })();
 
-const setup = (randomSource: DirectorySecureRandom = random) =>
+const setup = (
+  randomSource: DirectorySecureRandom = random,
+  initialize: (
+    command: OwnerVaultInitializationCommand,
+  ) => Effect.Effect<
+    OwnerVaultInitializationCommand & { readonly durableReceipt: string },
+    OwnerVaultInitializationError
+  > = (command) => Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt }),
+) =>
   Effect.gen(function* () {
     const config = yield* makeVaultV2Config(input);
     const aliases = yield* makeVersionedIssuerHasher(config.credentialBindingKeys).aliases({
@@ -55,10 +68,17 @@ const setup = (randomSource: DirectorySecureRandom = random) =>
     const factory = yield* makeInternalCapabilityFactory.pipe(
       Effect.provideService(VaultV2Config, config),
     );
+    const controls = yield* makeDirectoryControlCapabilityFactory.pipe(
+      Effect.provideService(VaultV2Config, config),
+    );
     const memory = yield* makeInMemoryDirectoryRepository;
     const service = yield* makeDirectoryService(randomSource).pipe(
       Effect.provide(memory.layer),
       Effect.provideService(InternalCapabilityFactory, factory),
+      Effect.provideService(DirectoryControlCapabilityFactory, controls),
+      Effect.provideService(DirectoryOwnerVaultInitializer, {
+        client: { ensureInitialized: (command) => initialize(command) },
+      }),
     );
     return { aliases, factory, memory, service };
   });
@@ -76,6 +96,89 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
     expect(replay).toEqual(first);
     const state = await Effect.runPromise(Effect.map(memory.state, (value) => value));
     expect(JSON.stringify(state)).not.toContain("opaque-service-token-subject");
+  });
+
+  test("persists a non-routable initialization command and only activates it after an exact OwnerVault ack", async () => {
+    let attempts = 0;
+    const commands: Array<{ readonly operationID: string; readonly initDigest: string }> = [];
+    const { aliases, factory, memory, service } = await Effect.runPromise(
+      setup(random, (command) => {
+        attempts += 1;
+        commands.push({ operationID: command.operationID, initDigest: command.initDigest });
+        return attempts === 1
+          ? Effect.fail(new OwnerVaultInitializationError({ reason: "unavailable" }))
+          : Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt });
+      }),
+    );
+    const invocation = await Effect.runPromise(
+      makeDirectoryInvocation(aliases, now + 90, "initialization-retry-request-1", now).pipe(
+        Effect.provideService(InternalCapabilityFactory, factory),
+      ),
+    );
+    const first = await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now));
+    expect(Exit.isFailure(first)).toBe(true);
+    const pending = await Effect.runPromise(Ref.get(memory.state));
+    expect(Object.values(pending.initializations)).toHaveLength(1);
+    expect(Object.values(pending.initializations)[0]?.durableReceipt).toBeUndefined();
+    expect(pending.replays).toEqual({});
+
+    await Effect.runPromise(service.resolveOrBootstrap(invocation, now));
+    const active = await Effect.runPromise(Ref.get(memory.state));
+    expect(Object.values(active.initializations)[0]?.durableReceipt).toBe(ownerVaultReceipt);
+    expect(commands).toHaveLength(2);
+    expect(commands[0]).toEqual(commands[1]);
+  });
+
+  test("does not reinvoke OwnerVault initialization for an activated binding", async () => {
+    let calls = 0;
+    const { aliases, factory, service } = await Effect.runPromise(
+      setup(random, (command) => {
+        calls += 1;
+        return Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt });
+      }),
+    );
+    const first = await Effect.runPromise(
+      makeDirectoryInvocation(aliases, now + 90, "active-init-request-0001", now).pipe(
+        Effect.provideService(InternalCapabilityFactory, factory),
+      ),
+    );
+    const second = await Effect.runPromise(
+      makeDirectoryInvocation(aliases, now + 90, "active-init-request-0002", now).pipe(
+        Effect.provideService(InternalCapabilityFactory, factory),
+      ),
+    );
+    await Effect.runPromise(service.resolveOrBootstrap(first, now));
+    await Effect.runPromise(service.resolveOrBootstrap(second, now));
+    expect(calls).toBe(1);
+  });
+
+  test("rejects missing or malformed durable OwnerVault acknowledgement receipt before routing", async () => {
+    for (const durableReceipt of [undefined, "short"]) {
+      const { aliases, factory, memory, service } = await Effect.runPromise(
+        setup(
+          random,
+          (command) =>
+            Effect.succeed({
+              ...command,
+              ...(durableReceipt === undefined ? {} : { durableReceipt }),
+            }) as never,
+        ),
+      );
+      const invocation = await Effect.runPromise(
+        makeDirectoryInvocation(
+          aliases,
+          now + 90,
+          `invalid-initialization-receipt-${durableReceipt === undefined ? "missing" : "malformed"}`,
+          now,
+        ).pipe(Effect.provideService(InternalCapabilityFactory, factory)),
+      );
+      expect(
+        Exit.isFailure(await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now))),
+      ).toBe(true);
+      const state = await Effect.runPromise(Ref.get(memory.state));
+      expect(Object.values(state.initializations)[0]?.durableReceipt).toBeUndefined();
+      expect(state.replays).toEqual({});
+    }
   });
 
   test("rejects a separately signed payload that reuses a JTI with a different fingerprint", async () => {
@@ -215,6 +318,8 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
         transitions: {},
         frozenBindings: {},
         retiredAliases,
+        initializations: {},
+        privateGenerations: {},
       }),
     );
     for (const alias of aliases.ordered) {
@@ -264,6 +369,8 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
       transitions: {},
       frozenBindings: {},
       retiredAliases: {},
+      initializations: {},
+      privateGenerations: {},
     });
     await Effect.runPromise(service.resolveOrBootstrap(retry, now));
 
@@ -309,6 +416,8 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
       transitions: {},
       frozenBindings: {},
       retiredAliases: {},
+      initializations: {},
+      privateGenerations: {},
     };
     await Effect.runPromise(Ref.set(memory.state, conflicting));
     const collision = await Effect.runPromise(
