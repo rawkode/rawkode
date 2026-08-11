@@ -15,7 +15,7 @@ import {
   validOwnerVaultBackupDigest,
 } from "./backup-canonical";
 import {
-  type OwnerVaultBackupError,
+  OwnerVaultBackupError,
   type OwnerVaultBackupManifest,
   type OwnerVaultBackupPage,
   type OwnerVaultBackupPageEntry,
@@ -40,9 +40,10 @@ import type { OwnerVaultStorageAddress } from "./repository";
 import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
 import {
   isRestorableOwnerVaultStorageCategory,
+  ownerVaultStorageCategories,
   ownerVaultStorageRegistry,
 } from "./storage-registry";
-import type { OwnerVaultStorageRecord } from "./storage-registry";
+import type { OwnerVaultStorageCategory, OwnerVaultStorageRecord } from "./storage-registry";
 
 const encoder = new TextEncoder();
 const scopeKey = (scope: OwnerVaultBackupScope): string =>
@@ -73,12 +74,7 @@ const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
 const exactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 const integrity = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A, OwnerVaultBackupError> =>
-  effect.pipe(
-    Effect.mapError(
-      () =>
-        ({ _tag: "OwnerVaultBackupError", reason: "integrity_failed" }) as OwnerVaultBackupError,
-    ),
-  );
+  effect.pipe(Effect.mapError(() => new OwnerVaultBackupError({ reason: "integrity_failed" })));
 
 const writeImmutable = (
   runtime: OwnerVaultBackupRuntime,
@@ -251,13 +247,7 @@ export const createOwnerVaultBackup = (
       if (canonical === undefined || canonical.byteLength > ownerVaultBackupMaximumManifestBytes)
         return yield* ownerVaultBackupFailure("manifest_invalid");
       const signature = yield* runtime.signer.signCanonical(canonical).pipe(
-        Effect.mapError(
-          () =>
-            ({
-              _tag: "OwnerVaultBackupError",
-              reason: "manifest_untrusted",
-            }) as OwnerVaultBackupError,
-        ),
+        Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })),
       );
       const signed: OwnerVaultSignedBackupManifest = { manifest, signature };
       const signedBytes = canonicalSignedManifestBytes(signed);
@@ -354,33 +344,62 @@ const validateManifest = (
       page.size <= ownerVaultBackupMaximumPageBytes,
   );
 
-const validPageEntry = (value: unknown): value is OwnerVaultBackupPageEntry => {
+/** The only path from an archive-supplied category string into the closed category union. */
+const storageCategory = (value: unknown): OwnerVaultStorageCategory | undefined =>
+  ownerVaultStorageCategories.find((category) => category === value);
+
+const decodePageEntry = (value: unknown): OwnerVaultBackupPageEntry | undefined => {
+  if (!record(value)) return undefined;
+  const category = storageCategory(value.category);
   if (
-    !record(value) ||
+    !exactKeys(value, [
+      "ordinal",
+      "key",
+      "sha256Base64",
+      "size",
+      "category",
+      ...(value.identifier === undefined ? [] : ["identifier"]),
+      ...(value.r2 === undefined ? [] : ["r2"]),
+    ]) ||
     !safeNonNegative(value.ordinal) ||
     typeof value.key !== "string" ||
     value.key.length === 0 ||
+    typeof value.sha256Base64 !== "string" ||
     !validOwnerVaultBackupDigest(value.sha256Base64) ||
     !safeNonNegative(value.size) ||
     value.size > ownerVaultBackupMaximumObjectBytes ||
-    typeof value.category !== "string" ||
-    ownerVaultStorageRegistry.get(value.category as OwnerVaultStorageAddress["category"]) ===
-      undefined
+    category === undefined ||
+    ownerVaultStorageRegistry.get(category) === undefined
   )
-    return false;
+    return undefined;
   if (
     value.identifier !== undefined &&
     (typeof value.identifier !== "string" || !/^[A-Za-z0-9_-]{1,128}$/u.test(value.identifier))
   )
-    return false;
-  if (value.r2 === undefined) return true;
-  return (
-    record(value.r2) &&
-    typeof value.r2.key === "string" &&
-    value.r2.key.length > 0 &&
-    safeNonNegative(value.r2.size) &&
-    validOwnerVaultBackupDigest(value.r2.sha256Base64)
-  );
+    return undefined;
+  const base = {
+    ordinal: value.ordinal,
+    key: value.key,
+    sha256Base64: value.sha256Base64,
+    size: value.size,
+    category,
+    ...(value.identifier === undefined ? {} : { identifier: value.identifier }),
+  };
+  if (value.r2 === undefined) return base;
+  if (
+    !record(value.r2) ||
+    !exactKeys(value.r2, ["key", "size", "sha256Base64"]) ||
+    typeof value.r2.key !== "string" ||
+    value.r2.key.length === 0 ||
+    !safeNonNegative(value.r2.size) ||
+    typeof value.r2.sha256Base64 !== "string" ||
+    !validOwnerVaultBackupDigest(value.r2.sha256Base64)
+  )
+    return undefined;
+  return {
+    ...base,
+    r2: { key: value.r2.key, size: value.r2.size, sha256Base64: value.r2.sha256Base64 },
+  };
 };
 
 /** Restores only a pre-initialized later private target; public activation is intentionally absent. */
@@ -416,13 +435,7 @@ export const restoreOwnerVaultBackup = (
     const canonical = canonicalManifestBytes(signed.manifest);
     if (canonical === undefined) return yield* ownerVaultBackupFailure("manifest_invalid");
     yield* runtime.verifier.verifyCanonical(canonical, signed.signature).pipe(
-      Effect.mapError(
-        () =>
-          ({
-            _tag: "OwnerVaultBackupError",
-            reason: "manifest_untrusted",
-          }) as OwnerVaultBackupError,
-      ),
+      Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })),
     );
     const manifestDigest = ownerVaultBackupDigest(bytes);
     const staged: {
@@ -445,20 +458,31 @@ export const restoreOwnerVaultBackup = (
         pageBytes.byteLength > ownerVaultBackupMaximumPageBytes
       )
         return yield* ownerVaultBackupFailure("integrity_failed");
-      let page: OwnerVaultBackupPage;
+      let parsedPage: unknown;
       try {
-        page = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(pageBytes),
-        ) as OwnerVaultBackupPage;
+        parsedPage = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(pageBytes));
       } catch {
         return yield* ownerVaultBackupFailure("integrity_failed");
       }
       if (
-        !Array.isArray(page.entries) ||
-        !safeNonNegative(page.ordinal) ||
-        typeof page.digest !== "string"
+        !record(parsedPage) ||
+        !exactKeys(parsedPage, ["digest", "entries", "ordinal"]) ||
+        !Array.isArray(parsedPage.entries) ||
+        !safeNonNegative(parsedPage.ordinal) ||
+        typeof parsedPage.digest !== "string"
       )
         return yield* ownerVaultBackupFailure("integrity_failed");
+      const pageEntries: OwnerVaultBackupPageEntry[] = [];
+      for (const candidate of parsedPage.entries) {
+        const decodedEntry = decodePageEntry(candidate);
+        if (decodedEntry === undefined) return yield* ownerVaultBackupFailure("integrity_failed");
+        pageEntries.push(decodedEntry);
+      }
+      const page: OwnerVaultBackupPage = {
+        ordinal: parsedPage.ordinal,
+        entries: pageEntries,
+        digest: parsedPage.digest,
+      };
       const unsigned = canonicalPageBytes({
         ordinal: page.ordinal,
         entries: page.entries,
@@ -477,7 +501,6 @@ export const restoreOwnerVaultBackup = (
       )
         return yield* ownerVaultBackupFailure("integrity_failed");
       for (const entry of page.entries) {
-        if (!validPageEntry(entry)) return yield* ownerVaultBackupFailure("integrity_failed");
         if (entry.category === "append-log.entry") {
           if (entry.identifier !== expectedLogSequence.toString().padStart(20, "0"))
             return yield* ownerVaultBackupFailure("integrity_failed");
@@ -618,15 +641,7 @@ export const makeOwnerVaultPrivateStorageRestoreTarget = (
   ): OwnerVaultStorageAddress =>
     identifier === undefined ? { category } : { category, identifier };
   const mapStorage = <A>(effect: Effect.Effect<A, unknown>) =>
-    effect.pipe(
-      Effect.mapError(
-        () =>
-          ({
-            _tag: "OwnerVaultBackupError",
-            reason: "source_unavailable",
-          }) as OwnerVaultBackupError,
-      ),
-    );
+    effect.pipe(Effect.mapError(() => new OwnerVaultBackupError({ reason: "source_unavailable" })));
   return {
     root: options.root,
     assertFreshPrivateTarget: () =>

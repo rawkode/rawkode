@@ -137,11 +137,33 @@ export interface OwnerVaultBlobPurge {
   readonly leaseID: string;
   readonly startedAtSeconds: number;
 }
-interface StoredReceipt {
-  readonly kind: "blob-stage" | "blob-delete";
-  readonly fingerprint: string;
-  readonly response: BlobStageExecution | { readonly sha256: string; readonly status: "APPLIED" };
+/** Persisted stage metadata deliberately omits the generation epoch; reads re-hydrate it. */
+interface StoredStageMetadata {
+  readonly requestID: string;
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly objectKey: string;
 }
+interface StoredStageResponse {
+  readonly metadata: StoredStageMetadata;
+  readonly status: "APPLIED";
+}
+interface StoredDeleteResponse {
+  readonly sha256: string;
+  readonly status: "APPLIED";
+}
+type StoredReceipt =
+  | {
+      readonly kind: "blob-stage";
+      readonly fingerprint: string;
+      readonly response: StoredStageResponse;
+    }
+  | {
+      readonly kind: "blob-delete";
+      readonly fingerprint: string;
+      readonly response: StoredDeleteResponse;
+    };
 
 const decodeFloors = (record: OwnerVaultStorageRecord | undefined): Floors | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
@@ -207,10 +229,16 @@ const decodeBlobAccounting = (
     !purgeSHA256s.every((value): value is string => typeof value === "string")
   )
     return undefined;
+  if (
+    !integer(source.referencedBytes) ||
+    !integer(source.reservedStageBytes) ||
+    !integer(source.prospectiveFinalBytes)
+  )
+    return undefined;
   const candidate: BlobAccounting = {
-    referencedBytes: source.referencedBytes as number,
-    reservedStageBytes: source.reservedStageBytes as number,
-    prospectiveFinalBytes: source.prospectiveFinalBytes as number,
+    referencedBytes: source.referencedBytes,
+    reservedStageBytes: source.reservedStageBytes,
+    prospectiveFinalBytes: source.prospectiveFinalBytes,
     leaseIDs,
     purgeSHA256s,
   };
@@ -232,17 +260,17 @@ const decodeLease = (record: OwnerVaultStorageRecord | undefined): Lease | undef
     "size",
     "stageKey",
   ] as const;
+  const boundedKey = (value: unknown): value is string =>
+    typeof value === "string" && value.length > 0 && value.length <= 1024;
   if (
     source === undefined ||
     !exact(source, keys) ||
     (source.phase !== "RESERVED" && source.phase !== "PUBLISHED" && source.phase !== "CLEANUP") ||
-    ![
-      source.requestID,
-      source.operationID,
-      source.deviceID,
-      source.stageKey,
-      source.finalKey,
-    ].every((value) => typeof value === "string" && value.length > 0 && value.length <= 1024) ||
+    !boundedKey(source.requestID) ||
+    !boundedKey(source.operationID) ||
+    !boundedKey(source.deviceID) ||
+    !boundedKey(source.stageKey) ||
+    !boundedKey(source.finalKey) ||
     typeof source.sha256 !== "string" ||
     !hash.test(source.sha256) ||
     !integer(source.size) ||
@@ -254,11 +282,11 @@ const decodeLease = (record: OwnerVaultStorageRecord | undefined): Lease | undef
     return undefined;
   return {
     phase: source.phase,
-    requestID: source.requestID as string,
-    operationID: source.operationID as string,
-    deviceID: source.deviceID as string,
-    stageKey: source.stageKey as string,
-    finalKey: source.finalKey as string,
+    requestID: source.requestID,
+    operationID: source.operationID,
+    deviceID: source.deviceID,
+    stageKey: source.stageKey,
+    finalKey: source.finalKey,
     sha256: source.sha256,
     size: source.size,
     authEpoch: source.authEpoch,
@@ -349,6 +377,48 @@ const decodePurge = (record: OwnerVaultStorageRecord | undefined): Purge | undef
       }
     : undefined;
 };
+/** Exact decoder for the persisted stage response; unknown or mistyped members fail closed. */
+const decodeStageResponse = (value: unknown): StoredStageResponse | undefined => {
+  const source = object(value);
+  const metadata = source === undefined ? undefined : object(source.metadata);
+  if (
+    source === undefined ||
+    metadata === undefined ||
+    !exact(source, ["metadata", "status"]) ||
+    source.status !== "APPLIED" ||
+    !exact(metadata, ["objectKey", "path", "requestID", "sha256", "size"]) ||
+    typeof metadata.requestID !== "string" ||
+    !safeID.test(metadata.requestID) ||
+    typeof metadata.path !== "string" ||
+    typeof metadata.sha256 !== "string" ||
+    !hash.test(metadata.sha256) ||
+    !integer(metadata.size) ||
+    typeof metadata.objectKey !== "string" ||
+    metadata.objectKey.length === 0 ||
+    metadata.objectKey.length > 1024
+  )
+    return undefined;
+  return {
+    metadata: {
+      requestID: metadata.requestID,
+      path: metadata.path,
+      sha256: metadata.sha256,
+      size: metadata.size,
+      objectKey: metadata.objectKey,
+    },
+    status: "APPLIED",
+  };
+};
+const decodeDeleteResponse = (value: unknown): StoredDeleteResponse | undefined => {
+  const source = object(value);
+  return source !== undefined &&
+    exact(source, ["sha256", "status"]) &&
+    source.status === "APPLIED" &&
+    typeof source.sha256 === "string" &&
+    hash.test(source.sha256)
+    ? { sha256: source.sha256, status: "APPLIED" }
+    : undefined;
+};
 const decodeReceipt = (record: OwnerVaultStorageRecord | undefined): StoredReceipt | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
   if (
@@ -357,8 +427,19 @@ const decodeReceipt = (record: OwnerVaultStorageRecord | undefined): StoredRecei
     typeof source.fingerprint !== "string"
   )
     return undefined;
-  if (source.kind !== "blob-stage" && source.kind !== "blob-delete") return undefined;
-  return object(source.response) === undefined ? undefined : (source as unknown as StoredReceipt);
+  if (source.kind === "blob-stage") {
+    const response = decodeStageResponse(source.response);
+    return response === undefined
+      ? undefined
+      : { kind: "blob-stage", fingerprint: source.fingerprint, response };
+  }
+  if (source.kind === "blob-delete") {
+    const response = decodeDeleteResponse(source.response);
+    return response === undefined
+      ? undefined
+      : { kind: "blob-delete", fingerprint: source.fingerprint, response };
+  }
+  return undefined;
 };
 
 const stageFingerprint = (command: BlobStageCommand): string =>
@@ -527,9 +608,9 @@ export const makeOwnerVaultBlobStagingRepository = (
               : Effect.succeed(decodeLease(row)),
         ),
       );
-  const hydrateResponse = (response: BlobStageExecution): BlobStageExecution => ({
-    ...response,
+  const hydrateResponse = (response: StoredStageResponse): BlobStageExecution => ({
     metadata: { ...response.metadata, generationEpoch: config.scope.generationEpoch },
+    status: response.status,
   });
   const releaseLease = (
     tx: OwnerVaultTx,
@@ -575,7 +656,7 @@ export const makeOwnerVaultBlobStagingRepository = (
           const receipt = decodeReceipt(row);
           if (receipt === undefined || receipt.kind !== "blob-stage") return storageFailed();
           return receipt.fingerprint === fingerprint
-            ? Effect.succeed(hydrateResponse(receipt.response as BlobStageExecution))
+            ? Effect.succeed(hydrateResponse(receipt.response))
             : failed("replay_conflict");
         }),
       ),
@@ -826,7 +907,7 @@ export const makeOwnerVaultBlobStagingRepository = (
         if (receiptRow !== undefined) {
           const prior = decodeReceipt(receiptRow);
           if (prior?.kind === "blob-stage" && prior.fingerprint === stageFingerprint(command))
-            return hydrateResponse(prior.response as BlobStageExecution);
+            return hydrateResponse(prior.response);
           return yield* failed<BlobStageExecution>("replay_conflict");
         }
         const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
@@ -961,10 +1042,8 @@ export const makeOwnerVaultBlobStagingRepository = (
           if (priorReceipt !== undefined) {
             const receipt = decodeReceipt(priorReceipt);
             return yield* receipt?.kind === "blob-delete" && receipt.fingerprint === fingerprint
-              ? Effect.succeed(
-                  receipt.response as { readonly sha256: string; readonly status: "APPLIED" },
-                )
-              : failed("replay_conflict");
+              ? Effect.succeed(receipt.response)
+              : failed<StoredDeleteResponse>("replay_conflict");
           }
           const metadata = yield* tx.get(metadataAddress(command.sha256));
           const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
@@ -1014,10 +1093,7 @@ export const makeOwnerVaultBlobStagingRepository = (
             purgeSHA256s: [...accounting.purgeSHA256s, command.sha256],
           });
           return response;
-        }) as Effect.Effect<
-          { readonly sha256: string; readonly status: "APPLIED" },
-          BlobTransactionFailure
-        >,
+        }),
     ).pipe(
       Effect.tap((response) =>
         reconcileDelete(response.sha256, command.nowSeconds).pipe(

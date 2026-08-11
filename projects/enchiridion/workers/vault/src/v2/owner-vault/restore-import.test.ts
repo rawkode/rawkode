@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { canonicalJSONStringify, sha256Hex } from "@enchiridion/protocol";
 import {
   type DurableObjectStateNative,
   type DurableObjectStorageNative,
@@ -324,6 +325,97 @@ describe("OwnerVault C1 restore import", () => {
     });
   });
 
+  test("fails closed on a corrupted durable journal header before any row becomes authoritative", async () => {
+    const first = record(0, "device-a");
+    const plan = planFor(first);
+    const built = await fixture();
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    const headerKey = `v2.ov/backup/restore-journal/ri_${restoreID}`;
+    const stored = built.native.entries.get(headerKey) as {
+      readonly category: string;
+      readonly version: number;
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+    // A string ordinal passes the physical envelope but must fail the exact
+    // header decoder before it is ever compared against an applied ordinal.
+    built.native.entries.set(headerKey, {
+      ...stored,
+      payload: { ...stored.payload, lastAppliedOrdinal: "0" },
+    });
+    const restarted = testRestore(built.repository);
+    const before = JSON.stringify([...built.native.entries]);
+    const apply = await Effect.runPromiseExit(
+      restarted.applyRestoreRecord({
+        manifestDigest: plan.manifestDigest,
+        expected: first.expected,
+        record: first.stored,
+      }),
+    );
+    expect(Exit.isFailure(apply)).toBe(true);
+    expect(built.native.entries.has("v2.ov/device/device-a")).toBe(false);
+    expect(JSON.stringify([...built.native.entries])).toBe(before);
+    const finalize = await Effect.runPromiseExit(
+      restarted.finalizeRestoreImport(plan.manifestDigest, finalization()),
+    );
+    expect(Exit.isFailure(finalize)).toBe(true);
+    expect(revision(built.native.entries)).toBe(0);
+    // An unknown extra journal member is equally fatal.
+    built.native.entries.set(headerKey, {
+      ...stored,
+      payload: { ...stored.payload, extra: true },
+    });
+    const extra = await Effect.runPromiseExit(
+      restarted.applyRestoreRecord({
+        manifestDigest: plan.manifestDigest,
+        expected: first.expected,
+        record: first.stored,
+      }),
+    );
+    expect(Exit.isFailure(extra)).toBe(true);
+    expect(built.native.entries.has("v2.ov/device/device-a")).toBe(false);
+  });
+
+  test("rejects a journaled import record whose category left the closed storage domain", async () => {
+    const first = record(0, "device-a");
+    const plan = planFor(first);
+    const built = await fixture();
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    const pageKey = `v2.ov/backup/restore-journal/ri_${restoreID}_0000`;
+    const stored = built.native.entries.get(pageKey) as {
+      readonly category: string;
+      readonly version: number;
+      readonly payload: {
+        readonly records: readonly Readonly<Record<string, unknown>>[];
+      } & Readonly<Record<string, unknown>>;
+    };
+    const [planned] = stored.payload.records;
+    if (planned === undefined) throw new Error("test setup");
+    built.native.entries.set(pageKey, {
+      ...stored,
+      payload: {
+        ...stored.payload,
+        records: [
+          {
+            ...planned,
+            category: "not-a-category",
+            address: { category: "not-a-category", identifier: "device-a" },
+          },
+        ],
+      },
+    });
+    const restarted = testRestore(built.repository);
+    const apply = await Effect.runPromiseExit(
+      restarted.applyRestoreRecord({
+        manifestDigest: plan.manifestDigest,
+        expected: first.expected,
+        record: first.stored,
+      }),
+    );
+    expect(Exit.isFailure(apply)).toBe(true);
+    expect(built.native.entries.has("v2.ov/device/device-a")).toBe(false);
+    expect(revision(built.native.entries)).toBe(0);
+  });
+
   test("accepts the manifest's zero-based append inventory only when strict contiguous P02 rows match its head digest", async () => {
     const entry = (ordinal: number, sequence: number) =>
       imported(ordinal, "append-log.entry", String(sequence).padStart(20, "0"), {
@@ -449,14 +541,24 @@ describe("OwnerVault C1 restore import", () => {
           expiresAtSeconds: 1_200,
           fingerprint: "f".repeat(64),
         },
-        capability: {
-          jti: "jti-123456789012",
-          expiresAtSeconds: 1_200,
-          resource: "/v2/sync",
-          claims: '{"jti":"jti-123456789012","operationID":"operation-3"}',
-          claimsFingerprint: "091b5442a6c1e3412bd875546c4d16c66011c18697f4af3a1e738e206e054953",
-          tokenFingerprint: "e".repeat(64),
-        },
+        capability: (() => {
+          const claims = canonicalJSONStringify({
+            deviceID: "device-1",
+            expiresAt: 1_200,
+            frameID: "frame-000000000001",
+            jti: "jti-123456789012",
+            operationID: "operation-3",
+            sessionID: "session-1234567890",
+          });
+          return {
+            jti: "jti-123456789012",
+            expiresAtSeconds: 1_200,
+            resource: "/v2/sync",
+            claims,
+            claimsFingerprint: sha256Hex(new TextEncoder().encode(claims)),
+            tokenFingerprint: "e".repeat(64),
+          };
+        })(),
       }),
     );
     expect(appended.logSequence).toBe(3);

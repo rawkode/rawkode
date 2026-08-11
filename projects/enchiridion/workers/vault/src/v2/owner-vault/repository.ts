@@ -11,6 +11,9 @@ import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-c
 import {
   type OwnerVaultCatalogEntry,
   type OwnerVaultCatalogRootPayload,
+  isOwnerVaultCatalogCurrentPayload,
+  isOwnerVaultCatalogPagePayload,
+  isOwnerVaultCatalogRootPayload,
   ownerVaultCatalogCanonicalBytes,
   ownerVaultCatalogDigest,
   ownerVaultCatalogMaximumObjectBytes,
@@ -119,6 +122,31 @@ const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]
 
 const nonNegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** Re-projects an already-typed structure as a storage payload without asserting. */
+const asPayload = (value: object): Readonly<Record<string, unknown>> =>
+  Object.fromEntries(Object.entries(value));
+
+/** Exact decoder for the persisted root.identity payload; mirrors the registry's validator. */
+const decodeTargetRoot = (value: unknown): OwnerVaultTargetRoot | undefined => {
+  const source = record(value);
+  return source !== undefined &&
+    exact(source, ["ownerID", "vaultID", "generationEpoch", "namespaceState"]) &&
+    typeof source.ownerID === "string" &&
+    source.ownerID.length > 0 &&
+    typeof source.vaultID === "string" &&
+    source.vaultID.length > 0 &&
+    nonNegativeInteger(source.generationEpoch) &&
+    source.generationEpoch >= 1 &&
+    (source.namespaceState === "PRIVATE" || source.namespaceState === "ACTIVE")
+    ? {
+        ownerID: source.ownerID,
+        vaultID: source.vaultID,
+        generationEpoch: source.generationEpoch,
+        namespaceState: source.namespaceState,
+      }
+    : undefined;
+};
 
 const decodeAccounting = (value: unknown): Accounting | undefined => {
   const source = record(value);
@@ -283,16 +311,12 @@ const storageError = <A = never>(
   Effect.fail({ _tag: "OwnerVaultStorageError", reason });
 
 const isOwnerVaultStorageError = (value: unknown): value is OwnerVaultStorageError =>
-  value !== null &&
-  typeof value === "object" &&
-  (value as { readonly _tag?: unknown })._tag === "OwnerVaultStorageError";
+  record(value)?._tag === "OwnerVaultStorageError";
 
 const isOwnerVaultDomainTransactionError = (
   value: unknown,
 ): value is OwnerVaultDomainTransactionError =>
-  value !== null &&
-  typeof value === "object" &&
-  (value as { readonly _tag?: unknown })._tag === "OwnerVaultDomainTransactionError";
+  record(value)?._tag === "OwnerVaultDomainTransactionError";
 
 const transactionErrorSchema = Schema.Struct({
   _tag: Schema.Literal("OwnerVaultStorageError"),
@@ -554,17 +578,12 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 Effect.flatMap(([identityRecord, currentRecord]) => {
                   if (identityRecord === undefined) return storageError("not_initialized");
                   if (currentRecord === undefined) return storageError("state_corrupt");
-                  const current = currentRecord.payload as {
-                    readonly catalogRevision: unknown;
-                    readonly rootDigest: unknown;
-                  };
-                  if (
-                    typeof current.catalogRevision !== "number" ||
-                    !Number.isSafeInteger(current.catalogRevision) ||
-                    current.catalogRevision < 0 ||
-                    typeof current.rootDigest !== "string"
-                  )
-                    return storageError("state_corrupt");
+                  const identity = decodeTargetRoot(identityRecord.payload);
+                  if (identity === undefined) return storageError("state_corrupt");
+                  const current = isOwnerVaultCatalogCurrentPayload(currentRecord.payload)
+                    ? currentRecord.payload
+                    : undefined;
+                  if (current === undefined) return storageError("state_corrupt");
                   const rootIdentifier = ownerVaultCatalogRevisionIdentifier(
                     current.catalogRevision,
                   );
@@ -576,14 +595,14 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                   return read(rootAddress).pipe(
                     Effect.flatMap((rootRecord) => {
                       if (rootRecord === undefined) return storageError("state_corrupt");
-                      const root = rootRecord.payload as unknown as OwnerVaultCatalogRootPayload;
+                      const root = isOwnerVaultCatalogRootPayload(rootRecord.payload)
+                        ? rootRecord.payload
+                        : undefined;
                       if (
+                        root === undefined ||
                         ownerVaultCatalogDigest(root) !== current.rootDigest ||
                         root.catalogRevision !== current.catalogRevision ||
-                        !catalogScopeMatches(
-                          root,
-                          identityRecord.payload as unknown as OwnerVaultTargetRoot,
-                        )
+                        !catalogScopeMatches(root, identity)
                       )
                         return storageError("state_corrupt");
                       const pageAddresses: OwnerVaultStorageAddress[] = [];
@@ -599,25 +618,21 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                               return storageError<readonly OwnerVaultCatalogEntry[]>(
                                 "state_corrupt",
                               );
-                            const payload = pageRecord.payload as {
-                              readonly entries: unknown;
-                              readonly digest: unknown;
-                            };
-                            const entries = Array.isArray(payload.entries)
-                              ? (payload.entries as OwnerVaultCatalogEntry[])
+                            const payload = isOwnerVaultCatalogPagePayload(pageRecord.payload)
+                              ? pageRecord.payload
                               : undefined;
                             const bytes = ownerVaultCatalogCanonicalBytes(payload)?.byteLength;
                             if (
-                              entries === undefined ||
+                              payload === undefined ||
                               payload.digest !== descriptor.digest ||
-                              entries.length !== descriptor.count ||
+                              payload.entries.length !== descriptor.count ||
                               bytes !== descriptor.bytes ||
-                              ownerVaultCatalogDigest(entries) !== descriptor.digest
+                              ownerVaultCatalogDigest(payload.entries) !== descriptor.digest
                             )
                               return storageError<readonly OwnerVaultCatalogEntry[]>(
                                 "state_corrupt",
                               );
-                            return Effect.succeed(entries);
+                            return Effect.succeed(payload.entries);
                           }),
                         );
                       }).pipe(
@@ -714,7 +729,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                     ? undefined
                     : serializeRecord(
                         { category: catalogRootCategory, identifier: rootIdentifier },
-                        initialRoot as unknown as Readonly<Record<string, unknown>>,
+                        asPayload(initialRoot),
                       );
                 const catalogCurrent =
                   rootDigest === undefined
@@ -819,10 +834,6 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                     }),
                   );
                 }),
-                Effect.mapError(
-                  (error): OwnerVaultStorageTransactionFailure =>
-                    error as OwnerVaultStorageTransactionFailure,
-                ),
               );
 
             const put = (
@@ -1023,6 +1034,8 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                   ]).pipe(
                     Effect.flatMap(([identityRecord, logHeadRecord]) => {
                       if (identityRecord === undefined) return storageError("not_initialized");
+                      const identity = decodeTargetRoot(identityRecord.payload);
+                      if (identity === undefined) return storageError("state_corrupt");
                       const logHeadPayload = logHeadRecord?.payload;
                       const appendLogSequence =
                         logHeadPayload === undefined
@@ -1031,9 +1044,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                               nonNegativeInteger(logHeadPayload.appendLogSequence)
                             ? logHeadPayload.appendLogSequence
                             : undefined;
-                      const derivedAppendLogDigest = ownerVaultAppendProofD0(
-                        identityRecord.payload as unknown as OwnerVaultTargetRoot,
-                      );
+                      const derivedAppendLogDigest = ownerVaultAppendProofD0(identity);
                       const appendLogDigest =
                         logHeadPayload === undefined
                           ? derivedAppendLogDigest
@@ -1042,29 +1053,27 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                             : undefined;
                       if (appendLogSequence === undefined || appendLogDigest === undefined)
                         return storageError("state_corrupt");
-                      const descriptors = pages.map((page, ordinal) => {
+                      const descriptors: {
+                        readonly identifier: string;
+                        readonly count: number;
+                        readonly bytes: number;
+                        readonly digest: string;
+                      }[] = [];
+                      for (const [ordinal, page] of pages.entries()) {
                         const identifier = ownerVaultCatalogPageIdentifier(revision, ordinal);
-                        return identifier === undefined
-                          ? undefined
-                          : {
-                              identifier,
-                              count: page.entries.length,
-                              bytes: page.bytes,
-                              digest: page.digest,
-                            };
-                      });
-                      if (descriptors.some((descriptor) => descriptor === undefined))
-                        return storageError("state_corrupt");
+                        if (identifier === undefined) return storageError("state_corrupt");
+                        descriptors.push({
+                          identifier,
+                          count: page.entries.length,
+                          bytes: page.bytes,
+                          digest: page.digest,
+                        });
+                      }
                       const root = catalogRootPayload(
-                        identityRecord.payload as unknown as OwnerVaultTargetRoot,
+                        identity,
                         revision,
                         entries,
-                        descriptors as readonly {
-                          readonly identifier: string;
-                          readonly count: number;
-                          readonly bytes: number;
-                          readonly digest: string;
-                        }[],
+                        descriptors,
                         { appendLogSequence, appendLogDigest },
                       );
                       const rootDigest =
@@ -1074,7 +1083,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                           ? undefined
                           : serializeRecord(
                               { category: catalogRootCategory, identifier: revisionIdentifier },
-                              root as unknown as Readonly<Record<string, unknown>>,
+                              asPayload(root),
                             );
                       const nextPages = pages.map((page, ordinal) => {
                         const identifier = ownerVaultCatalogPageIdentifier(revision, ordinal);
@@ -1121,11 +1130,12 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                               oldPages.some((page) => page === undefined)
                             )
                               return storageError("state_corrupt");
+                            const priorPages = oldPages.flatMap((page) =>
+                              page === undefined ? [] : [page],
+                            );
                             const oldBytes = [
                               oldCurrent,
-                              ...(retained === 0
-                                ? [oldRoot, ...(oldPages as OwnerVaultStorageRecord[])]
-                                : []),
+                              ...(retained === 0 ? [oldRoot, ...priorPages] : []),
                             ].reduce(
                               (total, item) =>
                                 total +
@@ -1133,9 +1143,9 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                                   Number.NaN),
                               0,
                             );
-                            const writtenPages = nextPages as readonly NonNullable<
-                              typeof nextRoot
-                            >[];
+                            const writtenPages = nextPages.flatMap((page) =>
+                              page === undefined ? [] : [page],
+                            );
                             const newBytes =
                               nextCurrent.bytes +
                               nextRoot.bytes +
@@ -1242,14 +1252,11 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
       const currentValue = yield* storage.get(currentKey);
       const current =
         currentValue === undefined ? undefined : decodeStored(currentKey, currentValue)?.record;
-      const currentPayload = current?.payload as
-        | { readonly catalogRevision?: unknown; readonly rootDigest?: unknown }
-        | undefined;
-      if (
-        currentPayload === undefined ||
-        typeof currentPayload.catalogRevision !== "number" ||
-        typeof currentPayload.rootDigest !== "string"
-      )
+      const currentPayload =
+        current !== undefined && isOwnerVaultCatalogCurrentPayload(current.payload)
+          ? current.payload
+          : undefined;
+      if (currentPayload === undefined)
         return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
       const rootIdentifier = ownerVaultCatalogRevisionIdentifier(currentPayload.catalogRevision);
       if (rootIdentifier === undefined)
@@ -1259,16 +1266,21 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
       const rootValue = yield* storage.get(rootKey);
       const rootRecord =
         rootValue === undefined ? undefined : decodeStored(rootKey, rootValue)?.record;
-      const root = rootRecord?.payload as OwnerVaultCatalogRootPayload | undefined;
+      const root =
+        rootRecord !== undefined && isOwnerVaultCatalogRootPayload(rootRecord.payload)
+          ? rootRecord.payload
+          : undefined;
       const identityValue = yield* storage.get(identityKey);
-      const identity =
+      const identityRecord =
         identityValue === undefined ? undefined : decodeStored(identityKey, identityValue)?.record;
+      const identity =
+        identityRecord === undefined ? undefined : decodeTargetRoot(identityRecord.payload);
       if (
         root === undefined ||
         identity === undefined ||
         ownerVaultCatalogDigest(root) !== currentPayload.rootDigest ||
         root.catalogRevision !== currentPayload.catalogRevision ||
-        !catalogScopeMatches(root, identity.payload as unknown as OwnerVaultTargetRoot)
+        !catalogScopeMatches(root, identity)
       )
         return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
       const listed: OwnerVaultCatalogEntry[] = [];
@@ -1282,19 +1294,20 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
         const pageValue = yield* storage.get(pageKey);
         const pageRecord =
           pageValue === undefined ? undefined : decodeStored(pageKey, pageValue)?.record;
-        const payload = pageRecord?.payload as
-          | { readonly entries?: unknown; readonly digest?: unknown }
-          | undefined;
+        const payload =
+          pageRecord !== undefined && isOwnerVaultCatalogPagePayload(pageRecord.payload)
+            ? pageRecord.payload
+            : undefined;
         const pageBytes = ownerVaultCatalogCanonicalBytes(payload)?.byteLength;
         if (
-          !Array.isArray(payload?.entries) ||
+          payload === undefined ||
           payload.digest !== descriptor.digest ||
           payload.entries.length !== descriptor.count ||
           pageBytes !== descriptor.bytes ||
           ownerVaultCatalogDigest(payload.entries) !== descriptor.digest
         )
           return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
-        listed.push(...(payload.entries as OwnerVaultCatalogEntry[]));
+        listed.push(...payload.entries);
       }
       const ordered = listed.every((entry, index) => {
         const previous = listed[index - 1];
