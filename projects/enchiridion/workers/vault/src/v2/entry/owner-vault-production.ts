@@ -86,7 +86,11 @@ const read = (
   source: Readonly<Record<string, unknown>>,
   key: string,
   minimum = 1,
-): number | undefined => (integer(source[key], minimum) ? (source[key] as number) : undefined);
+): number | undefined => {
+  /** Read the dynamic property once so the predicate's narrowing is kept. */
+  const value = source[key];
+  return integer(value, minimum) ? value : undefined;
+};
 
 const validImmutableR2Binding = (value: unknown): value is ImmutableR2NativeBinding => {
   try {
@@ -347,18 +351,21 @@ export const parseOwnerVaultProductionLimits = (
 const parsePrior = (raw: string): readonly ManifestPrior[] | undefined => {
   try {
     const value = JSON.parse(raw);
-    return Array.isArray(value) &&
-      value.every((item) => {
-        const entry = object(item);
-        return (
-          entry !== undefined &&
-          exact(entry, ["keyID", "publicKeySPKIDERBase64"]) &&
-          typeof entry.keyID === "string" &&
-          typeof entry.publicKeySPKIDERBase64 === "string"
-        );
-      })
-      ? (value as readonly ManifestPrior[])
-      : undefined;
+    if (!Array.isArray(value)) return undefined;
+    /** The tuple list is constructed only after every member validates. */
+    const priors: ManifestPrior[] = [];
+    for (const item of value) {
+      const entry = object(item);
+      if (
+        entry === undefined ||
+        !exact(entry, ["keyID", "publicKeySPKIDERBase64"]) ||
+        typeof entry.keyID !== "string" ||
+        typeof entry.publicKeySPKIDERBase64 !== "string"
+      )
+        return undefined;
+      priors.push({ keyID: entry.keyID, publicKeySPKIDERBase64: entry.publicKeySPKIDERBase64 });
+    }
+    return priors;
   } catch {
     return undefined;
   }

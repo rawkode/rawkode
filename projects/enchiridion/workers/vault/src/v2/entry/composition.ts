@@ -325,11 +325,11 @@ const parseSocketAdmissionPriorKeys = (
       if (
         key === undefined ||
         !exactKeyPair(key) ||
-        !socketKeyID.test(key.keyID as string) ||
+        !socketKeyID.test(key.keyID) ||
         !socketSecret(key.secret)
       )
         return undefined;
-      keys.push({ keyID: key.keyID as string, secret: key.secret as string });
+      keys.push({ keyID: key.keyID, secret: key.secret });
     }
     return keys;
   } catch {
@@ -354,11 +354,11 @@ const parseOwnerVaultDirectoryControlPriorKeys = (
       if (
         key === undefined ||
         !exactKeyPair(key) ||
-        !socketKeyID.test(key.keyID as string) ||
+        !socketKeyID.test(key.keyID) ||
         !socketSecret(key.secret)
       )
         return undefined;
-      keys.push({ keyID: key.keyID as string, secret: key.secret as string });
+      keys.push({ keyID: key.keyID, secret: key.secret });
     }
     return keys;
   } catch {
@@ -366,7 +366,10 @@ const parseOwnerVaultDirectoryControlPriorKeys = (
   }
 };
 
-const exactKeyPair = (value: Readonly<Record<string, unknown>>): boolean =>
+/** An exact two-key pair; the predicate lets call sites keep the narrowing. */
+const exactKeyPair = (
+  value: Readonly<Record<string, unknown>>,
+): value is Readonly<Record<string, unknown>> & RawKey =>
   Object.keys(value).length === 2 &&
   Object.hasOwn(value, "keyID") &&
   Object.hasOwn(value, "secret") &&

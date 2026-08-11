@@ -180,6 +180,131 @@ describe("OwnerVault physical state registry", () => {
     ).toThrow(OwnerVaultStorageRegistryError);
   });
 
+  test("decodes socket admission phases as an exact closed domain", () => {
+    const admission = (overrides: Readonly<Record<string, unknown>> = {}) => ({
+      category: "socket.admission",
+      version: 1,
+      payload: {
+        acceptedAtMilliseconds: 0,
+        bindingNonce: "A".repeat(22),
+        challenge: {
+          challengeID: "challenge-1",
+          challengeBase64: "B".repeat(22),
+          challengeAudience: "owner-vault-socket",
+        },
+        controlEpoch: 1,
+        createdAtMilliseconds: 1_000,
+        credentialEpoch: 1,
+        deviceID: "device-1",
+        expiresAtMilliseconds: 2_000_000,
+        expiresAtSeconds: 2_000,
+        fingerprint: "a".repeat(64),
+        generationEpoch: 1,
+        issuedAtSeconds: 1,
+        jti: "C".repeat(16),
+        namespaceState: "PRIVATE",
+        operationID: "D".repeat(16),
+        ownerID: "owner-1",
+        phase: "PREPARED",
+        quotaReserved: false,
+        routingEpoch: 1,
+        securityFloor: 1,
+        sessionID: "session-1",
+        socketGeneration: 1,
+        upgradeNonce: "E".repeat(22),
+        vaultID: "vault-1",
+        ...overrides,
+      },
+    });
+    const key = registered("socket.admission", "admission-1");
+    expect(assertOwnerVaultStorageRecord(key, admission())).toMatchObject({
+      category: "socket.admission",
+    });
+    expect(
+      assertOwnerVaultStorageRecord(
+        key,
+        admission({ phase: "ACCEPTED", acceptedAtMilliseconds: 1_500 }),
+      ),
+    ).toMatchObject({ category: "socket.admission" });
+    expect(() => assertOwnerVaultStorageRecord(key, admission({ phase: "BOGUS" }))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission({ phase: "prepared" }))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission({ phase: 1 }))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission({ phase: undefined }))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    const { phase, ...withoutPhase } = admission().payload;
+    expect(phase).toBe("PREPARED");
+    expect(() =>
+      assertOwnerVaultStorageRecord(key, {
+        category: "socket.admission",
+        version: 1,
+        payload: withoutPhase,
+      }),
+    ).toThrow(OwnerVaultStorageRegistryError);
+  });
+
+  test("keeps acceptance milliseconds cross-checked against the admission phase", () => {
+    const admission = (phase: string, acceptedAtMilliseconds: number) => ({
+      category: "socket.admission",
+      version: 1,
+      payload: {
+        acceptedAtMilliseconds,
+        bindingNonce: "A".repeat(22),
+        challenge: {
+          challengeID: "challenge-1",
+          challengeBase64: "B".repeat(22),
+          challengeAudience: "owner-vault-socket",
+        },
+        controlEpoch: 1,
+        createdAtMilliseconds: 1_000,
+        credentialEpoch: 1,
+        deviceID: "device-1",
+        expiresAtMilliseconds: 2_000_000,
+        expiresAtSeconds: 2_000,
+        fingerprint: "a".repeat(64),
+        generationEpoch: 1,
+        issuedAtSeconds: 1,
+        jti: "C".repeat(16),
+        namespaceState: "PRIVATE",
+        operationID: "D".repeat(16),
+        ownerID: "owner-1",
+        phase,
+        quotaReserved: false,
+        routingEpoch: 1,
+        securityFloor: 1,
+        sessionID: "session-1",
+        socketGeneration: 1,
+        upgradeNonce: "E".repeat(22),
+        vaultID: "vault-1",
+      },
+    });
+    const key = registered("socket.admission", "admission-2");
+    expect(assertOwnerVaultStorageRecord(key, admission("EXPIRED", 0))).toMatchObject({
+      category: "socket.admission",
+    });
+    expect(assertOwnerVaultStorageRecord(key, admission("CLOSED", 1_000))).toMatchObject({
+      category: "socket.admission",
+    });
+    expect(() => assertOwnerVaultStorageRecord(key, admission("PREPARED", 1_500))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission("EXPIRED", 1_500))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission("ACCEPTED", 500))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+    expect(() => assertOwnerVaultStorageRecord(key, admission("ACCEPTED", 0))).toThrow(
+      OwnerVaultStorageRegistryError,
+    );
+  });
+
   test("permits source scope solely inside the audit restore-source record", () => {
     expect(
       assertOwnerVaultStorageRecord(registered("audit.restore-source"), {

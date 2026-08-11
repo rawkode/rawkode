@@ -226,6 +226,8 @@ export const isOwnerVaultCatalogRootPayload = (
 ): value is OwnerVaultCatalogRootPayload => {
   const source = plainRecord(value);
   const bytes = source === undefined ? undefined : ownerVaultCatalogCanonicalBytes(source);
+  /** Narrowed once as a local const so collection callbacks keep the proof. */
+  const catalogRevision = source?.catalogRevision;
   return (
     source !== undefined &&
     exact(source, [
@@ -238,14 +240,12 @@ export const isOwnerVaultCatalogRootPayload = (
       "appendLogDigest",
     ]) &&
     isScope(source.scope) &&
-    safeNonNegativeInteger(source.catalogRevision) &&
+    safeNonNegativeInteger(catalogRevision) &&
     typeof source.catalogDigest === "string" &&
     base64.test(source.catalogDigest) &&
     Array.isArray(source.pages) &&
     source.pages.length <= ownerVaultCatalogMaximumObjects / ownerVaultCatalogMaximumPageEntries &&
-    source.pages.every((page, index) =>
-      isDescriptor(page, index, source.catalogRevision as number),
-    ) &&
+    source.pages.every((page, index) => isDescriptor(page, index, catalogRevision)) &&
     typeof source.highWaterMark === "string" &&
     base64.test(source.highWaterMark) &&
     safeNonNegativeInteger(source.appendLogSequence) &&
