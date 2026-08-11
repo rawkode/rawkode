@@ -3,7 +3,9 @@ import { DurableObject } from "cloudflare:workers";
 import {
   type CanonicalJSON,
   type DeviceChallengeRequest,
+  type DeviceChallengeResponse,
   type DeviceRegisterRequest,
+  type DeviceRegisterResponse,
   type MutationRequest,
   canonicalJSONStringify,
   decodeDeviceChallengeRequest,
@@ -122,13 +124,61 @@ const response = (body: Readonly<Record<string, unknown>>, status = 200): Respon
     status,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
-const bodyHash = (command: Readonly<Record<string, unknown>>): string =>
+/**
+ * The exact decoded command object is hashed, never a rebuilt copy: this hash
+ * is the signed capability `bodySHA256` binding, so member order must remain
+ * byte-identical to the sender's wire serialization.
+ */
+const bodyHash = (command: unknown): string =>
   sha256Hex(new TextEncoder().encode(JSON.stringify(command)));
-/** Canonical non-secret proof persisted with a claimed capability receipt. */
-const canonicalCapabilityClaims = (claims: Readonly<Record<string, unknown>>): string =>
-  canonicalJSONStringify(claims as CanonicalJSON);
-const capabilityClaimsFingerprint = (claims: Readonly<Record<string, unknown>>): string =>
-  sha256Hex(new TextEncoder().encode(canonicalCapabilityClaims(claims)));
+/**
+ * Exact recursive canonical-JSON narrowers. They rebuild a fresh value from
+ * checked fields instead of asserting, and accept exactly the domain that
+ * `canonicalJSONStringify` serializes: null, booleans, finite numbers,
+ * strings, dense arrays, and Object-prototype plain objects, recursively.
+ * Deliberately duplicated from ./domains.ts, where they remain module-private.
+ */
+const canonicalJSONValue = (value: unknown): CanonicalJSON | undefined => {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) {
+    const items: CanonicalJSON[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) return undefined;
+      const item = canonicalJSONValue(value[index]);
+      if (item === undefined) return undefined;
+      items.push(item);
+    }
+    return items;
+  }
+  return canonicalJSONRecord(value);
+};
+const canonicalJSONRecord = (
+  value: unknown,
+): Readonly<Record<string, CanonicalJSON>> | undefined => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return undefined;
+  const entries: [string, CanonicalJSON][] = [];
+  for (const [key, child] of Object.entries(value)) {
+    const rebuilt = canonicalJSONValue(child);
+    if (rebuilt === undefined) return undefined;
+    entries.push([key, rebuilt]);
+  }
+  return Object.fromEntries(entries);
+};
+/** Canonical non-secret proof persisted with a claimed capability receipt.
+ * Rebuild failure means the claims left the canonical domain and fails closed. */
+const canonicalCapabilityClaims = (claims: unknown): string | undefined => {
+  const rebuilt = canonicalJSONRecord(claims);
+  return rebuilt === undefined ? undefined : canonicalJSONStringify(rebuilt);
+};
+const claimsFingerprintOf = (canonicalClaims: string): string =>
+  sha256Hex(new TextEncoder().encode(canonicalClaims));
 const capabilityTokenFingerprint = (capability: SignedCapability): string =>
   sha256Hex(new TextEncoder().encode(capability.value));
 const capabilityReceiptInput = (
@@ -137,17 +187,41 @@ const capabilityReceiptInput = (
   resource: string,
   operationID: string,
   nowSeconds: number,
-): OwnerVaultCapabilityReceiptInput => ({
-  jti: claims.jti,
-  resource,
-  operationID,
-  nowSeconds,
-  expiresAtSeconds: claims.expiresAt,
-  claims: canonicalCapabilityClaims(claims as unknown as Readonly<Record<string, unknown>>),
-  claimsFingerprint: capabilityClaimsFingerprint(
-    claims as unknown as Readonly<Record<string, unknown>>,
-  ),
-  tokenFingerprint: capabilityTokenFingerprint(capability),
+): OwnerVaultCapabilityReceiptInput | undefined => {
+  const canonicalClaims = canonicalCapabilityClaims(claims);
+  return canonicalClaims === undefined
+    ? undefined
+    : {
+        jti: claims.jti,
+        resource,
+        operationID,
+        nowSeconds,
+        expiresAtSeconds: claims.expiresAt,
+        claims: canonicalClaims,
+        claimsFingerprint: claimsFingerprintOf(canonicalClaims),
+        tokenFingerprint: capabilityTokenFingerprint(capability),
+      };
+};
+/**
+ * Fresh exact result rebuilds mirroring the decodeDeviceChallengeResponse and
+ * decodeDeviceRegisterResponse accepted grammar, so completed receipts replay
+ * identically through those decoders and never coerce the service value.
+ */
+const deviceChallengeResult = (
+  challenge: DeviceChallengeResponse,
+): Readonly<Record<string, unknown>> => ({
+  protocolVersion: challenge.protocolVersion,
+  challengeID: challenge.challengeID,
+  challengeBase64: challenge.challengeBase64,
+  expiresAt: challenge.expiresAt,
+});
+const deviceRegisterResult = (
+  registered: DeviceRegisterResponse,
+): Readonly<Record<string, unknown>> => ({
+  protocolVersion: registered.protocolVersion,
+  ownerID: registered.ownerID,
+  deviceID: registered.deviceID,
+  authEpoch: registered.authEpoch,
 });
 const durableReceipt = (kind: string, operationID: string, digest: string): string =>
   sha256Hex(new TextEncoder().encode(`${kind}\u0000${operationID}\u0000${digest}`));
@@ -289,6 +363,19 @@ const socketHint = (capability: string): SocketCapabilityHint | undefined => {
 const socketFingerprint = (capability: string): string =>
   sha256Hex(new TextEncoder().encode(capability));
 const socketIdentifier = /^[A-Za-z0-9_-]{16,64}$/u;
+/** Exact bounded rebuild of a persisted socket-identifier list; duplicates,
+ * holes, oversize lists, and non-identifier members all fail closed. */
+const socketIdentifierList = (value: unknown): readonly string[] | undefined => {
+  if (!Array.isArray(value) || value.length > ownerVaultMaximumSessions) return undefined;
+  const items: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) return undefined;
+    const item: unknown = value[index];
+    if (typeof item !== "string" || !socketIdentifier.test(item)) return undefined;
+    items.push(item);
+  }
+  return new Set(items).size === items.length ? items : undefined;
+};
 const validSocketAttachment = (value: unknown): value is SocketAttachment => {
   const source = record(value);
   return (
@@ -598,38 +685,33 @@ const socketAdmissionCounts = (value: unknown): SocketAdmissionCounts | undefine
     )
   )
     return undefined;
-  const counts = [
-    source.activeChallenges,
-    source.activeDevices,
-    source.activeSessions,
-    source.capabilityReceipts,
-    source.pendingSocketAdmissions ?? 0,
-    source.activeSocketAdmissions ?? 0,
-  ];
-  const prepared = source.preparedSocketOperationIDs ?? [];
-  const replayJTIs = source.socketReplayJTIs ?? [];
-  return counts.every(nonNegative) &&
+  const activeChallenges = source.activeChallenges;
+  const activeDevices = source.activeDevices;
+  const activeSessions = source.activeSessions;
+  const capabilityReceipts = source.capabilityReceipts;
+  const pendingSocketAdmissions = source.pendingSocketAdmissions ?? 0;
+  const activeSocketAdmissions = source.activeSocketAdmissions ?? 0;
+  const prepared = socketIdentifierList(source.preparedSocketOperationIDs ?? []);
+  const replayJTIs = socketIdentifierList(source.socketReplayJTIs ?? []);
+  return nonNegative(activeChallenges) &&
+    nonNegative(activeDevices) &&
+    nonNegative(activeSessions) &&
+    nonNegative(capabilityReceipts) &&
+    nonNegative(pendingSocketAdmissions) &&
+    nonNegative(activeSocketAdmissions) &&
     (source.stopped === undefined || typeof source.stopped === "boolean") &&
-    Array.isArray(prepared) &&
-    prepared.length <= ownerVaultMaximumSessions &&
-    prepared.every(
-      (operationID) => typeof operationID === "string" && socketIdentifier.test(operationID),
-    ) &&
-    new Set(prepared).size === prepared.length &&
-    Array.isArray(replayJTIs) &&
-    replayJTIs.length <= ownerVaultMaximumSessions &&
-    replayJTIs.every((jti) => typeof jti === "string" && socketIdentifier.test(jti)) &&
-    new Set(replayJTIs).size === replayJTIs.length
+    prepared !== undefined &&
+    replayJTIs !== undefined
     ? {
-        activeChallenges: source.activeChallenges as number,
-        activeDevices: source.activeDevices as number,
-        activeSessions: source.activeSessions as number,
-        capabilityReceipts: source.capabilityReceipts as number,
+        activeChallenges,
+        activeDevices,
+        activeSessions,
+        capabilityReceipts,
         stopped: source.stopped === true,
-        pendingSocketAdmissions: (source.pendingSocketAdmissions ?? 0) as number,
-        activeSocketAdmissions: (source.activeSocketAdmissions ?? 0) as number,
-        preparedSocketOperationIDs: prepared as readonly string[],
-        socketReplayJTIs: replayJTIs as readonly string[],
+        pendingSocketAdmissions,
+        activeSocketAdmissions,
+        preparedSocketOperationIDs: prepared,
+        socketReplayJTIs: replayJTIs,
       }
     : undefined;
 };
@@ -691,9 +773,14 @@ interface OwnerVaultControlEnvelope<C> {
   readonly capability: SignedOwnerVaultDirectoryControl;
   readonly command: C;
 }
-const decodeEnvelope = <C>(
+/**
+ * The command stays the exact parsed record, narrowed by an exact closed-domain
+ * type predicate; it is never coerced into the trusted command type before
+ * validation, and its member order is preserved for the bodySHA256 binding.
+ */
+const decodeEnvelope = <C extends Readonly<Record<string, unknown>>>(
   bytes: Uint8Array,
-  validCommand: (value: C) => boolean,
+  validCommand: (value: Readonly<Record<string, unknown>>) => value is C,
 ): ControlEnvelope<C> | undefined => {
   try {
     const root = record(
@@ -705,7 +792,7 @@ const decodeEnvelope = <C>(
       typeof root.capability !== "string"
     )
       return undefined;
-    const command = record(root.command) as C | undefined;
+    const command = record(root.command);
     return command !== undefined && validCommand(command)
       ? { capability: { value: root.capability }, command }
       : undefined;
@@ -713,6 +800,79 @@ const decodeEnvelope = <C>(
     return undefined;
   }
 };
+type OwnerVaultInitializationCommandRecord = OwnerVaultInitializationCommand &
+  Readonly<Record<string, unknown>>;
+type OwnerVaultFloorSyncCommandRecord = OwnerVaultFloorSyncCommand &
+  Readonly<Record<string, unknown>>;
+const initializationCommandKeys = [
+  "ownerID",
+  "vaultID",
+  "generationEpoch",
+  "operationID",
+  "credentialEpoch",
+  "routingEpoch",
+  "controlEpoch",
+  "initDigest",
+] as const;
+const floorSyncCommandKeys = [
+  "ownerID",
+  "vaultID",
+  "generationEpoch",
+  "operationID",
+  "credentialEpoch",
+  "routingEpoch",
+  "controlEpoch",
+  "floorSyncDigest",
+] as const;
+/**
+ * Exact typed predicates over the untrusted parsed record. The lifecycle field
+ * validators assume already-typed values and check no key set, so exact keys
+ * and typeof narrowing are enforced here before those field rules run.
+ */
+const validInitializationCommandRecord = (
+  value: Readonly<Record<string, unknown>>,
+): value is OwnerVaultInitializationCommandRecord =>
+  exact(value, initializationCommandKeys) &&
+  typeof value.ownerID === "string" &&
+  typeof value.vaultID === "string" &&
+  typeof value.operationID === "string" &&
+  typeof value.initDigest === "string" &&
+  typeof value.generationEpoch === "number" &&
+  typeof value.credentialEpoch === "number" &&
+  typeof value.routingEpoch === "number" &&
+  typeof value.controlEpoch === "number" &&
+  validOwnerVaultInitializationCommand({
+    ownerID: value.ownerID,
+    vaultID: value.vaultID,
+    generationEpoch: value.generationEpoch,
+    operationID: value.operationID,
+    credentialEpoch: value.credentialEpoch,
+    routingEpoch: value.routingEpoch,
+    controlEpoch: value.controlEpoch,
+    initDigest: value.initDigest,
+  });
+const validFloorSyncCommandRecord = (
+  value: Readonly<Record<string, unknown>>,
+): value is OwnerVaultFloorSyncCommandRecord =>
+  exact(value, floorSyncCommandKeys) &&
+  typeof value.ownerID === "string" &&
+  typeof value.vaultID === "string" &&
+  typeof value.operationID === "string" &&
+  typeof value.floorSyncDigest === "string" &&
+  typeof value.generationEpoch === "number" &&
+  typeof value.credentialEpoch === "number" &&
+  typeof value.routingEpoch === "number" &&
+  typeof value.controlEpoch === "number" &&
+  validOwnerVaultFloorSyncCommand({
+    ownerID: value.ownerID,
+    vaultID: value.vaultID,
+    generationEpoch: value.generationEpoch,
+    operationID: value.operationID,
+    credentialEpoch: value.credentialEpoch,
+    routingEpoch: value.routingEpoch,
+    controlEpoch: value.controlEpoch,
+    floorSyncDigest: value.floorSyncDigest,
+  });
 const decodeOwnerVaultControlEnvelope = <C extends Readonly<Record<string, unknown>>>(
   bytes: Uint8Array,
   validCommand: (value: Readonly<Record<string, unknown>>) => value is C,
@@ -1058,7 +1218,7 @@ export const makeOwnerVaultDO = (
         method: CapabilityMethod.POST,
         path: ownerVaultInitializationPath,
         canonicalQuery: "",
-        bodySHA256: bodyHash(command as unknown as Readonly<Record<string, unknown>>),
+        bodySHA256: bodyHash(command),
         ownerID: command.ownerID,
         vaultID: command.vaultID,
         initDigest: command.initDigest,
@@ -1083,7 +1243,7 @@ export const makeOwnerVaultDO = (
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
       return this.controls.verifier.verify(envelope.capability, binding, expected, now()).pipe(
-        Effect.flatMap((claims) => {
+        Effect.flatMap((claims): Effect.Effect<Response, unknown> => {
           const provider = makeOwnerVaultDomainProvider(repository, commandIdentity(command));
           const capabilityReceipt = capabilityReceiptInput(
             claims,
@@ -1092,6 +1252,7 @@ export const makeOwnerVaultDO = (
             command.operationID,
             now(),
           );
+          if (capabilityReceipt === undefined) return rejectControl<Response>();
           const payload = initPayload(
             command,
             durableReceipt("init", command.operationID, command.initDigest),
@@ -1148,7 +1309,7 @@ export const makeOwnerVaultDO = (
         method: CapabilityMethod.POST,
         path: ownerVaultFloorSyncPath,
         canonicalQuery: "",
-        bodySHA256: bodyHash(command as unknown as Readonly<Record<string, unknown>>),
+        bodySHA256: bodyHash(command),
         ownerID: command.ownerID,
         vaultID: command.vaultID,
         floorSyncDigest: command.floorSyncDigest,
@@ -1173,7 +1334,7 @@ export const makeOwnerVaultDO = (
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
       return this.controls.verifier.verify(envelope.capability, binding, expected, now()).pipe(
-        Effect.flatMap((claims) => {
+        Effect.flatMap((claims): Effect.Effect<string, unknown> => {
           const provider = makeOwnerVaultDomainProvider(repository, commandIdentity(command));
           const capabilityReceipt = capabilityReceiptInput(
             claims,
@@ -1182,6 +1343,7 @@ export const makeOwnerVaultDO = (
             command.operationID,
             now(),
           );
+          if (capabilityReceipt === undefined) return rejectControl<string>();
           return provider.claimCapabilityReceipt(capabilityReceipt).pipe(
             Effect.zipRight(
               repository.transact((tx) => {
@@ -1287,7 +1449,7 @@ export const makeOwnerVaultDO = (
         securityFloor: command.securityFloor,
       } as const;
       return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
-        Effect.flatMap((claims) => {
+        Effect.flatMap((claims): Effect.Effect<string, unknown> => {
           const capabilityReceipt = capabilityReceiptInput(
             claims,
             envelope.capability,
@@ -1295,6 +1457,7 @@ export const makeOwnerVaultDO = (
             command.operationID,
             now(),
           );
+          if (capabilityReceipt === undefined) return rejectControl<string>();
           return graph.domains.initialize().pipe(
             Effect.zipRight(graph.domains.claimCapabilityReceipt(capabilityReceipt)),
             Effect.zipRight(
@@ -2099,7 +2262,6 @@ export const makeOwnerVaultDO = (
 
     private userCapability = <C>(
       envelope: ControlEnvelope<C>,
-      command: Readonly<Record<string, unknown>>,
       path: string,
       authority: SocketAuthority,
     ): Effect.Effect<CapabilityClaims, unknown> => {
@@ -2109,7 +2271,9 @@ export const makeOwnerVaultDO = (
         method: CapabilityMethod.POST,
         path,
         canonicalQuery: "",
-        bodySHA256: bodyHash(command),
+        // The identical decoded command object is hashed; it is the exact
+        // value whose serialization the signed capability body binding covers.
+        bodySHA256: bodyHash(envelope.command),
         ownerID: authority.ownerID,
         vaultID: authority.vaultID,
       } as const;
@@ -2152,6 +2316,8 @@ export const makeOwnerVaultDO = (
       replay: (result: Readonly<Record<string, unknown>>) => A | undefined,
     ): Effect.Effect<A, unknown> => {
       const receipt = capabilityReceiptInput(claims, capability, resource, operationID, now());
+      if (receipt === undefined)
+        return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
       return domains.claimCapabilityReceipt(receipt).pipe(
         Effect.flatMap((claimed) => {
           if (claimed.state === "COMPLETED") {
@@ -2182,12 +2348,7 @@ export const makeOwnerVaultDO = (
           const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
           const graph = makeOwnerVaultProviderGraph(repository, root, this.production);
           if (graph === undefined) return rejectControl<Response>();
-          return this.userCapability(
-            envelope,
-            envelope.command as unknown as Readonly<Record<string, unknown>>,
-            ownerVaultDeviceChallengePath,
-            authority,
-          ).pipe(
+          return this.userCapability(envelope, ownerVaultDeviceChallengePath, authority).pipe(
             Effect.flatMap((claims): Effect.Effect<Response, unknown> => {
               // DeviceChallenge has no separately signed operation field. Its
               // canonical one-shot operation identity is therefore the signed
@@ -2199,6 +2360,8 @@ export const makeOwnerVaultDO = (
                 claims.jti,
                 now(),
               );
+              if (receipt === undefined)
+                return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
               return graph.domains.claimCapabilityReceipt(receipt).pipe(
                 Effect.flatMap((claimed): Effect.Effect<Response, OwnerVaultDomainError> => {
                   if (claimed.state === "COMPLETED") {
@@ -2224,14 +2387,12 @@ export const makeOwnerVaultDO = (
                         Date.now(),
                       ),
                     ),
-                    Effect.flatMap((challenge) =>
-                      graph.domains
-                        .completeCapabilityReceipt(
-                          receipt,
-                          challenge as unknown as Readonly<Record<string, unknown>>,
-                        )
-                        .pipe(Effect.as(response(challenge))),
-                    ),
+                    Effect.flatMap((challenge) => {
+                      const result = deviceChallengeResult(challenge);
+                      return graph.domains
+                        .completeCapabilityReceipt(receipt, result)
+                        .pipe(Effect.as(response(result)));
+                    }),
                     Effect.mapError(
                       () => new OwnerVaultDomainError({ reason: "authorization_denied" }),
                     ),
@@ -2257,12 +2418,7 @@ export const makeOwnerVaultDO = (
           const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
           const graph = makeOwnerVaultProviderGraph(repository, root, this.production);
           if (graph === undefined) return rejectControl<Response>();
-          return this.userCapability(
-            envelope,
-            envelope.command as unknown as Readonly<Record<string, unknown>>,
-            ownerVaultDeviceCompletePath,
-            authority,
-          ).pipe(
+          return this.userCapability(envelope, ownerVaultDeviceCompletePath, authority).pipe(
             Effect.flatMap((claims): Effect.Effect<Response, unknown> => {
               // DeviceComplete carries its own signed idempotency key, which
               // is the durable operation identity for this receipt.
@@ -2273,6 +2429,8 @@ export const makeOwnerVaultDO = (
                 envelope.command.idempotencyKey,
                 now(),
               );
+              if (receipt === undefined)
+                return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
               return graph.domains.claimCapabilityReceipt(receipt).pipe(
                 Effect.flatMap((claimed): Effect.Effect<Response, OwnerVaultDomainError> => {
                   if (claimed.state === "COMPLETED") {
@@ -2288,14 +2446,12 @@ export const makeOwnerVaultDO = (
                     Effect.flatMap((devices) =>
                       devices.registerInitialOrAdditionalDevice(envelope.command, Date.now()),
                     ),
-                    Effect.flatMap((registered) =>
-                      graph.domains
-                        .completeCapabilityReceipt(
-                          receipt,
-                          registered as unknown as Readonly<Record<string, unknown>>,
-                        )
-                        .pipe(Effect.as(response(registered))),
-                    ),
+                    Effect.flatMap((registered) => {
+                      const result = deviceRegisterResult(registered);
+                      return graph.domains
+                        .completeCapabilityReceipt(receipt, result)
+                        .pipe(Effect.as(response(result)));
+                    }),
                     Effect.mapError(
                       () => new OwnerVaultDomainError({ reason: "authorization_denied" }),
                     ),
@@ -2329,12 +2485,7 @@ export const makeOwnerVaultDO = (
           if (graph === undefined) return rejectControl<Response>();
           const nowMilliseconds = Date.now();
           const nowSeconds = Math.floor(nowMilliseconds / 1_000);
-          return this.userCapability(
-            envelope,
-            envelope.command as unknown as Readonly<Record<string, unknown>>,
-            ownerVaultOpaqueAppendPath,
-            authority,
-          ).pipe(
+          return this.userCapability(envelope, ownerVaultOpaqueAppendPath, authority).pipe(
             Effect.flatMap((capability) =>
               this.deviceServiceFor(authority, graph.domains, repository).pipe(
                 Effect.flatMap((devices) =>
@@ -2364,6 +2515,9 @@ export const makeOwnerVaultDO = (
                   });
                   if (fingerprint === undefined)
                     return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
+                  const canonicalClaims = canonicalCapabilityClaims(capability);
+                  if (canonicalClaims === undefined)
+                    return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
                   return graph.domains
                     .append({
                       operationID: envelope.command.command.operationID,
@@ -2389,12 +2543,8 @@ export const makeOwnerVaultDO = (
                         jti: capability.jti,
                         expiresAtSeconds: capability.expiresAt,
                         resource: ownerVaultOpaqueAppendPath,
-                        claims: canonicalCapabilityClaims(
-                          capability as unknown as Readonly<Record<string, unknown>>,
-                        ),
-                        claimsFingerprint: capabilityClaimsFingerprint(
-                          capability as unknown as Readonly<Record<string, unknown>>,
-                        ),
+                        claims: canonicalClaims,
+                        claimsFingerprint: claimsFingerprintOf(canonicalClaims),
                         tokenFingerprint: capabilityTokenFingerprint(envelope.capability),
                       },
                     })
@@ -3401,6 +3551,8 @@ export const makeOwnerVaultDO = (
           issuedAt: admission.issuedAtSeconds,
           expiresAt: admission.expiresAtSeconds,
         } as const;
+        const canonicalReceiptClaims =
+          canonicalCapabilityClaims(receiptClaims) ?? (yield* rejectControl<string>());
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,
@@ -3435,8 +3587,8 @@ export const makeOwnerVaultDO = (
               jti: receiptJTI,
               expiresAtSeconds: admission.expiresAtSeconds,
               resource: "/v2/sync",
-              claims: canonicalCapabilityClaims(receiptClaims),
-              claimsFingerprint: capabilityClaimsFingerprint(receiptClaims),
+              claims: canonicalReceiptClaims,
+              claimsFingerprint: claimsFingerprintOf(canonicalReceiptClaims),
               tokenFingerprint: admission.fingerprint,
             },
           })
@@ -3457,9 +3609,8 @@ export const makeOwnerVaultDO = (
       socket: WebSocket,
       message: string | ArrayBuffer,
     ): Effect.Effect<void> => {
-      const attachment = validSocketAttachment(socket.deserializeAttachment())
-        ? (socket.deserializeAttachment() as SocketAttachment)
-        : undefined;
+      const candidate = socket.deserializeAttachment();
+      const attachment = validSocketAttachment(candidate) ? candidate : undefined;
       if (
         attachment === undefined ||
         JSON.stringify(attachment).length > socketAttachmentMaximumBytes
@@ -3549,13 +3700,13 @@ export const makeOwnerVaultDO = (
                   : this.opaqueAppend(envelope);
               }
               if (route.pathname === ownerVaultInitializationPath) {
-                const envelope = decodeEnvelope(bytes, validOwnerVaultInitializationCommand);
+                const envelope = decodeEnvelope(bytes, validInitializationCommandRecord);
                 return envelope === undefined
                   ? Effect.succeed(response({ ok: false }, 400))
                   : this.initialize(envelope);
               }
               if (route.pathname === ownerVaultFloorSyncPath) {
-                const envelope = decodeEnvelope(bytes, validOwnerVaultFloorSyncCommand);
+                const envelope = decodeEnvelope(bytes, validFloorSyncCommandRecord);
                 return envelope === undefined
                   ? Effect.succeed(response({ ok: false }, 400))
                   : this.syncFloors(envelope);
@@ -3566,32 +3717,36 @@ export const makeOwnerVaultDO = (
         }),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 400))),
       );
-    override readonly fetch = (request: Request): Promise<Response> =>
+    /**
+     * The four native callback exits below are each ONE direct call to this
+     * object's audited runtime boundary callbacks with a single Effect
+     * argument; attachment decoding happens inside the Effect and the no-op
+     * branch is boundary-owned Effect.void, so no native Promise value is
+     * constructed or annotated in this module.
+     */
+    override readonly fetch = (request: Request) =>
       this.boundary.callbacks.fetch(this.effectHandler(request));
-    override readonly webSocketMessage = (
-      socket: WebSocket,
-      message: string | ArrayBuffer,
-    ): Promise<void> =>
+    override readonly webSocketMessage = (socket: WebSocket, message: string | ArrayBuffer) =>
       this.boundary.callbacks.webSocketMessage(this.socketMessage(socket, message));
-    override readonly webSocketClose = (socket: WebSocket): Promise<void> => {
-      const candidate = socket.deserializeAttachment();
-      const attachment = validSocketAttachment(candidate) ? candidate : undefined;
-      return attachment === undefined
-        ? Promise.resolve()
-        : this.boundary.callbacks.webSocketMessage(
-            this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
-          );
-    };
-    override readonly webSocketError = (socket: WebSocket, _error: unknown): Promise<void> => {
-      const candidate = socket.deserializeAttachment();
-      const attachment = validSocketAttachment(candidate) ? candidate : undefined;
-      return attachment === undefined
-        ? Promise.resolve()
-        : this.boundary.callbacks.webSocketMessage(
-            this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
-          );
-    };
-    override readonly alarm = (): Promise<void> =>
+    override readonly webSocketClose = (socket: WebSocket) =>
+      this.boundary.callbacks.webSocketMessage(
+        Effect.suspend(() => {
+          const candidate = socket.deserializeAttachment();
+          return validSocketAttachment(candidate)
+            ? this.releaseSocket(candidate).pipe(Effect.catchAll(() => Effect.void))
+            : Effect.void;
+        }),
+      );
+    override readonly webSocketError = (socket: WebSocket, _error: unknown) =>
+      this.boundary.callbacks.webSocketMessage(
+        Effect.suspend(() => {
+          const candidate = socket.deserializeAttachment();
+          return validSocketAttachment(candidate)
+            ? this.releaseSocket(candidate).pipe(Effect.catchAll(() => Effect.void))
+            : Effect.void;
+        }),
+      );
+    override readonly alarm = () =>
       this.boundary.callbacks.alarm(
         Effect.gen(this, function* () {
           let nearest: number | undefined;
