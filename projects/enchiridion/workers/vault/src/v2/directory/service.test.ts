@@ -181,6 +181,51 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
     }
   });
 
+  test("rejects a missing or malformed initialization JTI before any durable reservation or OwnerVault RPC", async () => {
+    // P05-A: the OwnerVault initialization JTI is the generated operationID.
+    // A missing or malformed value must never become a durable reservation
+    // and must never reach signing or the ensureInitialized RPC.
+    for (const generated of ["", "malformed initialization jti"]) {
+      let rpcCalls = 0;
+      const malformedRandom: DirectorySecureRandom = {
+        identifier: (purpose) =>
+          Effect.succeed(
+            purpose === "owner-vault-initialization" ? generated : `${purpose}-0123456789abcdef`,
+          ),
+      };
+      const { aliases, factory, memory, service } = await Effect.runPromise(
+        setup(malformedRandom, (command) => {
+          rpcCalls += 1;
+          return Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt });
+        }),
+      );
+      const invocation = await Effect.runPromise(
+        makeDirectoryInvocation(
+          aliases,
+          now + 90,
+          `malformed-init-jti-request-${String(generated.length).padStart(4, "0")}`,
+          now,
+        ).pipe(Effect.provideService(InternalCapabilityFactory, factory)),
+      );
+      const exit = await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(rpcCalls).toBe(0);
+      // The reservation transaction rolled back whole: no binding, alias,
+      // replay, or initialization row became durable.
+      expect(await Effect.runPromise(Ref.get(memory.state))).toEqual({
+        aliases: {},
+        bindings: {},
+        replays: {},
+        controlReplays: {},
+        transitions: {},
+        frozenBindings: {},
+        retiredAliases: {},
+        initializations: {},
+        privateGenerations: {},
+      });
+    }
+  });
+
   test("rejects a separately signed payload that reuses a JTI with a different fingerprint", async () => {
     const { aliases, factory, service } = await Effect.runPromise(setup());
     const first = await Effect.runPromise(
