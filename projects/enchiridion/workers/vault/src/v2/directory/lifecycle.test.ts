@@ -157,6 +157,56 @@ test("signs an exact forward-only OwnerVault floor-sync capability", async () =>
   ).toBe("Failure");
 });
 
+test("rejects a missing or malformed operation JTI before signing and before any DO interaction", async () => {
+  // P05-A: the initialization capability JTI is the command operationID. A
+  // missing or malformed value must fail closed before the Directory control
+  // signer produces a capability and before any OwnerVault namespace lookup.
+  for (const operationID of ["", "bad jti"]) {
+    const malformedBase = { ...base, operationID };
+    const malformedCommand = { ...malformedBase, initDigest: initializationDigest(malformedBase) };
+
+    let signs = 0;
+    const signer = makeDirectoryControlCapabilitySigner(ring);
+    const countingSigner: typeof signer = {
+      ...signer,
+      sign: (input, nowSeconds) => {
+        signs += 1;
+        return signer.sign(input, nowSeconds);
+      },
+    };
+    const signExit = await Effect.runPromiseExit(
+      signOwnerVaultInitialization(countingSigner, malformedCommand, operationID, 100),
+    );
+    expect(signExit._tag).toBe("Failure");
+    expect(JSON.stringify(signExit)).toContain("invalid_command");
+    expect(signs).toBe(0);
+
+    let namespaceLookups = 0;
+    let fetches = 0;
+    const client = makeOwnerVaultInitializationClient({
+      idFromName: (name) => {
+        namespaceLookups += 1;
+        return { toString: () => name };
+      },
+      get: () => ({
+        fetch: async () => {
+          fetches += 1;
+          return new Response(
+            JSON.stringify({ ...malformedCommand, durableReceipt: "owner-vault-receipt-0001" }),
+          );
+        },
+      }),
+    });
+    const clientExit = await Effect.runPromiseExit(
+      client.ensureInitialized(malformedCommand, { value: "token" }),
+    );
+    expect(clientExit._tag).toBe("Failure");
+    expect(JSON.stringify(clientExit)).toContain("invalid_command");
+    expect(namespaceLookups).toBe(0);
+    expect(fetches).toBe(0);
+  }
+});
+
 test("uses a target-only stable shard and rejects substituted or echo-only acknowledgements", async () => {
   expect(ownerVaultObjectName(command)).toBe(
     ownerVaultObjectName({

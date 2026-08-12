@@ -9,11 +9,16 @@ import {
 import { Effect, Exit } from "effect";
 import {
   type OwnerVaultAppendInput,
+  type OwnerVaultCapabilityReceiptInput,
   type OwnerVaultDevice,
   type OwnerVaultSessionRecord,
   makeOwnerVaultDomainProvider,
 } from "./domains";
-import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
+import {
+  type OwnerVaultStorageTransactionFailure,
+  type OwnerVaultTx,
+  makeDurableObjectOwnerVaultStorageRepository,
+} from "./repository";
 import { makeOwnerVaultSnapshotPinController } from "./snapshot-pin";
 
 const root = {
@@ -65,16 +70,26 @@ const durable = (): {
   readonly entries: Map<string, unknown>;
   readonly state: DurableObjectStateNative;
   readonly storage: DurableObjectStorageNative;
+  /** Attempted native writes (put/delete), counted even when rolled back. */
+  readonly writes: { count: number };
+  /** Native transactions opened, successful or rolled back. */
+  readonly transactions: { count: number };
 } => {
   const entries = new Map<string, unknown>();
+  const writes = { count: 0 };
+  const transactions = { count: 0 };
   let pending = Promise.resolve();
   const transaction: DurableObjectTransactionNative = {
     get: (key) => Promise.resolve(entries.get(key)),
     put: (key, value) => {
+      writes.count += 1;
       entries.set(key, value);
       return Promise.resolve();
     },
-    delete: (key) => Promise.resolve(entries.delete(key)),
+    delete: (key) => {
+      writes.count += 1;
+      return Promise.resolve(entries.delete(key));
+    },
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,
@@ -82,6 +97,7 @@ const durable = (): {
     setAlarm: () => Promise.resolve(),
     deleteAlarm: () => Promise.resolve(),
     transaction: <A>(work: (inside: DurableObjectTransactionNative) => Promise<A>) => {
+      transactions.count += 1;
       const run = pending.then(async () => {
         const before = new Map(entries);
         try {
@@ -99,7 +115,13 @@ const durable = (): {
       return run;
     },
   };
-  return { entries, storage, state: { storage, blockConcurrencyWhile: (work) => work() } };
+  return {
+    entries,
+    storage,
+    writes,
+    transactions,
+    state: { storage, blockConcurrencyWhile: (work) => work() },
+  };
 };
 
 const append = (overrides: Partial<OwnerVaultAppendInput> = {}): OwnerVaultAppendInput => ({
@@ -637,5 +659,355 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(fixture.native.entries.has(`v2.ov/session/${session.sessionID}`)).toBe(false);
     expect(fixture.native.entries.has(`v2.ov/resume/${session.resumeTokenHash}`)).toBe(false);
     expect(fixture.native.entries.has(`v2.ov/rate-window/${session.sessionID}`)).toBe(false);
+  });
+});
+
+/**
+ * P05-A: target initialization is one native DO transaction. These tests
+ * drive the exact transaction composition owner-vault-do.ts uses for
+ * `initialize` and `privateInitialize` against the production repository and
+ * domain provider, injecting faults at every former independent commit point
+ * (the old TX1 root bootstrap, TX2 capability claim, and TX3 acknowledgement
+ * boundaries) and proving the durable row set is always empty XOR complete.
+ */
+const initializationAck = {
+  initDigest: "d".repeat(64),
+  credentialEpoch: 1,
+  routingEpoch: 1,
+  controlEpoch: 1,
+  durableReceipt: "atomic-init-durable-receipt-0001",
+} as const;
+const privateAcknowledgement = {
+  kind: "private-initialize",
+  privateRestoreLink: "1".repeat(64),
+  controlDigest: "2".repeat(64),
+  durableReceipt: "atomic-private-init-receipt-0001",
+} as const;
+const privateAuthority = {
+  kind: "authority",
+  credentialEpoch: 1,
+  routingEpoch: 1,
+  controlEpoch: 1,
+  securityFloor: 4,
+} as const;
+const sameStoredPayload = (
+  value: Readonly<Record<string, unknown>>,
+  expected: Readonly<Record<string, unknown>>,
+): boolean =>
+  Object.keys(value).length === Object.keys(expected).length &&
+  Object.entries(expected).every(([key, item]) => value[key] === item);
+/** Models the isolate dying between former commits, inside the one transaction. */
+const injectedCrash: OwnerVaultStorageTransactionFailure = {
+  _tag: "OwnerVaultStorageError",
+  reason: "state_corrupt",
+};
+const ackConflict: OwnerVaultStorageTransactionFailure = {
+  _tag: "OwnerVaultDomainTransactionError",
+  reason: "replay_conflict",
+};
+type FormerBoundary = "root-bootstrap" | "capability-claim" | "acknowledgement";
+const formerBoundaries: readonly FormerBoundary[] = [
+  "root-bootstrap",
+  "capability-claim",
+  "acknowledgement",
+];
+type Repository = ReturnType<typeof makeDurableObjectOwnerVaultStorageRepository>;
+type Provider = ReturnType<typeof makeOwnerVaultDomainProvider>;
+const crashPoint = (
+  crashAfter: FormerBoundary | undefined,
+): ((point: FormerBoundary) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>) => {
+  return (point) => (crashAfter === point ? Effect.fail(injectedCrash) : Effect.void);
+};
+/** The exact composed ordinary-initialization transaction from owner-vault-do.ts. */
+const atomicInitialize = (
+  repository: Repository,
+  provider: Provider,
+  receipt: OwnerVaultCapabilityReceiptInput,
+  crashAfter?: FormerBoundary,
+  ack: typeof initializationAck = initializationAck,
+) => {
+  const crash = crashPoint(crashAfter);
+  return repository.transact((tx: OwnerVaultTx) =>
+    tx.get({ category: "control.initialization-ack", identifier: receipt.operationID }).pipe(
+      Effect.flatMap((existing) => {
+        if (existing !== undefined)
+          return sameStoredPayload(existing.payload, ack)
+            ? Effect.succeed(ack.durableReceipt)
+            : Effect.fail(ackConflict);
+        return provider.initializeInTx(tx).pipe(
+          Effect.zipRight(crash("root-bootstrap")),
+          Effect.zipRight(provider.claimCapabilityReceiptInTx(tx, receipt)),
+          Effect.zipRight(crash("capability-claim")),
+          Effect.zipRight(
+            tx.put(
+              { category: "control.initialization-ack", identifier: receipt.operationID },
+              ack,
+            ),
+          ),
+          Effect.zipRight(crash("acknowledgement")),
+          Effect.zipRight(
+            provider.completeCapabilityReceiptInTx(tx, receipt, {
+              durableReceipt: ack.durableReceipt,
+            }),
+          ),
+          Effect.as(ack.durableReceipt),
+        );
+      }),
+    ),
+  );
+};
+/** The exact composed private-initialization transaction from owner-vault-do.ts. */
+const atomicPrivateInitialize = (
+  repository: Repository,
+  provider: Provider,
+  receipt: OwnerVaultCapabilityReceiptInput,
+  initID: string,
+  crashAfter?: FormerBoundary,
+) => {
+  const crash = crashPoint(crashAfter);
+  return repository.transact((tx: OwnerVaultTx) =>
+    tx.get({ category: "control.initialization-ack", identifier: initID }).pipe(
+      Effect.flatMap((existing) => {
+        if (existing !== undefined)
+          return sameStoredPayload(existing.payload, privateAcknowledgement)
+            ? Effect.succeed(privateAcknowledgement.durableReceipt)
+            : Effect.fail(ackConflict);
+        return tx.get({ category: "control.floor-sync", identifier: "authority" }).pipe(
+          Effect.flatMap((prior) => {
+            if (prior !== undefined && !sameStoredPayload(prior.payload, privateAuthority))
+              return Effect.fail(ackConflict);
+            return provider.initializeInTx(tx).pipe(
+              Effect.zipRight(crash("root-bootstrap")),
+              Effect.zipRight(provider.claimCapabilityReceiptInTx(tx, receipt)),
+              Effect.zipRight(crash("capability-claim")),
+              Effect.zipRight(
+                tx.put(
+                  { category: "root.floors" },
+                  { securityFloor: privateAuthority.securityFloor },
+                ),
+              ),
+              Effect.zipRight(
+                tx.put(
+                  { category: "control.initialization-ack", identifier: initID },
+                  privateAcknowledgement,
+                ),
+              ),
+              Effect.zipRight(
+                tx.put(
+                  { category: "control.floor-sync", identifier: "authority" },
+                  privateAuthority,
+                ),
+              ),
+              Effect.zipRight(crash("acknowledgement")),
+              Effect.zipRight(
+                provider.completeCapabilityReceiptInTx(tx, receipt, {
+                  durableReceipt: privateAcknowledgement.durableReceipt,
+                }),
+              ),
+              Effect.as(privateAcknowledgement.durableReceipt),
+            );
+          }),
+        );
+      }),
+    ),
+  );
+};
+const ordinaryRowSet = (jti: string, operationID: string): string[] =>
+  [
+    "v2.ov/root/identity",
+    "v2.ov/root/runtime",
+    "v2.ov/root/accounting",
+    "v2.ov/root/admission",
+    "v2.ov/root/floors",
+    "v2.ov/root/log-head",
+    "v2.ov/append-log/head",
+    "v2.ov/blob/accounting",
+    "v2.ov/catalog/current",
+    "v2.ov/catalog/root/00000000000000000000",
+    "v2.ov/capability-receipts/index",
+    `v2.ov/jti/${jti}`,
+    `v2.ov/capability-receipt/${jti}`,
+    `v2.ov/control/initialization-ack/${operationID}`,
+  ].sort();
+const serializedEntries = (entries: Map<string, unknown>): string =>
+  JSON.stringify(
+    [...entries.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+  );
+const restartedFixture = (fixture: ReturnType<typeof providerFor>) => {
+  const repository = makeDurableObjectOwnerVaultStorageRepository(
+    makeDurableObjectBoundary(fixture.native.state).storage,
+  );
+  return { repository, provider: makeOwnerVaultDomainProvider(repository, root) };
+};
+
+describe("P05-A atomic target initialization", () => {
+  test("commits the complete ordinary initialization row set all-or-nothing across every former boundary", async () => {
+    const jti = "atomic-init-operation-000001";
+    const receipt = { ...capabilityFor(jti), operationID: jti, nowSeconds: 1_000 };
+    for (const crashAfter of formerBoundaries) {
+      const fixture = providerFor();
+      const exit = await Effect.runPromiseExit(
+        atomicInitialize(fixture.repository, fixture.provider, receipt, crashAfter),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      // The former commit points are interior fault points now: a crash after
+      // any of them must leave no root, floor, receipt, index, accounting,
+      // log head, acknowledgement, or catalog row at all.
+      expect(fixture.native.entries.size).toBe(0);
+    }
+    const fixture = providerFor();
+    const ack = await Effect.runPromise(
+      atomicInitialize(fixture.repository, fixture.provider, receipt),
+    );
+    expect(ack).toBe(initializationAck.durableReceipt);
+    expect([...fixture.native.entries.keys()].sort()).toEqual(ordinaryRowSet(jti, jti));
+    // The capability receipt is committed terminal: no PREPARED intermediate
+    // is ever durable for initialization.
+    expect(fixture.native.entries.get(`v2.ov/capability-receipt/${jti}`)).toMatchObject({
+      payload: { state: "COMPLETED", result: { durableReceipt: initializationAck.durableReceipt } },
+    });
+    expect(fixture.native.entries.get("v2.ov/root/floors")).toMatchObject({
+      payload: { securityFloor: 0 },
+    });
+  });
+
+  test("replays the stored acknowledgement across a restart in one read-only transaction", async () => {
+    const jti = "atomic-init-operation-000002";
+    const receipt = { ...capabilityFor(jti), operationID: jti, nowSeconds: 1_000 };
+    const fixture = providerFor();
+    const first = await Effect.runPromise(
+      atomicInitialize(fixture.repository, fixture.provider, receipt),
+    );
+    const before = serializedEntries(fixture.native.entries);
+    fixture.native.writes.count = 0;
+    fixture.native.transactions.count = 0;
+    const restarted = restartedFixture(fixture);
+    const replay = await Effect.runPromise(
+      atomicInitialize(restarted.repository, restarted.provider, receipt),
+    );
+    expect(replay).toBe(first);
+    // Exactly one transaction, zero attempted writes: the stored ACK is
+    // returned without re-running initialization, claim, or completion.
+    expect(fixture.native.transactions.count).toBe(1);
+    expect(fixture.native.writes.count).toBe(0);
+    expect(serializedEntries(fixture.native.entries)).toBe(before);
+  });
+
+  test("leaves a fresh target completely unwritten when the capability receipt input fails", async () => {
+    // Under the former four-transaction sequence this scenario committed the
+    // full root bootstrap before the claim was rejected.
+    const jti = "atomic-init-operation-000003";
+    const receipt = {
+      ...capabilityFor(jti),
+      operationID: jti,
+      nowSeconds: 1_000,
+      tokenFingerprint: "not-a-digest",
+    };
+    const fixture = providerFor();
+    const exit = await Effect.runPromiseExit(
+      atomicInitialize(fixture.repository, fixture.provider, receipt),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(fixture.native.entries.size).toBe(0);
+  });
+
+  test("rejects a substituted JTI and a conflicting acknowledgement with byte-identical storage", async () => {
+    const jti = "atomic-init-operation-000004";
+    const receipt = { ...capabilityFor(jti), operationID: jti, nowSeconds: 1_000 };
+    const fixture = providerFor();
+    await Effect.runPromise(atomicInitialize(fixture.repository, fixture.provider, receipt));
+    const before = serializedEntries(fixture.native.entries);
+
+    // A different durable operation presenting the already-claimed JTI must
+    // roll back to byte-identical rows: no acknowledgement, receipt, index,
+    // admission, or accounting change survives.
+    const substituted = {
+      ...capabilityFor(jti),
+      operationID: "atomic-init-operation-000005",
+      nowSeconds: 1_000,
+    };
+    const substitutedExit = await Effect.runPromiseExit(
+      atomicInitialize(fixture.repository, fixture.provider, substituted),
+    );
+    expect(Exit.isFailure(substitutedExit)).toBe(true);
+    expect(JSON.stringify(substitutedExit)).toContain("replay_conflict");
+    expect(serializedEntries(fixture.native.entries)).toBe(before);
+    expect(
+      fixture.native.entries.has("v2.ov/control/initialization-ack/atomic-init-operation-000005"),
+    ).toBe(false);
+
+    // The same operation replayed with divergent acknowledgement bytes is a
+    // conflict, never a second initialization.
+    const conflictingAck = { ...initializationAck, initDigest: "e".repeat(64) };
+    const conflictExit = await Effect.runPromiseExit(
+      atomicInitialize(fixture.repository, fixture.provider, receipt, undefined, conflictingAck),
+    );
+    expect(Exit.isFailure(conflictExit)).toBe(true);
+    expect(JSON.stringify(conflictExit)).toContain("replay_conflict");
+    expect(serializedEntries(fixture.native.entries)).toBe(before);
+  });
+
+  test("commits private initialization atomically and only ever the signed security floor", async () => {
+    const jti = "atomic-private-init-jti-000001";
+    const operationID = "atomic-private-init-op-000001";
+    const initID = "atomic-private-init-id-000001";
+    const receipt = { ...capabilityFor(jti), operationID, nowSeconds: 1_000 };
+    for (const crashAfter of formerBoundaries) {
+      const fixture = providerFor();
+      const exit = await Effect.runPromiseExit(
+        atomicPrivateInitialize(fixture.repository, fixture.provider, receipt, initID, crashAfter),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(fixture.native.entries.size).toBe(0);
+      // In particular the default-zero floors intermediate never survives.
+      expect(fixture.native.entries.has("v2.ov/root/floors")).toBe(false);
+    }
+    const fixture = providerFor();
+    const ack = await Effect.runPromise(
+      atomicPrivateInitialize(fixture.repository, fixture.provider, receipt, initID),
+    );
+    expect(ack).toBe(privateAcknowledgement.durableReceipt);
+    expect([...fixture.native.entries.keys()].sort()).toEqual(
+      [...ordinaryRowSet(jti, initID), "v2.ov/control/floor-sync/authority"].sort(),
+    );
+    // The committed floor is the signed value in one write, never 0 first.
+    expect(fixture.native.entries.get("v2.ov/root/floors")).toMatchObject({
+      payload: { securityFloor: privateAuthority.securityFloor },
+    });
+    expect(fixture.native.entries.get("v2.ov/control/floor-sync/authority")).toMatchObject({
+      payload: privateAuthority,
+    });
+
+    // Substituted JTI under a fresh initID: nothing changes, no authority,
+    // acknowledgement, floor, log-head, accounting, or catalog row moves.
+    const before = serializedEntries(fixture.native.entries);
+    const substituted = {
+      ...capabilityFor(jti),
+      operationID: "atomic-private-init-op-000002",
+      nowSeconds: 1_000,
+    };
+    const substitutedExit = await Effect.runPromiseExit(
+      atomicPrivateInitialize(
+        fixture.repository,
+        fixture.provider,
+        substituted,
+        "atomic-private-init-id-000002",
+      ),
+    );
+    expect(Exit.isFailure(substitutedExit)).toBe(true);
+    expect(JSON.stringify(substitutedExit)).toContain("replay_conflict");
+    expect(serializedEntries(fixture.native.entries)).toBe(before);
+
+    // Exact replay across a restart is one read-only transaction.
+    fixture.native.writes.count = 0;
+    fixture.native.transactions.count = 0;
+    const restarted = restartedFixture(fixture);
+    const replay = await Effect.runPromise(
+      atomicPrivateInitialize(restarted.repository, restarted.provider, receipt, initID),
+    );
+    expect(replay).toBe(ack);
+    expect(fixture.native.transactions.count).toBe(1);
+    expect(fixture.native.writes.count).toBe(0);
+    expect(serializedEntries(fixture.native.entries)).toBe(before);
   });
 });

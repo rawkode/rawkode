@@ -1257,44 +1257,53 @@ export const makeOwnerVaultDO = (
             command,
             durableReceipt("init", command.operationID, command.initDigest),
           );
-          return provider.initialize().pipe(
-            Effect.zipRight(provider.claimCapabilityReceipt(capabilityReceipt)),
-            Effect.zipRight(
-              repository.transact((tx) =>
-                tx
-                  .get({ category: "control.initialization-ack", identifier: command.operationID })
-                  .pipe(
-                    Effect.flatMap((existing) => {
-                      if (existing !== undefined)
-                        return samePayload(existing.payload, payload)
-                          ? Effect.succeed(payload.durableReceipt)
-                          : rejectControl();
-                      return tx
-                        .put(
+          // P05-A: target initialization is ONE native DO transaction. An
+          // exact completed replay returns the stored acknowledgement from a
+          // single read without re-running initialization; otherwise root,
+          // defaults, JTI, COMPLETED capability receipt, expiry index,
+          // admission accounting, and the exact acknowledgement commit
+          // together, and any failure (including a conflicting or replayed
+          // JTI) rolls back every staged row.
+          return repository
+            .transact((tx) =>
+              tx
+                .get({ category: "control.initialization-ack", identifier: command.operationID })
+                .pipe(
+                  Effect.flatMap((existing) => {
+                    if (existing !== undefined)
+                      return samePayload(existing.payload, payload)
+                        ? Effect.succeed(payload.durableReceipt)
+                        : rejectControl();
+                    return provider.initializeInTx(tx).pipe(
+                      Effect.zipRight(provider.claimCapabilityReceiptInTx(tx, capabilityReceipt)),
+                      Effect.zipRight(
+                        tx.put(
                           {
                             category: "control.initialization-ack",
                             identifier: command.operationID,
                           },
                           payload,
-                        )
-                        .pipe(Effect.as(payload.durableReceipt));
-                    }),
-                  ),
+                        ),
+                      ),
+                      Effect.zipRight(
+                        provider.completeCapabilityReceiptInTx(tx, capabilityReceipt, {
+                          durableReceipt: payload.durableReceipt,
+                        }),
+                      ),
+                      Effect.as(payload.durableReceipt),
+                    );
+                  }),
+                ),
+            )
+            .pipe(
+              Effect.map(
+                (receipt): Response =>
+                  response({
+                    ...command,
+                    durableReceipt: receipt,
+                  } satisfies OwnerVaultInitializationAck),
               ),
-            ),
-            Effect.flatMap((receipt) =>
-              provider
-                .completeCapabilityReceipt(capabilityReceipt, { durableReceipt: receipt })
-                .pipe(Effect.as(receipt)),
-            ),
-            Effect.map(
-              (receipt): Response =>
-                response({
-                  ...command,
-                  durableReceipt: receipt,
-                } satisfies OwnerVaultInitializationAck),
-            ),
-          );
+            );
         }),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 403))),
       );
@@ -1458,53 +1467,57 @@ export const makeOwnerVaultDO = (
             now(),
           );
           if (capabilityReceipt === undefined) return rejectControl<string>();
-          return graph.domains.initialize().pipe(
-            Effect.zipRight(graph.domains.claimCapabilityReceipt(capabilityReceipt)),
-            Effect.zipRight(
-              repository.transact((tx) =>
-                tx.get({ category: "control.initialization-ack", identifier: command.initID }).pipe(
-                  Effect.flatMap((existing) => {
-                    if (existing !== undefined)
-                      return samePayload(existing.payload, acknowledgement)
-                        ? Effect.succeed(receipt)
-                        : rejectControl();
-                    return tx.get({ category: "control.floor-sync", identifier: "authority" }).pipe(
-                      Effect.flatMap((prior) => {
-                        if (prior !== undefined && !samePayload(prior.payload, authority))
-                          return rejectControl();
-                        return tx
-                          .put(
-                            { category: "root.floors" },
-                            { securityFloor: command.securityFloor },
-                          )
-                          .pipe(
-                            Effect.zipRight(
-                              tx.put(
-                                {
-                                  category: "control.initialization-ack",
-                                  identifier: command.initID,
-                                },
-                                acknowledgement,
-                              ),
-                            ),
-                            Effect.zipRight(
-                              tx.put(
-                                { category: "control.floor-sync", identifier: "authority" },
-                                authority,
-                              ),
-                            ),
-                            Effect.as(receipt),
-                          );
-                      }),
+          // P05-A: private initialization shares the single-transaction
+          // boundary. The committed floors row only ever carries the signed
+          // securityFloor (never a default-zero intermediate), and the
+          // authority row, acknowledgement, JTI, and COMPLETED capability
+          // receipt land in the same all-or-nothing native commit.
+          return repository.transact((tx) =>
+            tx.get({ category: "control.initialization-ack", identifier: command.initID }).pipe(
+              Effect.flatMap((existing) => {
+                if (existing !== undefined)
+                  return samePayload(existing.payload, acknowledgement)
+                    ? Effect.succeed(receipt)
+                    : rejectControl();
+                return tx.get({ category: "control.floor-sync", identifier: "authority" }).pipe(
+                  Effect.flatMap((prior) => {
+                    if (prior !== undefined && !samePayload(prior.payload, authority))
+                      return rejectControl();
+                    return graph.domains.initializeInTx(tx).pipe(
+                      Effect.zipRight(
+                        graph.domains.claimCapabilityReceiptInTx(tx, capabilityReceipt),
+                      ),
+                      Effect.zipRight(
+                        tx.put(
+                          { category: "root.floors" },
+                          { securityFloor: command.securityFloor },
+                        ),
+                      ),
+                      Effect.zipRight(
+                        tx.put(
+                          {
+                            category: "control.initialization-ack",
+                            identifier: command.initID,
+                          },
+                          acknowledgement,
+                        ),
+                      ),
+                      Effect.zipRight(
+                        tx.put(
+                          { category: "control.floor-sync", identifier: "authority" },
+                          authority,
+                        ),
+                      ),
+                      Effect.zipRight(
+                        graph.domains.completeCapabilityReceiptInTx(tx, capabilityReceipt, {
+                          durableReceipt: receipt,
+                        }),
+                      ),
+                      Effect.as(receipt),
                     );
                   }),
-                ),
-              ),
-            ),
-            Effect.flatMap((durableReceipt) =>
-              graph.domains
-                .completeCapabilityReceipt(capabilityReceipt, { durableReceipt })
-                .pipe(Effect.as(durableReceipt)),
+                );
+              }),
             ),
           );
         }),

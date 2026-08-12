@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Redacted, Ref } from "effect";
+import { Effect, Exit, Redacted, Ref } from "effect";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
   DirectoryControlCapabilityFactory,
@@ -21,7 +21,7 @@ import {
   DirectoryOwnerVaultPrivateGeneration,
   makeDirectoryPrivateGenerationService,
 } from "./private-generation";
-import { makeInMemoryDirectoryRepository } from "./repository";
+import { DirectoryRepository, makeInMemoryDirectoryRepository } from "./repository";
 import { DirectoryOwnerVaultInitializer, makeDirectoryService } from "./service";
 import type { DirectorySecureRandom } from "./types";
 
@@ -236,5 +236,98 @@ describe("Directory private generation contract", () => {
     const state = await Effect.runPromise(Ref.get(memory.state));
     expect(Object.values(state.bindings)[0]?.activeGeneration).toBe(source.activeGeneration);
     expect(Object.values(state.privateGenerations)[0]?.phase).toBe("PRIVATE_READY");
+  });
+
+  test("rejects a missing or malformed operation before any reservation transaction or OwnerVault RPC", async () => {
+    // P05-A: the malformed caller operation must be rejected before the
+    // Directory opens its reservation transaction and before OwnerVault is
+    // signed for or invoked.
+    const { controls, entropy, memory, source } = await Effect.runPromise(setup());
+    let transactions = 0;
+    let rpcCalls = 0;
+    const counting: DirectoryRepository = {
+      transact: (operation) => {
+        transactions += 1;
+        return memory.repository.transact(operation);
+      },
+    };
+    const service = await Effect.runPromise(
+      makeDirectoryPrivateGenerationService(entropy).pipe(
+        Effect.provideService(DirectoryRepository, counting),
+        Effect.provideService(DirectoryControlCapabilityFactory, controls),
+        Effect.provideService(DirectoryOwnerVaultPrivateGeneration, {
+          initialization: {
+            ensureInitialized: (command) => {
+              rpcCalls += 1;
+              return Effect.succeed({ ...command, durableReceipt: receipt });
+            },
+          },
+          floors: { syncFloors: () => Effect.die("floor sync must not be reached") },
+        }),
+      ),
+    );
+    for (const operation of ["", "short", "private generation operation!"]) {
+      const exit = await Effect.runPromiseExit(
+        service.prepare(
+          {
+            ownerID: source.ownerID.value,
+            vaultID: source.vaultID.value,
+            generationEpoch: source.activeGeneration,
+          },
+          operation,
+          now,
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain("invalid_source");
+    }
+    expect(transactions).toBe(0);
+    expect(rpcCalls).toBe(0);
+  });
+
+  test("rejects a malformed generated initialization JTI before a durable reservation or the RPC", async () => {
+    // The generated initialization operationID is the OwnerVault capability
+    // JTI. When it is malformed the reservation transaction must roll back
+    // whole and ensureInitialized must never run.
+    const { controls, memory, source } = await Effect.runPromise(setup());
+    let rpcCalls = 0;
+    const malformedEntropy: DirectorySecureRandom = {
+      identifier: () => Effect.succeed("bad jti"),
+    };
+    const service = await Effect.runPromise(
+      makeDirectoryPrivateGenerationService(malformedEntropy).pipe(
+        Effect.provide(memory.layer),
+        Effect.provideService(DirectoryControlCapabilityFactory, controls),
+        Effect.provideService(DirectoryOwnerVaultPrivateGeneration, {
+          initialization: {
+            ensureInitialized: (command) => {
+              rpcCalls += 1;
+              return Effect.succeed({ ...command, durableReceipt: receipt });
+            },
+          },
+          floors: { syncFloors: () => Effect.die("floor sync must not be reached") },
+        }),
+      ),
+    );
+    const before = JSON.stringify(await Effect.runPromise(Ref.get(memory.state)));
+    const exit = await Effect.runPromiseExit(
+      service.prepare(
+        {
+          ownerID: source.ownerID.value,
+          vaultID: source.vaultID.value,
+          generationEpoch: source.activeGeneration,
+        },
+        "private-generation-malformed-jti",
+        now,
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(rpcCalls).toBe(0);
+    expect(JSON.stringify(await Effect.runPromise(Ref.get(memory.state)))).toBe(before);
+    expect(
+      (await Effect.runPromise(Ref.get(memory.state))).privateGenerations[
+        "private-generation-malformed-jti"
+      ],
+    ).toBeUndefined();
   });
 });

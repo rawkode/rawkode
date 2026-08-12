@@ -230,6 +230,26 @@ export interface OwnerVaultDomainProvider {
     input: OwnerVaultCapabilityReceiptInput,
     result: Readonly<Record<string, unknown>>,
   ) => Effect.Effect<OwnerVaultCapabilityReceipt, OwnerVaultDomainError>;
+  /**
+   * Transaction-scoped composition variants of initialize / claim / complete.
+   * They run inside one caller-owned repository transaction so a control
+   * endpoint can establish the root, its capability receipt, and its durable
+   * acknowledgement as a single all-or-nothing native commit. Failures are
+   * already mapped into the closed transaction-codec domain, so any error
+   * rolls back every staged row of the enclosing transaction.
+   */
+  readonly initializeInTx: (
+    tx: OwnerVaultTx,
+  ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
+  readonly claimCapabilityReceiptInTx: (
+    tx: OwnerVaultTx,
+    input: OwnerVaultCapabilityReceiptInput,
+  ) => Effect.Effect<OwnerVaultCapabilityReceipt, OwnerVaultStorageTransactionFailure>;
+  readonly completeCapabilityReceiptInTx: (
+    tx: OwnerVaultTx,
+    input: OwnerVaultCapabilityReceiptInput,
+    result: Readonly<Record<string, unknown>>,
+  ) => Effect.Effect<OwnerVaultCapabilityReceipt, OwnerVaultStorageTransactionFailure>;
 }
 
 interface Admission {
@@ -1020,81 +1040,88 @@ export const makeOwnerVaultDomainProvider = (
       ),
     );
 
-  const initialize = (): Effect.Effect<void, OwnerVaultDomainError> => {
+  const initializeBody = (tx: OwnerVaultTx): Effect.Effect<void, OwnerVaultDomainError> => {
     const initialAppendDigest = ownerVaultAppendProofD0(root);
     if (initialAppendDigest === undefined) return fail("invalid_input");
-    return transact((tx) =>
-      tx.initialize(root).pipe(
-        Effect.mapError(storageFailure),
-        Effect.zipRight(read(tx, address("root.admission"), decodeAdmission)),
-        Effect.flatMap((admission) =>
-          admission === undefined
-            ? write(tx, address("root.admission"), {
-                activeChallenges: 0,
-                activeDevices: 0,
-                activeSessions: 0,
-                capabilityReceipts: 0,
-                stopped: false,
-                pendingSocketAdmissions: 0,
-                activeSocketAdmissions: 0,
-                preparedSocketOperationIDs: [],
-                socketReplayJTIs: [],
-              })
-            : Effect.void,
-        ),
-        Effect.zipRight(read(tx, address("capability-receipt-index"), decodeCapabilityIndex)),
-        Effect.flatMap((index) =>
-          index === undefined
-            ? write(tx, address("capability-receipt-index"), { cursor: 0, entries: [] })
-            : Effect.void,
-        ),
-        Effect.zipRight(read(tx, address("root.floors"), decodeFloors)),
-        Effect.flatMap((floors) =>
-          floors === undefined
-            ? write(tx, address("root.floors"), { securityFloor: 0 })
-            : Effect.void,
-        ),
-        Effect.zipRight(read(tx, address("root.log-head"), decodeLogHead)),
-        Effect.flatMap((head) =>
-          head === undefined
-            ? write(tx, address("root.log-head"), {
-                appendLogSequence: 0,
-                appendLogDigest: initialAppendDigest,
-              })
-            : Effect.void,
-        ),
-        Effect.zipRight(read(tx, address("append-log.head"), decodeLogHead)),
-        Effect.flatMap((head) =>
-          head === undefined
-            ? write(tx, address("append-log.head"), {
-                appendLogSequence: 0,
-                appendLogDigest: initialAppendDigest,
-              })
-            : Effect.void,
-        ),
-        // P03's staged-object state is target-local derived state, but it must
-        // exist before any blob provider is allowed to reserve capacity. Keep
-        // its first write in this very same initialization transaction so a
-        // restart can never observe an initialized root with an uninitialised
-        // blob quota ledger.
-        Effect.zipRight(
-          read(tx, address("blob.accounting"), (value) => (isRecord(value) ? value : undefined)),
-        ),
-        Effect.flatMap((accounting) =>
-          accounting === undefined
-            ? write(tx, address("blob.accounting"), {
-                referencedBytes: 0,
-                reservedStageBytes: 0,
-                prospectiveFinalBytes: 0,
-                leaseIDs: [],
-                purgeSHA256s: [],
-              })
-            : Effect.void,
-        ),
-        Effect.zipRight(getHead(tx).pipe(Effect.asVoid)),
+    return tx.initialize(root).pipe(
+      Effect.mapError(storageFailure),
+      Effect.zipRight(read(tx, address("root.admission"), decodeAdmission)),
+      Effect.flatMap((admission) =>
+        admission === undefined
+          ? write(tx, address("root.admission"), {
+              activeChallenges: 0,
+              activeDevices: 0,
+              activeSessions: 0,
+              capabilityReceipts: 0,
+              stopped: false,
+              pendingSocketAdmissions: 0,
+              activeSocketAdmissions: 0,
+              preparedSocketOperationIDs: [],
+              socketReplayJTIs: [],
+            })
+          : Effect.void,
       ),
+      Effect.zipRight(read(tx, address("capability-receipt-index"), decodeCapabilityIndex)),
+      Effect.flatMap((index) =>
+        index === undefined
+          ? write(tx, address("capability-receipt-index"), { cursor: 0, entries: [] })
+          : Effect.void,
+      ),
+      Effect.zipRight(read(tx, address("root.floors"), decodeFloors)),
+      Effect.flatMap((floors) =>
+        floors === undefined
+          ? write(tx, address("root.floors"), { securityFloor: 0 })
+          : Effect.void,
+      ),
+      Effect.zipRight(read(tx, address("root.log-head"), decodeLogHead)),
+      Effect.flatMap((head) =>
+        head === undefined
+          ? write(tx, address("root.log-head"), {
+              appendLogSequence: 0,
+              appendLogDigest: initialAppendDigest,
+            })
+          : Effect.void,
+      ),
+      Effect.zipRight(read(tx, address("append-log.head"), decodeLogHead)),
+      Effect.flatMap((head) =>
+        head === undefined
+          ? write(tx, address("append-log.head"), {
+              appendLogSequence: 0,
+              appendLogDigest: initialAppendDigest,
+            })
+          : Effect.void,
+      ),
+      // P03's staged-object state is target-local derived state, but it must
+      // exist before any blob provider is allowed to reserve capacity. Keep
+      // its first write in this very same initialization transaction so a
+      // restart can never observe an initialized root with an uninitialised
+      // blob quota ledger.
+      Effect.zipRight(
+        read(tx, address("blob.accounting"), (value) => (isRecord(value) ? value : undefined)),
+      ),
+      Effect.flatMap((accounting) =>
+        accounting === undefined
+          ? write(tx, address("blob.accounting"), {
+              referencedBytes: 0,
+              reservedStageBytes: 0,
+              prospectiveFinalBytes: 0,
+              leaseIDs: [],
+              purgeSHA256s: [],
+            })
+          : Effect.void,
+      ),
+      Effect.zipRight(getHead(tx).pipe(Effect.asVoid)),
     );
   };
+  const initialize = (): Effect.Effect<void, OwnerVaultDomainError> => {
+    // The scope guard stays ahead of the transaction so an invalid root is
+    // reported as invalid_input exactly as before, without opening a commit.
+    const initialAppendDigest = ownerVaultAppendProofD0(root);
+    if (initialAppendDigest === undefined) return fail("invalid_input");
+    return transact(initializeBody);
+  };
+  const initializeInTx: OwnerVaultDomainProvider["initializeInTx"] = (tx) =>
+    initializeBody(tx).pipe(Effect.mapError(transactionFailure));
 
   const issueChallenge = (
     challenge: OwnerVaultChallenge,
@@ -1637,82 +1664,133 @@ export const makeOwnerVaultDomainProvider = (
       ),
     );
   };
+  const claimCapabilityReceiptBody = (
+    tx: OwnerVaultTx,
+    input: OwnerVaultCapabilityReceiptInput,
+  ): Effect.Effect<CapabilityReceipt, OwnerVaultDomainError> => {
+    if (!validCapabilityReceiptInput(input)) return fail("invalid_input");
+    return requireRootIdentity(tx).pipe(
+      Effect.zipRight(
+        Effect.all([
+          read(tx, address("jti", input.jti), decodeJtiClaim),
+          read(tx, address("capability-receipt", input.jti), decodeCapability),
+          getAdmission(tx),
+          read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
+        ]),
+      ),
+      Effect.flatMap(([jtiClaim, receipt, admission, receiptIndex]) => {
+        if (receiptIndex === undefined) return fail<CapabilityReceipt>("state_corrupt");
+        const indexed = receiptIndex.entries.some(
+          (entry) => entry.jti === input.jti && entry.expiresAtSeconds === input.expiresAtSeconds,
+        );
+        if (jtiClaim === undefined && receipt === undefined) {
+          // A fence stops new admission, but a durable pre-fence receipt
+          // may be read/reconciled exactly after a lost response. Its
+          // endpoint-specific journal still revalidates before mutation.
+          if (admission.stopped) return fail<CapabilityReceipt>("authorization_denied");
+          if (indexed) return fail<CapabilityReceipt>("state_corrupt");
+          if (
+            admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts ||
+            receiptIndex.entries.length >= ownerVaultMaximumCapabilityReceipts
+          )
+            return fail<CapabilityReceipt>("quota_exceeded");
+          const nextIndex = {
+            cursor: 0,
+            entries: [
+              ...receiptIndex.entries,
+              { jti: input.jti, expiresAtSeconds: input.expiresAtSeconds },
+            ].sort((left, right) =>
+              capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right)),
+            ),
+          } satisfies CapabilityReceiptIndex;
+          const prepared = capabilityReceipt(input, "PREPARED", undefined);
+          return write(tx, address("jti", input.jti), {
+            operationID: input.operationID,
+            expiresAtSeconds: input.expiresAtSeconds,
+          }).pipe(
+            Effect.zipRight(
+              write(tx, address("capability-receipt", input.jti), {
+                state: prepared.state,
+                jti: prepared.jti,
+                resource: prepared.resource,
+                operationID: prepared.operationID,
+                expiresAtSeconds: prepared.expiresAtSeconds,
+                claims: prepared.claims,
+                claimsFingerprint: prepared.claimsFingerprint,
+                tokenFingerprint: prepared.tokenFingerprint,
+              }),
+            ),
+            Effect.zipRight(write(tx, address("capability-receipt-index"), nextIndex)),
+            Effect.zipRight(
+              write(tx, address("root.admission"), {
+                ...admission,
+                capabilityReceipts: admission.capabilityReceipts + 1,
+              }),
+            ),
+            Effect.as(prepared),
+          );
+        }
+        if (
+          jtiClaim === undefined ||
+          receipt === undefined ||
+          !indexed ||
+          jtiClaim.operationID !== input.operationID ||
+          jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
+          !sameCapabilityReceipt(receipt, input)
+        )
+          return fail<CapabilityReceipt>("replay_conflict");
+        return Effect.succeed(receipt);
+      }),
+    );
+  };
   const claimCapabilityReceipt: OwnerVaultDomainProvider["claimCapabilityReceipt"] = (input) => {
     if (!validCapabilityReceiptInput(input)) return fail("invalid_input");
-    return transact((tx) =>
-      requireRootIdentity(tx).pipe(
-        Effect.zipRight(
-          Effect.all([
-            read(tx, address("jti", input.jti), decodeJtiClaim),
-            read(tx, address("capability-receipt", input.jti), decodeCapability),
-            getAdmission(tx),
-            read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
-          ]),
-        ),
-        Effect.flatMap(([jtiClaim, receipt, admission, receiptIndex]) => {
-          if (receiptIndex === undefined) return fail<CapabilityReceipt>("state_corrupt");
-          const indexed = receiptIndex.entries.some(
-            (entry) => entry.jti === input.jti && entry.expiresAtSeconds === input.expiresAtSeconds,
-          );
-          if (jtiClaim === undefined && receipt === undefined) {
-            // A fence stops new admission, but a durable pre-fence receipt
-            // may be read/reconciled exactly after a lost response. Its
-            // endpoint-specific journal still revalidates before mutation.
-            if (admission.stopped) return fail<CapabilityReceipt>("authorization_denied");
-            if (indexed) return fail<CapabilityReceipt>("state_corrupt");
-            if (
-              admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts ||
-              receiptIndex.entries.length >= ownerVaultMaximumCapabilityReceipts
-            )
-              return fail<CapabilityReceipt>("quota_exceeded");
-            const nextIndex = {
-              cursor: 0,
-              entries: [
-                ...receiptIndex.entries,
-                { jti: input.jti, expiresAtSeconds: input.expiresAtSeconds },
-              ].sort((left, right) =>
-                capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right)),
-              ),
-            } satisfies CapabilityReceiptIndex;
-            const prepared = capabilityReceipt(input, "PREPARED", undefined);
-            return write(tx, address("jti", input.jti), {
-              operationID: input.operationID,
-              expiresAtSeconds: input.expiresAtSeconds,
-            }).pipe(
-              Effect.zipRight(
-                write(tx, address("capability-receipt", input.jti), {
-                  state: prepared.state,
-                  jti: prepared.jti,
-                  resource: prepared.resource,
-                  operationID: prepared.operationID,
-                  expiresAtSeconds: prepared.expiresAtSeconds,
-                  claims: prepared.claims,
-                  claimsFingerprint: prepared.claimsFingerprint,
-                  tokenFingerprint: prepared.tokenFingerprint,
-                }),
-              ),
-              Effect.zipRight(write(tx, address("capability-receipt-index"), nextIndex)),
-              Effect.zipRight(
-                write(tx, address("root.admission"), {
-                  ...admission,
-                  capabilityReceipts: admission.capabilityReceipts + 1,
-                }),
-              ),
-              Effect.as(prepared),
-            );
-          }
-          if (
-            jtiClaim === undefined ||
-            receipt === undefined ||
-            !indexed ||
-            jtiClaim.operationID !== input.operationID ||
-            jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
-            !sameCapabilityReceipt(receipt, input)
-          )
-            return fail<CapabilityReceipt>("replay_conflict");
-          return Effect.succeed(receipt);
-        }),
+    return transact((tx) => claimCapabilityReceiptBody(tx, input));
+  };
+  const claimCapabilityReceiptInTx: OwnerVaultDomainProvider["claimCapabilityReceiptInTx"] = (
+    tx,
+    input,
+  ) => claimCapabilityReceiptBody(tx, input).pipe(Effect.mapError(transactionFailure));
+  const completeCapabilityReceiptBody = (
+    tx: OwnerVaultTx,
+    input: OwnerVaultCapabilityReceiptInput,
+    result: Readonly<Record<string, unknown>>,
+  ): Effect.Effect<CapabilityReceipt, OwnerVaultDomainError> => {
+    if (!validCapabilityReceiptInput(input) || !validCanonicalResult(result))
+      return fail("invalid_input");
+    return requireRootIdentity(tx).pipe(
+      Effect.zipRight(
+        Effect.all([
+          read(tx, address("jti", input.jti), decodeJtiClaim),
+          read(tx, address("capability-receipt", input.jti), decodeCapability),
+        ]),
       ),
+      Effect.flatMap(([jtiClaim, receipt]) => {
+        if (
+          jtiClaim === undefined ||
+          receipt === undefined ||
+          jtiClaim.operationID !== input.operationID ||
+          jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
+          !sameCapabilityReceipt(receipt, input)
+        )
+          return fail<CapabilityReceipt>("replay_conflict");
+        if (receipt.state === "COMPLETED")
+          return receipt.result !== undefined && sameCanonicalResult(receipt.result, result)
+            ? Effect.succeed(receipt)
+            : fail<CapabilityReceipt>("replay_conflict");
+        const completed = capabilityReceipt(input, "COMPLETED", result);
+        return write(tx, address("capability-receipt", input.jti), {
+          state: completed.state,
+          jti: completed.jti,
+          resource: completed.resource,
+          operationID: completed.operationID,
+          expiresAtSeconds: completed.expiresAtSeconds,
+          claims: completed.claims,
+          claimsFingerprint: completed.claimsFingerprint,
+          tokenFingerprint: completed.tokenFingerprint,
+          result: completed.result,
+        }).pipe(Effect.as(completed));
+      }),
     );
   };
   const completeCapabilityReceipt: OwnerVaultDomainProvider["completeCapabilityReceipt"] = (
@@ -1721,43 +1799,13 @@ export const makeOwnerVaultDomainProvider = (
   ) => {
     if (!validCapabilityReceiptInput(input) || !validCanonicalResult(result))
       return fail("invalid_input");
-    return transact((tx) =>
-      requireRootIdentity(tx).pipe(
-        Effect.zipRight(
-          Effect.all([
-            read(tx, address("jti", input.jti), decodeJtiClaim),
-            read(tx, address("capability-receipt", input.jti), decodeCapability),
-          ]),
-        ),
-        Effect.flatMap(([jtiClaim, receipt]) => {
-          if (
-            jtiClaim === undefined ||
-            receipt === undefined ||
-            jtiClaim.operationID !== input.operationID ||
-            jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
-            !sameCapabilityReceipt(receipt, input)
-          )
-            return fail<CapabilityReceipt>("replay_conflict");
-          if (receipt.state === "COMPLETED")
-            return receipt.result !== undefined && sameCanonicalResult(receipt.result, result)
-              ? Effect.succeed(receipt)
-              : fail<CapabilityReceipt>("replay_conflict");
-          const completed = capabilityReceipt(input, "COMPLETED", result);
-          return write(tx, address("capability-receipt", input.jti), {
-            state: completed.state,
-            jti: completed.jti,
-            resource: completed.resource,
-            operationID: completed.operationID,
-            expiresAtSeconds: completed.expiresAtSeconds,
-            claims: completed.claims,
-            claimsFingerprint: completed.claimsFingerprint,
-            tokenFingerprint: completed.tokenFingerprint,
-            result: completed.result,
-          }).pipe(Effect.as(completed));
-        }),
-      ),
-    );
+    return transact((tx) => completeCapabilityReceiptBody(tx, input, result));
   };
+  const completeCapabilityReceiptInTx: OwnerVaultDomainProvider["completeCapabilityReceiptInTx"] = (
+    tx,
+    input,
+    result,
+  ) => completeCapabilityReceiptBody(tx, input, result).pipe(Effect.mapError(transactionFailure));
   const expireCapability = (
     jti: string,
     nowSeconds: number,
@@ -1854,6 +1902,9 @@ export const makeOwnerVaultDomainProvider = (
     expireCapabilities,
     claimCapabilityReceipt,
     completeCapabilityReceipt,
+    initializeInTx,
+    claimCapabilityReceiptInTx,
+    completeCapabilityReceiptInTx,
   });
 };
 
