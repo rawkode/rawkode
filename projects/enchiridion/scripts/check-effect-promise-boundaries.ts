@@ -154,10 +154,17 @@ const isDirectDurableObjectBoundaryProperty = (
   );
 };
 
-const isAuditedDurableObjectFetch = (checker: ts.TypeChecker, node: ts.CallExpression): boolean => {
-  const fetch = node.expression;
-  if (!ts.isPropertyAccessExpression(fetch) || fetch.name.text !== "fetch") return false;
-  const callbacks = fetch.expression;
+const auditedDurableObjectCallbackNames: ReadonlySet<string> = new Set([
+  "fetch",
+  "webSocketMessage",
+  "alarm",
+]);
+
+const isAuditedDurableObjectCallback = (checker: ts.TypeChecker, node: ts.CallExpression): boolean => {
+  const callback = node.expression;
+  if (!ts.isPropertyAccessExpression(callback) || !auditedDurableObjectCallbackNames.has(callback.name.text))
+    return false;
+  const callbacks = callback.expression;
   if (!ts.isPropertyAccessExpression(callbacks) || callbacks.name.text !== "callbacks") return false;
   const boundary = callbacks.expression;
   return (
@@ -184,7 +191,7 @@ const isAuditedWorkerHandle = (checker: ts.TypeChecker, node: ts.CallExpression)
 };
 
 const isAuditedBoundaryExit = (checker: ts.TypeChecker, node: ts.CallExpression): boolean =>
-  isAuditedDurableObjectFetch(checker, node) || isAuditedWorkerHandle(checker, node);
+  isAuditedDurableObjectCallback(checker, node) || isAuditedWorkerHandle(checker, node);
 
 const isAuditedWorkerFetchProperty = (checker: ts.TypeChecker, node: ts.PropertyAssignment): boolean =>
   ts.isIdentifier(node.name) &&
@@ -203,7 +210,7 @@ const resemblesBoundaryExit = (node: ts.CallExpression): boolean => {
   if (!ts.isPropertyAccessExpression(expression)) return false;
   if (expression.name.text === "handle") return true;
   return (
-    expression.name.text === "fetch" &&
+    auditedDurableObjectCallbackNames.has(expression.name.text) &&
     ts.isPropertyAccessExpression(expression.expression) &&
     expression.expression.name.text === "callbacks"
   );
@@ -521,7 +528,7 @@ const runtimeBoundaryFixture = (source: string): { readonly sourceFile: ts.Sourc
 
 const boundaryCallNamed = (
   sourceFile: ts.SourceFile,
-  name: "fetch" | "handle",
+  name: "fetch" | "webSocketMessage" | "alarm" | "handle",
 ): ts.CallExpression | undefined => {
   let found: ts.CallExpression | undefined;
   const visit = (node: ts.Node): void => {
@@ -554,15 +561,21 @@ const runtimeWorkerFixture = runtimeBoundaryFixture(
   `${runtimeFixturePrefix}export const worker = { fetch: () => boundary.handle(request, env, ctx) };`,
 );
 const runtimeDurableObjectFixture = runtimeBoundaryFixture(
-  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); fetch = () => this.boundary.callbacks.fetch(effect); }`,
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); fetch = () => this.boundary.callbacks.fetch(effect); message = () => this.boundary.callbacks.webSocketMessage(effect); alarm = () => this.boundary.callbacks.alarm(effect); }`,
 );
 const workerCall = boundaryCallNamed(runtimeWorkerFixture.sourceFile, "handle");
 const durableObjectCall = boundaryCallNamed(runtimeDurableObjectFixture.sourceFile, "fetch");
+const durableObjectSocketCall = boundaryCallNamed(runtimeDurableObjectFixture.sourceFile, "webSocketMessage");
+const durableObjectAlarmCall = boundaryCallNamed(runtimeDurableObjectFixture.sourceFile, "alarm");
 const workerFixtureAccepted =
   workerCall !== undefined && isAuditedWorkerHandle(runtimeWorkerFixture.checker, workerCall);
 const durableObjectFixtureAccepted =
   durableObjectCall !== undefined &&
-  isAuditedDurableObjectFetch(runtimeDurableObjectFixture.checker, durableObjectCall);
+  isAuditedDurableObjectCallback(runtimeDurableObjectFixture.checker, durableObjectCall) &&
+  durableObjectSocketCall !== undefined &&
+  isAuditedDurableObjectCallback(runtimeDurableObjectFixture.checker, durableObjectSocketCall) &&
+  durableObjectAlarmCall !== undefined &&
+  isAuditedDurableObjectCallback(runtimeDurableObjectFixture.checker, durableObjectAlarmCall);
 const workerFixtureViolations = uniqueKinds(
   findViolations(runtimeWorkerFixture.sourceFile, runtimeWorkerFixture.checker),
 );
@@ -595,6 +608,10 @@ const rejectedBoundaryFixtures = [
   `${runtimeFixturePrefix}boundary.fetch(request, env, ctx);`,
   `import { makeWorkerBoundary } from ${runtimeAdapterImport}; declare const workerHandler: Parameters<typeof makeWorkerBoundary>[0]; declare const request: unknown; declare const env: unknown; declare const ctx: unknown; let boundary = makeWorkerBoundary(workerHandler); boundary.handle(request, env, ctx);`,
   `import { makeDurableObjectBoundary } from ${runtimeAdapterImport}; declare const state: Parameters<typeof makeDurableObjectBoundary>[0]; declare const effect: never; class Holder { private readonly boundary; constructor() { this.boundary = makeDurableObjectBoundary(state); } fetch = () => this.boundary.callbacks.fetch(effect); }`,
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); message = () => { const send = this.boundary.callbacks.webSocketMessage; return send(effect); }; }`,
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); alarm = () => { const cbs = this.boundary.callbacks; return cbs.alarm(effect); }; }`,
+  `import { makeDurableObjectBoundary } from ${runtimeAdapterImport}; declare const state: Parameters<typeof makeDurableObjectBoundary>[0]; declare const effect: never; class Holder { private readonly boundary; constructor() { this.boundary = makeDurableObjectBoundary(state); } message = () => this.boundary.callbacks.webSocketMessage(effect); }`,
+  `import { makeDurableObjectBoundary } from ${runtimeAdapterImport}; declare const state: Parameters<typeof makeDurableObjectBoundary>[0]; declare const effect: never; class Holder { private readonly boundary; constructor() { this.boundary = makeDurableObjectBoundary(state); } alarm = () => this.boundary.callbacks.alarm(effect); }`,
 ] as const;
 for (const source of rejectedBoundaryFixtures) {
   const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
