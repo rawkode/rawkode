@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 import {
   type AccessJwksSessionFactory,
@@ -12,6 +13,10 @@ import {
   makeVaultV2EntryCompositionCache,
   parseVaultV2EntryEnv,
 } from "./composition";
+import {
+  ownerVaultProductionLimitsMatchEnforcement,
+  parseOwnerVaultProductionLimits,
+} from "./owner-vault-production";
 
 const manifestPrivate =
   "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgnqgn2CchsOl0SE25sbl1fSF4GeFyIyhcGXfmk+nORRihRANCAARgDj/LiRqx4+xQpW1yKXYVWEGHCg+4hJxT4PbHMBrFWthHzkiAYKYvic295OBVCfvBwjOQEZVKtWmC+t+IMFbF";
@@ -207,7 +212,7 @@ test("requires exact immutable production limits and distinct structural R2 bind
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: {} })).toBeUndefined();
 });
 
-test("validates manifest key pairing and rejects revoked active configuration without caching failure", () => {
+test("rejects structurally invalid or revoked-active manifest configuration at composition time", async () => {
   const namespace = Object.create(null);
   Object.defineProperties(namespace, {
     idFromName: { value: () => ({ toString: () => "directory" }) },
@@ -219,29 +224,85 @@ test("validates manifest key pairing and rejects revoked active configuration wi
     ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad",
   });
   if (invalidKeyPairEnvironment === undefined) throw new Error("test setup invalid");
-  const invalidKeyPair = makeVaultV2EntryComposition(invalidKeyPairEnvironment);
+  /** A malformed or revoked-active ring is a construction failure, not a
+   * deferred first-backup failure: the isolate never composes at all. */
+  expect(makeVaultV2EntryComposition(invalidKeyPairEnvironment)).toBeUndefined();
   const revokedEnvironment = parseVaultV2EntryEnv({
     ...raw,
     ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]',
   });
   if (revokedEnvironment === undefined) throw new Error("test setup invalid");
-  const revoked = makeVaultV2EntryComposition(revokedEnvironment);
+  expect(makeVaultV2EntryComposition(revokedEnvironment)).toBeUndefined();
   const composed = makeVaultV2EntryCompositionCache()(raw);
   if (composed === undefined) throw new Error("test setup invalid");
-  return Promise.all([
-    Effect.runPromiseExit(
-      invalidKeyPair?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing"),
-    ),
-    Effect.runPromiseExit(revoked?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
-    Effect.runPromise(composed?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
-  ]).then(([invalid, revokedExit, ring]) => {
-    expect(Exit.isFailure(invalid)).toBe(true);
-    expect(Exit.isFailure(revokedExit)).toBe(true);
-    expect(ring.current.keyID).toBe("manifest-current");
-    return Effect.runPromise(composed.ownerVaultProduction.manifestKeys()).then((retry) =>
-      expect(retry).toBe(ring),
+  const ring = await Effect.runPromise(composed.ownerVaultProduction.manifestKeys());
+  expect(ring.current.keyID).toBe("manifest-current");
+  /** The eager composition-time validation is cached; use replays it. */
+  const retry = await Effect.runPromise(composed.ownerVaultProduction.manifestKeys());
+  expect(retry).toBe(ring);
+  /** PKCS8 secret material never appears in the composed object graph. */
+  expect(JSON.stringify(composed)).not.toContain(manifestPrivate.slice(0, 24));
+});
+
+test("keeps PKCS8 and admission secrets out of production Wrangler vars and pins vars limits to enforcement", async () => {
+  const jsonc = (source: string): unknown =>
+    JSON.parse(
+      source
+        .split("\n")
+        .filter((line) => !/^\s*\/\//u.test(line))
+        .join("\n"),
     );
-  });
+  const production = jsonc(
+    await Bun.file(resolve(import.meta.dir, "../../../wrangler.v2.jsonc")).text(),
+  );
+  const vars =
+    typeof production === "object" && production !== null && "vars" in production
+      ? production.vars
+      : undefined;
+  if (typeof vars !== "object" || vars === null) throw new Error("test setup invalid");
+  const varNames = Object.keys(vars);
+  /** Secret-only bindings must be provisioned as Wrangler secrets, never vars. */
+  for (const secretBinding of [
+    "ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON",
+    "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET",
+    "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON",
+    "ENCHIRIDION_V2_CREDENTIAL_BINDING_CURRENT_SECRET",
+    "ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET",
+  ]) {
+    expect(varNames).not.toContain(secretBinding);
+  }
+  /** The deployed limits JSON must be the exact single production authority. */
+  const configuredLimits = Object.entries(vars).find(
+    ([name]) => name === "ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON",
+  )?.[1];
+  if (typeof configuredLimits !== "string") throw new Error("test setup invalid");
+  const parsedLimits = parseOwnerVaultProductionLimits(configuredLimits);
+  expect(parsedLimits).toBeDefined();
+  if (parsedLimits !== undefined)
+    expect(ownerVaultProductionLimitsMatchEnforcement(parsedLimits)).toBe(true);
+  /** Workerd harness configs must stay pinned to the same enforced caps. */
+  for (const path of [
+    "./wrangler.directory-workerd-test.jsonc",
+    "../owner-vault/wrangler.owner-vault-workerd-test.jsonc",
+  ]) {
+    const harness = jsonc(await Bun.file(resolve(import.meta.dir, path)).text());
+    const harnessVars =
+      typeof harness === "object" && harness !== null && "vars" in harness
+        ? harness.vars
+        : undefined;
+    if (typeof harnessVars !== "object" || harnessVars === null)
+      throw new Error("test setup invalid");
+    const harnessLimits = Object.entries(harnessVars).find(
+      ([name]) => name === "ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON",
+    )?.[1];
+    if (typeof harnessLimits !== "string") throw new Error("test setup invalid");
+    const parsedHarnessLimits = parseOwnerVaultProductionLimits(harnessLimits);
+    expect(parsedHarnessLimits).toBeDefined();
+    if (parsedHarnessLimits !== undefined)
+      expect(ownerVaultProductionLimitsMatchEnforcement(parsedHarnessLimits)).toBe(true);
+  }
 });
 
 test("builds an isolated bounded socket-admission ring and retries only valid configuration", async () => {
