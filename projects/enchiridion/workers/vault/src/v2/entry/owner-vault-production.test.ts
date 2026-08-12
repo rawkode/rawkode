@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { Effect, Exit } from "effect";
 import {
   makeOwnerVaultProductionAuthority,
+  ownerVaultProductionLimitsMatchEnforcement,
   parseOwnerVaultProductionLimits,
 } from "./owner-vault-production";
 
@@ -260,6 +262,172 @@ describe("OwnerVault production authority", () => {
           manifestRevokedKeyIDsJSON: '["k0"]',
         }),
       ),
+    ).toBeUndefined();
+    expect(
+      makeOwnerVaultProductionAuthority(
+        authorityInput({
+          manifestPriorKeysJSON: `[{"keyID":"k1","publicKeySPKIDERBase64":"${manifestPublic}"}]`,
+          manifestRevokedKeyIDsJSON: '["k0"]',
+        }),
+      ),
     ).toBeDefined();
+    expect(
+      makeOwnerVaultProductionAuthority(
+        authorityInput({ manifestRevokedKeyIDsJSON: '["k0","k0"]' }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("rejects a limits configuration that diverges from the compiled enforcement caps before any R2 access", () => {
+    const parsedDivergent = parseOwnerVaultProductionLimits(
+      withMember("catalog", "maximumPageBytes", 65536),
+    );
+    /** The JSON itself is well-formed and cross-field consistent... */
+    expect(parsedDivergent).toBeDefined();
+    /** ...but it does not match what catalog.ts actually enforces. */
+    if (parsedDivergent !== undefined)
+      expect(ownerVaultProductionLimitsMatchEnforcement(parsedDivergent)).toBe(false);
+    /**
+     * A doubled root-payload cap survives the cross-field check
+     * (16384 <= maximumPageBytes 32768) yet diverges from the 8 KiB the
+     * catalog root decoder and storage registry actually enforce; the gate
+     * must treat it as a construction failure, never a silently ignored cap.
+     */
+    const parsedDivergentRoot = parseOwnerVaultProductionLimits(
+      withMember("catalog", "maximumRootBytes", 16384),
+    );
+    expect(parsedDivergentRoot).toBeDefined();
+    if (parsedDivergentRoot !== undefined)
+      expect(ownerVaultProductionLimitsMatchEnforcement(parsedDivergentRoot)).toBe(false);
+    const production = parseOwnerVaultProductionLimits(JSON.stringify(limitsObject()));
+    if (production !== undefined)
+      expect(ownerVaultProductionLimitsMatchEnforcement(production)).toBe(true);
+    for (const limitsJSON of [
+      withMember("catalog", "maximumPageBytes", 65536),
+      withMember("catalog", "maximumRootBytes", 16384),
+      withMember("backup", "maximumRestoreJournalBytes", 32768),
+      withMember("pins", "maximumPins", 2048),
+      withMember("pins", "gcChunk", 64),
+    ]) {
+      const blobSpy = touchSpy();
+      const backupSpy = touchSpy();
+      expect(
+        makeOwnerVaultProductionAuthority(
+          authorityInput({ limitsJSON, blobR2: blobSpy.target, backupR2: backupSpy.target }),
+        ),
+      ).toBeUndefined();
+      expect(blobSpy.touches).toEqual([]);
+      expect(backupSpy.touches).toEqual([]);
+    }
+  });
+
+  test("rejects a structurally invalid manifest ring at construction without touching R2", () => {
+    const cases: readonly Partial<Parameters<typeof makeOwnerVaultProductionAuthority>[0]>[] = [
+      { manifestCurrentSPKI: "bad" },
+      { manifestCurrentPKCS8: "####" },
+      { manifestCurrentPKCS8: btoa("too-short") },
+      { manifestCurrentKeyID: "bad key!" },
+      { manifestRevokedKeyIDsJSON: '["manifest-current"]' },
+      {
+        manifestPriorKeysJSON: `[{"keyID":"manifest-current","publicKeySPKIDERBase64":"${manifestPublic}"}]`,
+      },
+      {
+        manifestPriorKeysJSON: `[{"keyID":"k1","publicKeySPKIDERBase64":"${manifestPublic}"},{"keyID":"k1","publicKeySPKIDERBase64":"${manifestPublic}"}]`,
+      },
+      {
+        manifestPriorKeysJSON: JSON.stringify(
+          ["k1", "k2", "k3", "k4"].map((keyID) => ({
+            keyID,
+            publicKeySPKIDERBase64: manifestPublic,
+          })),
+        ),
+      },
+      {
+        manifestPriorKeysJSON: `[{"keyID":"k1","publicKeySPKIDERBase64":"${manifestPublic}"}]`,
+        manifestRevokedKeyIDsJSON: '["k1"]',
+      },
+    ];
+    for (const overrides of cases) {
+      const blobSpy = touchSpy();
+      const backupSpy = touchSpy();
+      expect(
+        makeOwnerVaultProductionAuthority(
+          authorityInput({ ...overrides, blobR2: blobSpy.target, backupR2: backupSpy.target }),
+        ),
+      ).toBeUndefined();
+      expect(blobSpy.touches).toEqual([]);
+      expect(backupSpy.touches).toEqual([]);
+    }
+  });
+
+  test("eagerly validates and caches the manifest ring during construction; first use never validates", async () => {
+    const subtle = crypto.subtle;
+    const names = ["importKey", "exportKey", "sign", "verify"] as const;
+    let blocked = false;
+    const counts: Record<(typeof names)[number], number> = {
+      importKey: 0,
+      exportKey: 0,
+      sign: 0,
+      verify: 0,
+    };
+    for (const name of names) {
+      const original = subtle[name].bind(subtle);
+      Object.defineProperty(subtle, name, {
+        configurable: true,
+        writable: true,
+        value: (...parameters: unknown[]) => {
+          if (blocked) throw new Error(`web crypto ${name} blocked after composition`);
+          counts[name] += 1;
+          // @ts-expect-error test spy forwards the exact native call shape
+          return original(...parameters);
+        },
+      });
+    }
+    try {
+      const authority = makeOwnerVaultProductionAuthority(authorityInput());
+      expect(authority).toBeDefined();
+      if (authority === undefined) throw new Error("test setup invalid");
+      /** The pairing proof runs during construction, before any use. */
+      const deadline = Date.now() + 5_000;
+      while (counts.verify < 1 && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(counts.verify).toBeGreaterThanOrEqual(1);
+      /** One extra macrotask lets the eager fiber consume the final result. */
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      blocked = true;
+      const ring = await Effect.runPromise(authority.manifestKeys());
+      expect(ring.current.keyID).toBe("manifest-current");
+      const retry = await Effect.runPromise(authority.manifestKeys());
+      expect(retry).toBe(ring);
+      expect(JSON.stringify(authority)).not.toContain(manifestPrivate.slice(0, 24));
+    } finally {
+      for (const name of names) Reflect.deleteProperty(subtle, name);
+    }
+  });
+
+  test("caches an eager pairing failure and never embeds the PKCS8 secret in error payloads", async () => {
+    const foreign = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
+    const spki = new Uint8Array(await crypto.subtle.exportKey("spki", foreign.publicKey));
+    let binary = "";
+    for (const byte of spki) binary += String.fromCharCode(byte);
+    const foreignSPKI = btoa(binary);
+    const authority = makeOwnerVaultProductionAuthority(
+      authorityInput({ manifestCurrentSPKI: foreignSPKI }),
+    );
+    /** Only the Web Crypto pairing proof can detect this mismatch. */
+    expect(authority).toBeDefined();
+    if (authority === undefined) throw new Error("test setup invalid");
+    const exit = await Effect.runPromiseExit(authority.manifestKeys());
+    expect(Exit.isFailure(exit)).toBe(true);
+    const serialized = JSON.stringify(exit);
+    expect(serialized).toContain("key_pair_mismatch");
+    expect(serialized).not.toContain(manifestPrivate.slice(0, 24));
+    /** The cached exit replays; a failed ring never silently revalidates. */
+    const again = await Effect.runPromiseExit(authority.manifestKeys());
+    expect(Exit.isFailure(again)).toBe(true);
+    expect(JSON.stringify(again)).toContain("key_pair_mismatch");
   });
 });

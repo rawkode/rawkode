@@ -5,11 +5,30 @@ import {
   type ImmutableR2NativeBinding,
   type ManifestKeyRingConfigurationError,
   type ManifestP256KeyRing,
+  canonicalP256Spki,
   makeBlobR2NativeBinding,
   makeManifestP256KeyRing,
+  maximumPriorManifestKeys,
 } from "@enchiridion/runtime";
-import { Effect, Redacted } from "effect";
+import { Effect, Fiber, Redacted } from "effect";
 import type { BlobLimits } from "../blobs/blobs";
+import {
+  ownerVaultBackupMaximumManifestBytes,
+  ownerVaultBackupMaximumObjectBytes,
+  ownerVaultBackupMaximumObjects,
+  ownerVaultBackupMaximumPageBytes,
+  ownerVaultBackupMaximumPageEntries,
+  ownerVaultBackupMaximumRestoreJournalBytes,
+  ownerVaultBackupMaximumTotalBytes,
+} from "../owner-vault/backup-types";
+import {
+  ownerVaultCatalogMaximumObjectBytes,
+  ownerVaultCatalogMaximumObjects,
+  ownerVaultCatalogMaximumPageBytes,
+  ownerVaultCatalogMaximumPageEntries,
+  ownerVaultCatalogMaximumTotalBytes,
+  ownerVaultCatalogTargetPageBytes,
+} from "../owner-vault/catalog";
 
 /**
  * The single production authority for every bounded OwnerVault subsystem.
@@ -51,7 +70,11 @@ export interface OwnerVaultProductionLimits {
 
 export interface OwnerVaultProductionAuthority {
   readonly limits: OwnerVaultProductionLimits;
-  /** One validated ring per isolate; failed Web Crypto validation is never cached. */
+  /**
+   * One ring per isolate, validated eagerly during construction. Every call
+   * returns the exit cached at composition time: first use never triggers
+   * Web Crypto validation, and neither success nor failure is re-computed.
+   */
   readonly manifestKeys: () => Effect.Effect<
     ManifestP256KeyRing,
     ManifestKeyRingConfigurationError
@@ -74,6 +97,40 @@ interface ManifestPrior {
   readonly keyID: string;
   readonly publicKeySPKIDERBase64: string;
 }
+
+/**
+ * The exact caps compiled into the enforcing modules. Catalog and backup
+ * enforcement reads `owner-vault/catalog.ts` and `owner-vault/backup-types.ts`
+ * module constants, and `owner-vault/snapshot-pin.ts` enforces its private
+ * pin ceiling (1024) and GC chunk (128). The root-payload cap is likewise
+ * unexported: `owner-vault/catalog.ts` (isOwnerVaultCatalogRootPayload) and
+ * `owner-vault/storage-registry.ts` (rootMaximumBytes) both compile 8 KiB in
+ * place, so it is mirrored here exactly as the pin caps are. Until those
+ * consumers accept the injected authority directly, the composed limits must
+ * equal the enforced values exactly: a divergent deployment configuration is
+ * a construction failure, never a silently unenforced cap.
+ */
+const enforcedPinLimits = { maximumPins: 1_024, gcChunk: 128 } as const;
+const enforcedRootPayloadBytes = 8 * 1_024;
+export const ownerVaultProductionLimitsMatchEnforcement = (
+  limits: OwnerVaultProductionLimits,
+): boolean =>
+  limits.catalog.maximumObjects === ownerVaultCatalogMaximumObjects &&
+  limits.catalog.maximumObjectBytes === ownerVaultCatalogMaximumObjectBytes &&
+  limits.catalog.maximumTotalBytes === ownerVaultCatalogMaximumTotalBytes &&
+  limits.catalog.maximumPageEntries === ownerVaultCatalogMaximumPageEntries &&
+  limits.catalog.targetPageBytes === ownerVaultCatalogTargetPageBytes &&
+  limits.catalog.maximumPageBytes === ownerVaultCatalogMaximumPageBytes &&
+  limits.catalog.maximumRootBytes === enforcedRootPayloadBytes &&
+  limits.backup.maximumPageBytes === ownerVaultBackupMaximumPageBytes &&
+  limits.backup.maximumPageEntries === ownerVaultBackupMaximumPageEntries &&
+  limits.backup.maximumObjectBytes === ownerVaultBackupMaximumObjectBytes &&
+  limits.backup.maximumTotalBytes === ownerVaultBackupMaximumTotalBytes &&
+  limits.backup.maximumManifestBytes === ownerVaultBackupMaximumManifestBytes &&
+  limits.backup.maximumRestoreJournalBytes === ownerVaultBackupMaximumRestoreJournalBytes &&
+  limits.backup.maximumObjects === ownerVaultBackupMaximumObjects &&
+  limits.pins.maximumPins === enforcedPinLimits.maximumPins &&
+  limits.pins.gcChunk === enforcedPinLimits.gcChunk;
 const object = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -348,10 +405,39 @@ export const parseOwnerVaultProductionLimits = (
   }
 };
 
+const manifestKeyID = /^[A-Za-z0-9_-]{1,64}$/u;
+const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
+
+/** Exact canonical base64 decoder; a re-encode mismatch is a rejection. */
+const canonicalBase64Bytes = (value: string): Uint8Array | undefined => {
+  if (value.length === 0 || value.length > 8_192 || value.length % 4 !== 0) return undefined;
+  if (!canonicalBase64.test(value)) return undefined;
+  try {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    let text = "";
+    for (const byte of bytes) text += String.fromCharCode(byte);
+    return btoa(text) === value ? bytes : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const canonicalManifestSPKI = (value: string): boolean => {
+  const bytes = canonicalBase64Bytes(value);
+  return bytes !== undefined && canonicalP256Spki(bytes) !== undefined;
+};
+/** Structural check only: byte-level canonical PKCS#8 within runtime bounds.
+ * The value itself is never copied into any error, log, or persisted record. */
+const structurallyValidPKCS8 = (value: string): boolean => {
+  const bytes = canonicalBase64Bytes(value);
+  return bytes !== undefined && bytes.byteLength >= 64 && bytes.byteLength <= 512;
+};
+
 const parsePrior = (raw: string): readonly ManifestPrior[] | undefined => {
   try {
     const value = JSON.parse(raw);
-    if (!Array.isArray(value)) return undefined;
+    if (!Array.isArray(value) || value.length > maximumPriorManifestKeys) return undefined;
     /** The tuple list is constructed only after every member validates. */
     const priors: ManifestPrior[] = [];
     for (const item of value) {
@@ -360,7 +446,9 @@ const parsePrior = (raw: string): readonly ManifestPrior[] | undefined => {
         entry === undefined ||
         !exact(entry, ["keyID", "publicKeySPKIDERBase64"]) ||
         typeof entry.keyID !== "string" ||
-        typeof entry.publicKeySPKIDERBase64 !== "string"
+        !manifestKeyID.test(entry.keyID) ||
+        typeof entry.publicKeySPKIDERBase64 !== "string" ||
+        !canonicalManifestSPKI(entry.publicKeySPKIDERBase64)
       )
         return undefined;
       priors.push({ keyID: entry.keyID, publicKeySPKIDERBase64: entry.publicKeySPKIDERBase64 });
@@ -373,12 +461,37 @@ const parsePrior = (raw: string): readonly ManifestPrior[] | undefined => {
 const parseRevoked = (raw: string): readonly string[] | undefined => {
   try {
     const value = JSON.parse(raw);
-    return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    return Array.isArray(value) &&
+      value.every(
+        (entry): entry is string => typeof entry === "string" && manifestKeyID.test(entry),
+      ) &&
+      new Set(value).size === value.length
       ? value
       : undefined;
   } catch {
     return undefined;
   }
+};
+
+/**
+ * Every ring property checkable without Web Crypto fails construction here;
+ * only the asynchronous import/pairing proof is left to the eager fiber.
+ */
+const structurallyValidManifestRing = (input: {
+  readonly currentKeyID: string;
+  readonly currentPKCS8: string;
+  readonly currentSPKI: string;
+  readonly prior: readonly ManifestPrior[];
+  readonly revoked: readonly string[];
+}): boolean => {
+  const active = [input.currentKeyID, ...input.prior.map((key) => key.keyID)];
+  return (
+    manifestKeyID.test(input.currentKeyID) &&
+    structurallyValidPKCS8(input.currentPKCS8) &&
+    canonicalManifestSPKI(input.currentSPKI) &&
+    new Set(active).size === active.length &&
+    !active.some((keyID) => input.revoked.includes(keyID))
+  );
 };
 
 export const makeOwnerVaultProductionAuthority = (input: {
@@ -396,32 +509,42 @@ export const makeOwnerVaultProductionAuthority = (input: {
   const revoked = parseRevoked(input.manifestRevokedKeyIDsJSON);
   if (
     !limits ||
+    !ownerVaultProductionLimitsMatchEnforcement(limits) ||
     !prior ||
     !revoked ||
+    !structurallyValidManifestRing({
+      currentKeyID: input.manifestCurrentKeyID,
+      currentPKCS8: input.manifestCurrentPKCS8,
+      currentSPKI: input.manifestCurrentSPKI,
+      prior,
+      revoked,
+    }) ||
     !validBlobR2Binding(input.blobR2) ||
     !validImmutableR2Binding(input.backupR2) ||
     input.blobR2 === input.backupR2
   )
     return undefined;
-  let ring: ManifestP256KeyRing | undefined;
+  /**
+   * The Web Crypto pairing proof starts here, during composition, and its
+   * exit (success or failure) is the one cached ring authority for the
+   * isolate. `manifestKeys` only ever replays that exit: first use cannot
+   * trigger validation and a failed ring never silently revalidates.
+   */
+  const ringFiber = Effect.runFork(
+    Effect.exit(
+      makeManifestP256KeyRing({
+        current: {
+          keyID: input.manifestCurrentKeyID,
+          privateKeyPKCS8Base64: Redacted.make(input.manifestCurrentPKCS8),
+          publicKeySPKIDERBase64: input.manifestCurrentSPKI,
+        },
+        prior,
+        revokedKeyIDs: revoked,
+      }),
+    ),
+  );
   const manifestKeys = (): Effect.Effect<ManifestP256KeyRing, ManifestKeyRingConfigurationError> =>
-    ring === undefined
-      ? makeManifestP256KeyRing({
-          current: {
-            keyID: input.manifestCurrentKeyID,
-            privateKeyPKCS8Base64: Redacted.make(input.manifestCurrentPKCS8),
-            publicKeySPKIDERBase64: input.manifestCurrentSPKI,
-          },
-          prior,
-          revokedKeyIDs: revoked,
-        }).pipe(
-          Effect.tap((validated) =>
-            Effect.sync(() => {
-              ring = validated;
-            }),
-          ),
-        )
-      : Effect.succeed(ring);
+    Effect.flatten(Fiber.join(ringFiber));
   const blobR2: OwnerVaultBlobR2Binding = Object.freeze({
     purpose: "owner-vault-blob-r2",
     native: makeBlobR2NativeBinding(input.blobR2),

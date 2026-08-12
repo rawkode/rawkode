@@ -12,7 +12,10 @@ import {
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
 import { makeOwnerVaultBlobStagingRepository } from "../blobs/owner-vault-blob-repository";
-import type { OwnerVaultProductionAuthority } from "../entry/owner-vault-production";
+import {
+  type OwnerVaultProductionAuthority,
+  ownerVaultProductionLimitsMatchEnforcement,
+} from "../entry/owner-vault-production";
 import { ownerID, vaultID } from "../foundation/schemas";
 import { makeOwnerVaultPrivateStorageRestoreTarget } from "./backup";
 import { OwnerVaultBackupError, type OwnerVaultBackupRuntime } from "./backup-types";
@@ -47,7 +50,10 @@ export const makeOwnerVaultProviderGraph = (
     owner === undefined ||
     vault === undefined ||
     !Number.isSafeInteger(root.generationEpoch) ||
-    root.generationEpoch < 1
+    root.generationEpoch < 1 ||
+    /** A production authority whose limits diverge from the compiled
+     * enforcement caps grants no provider and performs no storage/R2 work. */
+    !ownerVaultProductionLimitsMatchEnforcement(production.limits)
   )
     return undefined;
   const scope = { ownerID: owner, vaultID: vault, generationEpoch: root.generationEpoch } as const;
