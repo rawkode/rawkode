@@ -60,6 +60,9 @@ const nativeState = (): {
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
+    getAlarm: () => Promise.resolve(null),
+    setAlarm: () => Promise.resolve(),
+    deleteAlarm: () => Promise.resolve(),
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,
@@ -84,6 +87,11 @@ const testRestore = (
 ) => {
   const restore = makeOwnerVaultRestoreImport({ repository });
   return {
+    recoverRestoreImport: (manifestDigest: string) =>
+      restore.recoverRestoreImport(restoreID, manifestDigest, {
+        blobScope,
+        blobLimits,
+      }),
     beginRestoreImport: (plan: OwnerVaultRestoreImportPlan) =>
       restore.beginRestoreImport(restoreID, plan),
     applyRestoreRecord: (input: {
@@ -287,6 +295,11 @@ describe("OwnerVault C1 restore import", () => {
     // Simulate a lost terminal response: every exact terminal retry is a
     // no-write replay, including after rebuilding the importer on restart.
     const afterCommitRestart = testRestore(built.repository);
+    // P06-R control recovery consumes this fully validated terminal receipt
+    // without archive work or another import transition.
+    expect(
+      await Effect.runPromise(afterCommitRestart.recoverRestoreImport(plan.manifestDigest)),
+    ).toEqual(receipt);
     expect(await Effect.runPromise(afterCommitRestart.beginRestoreImport(plan))).toEqual(receipt);
     expect(
       await Effect.runPromise(
@@ -800,5 +813,33 @@ describe("OwnerVault C1 restore import", () => {
     expect(Exit.isFailure(substituted)).toBe(true);
     expect(revision(built.native.entries)).toBe(0);
     expect(built.native.entries.has("v2.ov/blob/accounting")).toBe(false);
+  });
+
+  test("terminal import recovery fails closed on corrupted fixed evidence", async () => {
+    const built = await fixture();
+    const first = record(0, "c2-recovery");
+    const plan = planFor(first);
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    await Effect.runPromise(
+      built.restore.applyRestoreRecord({
+        manifestDigest: plan.manifestDigest,
+        expected: first.expected,
+        record: first.stored,
+      }),
+    );
+    await Effect.runPromise(
+      built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()),
+    );
+    await Effect.runPromise(
+      built.repository.transact((tx) =>
+        tx.put(first.expected.address, { publicKey: "corrupt-terminal-evidence" }),
+      ),
+    );
+    const before = new Map(built.native.entries);
+    const recovered = await Effect.runPromiseExit(
+      built.restore.recoverRestoreImport(plan.manifestDigest),
+    );
+    expect(Exit.isFailure(recovered)).toBe(true);
+    expect(built.native.entries).toEqual(before);
   });
 });

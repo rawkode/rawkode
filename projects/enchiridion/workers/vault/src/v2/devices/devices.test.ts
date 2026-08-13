@@ -7,13 +7,14 @@ import {
   protocolVersion,
 } from "@enchiridion/protocol";
 import {
+  P256VerificationError,
   P256Crypto as RuntimeP256Crypto,
   makeP256Crypto,
   p256DerSignatureToP1363,
 } from "@enchiridion/runtime";
 import { Deferred, Effect, Exit, Layer } from "effect";
 import { makeInMemoryDeviceRegistryRepository } from "./repository";
-import { makeDeviceService } from "./service";
+import { makeDeviceService, prepareDeviceAccessChallenge } from "./service";
 import {
   DeviceServiceError,
   ExistingDeviceRecoveryRebinder,
@@ -160,6 +161,28 @@ const revokeEnvelope = (
 const fromBase64 = (value: string): Uint8Array => Uint8Array.from(Buffer.from(value, "base64"));
 
 describe("v2 device service", () => {
+  test("prepares no mutable challenge for invalid P-256 input or unavailable entropy", async () => {
+    const invalid = await Effect.runPromiseExit(
+      prepareDeviceAccessChallenge(
+        testP256Crypto(),
+        binding,
+        { ...challengeRequest, devicePublicKey: "not-p256" },
+        now,
+      ),
+    );
+    expect(Exit.isFailure(invalid)).toBe(true);
+    expect(JSON.stringify(invalid)).toContain("invalid_request");
+    const unavailable = {
+      random32: () => Effect.fail(new P256VerificationError({ reason: "crypto_unavailable" })),
+      verify: () => Effect.void,
+    };
+    const failed = await Effect.runPromiseExit(
+      prepareDeviceAccessChallenge(unavailable, binding, challengeRequest, now),
+    );
+    expect(Exit.isFailure(failed)).toBe(true);
+    expect(JSON.stringify(failed)).toContain("temporarily_unavailable");
+  });
+
   test("uses the runtime canonical low-S DER parser for the shared TS/Swift vector", () => {
     const bytes = p256DerSignatureToP1363(fromBase64(signatureDER));
     expect(bytes).toBeDefined();

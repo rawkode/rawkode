@@ -184,6 +184,14 @@ const stableBytes = (
   }
 };
 
+/**
+ * The one measurement used for all OwnerVault persisted envelopes.  Admission
+ * codecs use this rather than an approximate JSON length so a valid bounded
+ * singleton can never be admitted by one path and rejected by another.
+ */
+export const ownerVaultSerializedRecordBytes = (value: unknown): number | undefined =>
+  stableBytes(value)?.bytes;
+
 const envelope = (
   category: OwnerVaultStorageCategory,
   payload: Readonly<Record<string, unknown>>,
@@ -393,6 +401,14 @@ export interface OwnerVaultTx {
   readonly delete: (
     address: OwnerVaultStorageAddress,
   ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
+  /** Reads the alarm that will commit or roll back with this transaction's rows. */
+  readonly getAlarm: () => Effect.Effect<number | null, OwnerVaultStorageTransactionFailure>;
+  /** Schedules an alarm in the same native commit as this transaction's rows. */
+  readonly setAlarm: (
+    epochMilliseconds: number,
+  ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
+  /** Clears the alarm in the same native commit as this transaction's rows. */
+  readonly deleteAlarm: () => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
 }
 
 export interface OwnerVaultStorageRepository {
@@ -1197,6 +1213,9 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
               putRestoreImport,
               publishRestoreImport,
               delete: remove,
+              getAlarm: native.getAlarm,
+              setAlarm: native.setAlarm,
+              deleteAlarm: native.deleteAlarm,
             };
             return operation(Object.freeze(tx)).pipe(
               Effect.flatMap((value) => finalizeCatalog().pipe(Effect.as(value))),

@@ -58,9 +58,7 @@ const limitsJSON = JSON.stringify({
 });
 
 /** Records only method invocations: shape probes at construction stay legal. */
-const r2Spy = (
-  withList: boolean,
-): { readonly target: unknown; readonly calls: string[] } => {
+const r2Spy = (withList: boolean): { readonly target: unknown; readonly calls: string[] } => {
   const calls: string[] = [];
   const method =
     (name: string) =>
@@ -94,6 +92,9 @@ const nativeState = (): {
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
+    getAlarm: () => Promise.resolve(null),
+    setAlarm: () => Promise.resolve(),
+    deleteAlarm: () => Promise.resolve(),
   };
   const storage = {
     ...transaction,

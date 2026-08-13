@@ -18,10 +18,17 @@ const registered = (
 
 describe("OwnerVault physical state registry", () => {
   test("is exhaustive and assigns the restore policy matrix", () => {
-    expect(ownerVaultStorageRegistry.size).toBe(40);
+    expect(ownerVaultStorageRegistry.size).toBe(48);
     const expected = {
       "root.identity": ["exclude", "never"],
       "root.admission": ["exclude", "never"],
+      "challenge-expiry-index": ["exclude", "never"],
+      "socket-prepared-index": ["exclude", "never"],
+      "socket-replay-index": ["exclude", "never"],
+      "control-receipt-lease-index": ["exclude", "never"],
+      "control-receipt-completed-index": ["exclude", "never"],
+      "control-receipt-reconcile-cursor": ["exclude", "never"],
+      "control-terminal-evidence": ["exclude", "never"],
       "root.floors": ["exclude", "target-overlay"],
       "root.log-head": ["exclude", "rebuild"],
       "root.runtime": ["exclude", "never"],
@@ -58,6 +65,7 @@ describe("OwnerVault physical state registry", () => {
       "backup.restore-journal": ["exclude", "never"],
       "socket.admission": ["exclude", "never"],
       "socket.jti": ["exclude", "never"],
+      "control.operation": ["exclude", "never"],
       "control.initialization-ack": ["exclude", "never"],
       "control.floor-sync": ["exclude", "never"],
     } as const;
@@ -123,6 +131,66 @@ describe("OwnerVault physical state registry", () => {
     ).toThrow(OwnerVaultStorageRegistryError);
   });
 
+  test("decodes only closed, exact terminal control evidence", () => {
+    const root = {
+      ownerID: "owner-evidence",
+      vaultID: "vault-evidence",
+      generationEpoch: 1,
+      namespaceState: "PRIVATE",
+    } as const;
+    const payload = {
+      schema: "control-terminal-evidence-v1",
+      state: "CLOSED",
+      operationID: "operation-evidence-0001",
+      receiptJTI: "jti-evidence-0001",
+      root,
+      kind: "snapshot",
+      controlDigest: "a".repeat(64),
+      result: {
+        kind: "snapshot",
+        manifestDigest: "A".repeat(43),
+        sourceSnapshotPublication: {
+          schema: "source-snapshot-publication-v1",
+          authority: "owner-vault-production-manifest-ring-v1",
+          algorithm: "ES256-P256-canonical-low-s-der",
+          publication: {
+            category: "owner-vault.snapshot-pin",
+            schema: "snapshot-pin-v2",
+            state: "COMPLETED",
+          },
+          sourceRoot: root,
+          backupID: "backup-evidence-0001",
+          manifestDigest: "A".repeat(43),
+          snapshotOperationID: "operation-evidence-0001",
+          snapshotJTI: "jti-evidence-0001",
+          snapshotCommandSHA256: "a".repeat(64),
+          signingKeyID: "manifest-key-001",
+          signature: { keyID: "manifest-key-001", signatureDERBase64: "AAAA" },
+        },
+      },
+    } as const;
+    expect(
+      assertOwnerVaultStorageRecord(
+        registered("control-terminal-evidence", "operation-evidence-0001"),
+        {
+          category: "control-terminal-evidence",
+          version: 1,
+          payload,
+        },
+      ),
+    ).toMatchObject({ category: "control-terminal-evidence" });
+    expect(() =>
+      assertOwnerVaultStorageRecord(
+        registered("control-terminal-evidence", "operation-evidence-0001"),
+        {
+          category: "control-terminal-evidence",
+          version: 1,
+          payload: { ...payload, state: "OPEN" },
+        },
+      ),
+    ).toThrow(OwnerVaultStorageRegistryError);
+  });
+
   test("keeps the capability expiry cursor in one bounded local-only singleton", () => {
     expect(
       assertOwnerVaultStorageRecord(registered("capability-receipt-index"), {
@@ -145,6 +213,57 @@ describe("OwnerVault physical state registry", () => {
             { jti: "capability-jti-0001", expiresAtSeconds: 10 },
           ],
         },
+      }),
+    ).toThrow(OwnerVaultStorageRegistryError);
+  });
+
+  test("keeps admission-v2 compact while validating every bounded socket index", () => {
+    const compactAdmission = {
+      category: "root.admission",
+      version: 1,
+      payload: {
+        schema: "admission-v2",
+        total: 2,
+        activeChallenges: 2,
+        legacyOutstandingChallenges: 1,
+        activeDevices: 1,
+        activeSessions: 1,
+        capabilityReceipts: 1,
+        pendingSocketAdmissions: 1,
+        activeSocketAdmissions: 0,
+        stopped: false,
+      },
+    } as const;
+    expect(
+      assertOwnerVaultStorageRecord(registered("root.admission"), compactAdmission),
+    ).toMatchObject({ category: "root.admission" });
+    expect(() =>
+      assertOwnerVaultStorageRecord(registered("root.admission"), {
+        ...compactAdmission,
+        payload: { ...compactAdmission.payload, socketReplayJTIs: [] },
+      }),
+    ).toThrow(OwnerVaultStorageRegistryError);
+    expect(
+      assertOwnerVaultStorageRecord(registered("challenge-expiry-index"), {
+        category: "challenge-expiry-index",
+        version: 1,
+        payload: {
+          entries: [{ challengeID: "challenge-index-0001", expiresAtMilliseconds: 1_000 }],
+        },
+      }),
+    ).toMatchObject({ category: "challenge-expiry-index" });
+    expect(() =>
+      assertOwnerVaultStorageRecord(registered("socket-prepared-index"), {
+        category: "socket-prepared-index",
+        version: 1,
+        payload: { entries: ["socket-operation-0001", "socket-operation-0001"] },
+      }),
+    ).toThrow(OwnerVaultStorageRegistryError);
+    expect(() =>
+      assertOwnerVaultStorageRecord(registered("socket-replay-index"), {
+        category: "socket-replay-index",
+        version: 1,
+        payload: { entries: Array.from({ length: 65 }, (_, index) => `socket-jti-${index}`) },
       }),
     ).toThrow(OwnerVaultStorageRegistryError);
   });

@@ -78,6 +78,7 @@ const r2 = (): {
 const runtime = (boundary: ImmutableR2Boundary): OwnerVaultBackupRuntime => ({
   r2: boundary,
   signer: {
+    keyID: "backup-key",
     signCanonical: (bytes) =>
       Effect.succeed({ keyID: "backup-key", signatureDERBase64: ownerVaultBackupDigest(bytes) }),
   },
@@ -187,6 +188,7 @@ const target = (
       },
       assertFreshPrivateTarget: () => Effect.sync(() => events.push("private")),
       restoreImport: {
+        recoverRestoreImport: () => Effect.succeed(undefined),
         beginRestoreImport: (_restoreID, plan) =>
           Effect.sync(() => {
             events.push(`begin:${plan.objectCount}`);
@@ -198,6 +200,11 @@ const target = (
             return undefined;
           }),
         finalizeRestoreImport: () =>
+          Effect.sync(() => {
+            events.push("complete");
+            return {} as import("./backup-types").OwnerVaultRestoreImportReceipt;
+          }),
+        finalizeRestoreImportWithTerminalFence: () =>
           Effect.sync(() => {
             events.push("complete");
             return {} as import("./backup-types").OwnerVaultRestoreImportReceipt;

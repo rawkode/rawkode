@@ -8,7 +8,15 @@ import type {
   OwnerVaultRestoredBlobMetadata,
 } from "../blobs/restore-reconstruction";
 import type { OwnerVaultAppendLogEntry } from "./domains";
-import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository } from "./repository";
+import type {
+  OwnerVaultStorageAddress,
+  OwnerVaultStorageRepository,
+  OwnerVaultStorageTransactionFailure,
+  OwnerVaultTx,
+} from "./repository";
+export type OwnerVaultControlFence = (
+  tx: OwnerVaultTx,
+) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
 import type { OwnerVaultRestoreImport } from "./restore-import";
 import type {
   OwnerVaultStorageCategory,
@@ -67,6 +75,7 @@ export interface OwnerVaultBackupSnapshotSource {
   readonly beginSnapshot: (
     scope: OwnerVaultBackupScope,
     backupID: string,
+    fence?: OwnerVaultControlFence,
   ) => Effect.Effect<OwnerVaultSnapshotPin, OwnerVaultBackupError>;
   readonly readSnapshotPage: (
     pin: OwnerVaultSnapshotPin,
@@ -76,9 +85,11 @@ export interface OwnerVaultBackupSnapshotSource {
   readonly completeSnapshot: (
     pin: OwnerVaultSnapshotPin,
     manifestDigest: string,
+    fence?: OwnerVaultControlFence,
   ) => Effect.Effect<void, OwnerVaultBackupError>;
   readonly releaseSnapshot: (
     pin: OwnerVaultSnapshotPin,
+    fence?: OwnerVaultControlFence,
   ) => Effect.Effect<void, OwnerVaultBackupError>;
   /** Explicit operator abort only; normal archive failures intentionally remain OPEN for retry. */
   readonly abortSnapshot: (
@@ -224,6 +235,25 @@ export interface OwnerVaultBackupRuntime {
   readonly r2: ImmutableR2Boundary;
   readonly signer: ManifestSigner;
   readonly verifier: ManifestVerifier;
+  /** Internal control-operation fence, absent for ordinary backup callers. */
+  readonly renewLease?: () => Effect.Effect<void, OwnerVaultBackupError>;
+  /** Fence composed with every downstream pin/import mutation. */
+  readonly fenceInTx?: OwnerVaultControlFence;
+  /** C2-only terminal pin closure. Unlike generic fences, this callback owns
+   * the one transaction containing the pin and durable control fragment. */
+  readonly finalizeSnapshot?: (
+    pin: OwnerVaultSnapshotPin,
+    manifestDigest: string,
+    signed: OwnerVaultSignedBackupManifest,
+  ) => Effect.Effect<void, OwnerVaultBackupError>;
+  /** C2-only terminal restore publication. Its supplied target method has a
+   * required terminal fence, so generic callers retain their optional fence. */
+  readonly finalizeRestore?: (
+    target: OwnerVaultPrivateRestoreTarget,
+    restoreID: string,
+    manifestDigest: string,
+    finalization: OwnerVaultRestoreImportFinalization,
+  ) => Effect.Effect<OwnerVaultRestoreImportReceipt, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultStorageRestoreAdapterOptions {
