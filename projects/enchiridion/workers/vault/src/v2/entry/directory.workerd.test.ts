@@ -25,7 +25,7 @@ import {
   type OwnerVaultDirectoryControlClaimsInput,
   OwnerVaultDirectoryControlResource,
   type OwnerVaultPrivateInitializeClaimsInput,
-  type OwnerVaultSnapshotClaimsInput,
+  type OwnerVaultSnapshotReceiptLeaseV1ClaimsInput,
   type OwnerVaultSocketAdmissionClaimsInput,
   makeOwnerVaultDirectoryControlKeyRing,
   makeOwnerVaultSocketAdmissionKeyRing,
@@ -767,13 +767,13 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
       sourceSecurityFloor: 1,
     } as const;
     const snapshotBinding = {
-      resource: OwnerVaultDirectoryControlResource.Snapshot,
-      path: "/__v2/internal/owner-vault/snapshot" as const,
+      resource: OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1,
+      path: "/__v2/internal/owner-vault/snapshot-receipt-lease-v1" as const,
       method: "POST" as const,
       canonicalQuery: "" as const,
       bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(snapshot))),
       ...snapshot,
-    } satisfies Omit<OwnerVaultSnapshotClaimsInput, "ttlSeconds">;
+    } satisfies Omit<OwnerVaultSnapshotReceiptLeaseV1ClaimsInput, "ttlSeconds">;
     const snapshotBody = await signedOwnerVaultControlBody(snapshot, {
       ...snapshotBinding,
       ttlSeconds: 60,

@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
 import { expect, test } from "bun:test";
+import { resolve } from "node:path";
 import {
   type AccessJwksSessionFactory,
   AccessJwtVerificationError,

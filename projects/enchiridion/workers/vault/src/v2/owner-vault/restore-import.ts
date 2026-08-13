@@ -31,6 +31,7 @@ import {
   ownerVaultBackupMaximumObjects,
   ownerVaultBackupMaximumTotalBytes,
 } from "./backup-types";
+import type { OwnerVaultControlFence } from "./backup-types";
 import { type OwnerVaultAppendLogEntry, decodeOwnerVaultAppendLogEntry } from "./domains";
 import type {
   OwnerVaultStorageAddress,
@@ -63,6 +64,8 @@ const storageCategory = (value: unknown): OwnerVaultStorageCategory | undefined 
   ownerVaultStorageCategories.find((category) => category === value);
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const samePayload = (value: unknown, expected: Readonly<Record<string, unknown>>): boolean =>
+  digestCanonical(value) === digestCanonical(expected);
 const address = (
   category: OwnerVaultStorageAddress["category"],
   identifier?: string,
@@ -707,21 +710,172 @@ const deriveAppendLog = (
     : undefined;
 };
 
+/** Re-validates a terminal import from durable rows only.  It is intentionally
+ * separate from begin/apply/finalize so recovery can never re-run archive I/O
+ * or create another staged row. */
+/** Legacy C1 diagnostic replay. C2 expiry recovery is intentionally routed
+ * through control-terminal-evidence and never enters this full journal scan. */
+const recoverVerifiedImportForC1 = (
+  tx: OwnerVaultTx,
+  restoreID: string,
+  manifestDigest: string,
+  target: Pick<OwnerVaultRestoreImportFinalization, "blobScope" | "blobLimits">,
+  reconstruct: OwnerVaultRestoreReconstruction,
+): Effect.Effect<OwnerVaultRestoreImportReceipt | undefined, OwnerVaultStorageTransactionFailure> =>
+  readHeader(tx, restoreID).pipe(
+    Effect.flatMap((header) => {
+      const headerReceipt = header.receipt;
+      if (
+        header.manifestDigest !== manifestDigest ||
+        header.state !== "COMPLETED" ||
+        headerReceipt === undefined
+      )
+        return Effect.succeed(undefined);
+      return Effect.all([
+        tx.get(address("root.identity")),
+        tx.get(address("root.floors")),
+        tx.get(address("blob.accounting")),
+        tx.get(address("root.log-head")),
+        tx.get(address("append-log.head")),
+        Effect.forEach(
+          Array.from({ length: header.pageCount }, (_, ordinal) => ordinal),
+          (ordinal) => readPage(tx, restoreID, manifestDigest, ordinal),
+        ),
+      ]).pipe(
+        Effect.flatMap(([identity, floors, accounting, rootHead, appendHead, pages]) => {
+          if (
+            !matchesCompletedTarget(headerReceipt, identity?.payload, floors?.payload) ||
+            !targetScopeMatches(identity?.payload, {
+              ...target,
+              targetBlobEvidence: [],
+            }) ||
+            !samePayload(rootHead?.payload, {
+              appendLogSequence: header.appendLogSequence,
+              appendLogDigest: header.appendLogDigest,
+            }) ||
+            !samePayload(appendHead?.payload, {
+              appendLogSequence: header.appendLogSequence,
+              appendLogDigest: header.appendLogDigest,
+            })
+          )
+            return txFailure<OwnerVaultRestoreImportReceipt | undefined>();
+          const records = pages.flatMap((page) => page.records);
+          if (
+            records.length !== header.objectCount ||
+            !records.every((item, index) => item.ordinal === index && validImportRecord(item)) ||
+            pages.some(
+              (page) =>
+                page.appliedOrdinals.length !== page.records.length ||
+                !page.records.every((item) => page.appliedOrdinals.includes(item.ordinal)),
+            ) ||
+            ownerVaultRestoreImportHashChain(header.manifestDigest, records) !== header.hashChain
+          )
+            return txFailure<OwnerVaultRestoreImportReceipt | undefined>();
+          return Effect.forEach(records, (item) =>
+            tx.get(item.address).pipe(
+              Effect.flatMap((stored) => {
+                const bytes =
+                  stored === undefined
+                    ? undefined
+                    : canonicalSnapshotRecordBytes(item.address, stored);
+                return stored === undefined ||
+                  bytes === undefined ||
+                  bytes.byteLength !== item.size ||
+                  ownerVaultBackupDigest(bytes) !== item.sha256Base64
+                  ? txFailure<{
+                      readonly inventory: OwnerVaultRestoreImportRecord;
+                      readonly record: OwnerVaultStorageRecord;
+                    }>()
+                  : Effect.succeed({ inventory: item, record: stored });
+              }),
+            ),
+          ).pipe(
+            Effect.flatMap((rows) => {
+              const decodedEvidence = rows
+                .filter((row) => row.inventory.category === "blob.metadata")
+                .map((row) => decodeOwnerVaultBlobStoredMetadata(row.record));
+              const evidence = decodedEvidence
+                .flatMap((entry) => (entry === undefined ? [] : [entry]))
+                .sort((left, right) => left.sha256.localeCompare(right.sha256));
+              if (evidence.length !== decodedEvidence.length)
+                return txFailure<OwnerVaultRestoreImportReceipt | undefined>();
+              const finalization = {
+                ...target,
+                targetBlobEvidence: evidence,
+              };
+              const blobs = deriveBlobInventory(rows, finalization);
+              const log = deriveAppendLog(rows, header.appendLogSequence);
+              if (
+                blobs === undefined ||
+                log === undefined ||
+                !strictAppendLogValidator({
+                  scope: header.source,
+                  entries: log,
+                  appendLogSequence: header.appendLogSequence,
+                  appendLogDigest: header.appendLogDigest,
+                })
+              )
+                return txFailure<OwnerVaultRestoreImportReceipt | undefined>();
+              const rebuilt = reconstruct(target.blobScope, target.blobLimits, blobs);
+              if (rebuilt._tag !== "OwnerVaultBlobRestoreReconstructionSuccess")
+                return txFailure<OwnerVaultRestoreImportReceipt | undefined>();
+              const expected = completedReceipt(
+                header,
+                identity?.payload,
+                floors?.payload,
+                rebuilt.value.accounting,
+                finalization,
+              );
+              return expected === undefined ||
+                JSON.stringify(expected) !== JSON.stringify(header.receipt) ||
+                digestCanonical(accounting?.payload) !== header.receipt?.accountingProof
+                ? txFailure<OwnerVaultRestoreImportReceipt | undefined>()
+                : Effect.succeed(header.receipt);
+            }),
+          );
+        }),
+      );
+    }),
+  );
+
 export interface OwnerVaultRestoreImport {
+  /** Read-only terminal recovery: it does not touch archive/R2 or stage rows. */
+  readonly recoverRestoreImport: (
+    restoreID: string,
+    manifestDigest: string,
+    target: Pick<OwnerVaultRestoreImportFinalization, "blobScope" | "blobLimits">,
+  ) => Effect.Effect<OwnerVaultRestoreImportReceipt | undefined, OwnerVaultBackupError>;
   readonly beginRestoreImport: (
     restoreID: string,
     plan: OwnerVaultRestoreImportPlan,
+    fence?: OwnerVaultControlFence,
   ) => Effect.Effect<OwnerVaultRestoreImportReceipt | undefined, OwnerVaultBackupError>;
   readonly applyRestoreRecord: (input: {
     readonly restoreID: string;
     readonly manifestDigest: string;
     readonly expected: OwnerVaultRestoreImportRecord;
     readonly record: OwnerVaultStorageRecord;
+    readonly fence?: OwnerVaultControlFence;
   }) => Effect.Effect<OwnerVaultRestoreImportReceipt | undefined, OwnerVaultBackupError>;
   readonly finalizeRestoreImport: (
     restoreID: string,
     manifestDigest: string,
     finalization: OwnerVaultRestoreImportFinalization,
+    fence?: OwnerVaultControlFence,
+    terminalCompletion?: (
+      tx: OwnerVaultTx,
+      receipt: OwnerVaultRestoreImportReceipt,
+    ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>,
+  ) => Effect.Effect<OwnerVaultRestoreImportReceipt, OwnerVaultBackupError>;
+  /** C2 terminal publication receives the exact compact receipt in the same tx. */
+  readonly finalizeRestoreImportWithTerminalFence: (
+    restoreID: string,
+    manifestDigest: string,
+    finalization: OwnerVaultRestoreImportFinalization,
+    terminalCompletion: (
+      tx: OwnerVaultTx,
+      receipt: OwnerVaultRestoreImportReceipt,
+    ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>,
   ) => Effect.Effect<OwnerVaultRestoreImportReceipt, OwnerVaultBackupError>;
 }
 
@@ -732,14 +886,32 @@ export const makeOwnerVaultRestoreImport = (options: {
 }): OwnerVaultRestoreImport => {
   const reconstruct = options.reconstruct ?? reconstructOwnerVaultRestoredBlobInventory;
   const validateAppendLog = options.validateAppendLog ?? strictAppendLogValidator;
-  return Object.freeze({
-    beginRestoreImport: (restoreID: string, plan: OwnerVaultRestoreImportPlan) => {
+  const importer: OwnerVaultRestoreImport = {
+    recoverRestoreImport: (
+      restoreID: string,
+      manifestDigest: string,
+      target: Pick<OwnerVaultRestoreImportFinalization, "blobScope" | "blobLimits">,
+    ) => {
+      if (!backupIDPattern.test(restoreID) || !validOwnerVaultBackupDigest(manifestDigest))
+        return failure("manifest_invalid");
+      return options.repository
+        .transact((tx) =>
+          recoverVerifiedImportForC1(tx, restoreID, manifestDigest, target, reconstruct),
+        )
+        .pipe(mapRepository);
+    },
+    beginRestoreImport: (
+      restoreID: string,
+      plan: OwnerVaultRestoreImportPlan,
+      fence?: OwnerVaultControlFence,
+    ) => {
       if (!backupIDPattern.test(restoreID) || !validPlan(plan)) return failure("manifest_invalid");
       const header = headerFor(restoreID, plan);
       const pages = pagesFor(plan);
       return options.repository
         .transact((tx) =>
-          tx.get(headerAddress(restoreID)).pipe(
+          (fence === undefined ? Effect.void : fence(tx)).pipe(
+            Effect.zipRight(tx.get(headerAddress(restoreID))),
             Effect.flatMap((existing) => {
               const prior = existing === undefined ? undefined : decodeHeader(existing.payload);
               if (prior !== undefined) {
@@ -783,6 +955,7 @@ export const makeOwnerVaultRestoreImport = (options: {
       readonly manifestDigest: string;
       readonly expected: OwnerVaultRestoreImportRecord;
       readonly record: OwnerVaultStorageRecord;
+      readonly fence?: OwnerVaultControlFence;
     }) => {
       if (
         !validOwnerVaultBackupDigest(input.manifestDigest) ||
@@ -794,7 +967,8 @@ export const makeOwnerVaultRestoreImport = (options: {
       const restoreID = input.restoreID;
       return options.repository
         .transact((tx) =>
-          readHeader(tx, restoreID).pipe(
+          (input.fence === undefined ? Effect.void : input.fence(tx)).pipe(
+            Effect.zipRight(readHeader(tx, restoreID)),
             Effect.flatMap((header) => {
               if (header.manifestDigest !== input.manifestDigest) return txFailure();
               const pageOrdinal = Math.floor(input.expected.ordinal / journalPageSize);
@@ -858,12 +1032,18 @@ export const makeOwnerVaultRestoreImport = (options: {
       restoreID: string,
       manifestDigest: string,
       finalization: OwnerVaultRestoreImportFinalization,
+      fence?: OwnerVaultControlFence,
+      terminalCompletion?: (
+        tx: OwnerVaultTx,
+        receipt: OwnerVaultRestoreImportReceipt,
+      ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>,
     ) => {
       if (!backupIDPattern.test(restoreID) || !validOwnerVaultBackupDigest(manifestDigest))
         return failure("manifest_invalid");
       return options.repository
         .transact((tx) =>
-          readHeader(tx, restoreID).pipe(
+          (fence === undefined ? Effect.void : fence(tx)).pipe(
+            Effect.zipRight(readHeader(tx, restoreID)),
             Effect.flatMap((header) => {
               if (header.manifestDigest !== manifestDigest) return txFailure();
               if (header.state === "COMPLETED") {
@@ -988,6 +1168,11 @@ export const makeOwnerVaultRestoreImport = (options: {
                                     asPayload({ ...header, state: "COMPLETED", receipt }),
                                   ),
                                 ),
+                                Effect.zipRight(
+                                  terminalCompletion === undefined
+                                    ? Effect.void
+                                    : terminalCompletion(tx, receipt),
+                                ),
                                 Effect.as(receipt),
                               );
                             }),
@@ -1003,5 +1188,25 @@ export const makeOwnerVaultRestoreImport = (options: {
         )
         .pipe(mapRepository);
     },
-  });
+    finalizeRestoreImportWithTerminalFence: (
+      restoreID: string,
+      manifestDigest: string,
+      finalization: OwnerVaultRestoreImportFinalization,
+      terminalCompletion: (
+        tx: OwnerVaultTx,
+        receipt: OwnerVaultRestoreImportReceipt,
+      ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>,
+    ) => {
+      if (!backupIDPattern.test(restoreID) || !validOwnerVaultBackupDigest(manifestDigest))
+        return failure("manifest_invalid");
+      return importer.finalizeRestoreImport(
+        restoreID,
+        manifestDigest,
+        finalization,
+        undefined,
+        terminalCompletion,
+      );
+    },
+  };
+  return Object.freeze(importer);
 };

@@ -19,6 +19,13 @@ export const ownerVaultStoragePrefix = "v2.ov/";
 export const ownerVaultStorageCategories = [
   "root.identity",
   "root.admission",
+  "challenge-expiry-index",
+  "socket-prepared-index",
+  "socket-replay-index",
+  "control-receipt-lease-index",
+  "control-receipt-completed-index",
+  "control-receipt-reconcile-cursor",
+  "control-terminal-evidence",
   "root.floors",
   "root.log-head",
   "root.runtime",
@@ -59,6 +66,9 @@ export const ownerVaultStorageCategories = [
   "backup.restore-journal",
   "socket.admission",
   "socket.jti",
+  // Snapshot/restore use one lease-fenced operation receipt, deliberately
+  // separate from the generic capability-receipt lifecycle.
+  "control.operation",
   "control.initialization-ack",
   "control.floor-sync",
 ] as const;
@@ -131,7 +141,10 @@ const catalogMaximumBytes = 32 * 1024;
 const journalMaximumBytes = 32 * 1024;
 const maximumBlobTrackedLeases = 32;
 const maximumCapabilityReceiptIndexEntries = 64;
+const maximumAdmissionIndexEntries = 64;
 const blobHashPattern = /^[a-f0-9]{64}$/u;
+const nonNegativeInt = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 const plainRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -208,6 +221,228 @@ const validRestoreJournal = (value: unknown): boolean => {
   );
 };
 
+/** No pre-lease shape is accepted here: control-operation is a new durable
+ * contract, not a migration or reinterpretation of initialization acks. */
+const validControlOperation = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  if (source === undefined) return false;
+  const completed = source.state === "COMPLETED";
+  const keys = [
+    "canonicalCommand",
+    "controlDigest",
+    "expiresAtSeconds",
+    "hardDeadlineMilliseconds",
+    "kind",
+    "leaseEpoch",
+    "leaseID",
+    "leaseUntilMilliseconds",
+    "operationID",
+    "root",
+    "lifecycle",
+    "receiptFingerprint",
+    "receiptJTI",
+    "state",
+    "schema",
+    ...(completed ? ["result"] : []),
+  ];
+  const validIdentifier = (entry: unknown) =>
+    typeof entry === "string" && identifierPattern.test(entry);
+  const validDigest = (entry: unknown) => typeof entry === "string" && blobHashPattern.test(entry);
+  if (
+    !exactKeys(source, keys) ||
+    source.schema !== "control-operation-v2" ||
+    (source.kind !== "snapshot" && source.kind !== "restore") ||
+    !validIdentifier(source.operationID) ||
+    !validTargetRoot(source.root) ||
+    source.root.namespaceState !== "PRIVATE" ||
+    !validIdentifier(source.receiptJTI) ||
+    typeof source.expiresAtSeconds !== "number" ||
+    !Number.isSafeInteger(source.expiresAtSeconds) ||
+    source.expiresAtSeconds < 1 ||
+    source.lifecycle !== "receipt-lease-v1" ||
+    typeof source.hardDeadlineMilliseconds !== "number" ||
+    !Number.isSafeInteger(source.hardDeadlineMilliseconds) ||
+    source.hardDeadlineMilliseconds !== source.expiresAtSeconds * 1_000 ||
+    !validIdentifier(source.leaseID) ||
+    !validDigest(source.receiptFingerprint) ||
+    !validDigest(source.controlDigest) ||
+    typeof source.canonicalCommand !== "string" ||
+    new TextEncoder().encode(source.canonicalCommand).byteLength > 16_384 ||
+    typeof source.leaseEpoch !== "number" ||
+    !Number.isSafeInteger(source.leaseEpoch) ||
+    source.leaseEpoch < 1 ||
+    typeof source.leaseUntilMilliseconds !== "number" ||
+    !Number.isSafeInteger(source.leaseUntilMilliseconds) ||
+    source.leaseUntilMilliseconds < 1 ||
+    (source.state !== "CLAIMED" &&
+      source.state !== "EXECUTING" &&
+      source.state !== "SNAPSHOT_MANIFEST_READY" &&
+      source.state !== "RESTORE_APPLYING" &&
+      source.state !== "CLEANING" &&
+      source.state !== "COMPLETED")
+  )
+    return false;
+  const result = plainRecord(source.result);
+  return source.state !== "COMPLETED"
+    ? source.result === undefined
+    : result !== undefined &&
+        (source.kind === "snapshot"
+          ? exactKeys(result, ["kind", "manifestDigest", "sourceSnapshotPublication"]) &&
+            result.kind === "snapshot" &&
+            typeof result.manifestDigest === "string" &&
+            /^[A-Za-z0-9_-]{43}$/u.test(result.manifestDigest) &&
+            validSourceSnapshotPublication(result.sourceSnapshotPublication)
+          : exactKeys(result, ["kind", "terminalTranscript"]) &&
+            result.kind === "restore" &&
+            validControlRestoreTranscript(result.terminalTranscript));
+};
+
+const validSourceSnapshotPublication = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const publication = source === undefined ? undefined : plainRecord(source.publication);
+  const root = source === undefined ? undefined : plainRecord(source.sourceRoot);
+  const signature = source === undefined ? undefined : plainRecord(source.signature);
+  return (
+    source !== undefined &&
+    exactKeys(source, [
+      "schema",
+      "authority",
+      "algorithm",
+      "publication",
+      "sourceRoot",
+      "backupID",
+      "manifestDigest",
+      "snapshotOperationID",
+      "snapshotJTI",
+      "snapshotCommandSHA256",
+      "signingKeyID",
+      "signature",
+    ]) &&
+    source.schema === "source-snapshot-publication-v1" &&
+    source.authority === "owner-vault-production-manifest-ring-v1" &&
+    source.algorithm === "ES256-P256-canonical-low-s-der" &&
+    publication !== undefined &&
+    exactKeys(publication, ["category", "schema", "state"]) &&
+    publication.category === "owner-vault.snapshot-pin" &&
+    publication.schema === "snapshot-pin-v2" &&
+    publication.state === "COMPLETED" &&
+    root !== undefined &&
+    validTargetRoot(root) &&
+    root.namespaceState === "PRIVATE" &&
+    typeof source.backupID === "string" &&
+    identifierPattern.test(source.backupID) &&
+    typeof source.manifestDigest === "string" &&
+    /^[A-Za-z0-9_-]{43}$/u.test(source.manifestDigest) &&
+    typeof source.snapshotOperationID === "string" &&
+    identifierPattern.test(source.snapshotOperationID) &&
+    typeof source.snapshotJTI === "string" &&
+    identifierPattern.test(source.snapshotJTI) &&
+    typeof source.snapshotCommandSHA256 === "string" &&
+    blobHashPattern.test(source.snapshotCommandSHA256) &&
+    typeof source.signingKeyID === "string" &&
+    identifierPattern.test(source.signingKeyID) &&
+    signature !== undefined &&
+    exactKeys(signature, ["keyID", "signatureDERBase64"]) &&
+    signature.keyID === source.signingKeyID &&
+    typeof signature.signatureDERBase64 === "string"
+  );
+};
+
+const validControlRestoreTranscript = (value: unknown): boolean => {
+  const receipt = plainRecord(value);
+  const root = receipt === undefined ? undefined : plainRecord(receipt.targetRoot);
+  const digest = (entry: unknown) =>
+    typeof entry === "string" && /^[A-Za-z0-9_-]{43}$/u.test(entry);
+  return (
+    receipt !== undefined &&
+    root !== undefined &&
+    exactKeys(receipt, [
+      "accountingProof",
+      "appendLogDigest",
+      "appendLogSequence",
+      "blobProof",
+      "finalizationProof",
+      "inventoryDigest",
+      "manifestDigest",
+      "outcome",
+      "restoreID",
+      "securityFloor",
+      "targetCatalogProof",
+      "targetRoot",
+    ]) &&
+    receipt.outcome === "COMPLETED" &&
+    typeof receipt.restoreID === "string" &&
+    identifierPattern.test(receipt.restoreID) &&
+    digest(receipt.manifestDigest) &&
+    digest(receipt.inventoryDigest) &&
+    digest(receipt.targetCatalogProof) &&
+    digest(receipt.accountingProof) &&
+    digest(receipt.blobProof) &&
+    digest(receipt.finalizationProof) &&
+    typeof receipt.appendLogSequence === "number" &&
+    Number.isSafeInteger(receipt.appendLogSequence) &&
+    receipt.appendLogSequence >= 0 &&
+    typeof receipt.appendLogDigest === "string" &&
+    blobHashPattern.test(receipt.appendLogDigest) &&
+    typeof receipt.securityFloor === "number" &&
+    Number.isSafeInteger(receipt.securityFloor) &&
+    receipt.securityFloor >= 0 &&
+    validTargetRoot(root)
+  );
+};
+
+const validControlTerminalEvidence = (value: unknown): boolean => {
+  const evidence = plainRecord(value);
+  const result = evidence === undefined ? undefined : plainRecord(evidence.result);
+  const snapshot =
+    result?.kind === "snapshot" ? plainRecord(result.sourceSnapshotPublication) : undefined;
+  const transcript =
+    result?.kind === "restore" ? plainRecord(result.terminalTranscript) : undefined;
+  const bound =
+    snapshot !== undefined
+      ? snapshot.manifestDigest === result?.manifestDigest &&
+        snapshot.snapshotOperationID === evidence?.operationID &&
+        snapshot.snapshotJTI === evidence?.receiptJTI &&
+        snapshot.snapshotCommandSHA256 === evidence?.controlDigest &&
+        JSON.stringify(snapshot.sourceRoot) === JSON.stringify(evidence?.root)
+      : transcript !== undefined &&
+        JSON.stringify(transcript.targetRoot) === JSON.stringify(evidence?.root);
+  return (
+    evidence !== undefined &&
+    result !== undefined &&
+    exactKeys(evidence, [
+      "schema",
+      "state",
+      "operationID",
+      "receiptJTI",
+      "root",
+      "kind",
+      "controlDigest",
+      "result",
+    ]) &&
+    evidence.schema === "control-terminal-evidence-v1" &&
+    evidence.state === "CLOSED" &&
+    typeof evidence.operationID === "string" &&
+    identifierPattern.test(evidence.operationID) &&
+    typeof evidence.receiptJTI === "string" &&
+    identifierPattern.test(evidence.receiptJTI) &&
+    validTargetRoot(evidence.root) &&
+    (evidence.kind === "snapshot" || evidence.kind === "restore") &&
+    typeof evidence.controlDigest === "string" &&
+    blobHashPattern.test(evidence.controlDigest) &&
+    bound &&
+    (evidence.kind === "snapshot"
+      ? exactKeys(result, ["kind", "manifestDigest", "sourceSnapshotPublication"]) &&
+        result.kind === "snapshot" &&
+        typeof result.manifestDigest === "string" &&
+        /^[A-Za-z0-9_-]{43}$/u.test(result.manifestDigest) &&
+        validSourceSnapshotPublication(result.sourceSnapshotPublication)
+      : exactKeys(result, ["kind", "terminalTranscript"]) &&
+        result.kind === "restore" &&
+        validControlRestoreTranscript(result.terminalTranscript))
+  );
+};
+
 const validAppendHead = (value: unknown): boolean => {
   const source = plainRecord(value);
   return (
@@ -230,6 +465,239 @@ const validSecurityFloor = (value: unknown): boolean => {
     typeof source.securityFloor === "number" &&
     Number.isSafeInteger(source.securityFloor) &&
     source.securityFloor >= 0
+  );
+};
+
+/** Compact v2 admission state.  Variable membership is deliberately held in
+ * its own bounded singleton rows so root accounting cannot grow with IDs. */
+const validAdmissionV2 = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    exactKeys(source, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "activeSocketAdmissions",
+      "capabilityReceipts",
+      "legacyOutstandingChallenges",
+      "pendingSocketAdmissions",
+      "schema",
+      "stopped",
+      "total",
+    ]) &&
+    source.schema === "admission-v2" &&
+    nonNegativeInt(source.total) &&
+    nonNegativeInt(source.activeChallenges) &&
+    nonNegativeInt(source.legacyOutstandingChallenges) &&
+    nonNegativeInt(source.activeDevices) &&
+    nonNegativeInt(source.activeSessions) &&
+    nonNegativeInt(source.capabilityReceipts) &&
+    nonNegativeInt(source.pendingSocketAdmissions) &&
+    nonNegativeInt(source.activeSocketAdmissions) &&
+    source.total === source.activeChallenges &&
+    source.legacyOutstandingChallenges <= source.activeChallenges &&
+    typeof source.stopped === "boolean"
+  );
+};
+
+/** Admission-v3 adds a bounded index for lease-fenced controls. The root
+ * owns only the cardinality; the singleton holds sorted operation IDs. */
+const validAdmissionV3 = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    exactKeys(source, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "activeSocketAdmissions",
+      "capabilityReceipts",
+      "controlReceiptLeases",
+      "legacyOutstandingChallenges",
+      "pendingSocketAdmissions",
+      "schema",
+      "stopped",
+      "total",
+    ]) &&
+    source.schema === "admission-v3" &&
+    nonNegativeInt(source.total) &&
+    nonNegativeInt(source.activeChallenges) &&
+    nonNegativeInt(source.legacyOutstandingChallenges) &&
+    nonNegativeInt(source.activeDevices) &&
+    nonNegativeInt(source.activeSessions) &&
+    nonNegativeInt(source.capabilityReceipts) &&
+    nonNegativeInt(source.controlReceiptLeases) &&
+    nonNegativeInt(source.pendingSocketAdmissions) &&
+    nonNegativeInt(source.activeSocketAdmissions) &&
+    source.total === source.activeChallenges &&
+    source.legacyOutstandingChallenges <= source.activeChallenges &&
+    source.controlReceiptLeases <= maximumAdmissionIndexEntries &&
+    typeof source.stopped === "boolean"
+  );
+};
+
+/** Read compatibility is deliberately narrow and exists only so the next
+ * mutating transaction can materialize v2's singleton indexes. */
+const validAdmissionLegacy = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  if (source === undefined) return false;
+  const required = ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts"];
+  if (!required.every((key) => Object.hasOwn(source, key))) return false;
+  if (!required.every((key) => nonNegativeInt(source[key]))) return false;
+  const optional = new Set([
+    ...required,
+    "stopped",
+    "pendingSocketAdmissions",
+    "activeSocketAdmissions",
+    "preparedSocketOperationIDs",
+    "socketReplayJTIs",
+    "outstandingChallenges",
+  ]);
+  if (!Object.keys(source).every((key) => optional.has(key))) return false;
+  const ids = (value: unknown) =>
+    Array.isArray(value) &&
+    value.length <= maximumAdmissionIndexEntries &&
+    value.every((entry) => typeof entry === "string" && identifierPattern.test(entry)) &&
+    new Set(value).size === value.length;
+  return (
+    (source.stopped === undefined || typeof source.stopped === "boolean") &&
+    (source.pendingSocketAdmissions === undefined ||
+      (typeof source.pendingSocketAdmissions === "number" &&
+        Number.isSafeInteger(source.pendingSocketAdmissions) &&
+        source.pendingSocketAdmissions >= 0)) &&
+    (source.activeSocketAdmissions === undefined ||
+      (typeof source.activeSocketAdmissions === "number" &&
+        Number.isSafeInteger(source.activeSocketAdmissions) &&
+        source.activeSocketAdmissions >= 0)) &&
+    (source.preparedSocketOperationIDs === undefined || ids(source.preparedSocketOperationIDs)) &&
+    (source.socketReplayJTIs === undefined || ids(source.socketReplayJTIs)) &&
+    (source.outstandingChallenges === undefined ||
+      validChallengeExpiryIndex({ entries: source.outstandingChallenges }))
+  );
+};
+
+const validChallengeExpiryIndex = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const entries = source?.entries;
+  if (source === undefined || !exactKeys(source, ["entries"]) || !Array.isArray(entries))
+    return false;
+  if (entries.length > maximumAdmissionIndexEntries) return false;
+  let previous = "";
+  return entries.every((entry) => {
+    const row = plainRecord(entry);
+    if (
+      row === undefined ||
+      !exactKeys(row, ["challengeID", "expiresAtMilliseconds"]) ||
+      typeof row.challengeID !== "string" ||
+      !identifierPattern.test(row.challengeID) ||
+      typeof row.expiresAtMilliseconds !== "number" ||
+      !Number.isSafeInteger(row.expiresAtMilliseconds) ||
+      row.expiresAtMilliseconds < 1
+    )
+      return false;
+    const key = `${row.expiresAtMilliseconds.toString().padStart(16, "0")}/${row.challengeID}`;
+    const ordered = previous === "" || previous < key;
+    previous = key;
+    return ordered;
+  });
+};
+
+const validIdentifierIndex = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const entries = source?.entries;
+  return (
+    source !== undefined &&
+    exactKeys(source, ["entries"]) &&
+    Array.isArray(entries) &&
+    entries.length <= maximumAdmissionIndexEntries &&
+    entries.every((entry) => typeof entry === "string" && identifierPattern.test(entry)) &&
+    new Set(entries).size === entries.length
+  );
+};
+
+/** C2 expiry work must not have to rediscover an operation from an opaque ID.
+ * This is deliberately a separate decoder from the older string indexes. */
+const validControlReceiptLeaseIndex = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const entries = source?.entries;
+  let previous = "";
+  return (
+    source !== undefined &&
+    exactKeys(source, ["entries"]) &&
+    Array.isArray(entries) &&
+    entries.length <= maximumAdmissionIndexEntries &&
+    entries.every((entry) => {
+      const row = plainRecord(entry);
+      if (
+        row === undefined ||
+        !exactKeys(row, [
+          "operationID",
+          "receiptJTI",
+          "kind",
+          "hardDeadlineMilliseconds",
+          "leaseUntilMilliseconds",
+        ]) ||
+        typeof row.operationID !== "string" ||
+        !identifierPattern.test(row.operationID) ||
+        typeof row.receiptJTI !== "string" ||
+        !identifierPattern.test(row.receiptJTI) ||
+        (row.kind !== "snapshot" && row.kind !== "restore") ||
+        typeof row.hardDeadlineMilliseconds !== "number" ||
+        !Number.isSafeInteger(row.hardDeadlineMilliseconds) ||
+        row.hardDeadlineMilliseconds < 1 ||
+        typeof row.leaseUntilMilliseconds !== "number" ||
+        !Number.isSafeInteger(row.leaseUntilMilliseconds) ||
+        row.leaseUntilMilliseconds < 1 ||
+        row.leaseUntilMilliseconds > row.hardDeadlineMilliseconds ||
+        previous >= row.operationID
+      )
+        return false;
+      previous = row.operationID;
+      return true;
+    })
+  );
+};
+
+/** Completed C2 receipts are a bounded exact-replay retention set. */
+const validControlReceiptCompletedIndex = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const entries = source?.entries;
+  let previous = "";
+  return (
+    source !== undefined &&
+    exactKeys(source, ["entries"]) &&
+    Array.isArray(entries) &&
+    entries.length <= maximumAdmissionIndexEntries &&
+    entries.every((entry) => {
+      const row = plainRecord(entry);
+      if (
+        row === undefined ||
+        !exactKeys(row, ["operationID", "receiptJTI", "expiresAtMilliseconds"]) ||
+        typeof row.operationID !== "string" ||
+        !identifierPattern.test(row.operationID) ||
+        typeof row.receiptJTI !== "string" ||
+        !identifierPattern.test(row.receiptJTI) ||
+        typeof row.expiresAtMilliseconds !== "number" ||
+        !Number.isSafeInteger(row.expiresAtMilliseconds) ||
+        row.expiresAtMilliseconds < 1 ||
+        previous >= row.operationID
+      )
+        return false;
+      previous = row.operationID;
+      return true;
+    })
+  );
+};
+
+const validControlReceiptReconcileCursor = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    exactKeys(source, ["nextOperationID"]) &&
+    (source.nextOperationID === null ||
+      (typeof source.nextOperationID === "string" &&
+        identifierPattern.test(source.nextOperationID)))
   );
 };
 
@@ -617,8 +1085,38 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
     maximumBytes: rootMaximumBytes,
     ...staticKey("root/admission"),
     decode: (value) =>
-      decodeEnvelope("root.admission", value, (payload) => !hasForbiddenScope(payload)),
+      decodeEnvelope(
+        "root.admission",
+        value,
+        (payload) =>
+          validAdmissionV3(payload) || validAdmissionV2(payload) || validAdmissionLegacy(payload),
+      ),
   },
+  ...(
+    [
+      ["challenge-expiry-index", "challenge-expiry-index", validChallengeExpiryIndex],
+      ["socket-prepared-index", "socket-prepared-index", validIdentifierIndex],
+      ["socket-replay-index", "socket-replay-index", validIdentifierIndex],
+      ["control-receipt-lease-index", "control-receipt-lease-index", validControlReceiptLeaseIndex],
+      [
+        "control-receipt-completed-index",
+        "control-receipt-completed-index",
+        validControlReceiptCompletedIndex,
+      ],
+      [
+        "control-receipt-reconcile-cursor",
+        "control-receipt-reconcile-cursor",
+        validControlReceiptReconcileCursor,
+      ],
+    ] as const
+  ).map(([category, name, valid]) => ({
+    category,
+    snapshot: "exclude" as const,
+    restore: "never" as const,
+    maximumBytes: regularMaximumBytes,
+    ...staticKey(name),
+    decode: (value: unknown) => decodeEnvelope(category, value, valid),
+  })),
   {
     category: "root.floors",
     snapshot: "exclude",
@@ -867,6 +1365,25 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
     maximumBytes: regularMaximumBytes,
     ...keyedFamily("socket/jti"),
     decode: (value) => decodeEnvelope("socket.jti", value, validSocketJti),
+  },
+  {
+    category: "control.operation",
+    snapshot: "exclude",
+    restore: "never",
+    maximumBytes: journalMaximumBytes,
+    ...keyedFamily("control/operation"),
+    decode: (value) => decodeEnvelope("control.operation", value, validControlOperation),
+  },
+  {
+    /* Exact, compact terminal material only. It is excluded from both
+     * snapshot and restore and is never a generic caller-writable record. */
+    category: "control-terminal-evidence",
+    snapshot: "exclude",
+    restore: "never",
+    maximumBytes: journalMaximumBytes,
+    ...keyedFamily("control/terminal-evidence"),
+    decode: (value) =>
+      decodeEnvelope("control-terminal-evidence", value, validControlTerminalEvidence),
   },
   {
     category: "control.initialization-ack",

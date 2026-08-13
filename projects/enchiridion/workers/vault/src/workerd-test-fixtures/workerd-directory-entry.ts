@@ -74,9 +74,9 @@ const ownerVaultControlPath = (pathname: string): string | undefined => {
     case "credential-fence":
       return "/__v2/internal/owner-vault/credential-fence";
     case "snapshot":
-      return "/__v2/internal/owner-vault/snapshot";
+      return "/__v2/internal/owner-vault/snapshot-receipt-lease-v1";
     case "restore":
-      return "/__v2/internal/owner-vault/restore";
+      return "/__v2/internal/owner-vault/restore-receipt-lease-v1";
     case "devices/challenge":
       return "/__v2/internal/owner-vault/devices/challenge";
     case "devices/complete":

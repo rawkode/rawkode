@@ -156,7 +156,7 @@ export const createOwnerVaultBackup = (
   backupID: string,
 ): Effect.Effect<OwnerVaultSignedBackupManifest, OwnerVaultBackupError> =>
   Effect.gen(function* () {
-    const pin = yield* source.beginSnapshot(scope, backupID);
+    const pin = yield* source.beginSnapshot(scope, backupID, runtime.fenceInTx);
     if (!validPin(pin, scope, backupID)) return yield* ownerVaultBackupFailure("catalog_invalid");
     const release = source.releaseSnapshot(pin);
     const archive = Effect.gen(function* () {
@@ -168,6 +168,7 @@ export const createOwnerVaultBackup = (
         [];
       const catalogEntries: OwnerVaultBackupPageEntry[] = [];
       for (;;) {
+        if (runtime.renewLease !== undefined) yield* runtime.renewLease();
         const sourcePage = yield* source.readSnapshotPage(pin, cursor);
         if (
           sourcePage.entries.length === 0 ||
@@ -177,6 +178,7 @@ export const createOwnerVaultBackup = (
           return yield* ownerVaultBackupFailure("catalog_invalid");
         const entries: OwnerVaultBackupPageEntry[] = [];
         for (const sourceEntry of sourcePage.entries) {
+          if (runtime.renewLease !== undefined) yield* runtime.renewLease();
           const checked = checkedObject(sourceEntry);
           if (checked === undefined) return yield* ownerVaultBackupFailure("catalog_invalid");
           totalBytes += checked.bytes.byteLength;
@@ -209,6 +211,7 @@ export const createOwnerVaultBackup = (
         if (pageBytes === undefined || pageBytes.byteLength > ownerVaultBackupMaximumPageBytes)
           return yield* ownerVaultBackupFailure("catalog_invalid");
         const key = pageKey(scope, backupID, pageOrdinal);
+        if (runtime.renewLease !== undefined) yield* runtime.renewLease();
         yield* writeImmutable(runtime, key, pageBytes);
         pages.push({
           ordinal: pageOrdinal,
@@ -256,6 +259,7 @@ export const createOwnerVaultBackup = (
         signedBytes.byteLength > ownerVaultBackupMaximumManifestBytes
       )
         return yield* ownerVaultBackupFailure("manifest_invalid");
+      if (runtime.renewLease !== undefined) yield* runtime.renewLease();
       yield* writeImmutable(runtime, manifestKey(scope, backupID), signedBytes);
       return { signed, manifestDigest: ownerVaultBackupDigest(signedBytes) };
     });
@@ -263,8 +267,13 @@ export const createOwnerVaultBackup = (
     // retry reuses its exact archive namespace and immutable objects. Only an
     // explicit abort may close that namespace without a manifest.
     const completed = yield* archive;
-    yield* source.completeSnapshot(pin, completed.manifestDigest);
-    yield* source.releaseSnapshot(pin);
+    if (runtime.renewLease !== undefined) yield* runtime.renewLease();
+    if (runtime.finalizeSnapshot !== undefined)
+      yield* runtime.finalizeSnapshot(pin, completed.manifestDigest, completed.signed);
+    else {
+      yield* source.completeSnapshot(pin, completed.manifestDigest, runtime.fenceInTx);
+      yield* source.releaseSnapshot(pin, runtime.fenceInTx);
+    }
     return completed.signed;
   });
 
@@ -417,7 +426,9 @@ export const restoreOwnerVaultBackup = (
       target.root.generationEpoch <= source.generationEpoch
     )
       return yield* ownerVaultBackupFailure("private_target_required");
+    if (runtime.renewLease !== undefined) yield* runtime.renewLease();
     yield* target.assertFreshPrivateTarget();
+    if (runtime.renewLease !== undefined) yield* runtime.renewLease();
     const bytes = yield* integrity(runtime.r2.read(manifestKey(source, backupID))).pipe(
       Effect.map((item) => item.bytes),
     );
@@ -450,6 +461,7 @@ export const restoreOwnerVaultBackup = (
     const evidence: import("../blobs/restore-reconstruction").OwnerVaultRestoredBlobMetadata[] = [];
     let expectedLogSequence = 1;
     for (const expected of signed.manifest.pages) {
+      if (runtime.renewLease !== undefined) yield* runtime.renewLease();
       const pageBytes = yield* integrity(runtime.r2.read(expected.key)).pipe(
         Effect.map((item) => item.bytes),
       );
@@ -501,6 +513,7 @@ export const restoreOwnerVaultBackup = (
       )
         return yield* ownerVaultBackupFailure("integrity_failed");
       for (const entry of page.entries) {
+        if (runtime.renewLease !== undefined) yield* runtime.renewLease();
         if (entry.category === "append-log.entry") {
           if (entry.identifier !== expectedLogSequence.toString().padStart(20, "0"))
             return yield* ownerVaultBackupFailure("integrity_failed");
@@ -597,9 +610,15 @@ export const restoreOwnerVaultBackup = (
       hashChain,
       records: staged.map((item) => item.expected),
     };
-    const completed = yield* target.restoreImport.beginRestoreImport(backupID, plan);
+    if (runtime.renewLease !== undefined) yield* runtime.renewLease();
+    const completed = yield* target.restoreImport.beginRestoreImport(
+      backupID,
+      plan,
+      runtime.fenceInTx,
+    );
     if (completed !== undefined) return;
     for (const copy of blobCopies) {
+      if (runtime.renewLease !== undefined) yield* runtime.renewLease();
       const blob = yield* integrity(runtime.r2.read(copy.sourceKey));
       if (
         blob.size !== copy.metadata.size ||
@@ -618,17 +637,34 @@ export const restoreOwnerVaultBackup = (
         return yield* ownerVaultBackupFailure("integrity_failed");
       evidence.push(copy.metadata);
     }
-    for (const item of staged)
+    for (const item of staged) {
+      if (runtime.renewLease !== undefined) yield* runtime.renewLease();
       yield* target.restoreImport.applyRestoreRecord({
         restoreID: backupID,
         manifestDigest,
         ...item,
+        fence: runtime.fenceInTx,
       });
-    yield* target.restoreImport.finalizeRestoreImport(backupID, manifestDigest, {
+    }
+    if (runtime.renewLease !== undefined) yield* runtime.renewLease();
+    const finalization = {
       blobScope: target.blobScope,
       blobLimits: target.blobLimits,
-      targetBlobEvidence: evidence,
-    });
+      // Terminal recovery reconstructs this proof from durable metadata, so
+      // evidence order is canonical rather than manifest traversal order.
+      targetBlobEvidence: [...evidence].sort((left, right) =>
+        left.sha256.localeCompare(right.sha256),
+      ),
+    };
+    if (runtime.finalizeRestore !== undefined)
+      yield* runtime.finalizeRestore(target, backupID, manifestDigest, finalization);
+    else
+      yield* target.restoreImport.finalizeRestoreImport(
+        backupID,
+        manifestDigest,
+        finalization,
+        runtime.fenceInTx,
+      );
   });
 
 /** Storage adapter for a fresh initialized PRIVATE DO. It cannot enumerate or promote a target. */

@@ -78,6 +78,12 @@ interface StoredGCJournal {
 }
 
 export interface OwnerVaultSnapshotPinController extends OwnerVaultBackupSnapshotSource {
+  /** C2-only terminal pin close. It intentionally does not open a transaction. */
+  readonly finalizeSnapshotInTx: (
+    tx: OwnerVaultTx,
+    pin: OwnerVaultSnapshotPin,
+    manifestDigest: string,
+  ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
   /** Recovers the terminal manifest receipt after a response/isolate loss.
    * It exposes no pin proof or archive material and never reopens a pin. */
   readonly completedManifestDigest: (
@@ -431,6 +437,7 @@ export const makeOwnerVaultSnapshotPinController = (
   const beginSnapshot = (
     scope: OwnerVaultBackupScope,
     backupID: string,
+    fence?: import("./backup-types").OwnerVaultControlFence,
   ): Effect.Effect<OwnerVaultSnapshotPin, OwnerVaultBackupError> => {
     if (!validScope(scope) || !backupIDPattern.test(backupID))
       return ownerVaultBackupFailure("invalid_backup");
@@ -438,7 +445,8 @@ export const makeOwnerVaultSnapshotPinController = (
     if (!/^[A-Za-z0-9_-]{16,512}$/u.test(proof)) return ownerVaultBackupFailure("invalid_backup");
     return mapError(
       repository.transact((tx) =>
-        tx.get(address("backup.pin", backupID)).pipe(
+        (fence === undefined ? Effect.void : fence(tx)).pipe(
+          Effect.zipRight(tx.get(address("backup.pin", backupID))),
           Effect.flatMap((existing) => {
             if (existing !== undefined) {
               const prior = decodePin(existing.payload);
@@ -701,147 +709,158 @@ export const makeOwnerVaultSnapshotPinController = (
     );
   };
 
-  const transition = (
+  const transitionInTx = (
+    tx: OwnerVaultTx,
     pin: OwnerVaultSnapshotPin,
     target: OwnerVaultSnapshotPinState,
     manifestDigest?: string,
-  ): Effect.Effect<void, OwnerVaultBackupError> =>
-    mapError(
-      repository.transact((tx) =>
-        tx.get(address("backup.pin", pin.backupID)).pipe(
-          Effect.flatMap((stored) => {
-            const prior = stored === undefined ? undefined : decodePin(stored.payload);
-            if (prior === undefined || !pinMatches(prior, pin))
-              return Effect.fail({
-                _tag: "OwnerVaultStorageError",
-                reason: "identity_conflict",
-              } as const);
-            if (target === OwnerVaultSnapshotPinState.Completed) {
-              if (manifestDigest === undefined || !digestPattern.test(manifestDigest))
-                return Effect.fail({
-                  _tag: "OwnerVaultStorageError",
-                  reason: "invalid_record",
-                } as const);
-              if (
-                prior.state === OwnerVaultSnapshotPinState.Completed &&
-                prior.manifestDigest === manifestDigest
-              )
-                return Effect.void;
-              if (prior.state !== OwnerVaultSnapshotPinState.Open)
-                return Effect.fail({
-                  _tag: "OwnerVaultStorageError",
-                  reason: "identity_conflict",
-                } as const);
-              return tx.put(
-                address("backup.pin", pin.backupID),
-                encodePin({ ...prior, state: target, manifestDigest }),
-              );
-            }
-            if (prior.state === target) return Effect.void;
-            if (prior.state !== OwnerVaultSnapshotPinState.Open || !prior.retained)
-              return Effect.fail({
-                _tag: "OwnerVaultStorageError",
-                reason: "identity_conflict",
-              } as const);
-            const revision = ownerVaultCatalogRevisionIdentifier(prior.catalogRevision);
-            if (revision === undefined)
+  ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
+    tx.get(address("backup.pin", pin.backupID)).pipe(
+      Effect.flatMap((stored) => {
+        const prior = stored === undefined ? undefined : decodePin(stored.payload);
+        if (prior === undefined || !pinMatches(prior, pin))
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "identity_conflict",
+          } as const);
+        if (target === OwnerVaultSnapshotPinState.Completed) {
+          if (manifestDigest === undefined || !digestPattern.test(manifestDigest))
+            return Effect.fail({
+              _tag: "OwnerVaultStorageError",
+              reason: "invalid_record",
+            } as const);
+          if (
+            prior.state === OwnerVaultSnapshotPinState.Completed &&
+            prior.manifestDigest === manifestDigest
+          )
+            return Effect.void;
+          if (prior.state !== OwnerVaultSnapshotPinState.Open)
+            return Effect.fail({
+              _tag: "OwnerVaultStorageError",
+              reason: "identity_conflict",
+            } as const);
+          return tx.put(
+            address("backup.pin", pin.backupID),
+            encodePin({ ...prior, state: target, manifestDigest }),
+          );
+        }
+        if (prior.state === target) return Effect.void;
+        if (prior.state !== OwnerVaultSnapshotPinState.Open || !prior.retained)
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "identity_conflict",
+          } as const);
+        const revision = ownerVaultCatalogRevisionIdentifier(prior.catalogRevision);
+        if (revision === undefined)
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "state_corrupt",
+          } as const);
+        return tx.get(address("catalog.retention", revision)).pipe(
+          Effect.flatMap((retention) => {
+            const count = retention === undefined ? undefined : plain(retention.payload)?.pinCount;
+            if (!nonNegative(count) || count < 1)
               return Effect.fail({
                 _tag: "OwnerVaultStorageError",
                 reason: "state_corrupt",
               } as const);
-            return tx.get(address("catalog.retention", revision)).pipe(
-              Effect.flatMap((retention) => {
-                const count =
-                  retention === undefined ? undefined : plain(retention.payload)?.pinCount;
-                if (!nonNegative(count) || count < 1)
-                  return Effect.fail({
-                    _tag: "OwnerVaultStorageError",
-                    reason: "state_corrupt",
-                  } as const);
-                const next = count - 1;
-                return tx
-                  .put(
-                    address("backup.pin", pin.backupID),
-                    encodePin({ ...prior, state: target, retained: false }),
-                  )
-                  .pipe(
-                    Effect.zipRight(
-                      tx.put(address("catalog.retention", revision), { pinCount: next }),
-                    ),
-                    Effect.zipRight(
-                      next === 0
-                        ? tx.put(address("backup.gc-journal", pin.backupID), {
-                            backupID: pin.backupID,
-                            catalogRevision: prior.catalogRevision,
-                            nextOrdinal: 0,
-                          })
-                        : Effect.void,
-                    ),
-                  );
-              }),
-            );
+            const next = count - 1;
+            return tx
+              .put(
+                address("backup.pin", pin.backupID),
+                encodePin({ ...prior, state: target, retained: false }),
+              )
+              .pipe(
+                Effect.zipRight(tx.put(address("catalog.retention", revision), { pinCount: next })),
+                Effect.zipRight(
+                  next === 0
+                    ? tx.put(address("backup.gc-journal", pin.backupID), {
+                        backupID: pin.backupID,
+                        catalogRevision: prior.catalogRevision,
+                        nextOrdinal: 0,
+                      })
+                    : Effect.void,
+                ),
+              );
           }),
+        );
+      }),
+    );
+
+  const transition = (
+    pin: OwnerVaultSnapshotPin,
+    target: OwnerVaultSnapshotPinState,
+    manifestDigest?: string,
+    fence?: import("./backup-types").OwnerVaultControlFence,
+  ): Effect.Effect<void, OwnerVaultBackupError> =>
+    mapError(
+      repository.transact((tx) =>
+        (fence === undefined ? Effect.void : fence(tx)).pipe(
+          Effect.zipRight(transitionInTx(tx, pin, target, manifestDigest)),
         ),
       ),
     );
 
   /** Completion closes the archive; release only drops the COW retention. */
-  const releaseSnapshot = (
+  const releaseSnapshotInTx = (
+    tx: OwnerVaultTx,
     pin: OwnerVaultSnapshotPin,
-  ): Effect.Effect<void, OwnerVaultBackupError> =>
-    mapError(
-      repository.transact((tx) =>
-        tx.get(address("backup.pin", pin.backupID)).pipe(
-          Effect.flatMap((stored) => {
-            const prior = stored === undefined ? undefined : decodePin(stored.payload);
-            if (
-              prior === undefined ||
-              !pinMatches(prior, pin) ||
-              prior.state !== OwnerVaultSnapshotPinState.Completed
-            )
-              return Effect.fail({
-                _tag: "OwnerVaultStorageError",
-                reason: "identity_conflict",
-              } as const);
-            if (!prior.retained) return Effect.void;
-            const revision = ownerVaultCatalogRevisionIdentifier(prior.catalogRevision);
-            if (revision === undefined)
+  ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
+    tx.get(address("backup.pin", pin.backupID)).pipe(
+      Effect.flatMap((stored) => {
+        const prior = stored === undefined ? undefined : decodePin(stored.payload);
+        if (
+          prior === undefined ||
+          !pinMatches(prior, pin) ||
+          prior.state !== OwnerVaultSnapshotPinState.Completed
+        )
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "identity_conflict",
+          } as const);
+        if (!prior.retained) return Effect.void;
+        const revision = ownerVaultCatalogRevisionIdentifier(prior.catalogRevision);
+        if (revision === undefined)
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "state_corrupt",
+          } as const);
+        return tx.get(address("catalog.retention", revision)).pipe(
+          Effect.flatMap((retention) => {
+            const count = retention === undefined ? undefined : plain(retention.payload)?.pinCount;
+            if (!nonNegative(count) || count < 1)
               return Effect.fail({
                 _tag: "OwnerVaultStorageError",
                 reason: "state_corrupt",
               } as const);
-            return tx.get(address("catalog.retention", revision)).pipe(
-              Effect.flatMap((retention) => {
-                const count =
-                  retention === undefined ? undefined : plain(retention.payload)?.pinCount;
-                if (!nonNegative(count) || count < 1)
-                  return Effect.fail({
-                    _tag: "OwnerVaultStorageError",
-                    reason: "state_corrupt",
-                  } as const);
-                const next = count - 1;
-                return tx
-                  .put(
-                    address("backup.pin", pin.backupID),
-                    encodePin({ ...prior, retained: false }),
-                  )
-                  .pipe(
-                    Effect.zipRight(
-                      tx.put(address("catalog.retention", revision), { pinCount: next }),
-                    ),
-                    Effect.zipRight(
-                      next === 0
-                        ? tx.put(address("backup.gc-journal", pin.backupID), {
-                            backupID: pin.backupID,
-                            catalogRevision: prior.catalogRevision,
-                            nextOrdinal: 0,
-                          })
-                        : Effect.void,
-                    ),
-                  );
-              }),
-            );
+            const next = count - 1;
+            return tx
+              .put(address("backup.pin", pin.backupID), encodePin({ ...prior, retained: false }))
+              .pipe(
+                Effect.zipRight(tx.put(address("catalog.retention", revision), { pinCount: next })),
+                Effect.zipRight(
+                  next === 0
+                    ? tx.put(address("backup.gc-journal", pin.backupID), {
+                        backupID: pin.backupID,
+                        catalogRevision: prior.catalogRevision,
+                        nextOrdinal: 0,
+                      })
+                    : Effect.void,
+                ),
+              );
           }),
+        );
+      }),
+    );
+
+  const releaseSnapshot = (
+    pin: OwnerVaultSnapshotPin,
+    fence?: import("./backup-types").OwnerVaultControlFence,
+  ): Effect.Effect<void, OwnerVaultBackupError> =>
+    mapError(
+      repository.transact((tx) =>
+        (fence === undefined ? Effect.void : fence(tx)).pipe(
+          Effect.zipRight(releaseSnapshotInTx(tx, pin)),
         ),
       ),
     );
@@ -1015,6 +1034,10 @@ export const makeOwnerVaultSnapshotPinController = (
     readSnapshotPage,
     releaseSnapshot,
     completedManifestDigest,
+    finalizeSnapshotInTx: (tx, pin, manifestDigest) =>
+      transitionInTx(tx, pin, OwnerVaultSnapshotPinState.Completed, manifestDigest).pipe(
+        Effect.zipRight(releaseSnapshotInTx(tx, pin)),
+      ),
     completeSnapshot: (pin: OwnerVaultSnapshotPin, manifestDigest: string) =>
       transition(pin, OwnerVaultSnapshotPinState.Completed, manifestDigest),
     abortSnapshot: (pin: OwnerVaultSnapshotPin) =>

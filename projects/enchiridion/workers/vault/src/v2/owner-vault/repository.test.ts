@@ -33,8 +33,10 @@ const nativeState = (): {
     }) => Promise<ReadonlyMap<string, unknown>>;
   };
   readonly entries: Map<string, unknown>;
+  readonly alarm: () => number | null;
 } => {
   const entries = new Map<string, unknown>();
+  let scheduledAlarm: number | null = null;
   const transaction: DurableObjectTransactionNative = {
     get: (key) => Promise.resolve(entries.get(key)),
     put: (key, value) => {
@@ -42,17 +44,25 @@ const nativeState = (): {
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
+    getAlarm: () => Promise.resolve(scheduledAlarm),
+    setAlarm: (epochMilliseconds) => {
+      scheduledAlarm = epochMilliseconds;
+      return Promise.resolve();
+    },
+    deleteAlarm: () => {
+      scheduledAlarm = null;
+      return Promise.resolve();
+    },
   };
   const storage = {
     ...transaction,
-    getAlarm: () => Promise.resolve(null),
-    setAlarm: () => Promise.resolve(),
-    deleteAlarm: () => Promise.resolve(),
     transaction: <A>(work: (inside: DurableObjectTransactionNative) => Promise<A>) => {
       const before = new Map(entries);
+      const alarmBefore = scheduledAlarm;
       return work(transaction).catch((error: unknown) => {
         entries.clear();
         for (const [key, value] of before) entries.set(key, value);
+        scheduledAlarm = alarmBefore;
         return Promise.reject(error);
       });
     },
@@ -81,6 +91,7 @@ const nativeState = (): {
   return {
     entries,
     storage,
+    alarm: () => scheduledAlarm,
     state: { storage, blockConcurrencyWhile: (work) => work() },
   };
 };
@@ -174,14 +185,16 @@ describe("v2 OwnerVault per-record durable storage", () => {
     });
   });
 
-  test("rolls back staged rows and preserves a typed blob domain rejection", async () => {
+  test("rolls back staged rows and the transaction alarm on a typed domain rejection", async () => {
     const { repository, native } = repositoryFor();
+    await native.storage.setAlarm(1_760_000_000_000);
     const exit = await Effect.runPromiseExit(
       repository.transact((tx) =>
         tx.initialize(scope).pipe(
           Effect.zipRight(
             tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" }),
           ),
+          Effect.zipRight(tx.setAlarm(1_770_000_000_000)),
           Effect.zipRight(
             Effect.fail({
               _tag: "OwnerVaultDomainTransactionError" as const,
@@ -196,6 +209,26 @@ describe("v2 OwnerVault per-record durable storage", () => {
     expect(JSON.stringify(exit)).toContain("OwnerVaultDomainTransactionError");
     expect(JSON.stringify(exit)).toContain("blob_stage_conflict");
     expect([...native.entries.keys()]).toEqual([]);
+    expect(native.alarm()).toBe(1_760_000_000_000);
+  });
+
+  test("commits staged rows and the transaction alarm together", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(
+      repository.transact((tx) =>
+        tx
+          .initialize(scope)
+          .pipe(
+            Effect.zipRight(
+              tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" }),
+            ),
+            Effect.zipRight(tx.setAlarm(1_770_000_000_000)),
+          ),
+      ),
+    );
+
+    expect(native.entries.has("v2.ov/device/device-1")).toBe(true);
+    expect(native.alarm()).toBe(1_770_000_000_000);
   });
 
   test("uses root accounting to refuse admission before writing an over-budget row", async () => {

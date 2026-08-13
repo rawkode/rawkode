@@ -14,6 +14,7 @@ import {
 import { Effect } from "effect";
 import {
   type DeviceChallengeProof,
+  type DeviceChallengeRecord,
   type DeviceChallengeRequest,
   type DeviceChallengeResponse,
   type DeviceRecord,
@@ -29,7 +30,7 @@ import {
   type SignedDeviceRequestEnvelope,
 } from "./types";
 
-const challengeTTLMilliseconds = 5 * 60 * 1_000;
+export const deviceChallengeTTLMilliseconds = 5 * 60 * 1_000;
 const signedRequestMaximumTTLMilliseconds = 5 * 60 * 1_000;
 const identifier = /^[A-Za-z0-9._~-]{1,128}$/u;
 
@@ -76,7 +77,7 @@ const signedFingerprint = (payload: Uint8Array, signature: string): string => {
   return sha256Hex(bytes);
 };
 
-const registrationProofFingerprint = (proof: DeviceChallengeProof): string =>
+export const deviceRegistrationProofFingerprint = (proof: DeviceChallengeProof): string =>
   signedFingerprint(deviceChallengeProofSigningPayload(proof), proof.signature);
 
 const signedRequestFingerprint = (envelope: SignedDeviceRequestEnvelope): string =>
@@ -151,6 +152,83 @@ const bindingMatchesEnvelope = (
   envelope.vaultID === binding.vaultID &&
   envelope.generationEpoch === binding.generationEpoch;
 
+/**
+ * Performs the P02 validation and entropy work without touching durable
+ * state.  Endpoint composition can therefore prepare a full record before
+ * entering its one native receipt/challenge transaction.
+ */
+export const prepareDeviceAccessChallenge = (
+  crypto: RuntimeP256CryptoService,
+  binding: OwnerVaultBinding,
+  request: DeviceChallengeRequest,
+  now: number,
+): Effect.Effect<DeviceChallengeRecord, DeviceServiceError> => {
+  const expiresAt = now + deviceChallengeTTLMilliseconds;
+  if (
+    !validBinding(binding) ||
+    !Number.isSafeInteger(now) ||
+    !Number.isSafeInteger(expiresAt) ||
+    !validDevicePublicKey(request.devicePublicKey)
+  )
+    return Effect.fail(new DeviceServiceError({ reason: "invalid_request" }));
+  return Effect.gen(function* () {
+    const challengeID = yield* randomIdentifier(crypto, 16);
+    const challengeBytes = yield* random32(crypto);
+    return Object.freeze({
+      ...binding,
+      challengeID,
+      challengeBase64: base64(challengeBytes),
+      challengeAudience: request.challengeAudience,
+      devicePublicKey: request.devicePublicKey,
+      expiresAt,
+      consumed: false,
+    });
+  });
+};
+
+/**
+ * Performs all registration work that is safe before the final durable
+ * transaction.  In particular this verifies the proof and draws the device
+ * identifier, but never reads or consumes an idempotency receipt and never
+ * changes a challenge.  The OwnerVault transaction rechecks those durable
+ * facts immediately before committing the registration and capability
+ * receipt together.
+ */
+export const prepareDeviceRegistration = (
+  crypto: RuntimeP256CryptoService,
+  binding: OwnerVaultBinding,
+  challenge: DeviceChallengeRecord,
+  request: DeviceRegisterRequest,
+): Effect.Effect<DeviceRecord, DeviceServiceError> => {
+  if (
+    !validBinding(binding) ||
+    challenge.ownerID !== binding.ownerID ||
+    challenge.vaultID !== binding.vaultID ||
+    challenge.generationEpoch !== binding.generationEpoch ||
+    !challengeMatchesProof(challenge, request.challengeProof)
+  )
+    return Effect.fail(new DeviceServiceError({ reason: "challenge_mismatch" }));
+  return verifySignature(
+    crypto,
+    challenge.devicePublicKey,
+    deviceChallengeProofSigningPayload(request.challengeProof),
+    request.challengeProof.signature,
+  ).pipe(
+    Effect.flatMap(() => randomIdentifier(crypto, 16)),
+    Effect.map((deviceID) => ({
+      ownerID: challenge.ownerID,
+      vaultID: challenge.vaultID,
+      generationEpoch: challenge.generationEpoch,
+      deviceID,
+      publicKeySPKI: challenge.devicePublicKey,
+      authEpoch: 1,
+      credentialEpoch: 1,
+      revoked: false,
+      securityFloor: 0,
+    })),
+  );
+};
+
 export const makeDeviceService = Effect.gen(function* () {
   const crypto = yield* RuntimeP256Crypto;
   const repository = yield* DeviceRegistryRepository;
@@ -161,35 +239,15 @@ export const makeDeviceService = Effect.gen(function* () {
     request: DeviceChallengeRequest,
     now: number,
   ): Effect.Effect<DeviceChallengeResponse, DeviceServiceError> => {
-    if (
-      !validBinding(binding) ||
-      !Number.isSafeInteger(now) ||
-      !validDevicePublicKey(request.devicePublicKey)
-    )
-      return Effect.fail(new DeviceServiceError({ reason: "invalid_request" }));
-    return Effect.gen(function* () {
-      const challengeID = yield* randomIdentifier(crypto, 16);
-      const challengeBytes = yield* random32(crypto);
-      const expiresAt = now + challengeTTLMilliseconds;
-      const challenge = yield* repository.issueChallenge(
-        {
-          ...binding,
-          challengeID,
-          challengeBase64: base64(challengeBytes),
-          challengeAudience: request.challengeAudience,
-          devicePublicKey: request.devicePublicKey,
-          expiresAt,
-          consumed: false,
-        },
-        now,
-      );
-      return {
+    return prepareDeviceAccessChallenge(crypto, binding, request, now).pipe(
+      Effect.flatMap((prepared) => repository.issueChallenge(prepared, now)),
+      Effect.map((challenge) => ({
         protocolVersion,
         challengeID: challenge.challengeID,
         challengeBase64: challenge.challengeBase64,
         expiresAt: challenge.expiresAt,
-      };
-    });
+      })),
+    );
   };
 
   const registerInitialOrAdditionalDevice = (
@@ -197,7 +255,7 @@ export const makeDeviceService = Effect.gen(function* () {
     now: number,
   ): Effect.Effect<DeviceRegisterResponse, DeviceServiceError> =>
     Effect.gen(function* () {
-      const proofFingerprint = registrationProofFingerprint(request.challengeProof);
+      const proofFingerprint = deviceRegistrationProofFingerprint(request.challengeProof);
       const prior = yield* repository.getRegistrationReceipt({
         idempotencyKey: request.idempotencyKey,
         proofFingerprint,

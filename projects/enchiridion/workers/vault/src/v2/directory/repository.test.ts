@@ -60,6 +60,9 @@ const nativeState = (
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
+    getAlarm: () => Promise.resolve(null),
+    setAlarm: () => Promise.resolve(),
+    deleteAlarm: () => Promise.resolve(),
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,

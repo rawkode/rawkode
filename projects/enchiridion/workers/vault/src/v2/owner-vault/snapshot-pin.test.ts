@@ -24,6 +24,9 @@ const nativeState = () => {
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
+    getAlarm: () => Promise.resolve(null),
+    setAlarm: () => Promise.resolve(),
+    deleteAlarm: () => Promise.resolve(),
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,
@@ -169,6 +172,32 @@ describe("OwnerVault durable snapshot pins", () => {
     await Effect.runPromise(controller.completeSnapshot(pin, manifest));
     await Effect.runPromise(controller.completeSnapshot(pin, manifest));
     await Effect.runPromise(controller.releaseSnapshot(pin));
+  });
+
+  test("C2 terminal pin finalization rolls back its pin and retention rows on a fragment fault", async () => {
+    const { native, repository, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+    const manifest = ownerVaultBackupDigest(new TextEncoder().encode("c2-terminal-manifest"));
+    const before = new Map(native.entries);
+    const failed = await Effect.runPromiseExit(
+      repository.transact((tx) =>
+        controller
+          .finalizeSnapshotInTx(tx, pin, manifest)
+          .pipe(
+            Effect.zipRight(
+              Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const),
+            ),
+          ),
+      ),
+    );
+    expect(Exit.isFailure(failed)).toBe(true);
+    expect(native.entries).toEqual(before);
+    await Effect.runPromise(
+      repository.transact((tx) => controller.finalizeSnapshotInTx(tx, pin, manifest)),
+    );
+    expect(await Effect.runPromise(controller.completedManifestDigest(scope, backupID))).toBe(
+      manifest,
+    );
   });
 
   test("recovers only the terminal manifest digest after response loss and restart", async () => {
