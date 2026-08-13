@@ -13,8 +13,8 @@ import {
   makeOwnerVaultDirectoryControlKeyRing,
   ownerVaultCredentialFencePath,
   ownerVaultPrivateInitializePath,
-  ownerVaultRestorePath,
-  ownerVaultSnapshotPath,
+  ownerVaultRestoreReceiptLeaseV1Path,
+  ownerVaultSnapshotReceiptLeaseV1Path,
   signCapability,
   signCapabilityHmac,
   signDirectoryControlCapability,
@@ -26,8 +26,8 @@ import {
 import type {
   OwnerVaultCredentialFenceBinding,
   OwnerVaultPrivateInitializeBinding,
-  OwnerVaultRestoreBinding,
-  OwnerVaultSnapshotBinding,
+  OwnerVaultRestoreReceiptLeaseV1Binding,
+  OwnerVaultSnapshotReceiptLeaseV1Binding,
 } from "./owner-vault-directory-control";
 
 const key: CapabilityKeyMaterial = {
@@ -81,10 +81,10 @@ const fence: OwnerVaultCredentialFenceBinding = {
   raisedCredentialEpoch: 13,
   raisedRoutingEpoch: 11,
 };
-const snapshot: OwnerVaultSnapshotBinding = {
+const snapshot: OwnerVaultSnapshotReceiptLeaseV1Binding = {
   ...base,
-  resource: OwnerVaultDirectoryControlResource.Snapshot,
-  path: ownerVaultSnapshotPath,
+  resource: OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1,
+  path: ownerVaultSnapshotReceiptLeaseV1Path,
   backupID: "backup-control-000001",
   sourceGeneration: 5,
   sourceRoutingEpoch: 9,
@@ -92,16 +92,39 @@ const snapshot: OwnerVaultSnapshotBinding = {
   sourceControlEpoch: 7,
   sourceSecurityFloor: 6,
 };
-const restore: OwnerVaultRestoreBinding = {
+const restore: OwnerVaultRestoreReceiptLeaseV1Binding = {
   ...base,
-  resource: OwnerVaultDirectoryControlResource.Restore,
-  path: ownerVaultRestorePath,
+  resource: OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1,
+  path: ownerVaultRestoreReceiptLeaseV1Path,
   allocationID: "allocation-control-001",
   initID: "init-control-00000001",
   sourceGeneration: 5,
   targetGeneration: 7,
   backupID: "backup-control-000001",
   manifestDigest,
+  sourceSnapshotPublication: {
+    schema: "source-snapshot-publication-v1",
+    authority: "owner-vault-production-manifest-ring-v1",
+    algorithm: "ES256-P256-canonical-low-s-der",
+    publication: {
+      category: "owner-vault.snapshot-pin",
+      schema: "snapshot-pin-v2",
+      state: "COMPLETED",
+    },
+    sourceRoot: {
+      ownerID: "owner-control-0001",
+      vaultID: "vault-control-0001",
+      generationEpoch: 5,
+      namespaceState: "PRIVATE",
+    },
+    backupID: "backup-control-000001",
+    manifestDigest,
+    snapshotOperationID: "snapshot-operation-01",
+    snapshotJTI: "snapshot-jti-000001",
+    snapshotCommandSHA256: sha,
+    signingKeyID: "manifest-key-01",
+    signature: { keyID: "manifest-key-01", signatureDERBase64: "AA==" },
+  },
 };
 const encoded = (bytes: Uint8Array): string => {
   let text = "";
@@ -132,8 +155,8 @@ const signed = (
   binding:
     | OwnerVaultPrivateInitializeBinding
     | OwnerVaultCredentialFenceBinding
-    | OwnerVaultSnapshotBinding
-    | OwnerVaultRestoreBinding,
+    | OwnerVaultSnapshotReceiptLeaseV1Binding
+    | OwnerVaultRestoreReceiptLeaseV1Binding,
   keys: Awaited<ReturnType<typeof ring>>,
 ) => signOwnerVaultDirectoryControl({ ...binding, ttlSeconds: 30 }, keys, 100);
 
@@ -322,7 +345,7 @@ describe("OwnerVault DirectoryControl capability", () => {
       JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(text)).reverse())),
     );
     const wrongPath = await signedRaw(
-      text.replace(ownerVaultPrivateInitializePath, ownerVaultSnapshotPath),
+      text.replace(ownerVaultPrivateInitializePath, ownerVaultSnapshotReceiptLeaseV1Path),
     );
     const wrongMethod = await signedRaw(text.replace('"method":"POST"', '"method":"GET"'));
     const wrongQuery = await signedRaw(

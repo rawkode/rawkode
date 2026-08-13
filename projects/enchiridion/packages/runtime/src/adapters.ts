@@ -743,6 +743,10 @@ export interface DurableObjectTransactionNative {
   readonly get: (key: string) => Promise<unknown | undefined>;
   readonly put: (key: string, value: unknown) => Promise<void>;
   readonly delete: (key: string) => Promise<boolean>;
+  /** Alarm reads and writes participate in this native transaction's commit. */
+  readonly getAlarm: () => Promise<number | null>;
+  readonly setAlarm: (epochMilliseconds: number) => Promise<void>;
+  readonly deleteAlarm: () => Promise<void>;
 }
 
 /** Minimal structural view of the Cloudflare Durable Object storage API. */
@@ -765,6 +769,9 @@ export interface DurableObjectTransaction {
   readonly get: (key: string) => Effect.Effect<unknown | undefined, DurableObjectBoundaryError>;
   readonly put: (key: string, value: unknown) => Effect.Effect<void, DurableObjectBoundaryError>;
   readonly delete: (key: string) => Effect.Effect<boolean, DurableObjectBoundaryError>;
+  readonly getAlarm: () => Effect.Effect<number | null, DurableObjectBoundaryError>;
+  readonly setAlarm: (epochMilliseconds: number) => Effect.Effect<void, DurableObjectBoundaryError>;
+  readonly deleteAlarm: () => Effect.Effect<void, DurableObjectBoundaryError>;
 }
 
 /** A closed, serializable result from an atomic Durable Object transaction. */
@@ -893,6 +900,10 @@ const makeDurableObjectTransaction = (
   get: (key) => fromDurableObjectPromise("storage_get", () => native.get(key)),
   put: (key, value) => fromDurableObjectPromise("storage_put", () => native.put(key, value)),
   delete: (key) => fromDurableObjectPromise("storage_delete", () => native.delete(key)),
+  getAlarm: () => fromDurableObjectPromise("storage_get_alarm", () => native.getAlarm()),
+  setAlarm: (epochMilliseconds) =>
+    fromDurableObjectPromise("storage_set_alarm", () => native.setAlarm(epochMilliseconds)),
+  deleteAlarm: () => fromDurableObjectPromise("storage_delete_alarm", () => native.deleteAlarm()),
 });
 
 /**

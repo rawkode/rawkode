@@ -16,14 +16,18 @@ import {
 export enum OwnerVaultDirectoryControlResource {
   PrivateInitialize = "private-initialize",
   CredentialFence = "credential-fence",
-  Snapshot = "snapshot",
-  Restore = "restore",
+  SnapshotReceiptLeaseV1 = "snapshot-receipt-lease-v1",
+  RestoreReceiptLeaseV1 = "restore-receipt-lease-v1",
 }
 
 export const ownerVaultPrivateInitializePath = "/__v2/internal/owner-vault/private-initialize";
 export const ownerVaultCredentialFencePath = "/__v2/internal/owner-vault/credential-fence";
-export const ownerVaultSnapshotPath = "/__v2/internal/owner-vault/snapshot";
-export const ownerVaultRestorePath = "/__v2/internal/owner-vault/restore";
+/** Versioned receipt-lease controls. The unversioned snapshot/restore routes
+ * were deliberately never kept as aliases: an old bearer must fail closed. */
+export const ownerVaultSnapshotReceiptLeaseV1Path =
+  "/__v2/internal/owner-vault/snapshot-receipt-lease-v1";
+export const ownerVaultRestoreReceiptLeaseV1Path =
+  "/__v2/internal/owner-vault/restore-receipt-lease-v1";
 export const maximumOwnerVaultDirectoryControlTTLSeconds = 60;
 export const maximumPriorOwnerVaultDirectoryControlKeys = 2;
 
@@ -63,9 +67,9 @@ export interface OwnerVaultCredentialFenceBinding extends Common {
   readonly raisedCredentialEpoch: number;
   readonly raisedRoutingEpoch: number;
 }
-export interface OwnerVaultSnapshotBinding extends Common {
-  readonly resource: OwnerVaultDirectoryControlResource.Snapshot;
-  readonly path: typeof ownerVaultSnapshotPath;
+export interface OwnerVaultSnapshotReceiptLeaseV1Binding extends Common {
+  readonly resource: OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1;
+  readonly path: typeof ownerVaultSnapshotReceiptLeaseV1Path;
   readonly backupID: string;
   readonly sourceGeneration: number;
   readonly sourceRoutingEpoch: number;
@@ -73,21 +77,46 @@ export interface OwnerVaultSnapshotBinding extends Common {
   readonly sourceControlEpoch: number;
   readonly sourceSecurityFloor: number;
 }
-export interface OwnerVaultRestoreBinding extends Common {
-  readonly resource: OwnerVaultDirectoryControlResource.Restore;
-  readonly path: typeof ownerVaultRestorePath;
+export interface OwnerVaultRestoreReceiptLeaseV1Binding extends Common {
+  readonly resource: OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1;
+  readonly path: typeof ownerVaultRestoreReceiptLeaseV1Path;
   readonly allocationID: string;
   readonly initID: string;
   readonly sourceGeneration: number;
   readonly targetGeneration: number;
   readonly backupID: string;
   readonly manifestDigest: string;
+  /** The exact signed source publication, including its transport signature. */
+  readonly sourceSnapshotPublication: OwnerVaultSourceSnapshotPublicationV1;
+}
+export interface OwnerVaultSourceSnapshotPublicationV1 {
+  readonly schema: "source-snapshot-publication-v1";
+  readonly authority: "owner-vault-production-manifest-ring-v1";
+  readonly algorithm: "ES256-P256-canonical-low-s-der";
+  readonly publication: {
+    readonly category: "owner-vault.snapshot-pin";
+    readonly schema: "snapshot-pin-v2";
+    readonly state: "COMPLETED";
+  };
+  readonly sourceRoot: {
+    readonly ownerID: string;
+    readonly vaultID: string;
+    readonly generationEpoch: number;
+    readonly namespaceState: "PRIVATE";
+  };
+  readonly backupID: string;
+  readonly manifestDigest: string;
+  readonly snapshotOperationID: string;
+  readonly snapshotJTI: string;
+  readonly snapshotCommandSHA256: string;
+  readonly signingKeyID: string;
+  readonly signature: { readonly keyID: string; readonly signatureDERBase64: string };
 }
 export type OwnerVaultDirectoryControlRequestBinding =
   | OwnerVaultPrivateInitializeBinding
   | OwnerVaultCredentialFenceBinding
-  | OwnerVaultSnapshotBinding
-  | OwnerVaultRestoreBinding;
+  | OwnerVaultSnapshotReceiptLeaseV1Binding
+  | OwnerVaultRestoreReceiptLeaseV1Binding;
 
 /** Expectations intentionally mirror every request claim (except key/time). */
 export type OwnerVaultDirectoryControlExpectation = OwnerVaultDirectoryControlRequestBinding;
@@ -98,30 +127,32 @@ interface Signed {
 }
 export type OwnerVaultPrivateInitializeClaims = OwnerVaultPrivateInitializeBinding & Signed;
 export type OwnerVaultCredentialFenceClaims = OwnerVaultCredentialFenceBinding & Signed;
-export type OwnerVaultSnapshotClaims = OwnerVaultSnapshotBinding & Signed;
-export type OwnerVaultRestoreClaims = OwnerVaultRestoreBinding & Signed;
+export type OwnerVaultSnapshotReceiptLeaseV1Claims = OwnerVaultSnapshotReceiptLeaseV1Binding &
+  Signed;
+export type OwnerVaultRestoreReceiptLeaseV1Claims = OwnerVaultRestoreReceiptLeaseV1Binding & Signed;
 export type OwnerVaultDirectoryControlClaims =
   | OwnerVaultPrivateInitializeClaims
   | OwnerVaultCredentialFenceClaims
-  | OwnerVaultSnapshotClaims
-  | OwnerVaultRestoreClaims;
+  | OwnerVaultSnapshotReceiptLeaseV1Claims
+  | OwnerVaultRestoreReceiptLeaseV1Claims;
 export type OwnerVaultPrivateInitializeClaimsInput = OwnerVaultPrivateInitializeBinding & {
   readonly ttlSeconds: number;
 };
 export type OwnerVaultCredentialFenceClaimsInput = OwnerVaultCredentialFenceBinding & {
   readonly ttlSeconds: number;
 };
-export type OwnerVaultSnapshotClaimsInput = OwnerVaultSnapshotBinding & {
-  readonly ttlSeconds: number;
-};
-export type OwnerVaultRestoreClaimsInput = OwnerVaultRestoreBinding & {
+export type OwnerVaultSnapshotReceiptLeaseV1ClaimsInput =
+  OwnerVaultSnapshotReceiptLeaseV1Binding & {
+    readonly ttlSeconds: number;
+  };
+export type OwnerVaultRestoreReceiptLeaseV1ClaimsInput = OwnerVaultRestoreReceiptLeaseV1Binding & {
   readonly ttlSeconds: number;
 };
 export type OwnerVaultDirectoryControlClaimsInput =
   | OwnerVaultPrivateInitializeClaimsInput
   | OwnerVaultCredentialFenceClaimsInput
-  | OwnerVaultSnapshotClaimsInput
-  | OwnerVaultRestoreClaimsInput;
+  | OwnerVaultSnapshotReceiptLeaseV1ClaimsInput
+  | OwnerVaultRestoreReceiptLeaseV1ClaimsInput;
 export interface SignedOwnerVaultDirectoryControl {
   readonly value: string;
 }
@@ -161,6 +192,77 @@ const manifestDigestValid = (value: string): boolean => {
   if (!sha256Base64url.test(value)) return false;
   const bytes = fromB64url(value);
   return bytes !== undefined && bytes.byteLength === 32;
+};
+const canonicalDERBase64 = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(value)) return false;
+  try {
+    return btoa(atob(value)) === value;
+  } catch {
+    return false;
+  }
+};
+const plain = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+const exactProof = (value: Readonly<Record<string, unknown>>, keys: readonly string[]) =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+export const isOwnerVaultSourceSnapshotPublication = (
+  value: unknown,
+): value is OwnerVaultSourceSnapshotPublicationV1 => {
+  const proof = plain(value);
+  const publication = proof === undefined ? undefined : plain(proof.publication);
+  const root = proof === undefined ? undefined : plain(proof.sourceRoot);
+  const signature = proof === undefined ? undefined : plain(proof.signature);
+  return (
+    proof !== undefined &&
+    exactProof(proof, [
+      "schema",
+      "authority",
+      "algorithm",
+      "publication",
+      "sourceRoot",
+      "backupID",
+      "manifestDigest",
+      "snapshotOperationID",
+      "snapshotJTI",
+      "snapshotCommandSHA256",
+      "signingKeyID",
+      "signature",
+    ]) &&
+    proof.schema === "source-snapshot-publication-v1" &&
+    proof.authority === "owner-vault-production-manifest-ring-v1" &&
+    proof.algorithm === "ES256-P256-canonical-low-s-der" &&
+    publication !== undefined &&
+    exactProof(publication, ["category", "schema", "state"]) &&
+    publication.category === "owner-vault.snapshot-pin" &&
+    publication.schema === "snapshot-pin-v2" &&
+    publication.state === "COMPLETED" &&
+    root !== undefined &&
+    exactProof(root, ["ownerID", "vaultID", "generationEpoch", "namespaceState"]) &&
+    typeof root.ownerID === "string" &&
+    id.test(root.ownerID) &&
+    typeof root.vaultID === "string" &&
+    id.test(root.vaultID) &&
+    positive(root.generationEpoch) &&
+    root.namespaceState === "PRIVATE" &&
+    typeof proof.backupID === "string" &&
+    opaque.test(proof.backupID) &&
+    typeof proof.manifestDigest === "string" &&
+    manifestDigestValid(proof.manifestDigest) &&
+    typeof proof.snapshotOperationID === "string" &&
+    opaque.test(proof.snapshotOperationID) &&
+    typeof proof.snapshotJTI === "string" &&
+    opaque.test(proof.snapshotJTI) &&
+    typeof proof.snapshotCommandSHA256 === "string" &&
+    sha256Hex.test(proof.snapshotCommandSHA256) &&
+    typeof proof.signingKeyID === "string" &&
+    keyID.test(proof.signingKeyID) &&
+    signature !== undefined &&
+    exactProof(signature, ["keyID", "signatureDERBase64"]) &&
+    signature.keyID === proof.signingKeyID &&
+    canonicalDERBase64(signature.signatureDERBase64)
+  );
 };
 const commonValid = (value: Common): boolean =>
   id.test(value.ownerID) &&
@@ -216,10 +318,10 @@ const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean 
         value.raisedCredentialEpoch === value.expectedCredentialEpoch + 1 &&
         value.raisedRoutingEpoch === value.expectedRoutingEpoch + 1
       );
-    case OwnerVaultDirectoryControlResource.Snapshot:
+    case OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1:
       return (
         commonValid(value) &&
-        value.path === ownerVaultSnapshotPath &&
+        value.path === ownerVaultSnapshotReceiptLeaseV1Path &&
         opaque.test(value.backupID) &&
         positive(value.sourceGeneration) &&
         positive(value.sourceRoutingEpoch) &&
@@ -227,11 +329,17 @@ const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean 
         positive(value.sourceControlEpoch) &&
         positive(value.sourceSecurityFloor)
       );
-    case OwnerVaultDirectoryControlResource.Restore:
+    case OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1:
       return (
         commonValid(value) &&
-        value.path === ownerVaultRestorePath &&
+        value.path === ownerVaultRestoreReceiptLeaseV1Path &&
         allocationValid(value) &&
+        isOwnerVaultSourceSnapshotPublication(value.sourceSnapshotPublication) &&
+        value.sourceSnapshotPublication.sourceRoot.ownerID === value.ownerID &&
+        value.sourceSnapshotPublication.sourceRoot.vaultID === value.vaultID &&
+        value.sourceSnapshotPublication.sourceRoot.generationEpoch === value.sourceGeneration &&
+        value.sourceSnapshotPublication.backupID === value.backupID &&
+        value.sourceSnapshotPublication.manifestDigest === value.manifestDigest &&
         value.generationEpoch === value.targetGeneration
       );
   }
@@ -286,7 +394,7 @@ const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
         raisedCredentialEpoch: claims.raisedCredentialEpoch,
         raisedRoutingEpoch: claims.raisedRoutingEpoch,
       });
-    case OwnerVaultDirectoryControlResource.Snapshot:
+    case OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1:
       return JSON.stringify({
         ...common,
         backupID: claims.backupID,
@@ -296,7 +404,7 @@ const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
         sourceControlEpoch: claims.sourceControlEpoch,
         sourceSecurityFloor: claims.sourceSecurityFloor,
       });
-    case OwnerVaultDirectoryControlResource.Restore:
+    case OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1:
       return JSON.stringify({
         ...common,
         allocationID: claims.allocationID,
@@ -305,6 +413,7 @@ const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
         targetGeneration: claims.targetGeneration,
         backupID: claims.backupID,
         manifestDigest: claims.manifestDigest,
+        sourceSnapshotPublication: claims.sourceSnapshotPublication,
       });
   }
 };
@@ -463,7 +572,7 @@ const decode = (
         };
         return claimsValid(claims) ? claims : yield* invalid();
       }
-      case OwnerVaultDirectoryControlResource.Snapshot: {
+      case OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1: {
         if (
           !hasExact(record, [
             ...commonKeys,
@@ -474,7 +583,7 @@ const decode = (
             "sourceControlEpoch",
             "sourceSecurityFloor",
           ]) ||
-          record.path !== ownerVaultSnapshotPath ||
+          record.path !== ownerVaultSnapshotReceiptLeaseV1Path ||
           typeof record.backupID !== "string" ||
           typeof record.sourceGeneration !== "number" ||
           typeof record.sourceRoutingEpoch !== "number" ||
@@ -483,9 +592,9 @@ const decode = (
           typeof record.sourceSecurityFloor !== "number"
         )
           return yield* invalid();
-        const claims: OwnerVaultSnapshotClaims = {
+        const claims: OwnerVaultSnapshotReceiptLeaseV1Claims = {
           resource: record.resource,
-          path: ownerVaultSnapshotPath,
+          path: ownerVaultSnapshotReceiptLeaseV1Path,
           method: "POST",
           canonicalQuery: "",
           ...common,
@@ -498,7 +607,8 @@ const decode = (
         };
         return claimsValid(claims) ? claims : yield* invalid();
       }
-      case OwnerVaultDirectoryControlResource.Restore: {
+      case OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1: {
+        const sourceSnapshotPublication = record.sourceSnapshotPublication;
         if (
           !hasExact(record, [
             ...commonKeys,
@@ -508,19 +618,21 @@ const decode = (
             "targetGeneration",
             "backupID",
             "manifestDigest",
+            "sourceSnapshotPublication",
           ]) ||
-          record.path !== ownerVaultRestorePath ||
+          record.path !== ownerVaultRestoreReceiptLeaseV1Path ||
           typeof record.allocationID !== "string" ||
           typeof record.initID !== "string" ||
           typeof record.sourceGeneration !== "number" ||
           typeof record.targetGeneration !== "number" ||
           typeof record.backupID !== "string" ||
-          typeof record.manifestDigest !== "string"
+          typeof record.manifestDigest !== "string" ||
+          !isOwnerVaultSourceSnapshotPublication(sourceSnapshotPublication)
         )
           return yield* invalid();
-        const claims: OwnerVaultRestoreClaims = {
+        const claims: OwnerVaultRestoreReceiptLeaseV1Claims = {
           resource: record.resource,
-          path: ownerVaultRestorePath,
+          path: ownerVaultRestoreReceiptLeaseV1Path,
           method: "POST",
           canonicalQuery: "",
           ...common,
@@ -530,6 +642,7 @@ const decode = (
           targetGeneration: record.targetGeneration,
           backupID: record.backupID,
           manifestDigest: record.manifestDigest,
+          sourceSnapshotPublication,
         };
         return claimsValid(claims) ? claims : yield* invalid();
       }
@@ -585,11 +698,11 @@ const createClaims = (
       const { ttlSeconds: _, ...binding } = input;
       return { ...binding, ...signed };
     }
-    case OwnerVaultDirectoryControlResource.Snapshot: {
+    case OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1: {
       const { ttlSeconds: _, ...binding } = input;
       return { ...binding, ...signed };
     }
-    case OwnerVaultDirectoryControlResource.Restore: {
+    case OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1: {
       const { ttlSeconds: _, ...binding } = input;
       return { ...binding, ...signed };
     }
@@ -609,9 +722,9 @@ const signedBinding = (
       return { ...binding, ...signed };
     case OwnerVaultDirectoryControlResource.CredentialFence:
       return { ...binding, ...signed };
-    case OwnerVaultDirectoryControlResource.Snapshot:
+    case OwnerVaultDirectoryControlResource.SnapshotReceiptLeaseV1:
       return { ...binding, ...signed };
-    case OwnerVaultDirectoryControlResource.Restore:
+    case OwnerVaultDirectoryControlResource.RestoreReceiptLeaseV1:
       return { ...binding, ...signed };
   }
 };

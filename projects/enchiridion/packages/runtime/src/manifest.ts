@@ -43,6 +43,9 @@ export interface ManifestSignature {
 }
 
 export interface ManifestSigner {
+  /** The active production key identifier. Exposing this public identifier
+   * lets a signed payload bind the key without a probe signature. */
+  readonly keyID: string;
   readonly signCanonical: (
     canonicalBytes: Uint8Array,
   ) => Effect.Effect<ManifestSignature, ManifestSigningError>;
@@ -177,6 +180,7 @@ export const makeManifestP256KeyRing = (input: {
   });
 
 export const makeManifestSigner = (keyRing: ManifestP256KeyRing): ManifestSigner => ({
+  keyID: keyRing.current.keyID,
   signCanonical: (canonicalBytes) => {
     if (!validCanonicalBytes(canonicalBytes))
       return Effect.fail(new ManifestSigningError({ reason: "invalid_bytes" }));

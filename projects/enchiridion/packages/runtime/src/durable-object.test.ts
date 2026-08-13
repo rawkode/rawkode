@@ -59,29 +59,36 @@ const makeState = (
       transactionOperations.push(activeTransactions === 1);
       return Promise.resolve(entries.delete(key));
     },
-  };
-  const storage: DurableObjectStorageNative = {
-    ...transaction,
-    getAlarm: () =>
-      options.rejectAlarm
+    getAlarm: () => {
+      transactionOperations.push(activeTransactions === 1);
+      return options.rejectAlarm
         ? Promise.reject(new Error("alarm-secret"))
-        : Promise.resolve(scheduledAlarm),
-    setAlarm: (epochMilliseconds) =>
-      options.rejectAlarm
+        : Promise.resolve(scheduledAlarm);
+    },
+    setAlarm: (epochMilliseconds) => {
+      transactionOperations.push(activeTransactions === 1);
+      return options.rejectAlarm
         ? Promise.reject(new Error("alarm-secret"))
         : Promise.resolve().then(() => {
             scheduledAlarm = epochMilliseconds;
-          }),
-    deleteAlarm: () =>
-      options.rejectAlarm
+          });
+    },
+    deleteAlarm: () => {
+      transactionOperations.push(activeTransactions === 1);
+      return options.rejectAlarm
         ? Promise.reject(new Error("alarm-secret"))
         : Promise.resolve().then(() => {
             scheduledAlarm = null;
-          }),
+          });
+    },
+  };
+  const storage: DurableObjectStorageNative = {
+    ...transaction,
     transaction: (callback) => {
       const next = transactionTail.then(() => {
         activeTransactions += 1;
         const snapshot = new Map(entries);
+        const alarmSnapshot = scheduledAlarm;
         return Promise.resolve(callback(transaction)).then(
           (value) => {
             activeTransactions -= 1;
@@ -91,6 +98,7 @@ const makeState = (
             activeTransactions -= 1;
             entries.clear();
             for (const [key, value] of snapshot) entries.set(key, value);
+            scheduledAlarm = alarmSnapshot;
             throw error;
           },
         );
@@ -257,7 +265,7 @@ describe("Durable Object runtime boundary", () => {
     expect(native.transactionOperations.every(Boolean)).toBe(true);
   });
 
-  test("returns a closed domain failure and rolls back every write byte-for-byte", async () => {
+  test("returns a closed domain failure and rolls back rows and the alarm byte-for-byte", async () => {
     const conflictSchema = Schema.Struct({
       _tag: Schema.Literal("replayConflict"),
       receiptID: Schema.String,
@@ -265,12 +273,16 @@ describe("Durable Object runtime boundary", () => {
     const codec = durableObjectTransactionDomainCodec(conflictSchema);
     const native = makeState();
     native.entries.set("receipt", { id: "existing", version: 1 });
+    await Effect.runPromise(
+      makeDurableObjectBoundary(native.state).storage.setAlarm(1_760_000_000_000),
+    );
     const before = JSON.stringify([...native.entries.entries()]);
     const outcome = await Effect.runPromise(
       makeDurableObjectBoundary(native.state).storage.transactionOutcome(codec, (storage) =>
         storage
           .put("receipt", { id: "replacement", version: 2 })
           .pipe(
+            Effect.zipRight(storage.setAlarm(1_770_000_000_000)),
             Effect.zipRight(
               Effect.fail({ _tag: "replayConflict" as const, receiptID: "receipt-1" }),
             ),
@@ -282,20 +294,28 @@ describe("Durable Object runtime boundary", () => {
       error: { _tag: "replayConflict", receiptID: "receipt-1" },
     });
     expect(JSON.stringify([...native.entries.entries()])).toBe(before);
+    expect(native.alarm()).toBe(1_760_000_000_000);
   });
 
-  test("commits success and exposes an exact serializable outcome schema", async () => {
+  test("commits success rows and alarm and exposes an exact serializable outcome schema", async () => {
     const valueSchema = Schema.Struct({ committed: Schema.Boolean });
     const conflictSchema = Schema.Struct({ _tag: Schema.Literal("conflict"), key: Schema.String });
     const native = makeState();
     const outcome = await Effect.runPromise(
       makeDurableObjectBoundary(native.state).storage.transactionOutcome(
         durableObjectTransactionDomainCodec(conflictSchema),
-        (storage) => storage.put("committed", true).pipe(Effect.as({ committed: true })),
+        (storage) =>
+          storage
+            .put("committed", true)
+            .pipe(
+              Effect.zipRight(storage.setAlarm(1_770_000_000_000)),
+              Effect.as({ committed: true }),
+            ),
       ),
     );
     expect(outcome).toEqual({ _tag: "success", value: { committed: true } });
     expect(native.entries).toEqual(new Map([["committed", true]]));
+    expect(native.alarm()).toBe(1_770_000_000_000);
     expect(
       Schema.decodeUnknownSync(durableObjectTransactionOutcomeSchema(valueSchema, conflictSchema))(
         outcome,
