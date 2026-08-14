@@ -52,12 +52,12 @@
 // than constructing a fresh (uncached) `RemoteJWKSet` per call.
 
 import {
+  type FetchImplementation,
+  type JWTPayload,
   createRemoteJWKSet,
   customFetch,
   errors as joseErrors,
-  type FetchImplementation,
   jwtVerify,
-  type JWTPayload,
 } from "jose";
 
 /** Env bindings this module reads. Both are non-secret identifiers (a
@@ -73,6 +73,14 @@ export interface AccessEnv {
   /** The Access Application's AUD tag for this worker (Zero Trust dashboard
    *  → Access → Applications → this app → Overview). */
   ACCESS_AUD?: string;
+  /**
+   * Explicit local-development bootstrap only. When this binding is set,
+   * loopback requests may authenticate with `X-Enchiridion-Local-Token`
+   * instead of Cloudflare Access. It is intentionally absent from the
+   * committed Wrangler configuration and is never accepted for a
+   * non-loopback host, so it cannot weaken a deployed worker by accident.
+   */
+  LOCAL_DEV_ACCESS_TOKEN?: string;
 }
 
 export type AccessVerifyResult =
@@ -93,6 +101,48 @@ export interface VerifyAccessOptions {
 }
 
 const HEADER_NAME = "Cf-Access-Jwt-Assertion";
+const LOCAL_DEV_TOKEN_HEADER = "X-Enchiridion-Local-Token";
+
+/**
+ * A local `wrangler dev` server is the only supported place for the
+ * development-token path. Keep this check here, beside the auth decision,
+ * rather than relying on a launch-script convention: a mistakenly deployed
+ * `LOCAL_DEV_ACCESS_TOKEN` binding must still never become an origin-auth
+ * bypass for an internet-reachable hostname.
+ */
+function isLoopbackRequest(request: Request): boolean {
+  const hostname = new URL(request.url).hostname;
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+/**
+ * Returns `undefined` when the normal Cloudflare Access path must run.
+ * When local development has been explicitly enabled for a loopback request,
+ * it returns either a synthetic local identity or a fail-closed 401.
+ */
+function verifyLocalDevelopmentRequest(
+  request: Request,
+  env: AccessEnv,
+): AccessVerifyResult | undefined {
+  if (!env.LOCAL_DEV_ACCESS_TOKEN || !isLoopbackRequest(request)) return undefined;
+
+  if (request.headers.get(LOCAL_DEV_TOKEN_HEADER) !== env.LOCAL_DEV_ACCESS_TOKEN) {
+    return { ok: false, status: 401, error: `missing or invalid ${LOCAL_DEV_TOKEN_HEADER} header` };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      sub: "enchiridion-local-development",
+      iss: "enchiridion-local-development",
+    },
+  };
+}
 
 /** One cached `RemoteJWKSet` per normalized team domain, module-scoped so
  *  it survives across requests within the same Worker isolate (this is the
@@ -112,12 +162,18 @@ const jwksSets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
  *  already-fully-qualified (covers a custom Access domain, if ever
  *  configured). */
 export function normalizeAccessTeamDomain(rawDomain: string): string {
-  const stripped = rawDomain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const stripped = rawDomain
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
   if (stripped.includes(".")) return stripped;
   return `${stripped}.cloudflareaccess.com`;
 }
 
-function getJwks(teamDomain: string, fetchImpl?: FetchImplementation): ReturnType<typeof createRemoteJWKSet> {
+function getJwks(
+  teamDomain: string,
+  fetchImpl?: FetchImplementation,
+): ReturnType<typeof createRemoteJWKSet> {
   const cached = jwksSets.get(teamDomain);
   if (cached) return cached;
 
@@ -152,6 +208,9 @@ export async function verifyAccessRequest(
   env: AccessEnv,
   options: VerifyAccessOptions = {},
 ): Promise<AccessVerifyResult> {
+  const localDevelopmentResult = verifyLocalDevelopmentRequest(request, env);
+  if (localDevelopmentResult) return localDevelopmentResult;
+
   const token = request.headers.get(HEADER_NAME);
   if (!token) {
     return { ok: false, status: 401, error: `missing ${HEADER_NAME} header` };
@@ -161,7 +220,8 @@ export async function verifyAccessRequest(
     return {
       ok: false,
       status: 500,
-      error: "Access auth is not configured on this worker (ACCESS_TEAM_DOMAIN/ACCESS_AUD missing) — see ACCESS_SETUP.md",
+      error:
+        "Access auth is not configured on this worker (ACCESS_TEAM_DOMAIN/ACCESS_AUD missing) — see ACCESS_SETUP.md",
     };
   }
 
@@ -179,13 +239,21 @@ export async function verifyAccessRequest(
       return { ok: false, status: 401, error: "Access token expired" };
     }
     if (error instanceof joseErrors.JWTClaimValidationFailed) {
-      return { ok: false, status: 403, error: `Access token claim validation failed: ${error.message}` };
+      return {
+        ok: false,
+        status: 403,
+        error: `Access token claim validation failed: ${error.message}`,
+      };
     }
     if (error instanceof joseErrors.JWSSignatureVerificationFailed) {
       return { ok: false, status: 403, error: "Access token signature verification failed" };
     }
     if (error instanceof joseErrors.JWKSNoMatchingKey) {
-      return { ok: false, status: 403, error: "Access token signed by an unknown key (kid not in team JWKS)" };
+      return {
+        ok: false,
+        status: 403,
+        error: "Access token signed by an unknown key (kid not in team JWKS)",
+      };
     }
     return {
       ok: false,

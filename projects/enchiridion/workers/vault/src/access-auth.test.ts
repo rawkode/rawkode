@@ -14,10 +14,11 @@
 // response leak into another test.
 
 import { describe, expect, test } from "bun:test";
-import { exportJWK, type FetchImplementation, generateKeyPair, SignJWT } from "jose";
+import { type FetchImplementation, SignJWT, exportJWK, generateKeyPair } from "jose";
 import { normalizeAccessTeamDomain, verifyAccessRequest } from "./access-auth";
 
 const HEADER_NAME = "Cf-Access-Jwt-Assertion";
+const LOCAL_DEV_TOKEN_HEADER = "X-Enchiridion-Local-Token";
 const TEST_AUD = "test-access-application-aud-tag";
 
 let domainCounter = 0;
@@ -78,13 +79,23 @@ function requestWithToken(token?: string): Request {
   return new Request("https://vault.example.com/sync", { headers });
 }
 
+function localDevelopmentRequest(token?: string, url = "http://127.0.0.1:8787/sync"): Request {
+  const headers = new Headers();
+  if (token !== undefined) {
+    headers.set(LOCAL_DEV_TOKEN_HEADER, token);
+  }
+  return new Request(url, { headers });
+}
+
 describe("normalizeAccessTeamDomain", () => {
   test("appends .cloudflareaccess.com to a bare team name", () => {
     expect(normalizeAccessTeamDomain("rawkode")).toBe("rawkode.cloudflareaccess.com");
   });
 
   test("leaves an already-qualified domain alone", () => {
-    expect(normalizeAccessTeamDomain("rawkode.cloudflareaccess.com")).toBe("rawkode.cloudflareaccess.com");
+    expect(normalizeAccessTeamDomain("rawkode.cloudflareaccess.com")).toBe(
+      "rawkode.cloudflareaccess.com",
+    );
   });
 
   test("strips a https:// prefix and trailing slash", () => {
@@ -95,6 +106,51 @@ describe("normalizeAccessTeamDomain", () => {
 });
 
 describe("verifyAccessRequest", () => {
+  test("accepts the explicit local token for a loopback local-dev request", async () => {
+    const result = await verifyAccessRequest(localDevelopmentRequest("prototype-token"), {
+      LOCAL_DEV_ACCESS_TOKEN: "prototype-token",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.payload.sub).toBe("enchiridion-local-development");
+    }
+  });
+
+  test("local development remains fail-closed for a missing or incorrect local token", async () => {
+    const missing = await verifyAccessRequest(localDevelopmentRequest(), {
+      LOCAL_DEV_ACCESS_TOKEN: "prototype-token",
+    });
+    const incorrect = await verifyAccessRequest(localDevelopmentRequest("wrong-token"), {
+      LOCAL_DEV_ACCESS_TOKEN: "prototype-token",
+    });
+
+    for (const result of [missing, incorrect]) {
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.status).toBe(401);
+        expect(result.error).toContain(LOCAL_DEV_TOKEN_HEADER);
+      }
+    }
+  });
+
+  test("a configured local token cannot bypass Cloudflare Access off loopback", async () => {
+    const teamDomain = uniqueDomain();
+    const { token, fetchImpl } = await signTestToken(teamDomain);
+
+    const result = await verifyAccessRequest(
+      requestWithToken(token),
+      {
+        ACCESS_TEAM_DOMAIN: teamDomain,
+        ACCESS_AUD: TEST_AUD,
+        LOCAL_DEV_ACCESS_TOKEN: "prototype-token",
+      },
+      { fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
   test("accepts a validly signed token with correct aud/iss/exp", async () => {
     const teamDomain = uniqueDomain();
     const { token, fetchImpl } = await signTestToken(teamDomain);
@@ -145,7 +201,9 @@ describe("verifyAccessRequest", () => {
 
   test("rejects a token with the wrong aud", async () => {
     const teamDomain = uniqueDomain();
-    const { token, fetchImpl } = await signTestToken(teamDomain, { aud: "someone-elses-application" });
+    const { token, fetchImpl } = await signTestToken(teamDomain, {
+      aud: "someone-elses-application",
+    });
 
     const result = await verifyAccessRequest(
       requestWithToken(token),
@@ -260,8 +318,12 @@ describe("verifyAccessRequest", () => {
     };
 
     const env = { ACCESS_TEAM_DOMAIN: teamDomain, ACCESS_AUD: TEST_AUD };
-    const first = await verifyAccessRequest(requestWithToken(token), env, { fetchImpl: countingFetch });
-    const second = await verifyAccessRequest(requestWithToken(token), env, { fetchImpl: countingFetch });
+    const first = await verifyAccessRequest(requestWithToken(token), env, {
+      fetchImpl: countingFetch,
+    });
+    const second = await verifyAccessRequest(requestWithToken(token), env, {
+      fetchImpl: countingFetch,
+    });
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
