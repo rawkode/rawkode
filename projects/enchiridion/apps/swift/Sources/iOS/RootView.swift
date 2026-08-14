@@ -59,6 +59,7 @@ struct RootView: View {
   @State private var loadError: String?
   @State private var selectedTab: RootTab = .today
   @State private var assistantController: AssistantConversationController?
+  @State private var localVaultSync: LocalVaultSyncCoordinator?
 
   var body: some View {
     Group {
@@ -107,9 +108,20 @@ struct RootView: View {
   private func openStore() {
     guard store == nil, loadError == nil else { return }
     do {
-      let opened = try LocalGraphStore.openAppGroupStore()
+      let syncConfiguration = AppBackendConfiguration.localVaultSyncConfiguration
+      let opened: LocalGraphStore
+      if let storePath = syncConfiguration?.storePath {
+        opened = try LocalGraphStore(path: storePath)
+      } else {
+        opened = try LocalGraphStore.openAppGroupStore()
+      }
       store = opened
       assistantController = AssistantSceneAssembly.makeConversationController(store: opened)
+      if let syncConfiguration {
+        let sync = LocalVaultSyncCoordinator(store: opened, configuration: syncConfiguration)
+        localVaultSync = sync
+        Task { await sync.start() }
+      }
     } catch {
       loadError = error.localizedDescription
     }

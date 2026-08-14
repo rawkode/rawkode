@@ -123,6 +123,36 @@ public struct PageDocumentSnapshotRecord: Hashable, Sendable, FetchableRecord {
   }
 }
 
+/// Whether a durable document write originated on this device or was applied
+/// by the Vault sync consumer. Outbound sync listens only to `.local`, which
+/// prevents a received snapshot being reflected straight back to the server.
+public enum LocalDocumentSnapshotOrigin: Hashable, Sendable {
+  case local
+  case remote
+}
+
+/// One successfully committed document snapshot. The stream on
+/// `LocalGraphStore` emits only after the SQLite transaction has completed,
+/// so a sync consumer never observes bytes that would disappear on relaunch.
+public struct LocalDocumentSnapshotChange: Hashable, Sendable {
+  public let pageID: PageID
+  public let snapshot: Data
+  public let version: PageDocumentVersion
+  public let origin: LocalDocumentSnapshotOrigin
+
+  public init(
+    pageID: PageID,
+    snapshot: Data,
+    version: PageDocumentVersion,
+    origin: LocalDocumentSnapshotOrigin
+  ) {
+    self.pageID = pageID
+    self.snapshot = snapshot
+    self.version = version
+    self.origin = origin
+  }
+}
+
 /// One row of the `graph_edges` view (post forward/inverse expansion — see
 /// `LocalGraphSchema`). See `LocalGraphNodeRow`'s doc comment.
 public struct LocalGraphEdgeRow: Codable, Hashable, Sendable, FetchableRecord {
@@ -162,6 +192,11 @@ public actor LocalGraphStore {
   public nonisolated let path: String
   private let database: DatabasePool
 
+  /// Durable snapshot-write subscribers, notified only after commit. Each
+  /// caller receives its own stream: the sync coordinator and an open editor
+  /// must both see a remote update, rather than competing to consume it.
+  private var documentSnapshotChangeContinuations: [UUID: AsyncStream<LocalDocumentSnapshotChange>.Continuation] = [:]
+
   public init(path: String) throws {
     guard !path.isEmpty else { throw LocalGraphStoreError.invalidPath }
     self.path = path
@@ -173,6 +208,32 @@ public actor LocalGraphStore {
     let database = try DatabasePool(path: path, configuration: configuration)
     try LocalGraphSchema.migrator.migrate(database)
     self.database = database
+  }
+
+  /// Returns an independent subscription to committed document snapshots.
+  /// Multiple consumers are deliberately broadcast subscribers, not multiple
+  /// iterators over one shared stream: sync and UI update observation may run
+  /// at the same time in an app process.
+  public func documentSnapshotChanges() -> AsyncStream<LocalDocumentSnapshotChange> {
+    let subscriptionID = UUID()
+    let (stream, continuation) = AsyncStream<LocalDocumentSnapshotChange>.makeStream()
+    documentSnapshotChangeContinuations[subscriptionID] = continuation
+    continuation.onTermination = { [weak self] _ in
+      Task {
+        await self?.removeDocumentSnapshotChangeSubscriber(subscriptionID)
+      }
+    }
+    return stream
+  }
+
+  private func removeDocumentSnapshotChangeSubscriber(_ subscriptionID: UUID) {
+    documentSnapshotChangeContinuations.removeValue(forKey: subscriptionID)
+  }
+
+  private func publishDocumentSnapshotChange(_ change: LocalDocumentSnapshotChange) {
+    for continuation in documentSnapshotChangeContinuations.values {
+      continuation.yield(change)
+    }
   }
 
   /// Opens a fresh store at a unique temporary file — for tests and
@@ -346,7 +407,8 @@ public actor LocalGraphStore {
     pageID: PageID,
     snapshot: Data,
     version: PageDocumentVersion,
-    updatedAt: Date = Date()
+    updatedAt: Date = Date(),
+    origin: LocalDocumentSnapshotOrigin = .local
   ) throws {
     try database.write { db in
       try db.execute(
@@ -361,6 +423,8 @@ public actor LocalGraphStore {
         arguments: [pageID.rawValue, snapshot, version.encoded, updatedAt.millisecondsSince1970]
       )
     }
+    publishDocumentSnapshotChange(
+      LocalDocumentSnapshotChange(pageID: pageID, snapshot: snapshot, version: version, origin: origin))
   }
 
   /// Loads `pageID`'s persisted CRDT document snapshot, or `nil` if none
@@ -374,6 +438,15 @@ public actor LocalGraphStore {
     try database.read { db in
       try PageDocumentSnapshotRecord.fetchOne(
         db, sql: "SELECT * FROM _local_page_snapshots WHERE page_id = ?", arguments: [pageID.rawValue])
+    }
+  }
+
+  /// Every durable page document in deterministic order. The local Vault sync
+  /// coordinator uses this after a successful catalog handshake so writes
+  /// made while the app was offline are eventually uploaded as well.
+  public func documentSnapshots() throws -> [PageDocumentSnapshotRecord] {
+    try database.read { db in
+      try PageDocumentSnapshotRecord.fetchAll(db, sql: "SELECT * FROM _local_page_snapshots ORDER BY page_id")
     }
   }
 
@@ -414,9 +487,10 @@ public actor LocalGraphStore {
     expectedVersion: PageDocumentVersion,
     snapshot: Data,
     version: PageDocumentVersion,
-    updatedAt: Date = Date()
+    updatedAt: Date = Date(),
+    origin: LocalDocumentSnapshotOrigin = .local
   ) throws -> Bool {
-    try database.write { db in
+    let saved = try database.write { db in
       let currentVersion: Data? = try Data.fetchOne(
         db, sql: "SELECT version FROM _local_page_snapshots WHERE page_id = ?", arguments: [pageID.rawValue])
       guard currentVersion == expectedVersion.encoded else { return false }
@@ -430,6 +504,11 @@ public actor LocalGraphStore {
       )
       return true
     }
+    if saved {
+      publishDocumentSnapshotChange(
+        LocalDocumentSnapshotChange(pageID: pageID, snapshot: snapshot, version: version, origin: origin))
+    }
+    return saved
   }
 
   // MARK: - Typed reads
@@ -608,65 +687,9 @@ extension Date {
   }
 }
 
-// MARK: - Design note: wiring `VaultSyncClient` updates into reprojection
+// MARK: - Sync integration
 //
-// UPDATED by task #78 ("Durable local CRDT snapshot persistence"): step 1
-// below (`persistSnapshot(snapshot, for: pageID)`) is NOT hypothetical
-// anymore — it is this file's own `saveDocumentSnapshot(pageID:snapshot:
-// version:updatedAt:)`, real and tested (`LocalGraphStorePageSnapshotTests.swift`).
-// What remains genuinely unbuilt, and still explicitly out of THIS task's
-// scope, is everything upstream of step 1: no code anywhere in this package
-// yet subscribes to `VaultSyncClient.incomingMessages` and calls into this
-// store at all — that consumer loop is still exactly the sketch below, only
-// the one line it used to flag as "not this store's job" is now a real,
-// callable method it can use as-is.
-//
-// `VaultSyncClient` (EnchiridionSync/VaultSyncClient.swift) exposes
-// `incomingMessages`, an `AsyncStream<SyncProtocolMessage>` a caller
-// subscribes to. Two of that enum's cases are the ones this store cares
-// about (SyncProtocolMessage.swift:120-124):
-//
-//   case docUpdate(pageID: PageID, bytes: Data)       // incremental
-//   case docFullSnapshot(pageID: PageID, bytes: Data) // compaction-horizon catch-up
-//
-// A future reprojection task (owning both `EnchiridionSync` consumer-side
-// wiring and this store) would add something shaped like:
-//
-//   for await message in syncClient.incomingMessages {
-//     switch message {
-//     case .docUpdate(let pageID, let bytes), .docFullSnapshot(let pageID, let bytes):
-//       // 1. Merge into the locally persisted CRDT snapshot for `pageID`
-//       //    (today's `PageDocument.merge(local:remote:)` already returns
-//       //    exactly the pieces this needs: the new snapshot to persist,
-//       //    and a `PageDocumentProjection` from the SAME merge call — no
-//       //    second decode pass):
-//       let (snapshot, version, projection) = try PageDocument.merge(local: currentSnapshot, remote: bytes)
-//       try await localGraphStore.saveDocumentSnapshot(pageID: pageID, snapshot: snapshot, version: version)
-//
-//       // 2. Reproject into this store. `kind`/`createdAt` aren't in
-//       //    `PageDocumentProjection` (see `writeProjection`'s doc
-//       //    comment) — a real caller already has them from wherever it
-//       //    tracks the local page catalog (the plan's `vault-meta`
-//       //    catalog mirror), not from the sync message itself.
-//       try await localGraphStore.writeProjection(
-//         pageID: pageID, kind: knownKind, createdAt: knownCreatedAt,
-//         modifiedAt: Date(), projection: projection)
-//
-//     case .tombstone(let pageID, let undelete):
-//       if !undelete { try await localGraphStore.removeProjection(pageID: pageID) }
-//       // `undelete` re-arrives as a subsequent `.docFullSnapshot`/`.docUpdate`
-//       // per the plan's "last-tombstone-wins, explicit undelete supported"
-//       // — no separate re-projection branch needed here.
-//
-//     default:
-//       break  // catalog/version-vector frames are the sync layer's own bookkeeping.
-//     }
-//   }
-//
-// Threading/ordering note for that follow-up: `LocalGraphStore` is an
-// actor specifically so a loop like the above can call `writeProjection`
-// for many pages without needing its own external serialization — but the
-// CRDT-merge-and-persist step (1) is NOT this store's responsibility or
-// concurrency domain, and that step's own ordering guarantees (e.g. must
-// `docUpdate`s for one page apply in the order received) are
-// `EnchiridionSync`'s to provide.
+// `EnchiridionUI/LocalVaultSyncCoordinator` owns the concrete local Vault
+// protocol loop. This actor deliberately remains the durable store boundary:
+// it publishes only committed snapshots, persists received snapshots before
+// their projections, and makes no transport or catalog decisions itself.

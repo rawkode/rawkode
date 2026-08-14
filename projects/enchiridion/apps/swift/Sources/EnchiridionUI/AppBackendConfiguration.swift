@@ -63,7 +63,31 @@
 // codebase's established convention for server integrations built ahead of
 // a live deployment) — never a claim of live end-to-end verification this
 // sandbox cannot perform.
+//
+// LOCAL PROTOTYPE UPDATE: a locally-running `wrangler dev` Vault is now a
+// supported development target for CRDT sync only. The explicit loopback
+// configuration below leaves all production endpoint and credential users
+// unchanged.
 import Foundation
+
+/// Explicit opt-in configuration for a local `wrangler dev` Vault. This is
+/// intentionally limited to loopback so a developer cannot accidentally send
+/// a local development token to an arbitrary host.
+public struct LocalVaultSyncConfiguration: Equatable, Sendable {
+  public let baseURL: URL
+  public let syncURL: URL
+  public let token: String
+  /// An explicitly supplied SQLite path for an unsigned local app build.
+  /// A normally signed app continues to use its App Group store instead.
+  public let storePath: String?
+
+  public init(baseURL: URL, syncURL: URL, token: String, storePath: String? = nil) {
+    self.baseURL = baseURL
+    self.syncURL = syncURL
+    self.token = token
+    self.storePath = storePath
+  }
+}
 
 public enum AppBackendConfiguration {
   /// A plausible future `vault` worker hostname — NOT a live, reachable
@@ -71,6 +95,59 @@ public enum AppBackendConfiguration {
   /// "the vault worker for the rebuilt app" without claiming to be a real,
   /// currently-provisioned DNS name.
   public static let vaultBaseURL = URL(string: "https://vault.enchiridion2.rawkode.academy")!
+
+  /// Set both of these only when running a local Vault alongside the app:
+  ///
+  /// - `ENCHIRIDION_LOCAL_VAULT_URL=http://127.0.0.1:8787`
+  /// - `ENCHIRIDION_LOCAL_VAULT_TOKEN=<same LOCAL_DEV_ACCESS_TOKEN passed to wrangler>`
+  /// - `ENCHIRIDION_LOCAL_STORE_PATH=/private/tmp/enchiridion-local-prototype.sqlite`
+  ///
+  /// Any incomplete, malformed, or non-loopback configuration is ignored
+  /// rather than altering the app's production defaults.
+  public static var localVaultSyncConfiguration: LocalVaultSyncConfiguration? {
+    localVaultSyncConfiguration(environment: ProcessInfo.processInfo.environment)
+  }
+
+  static func localVaultSyncConfiguration(
+    environment: [String: String]
+  ) -> LocalVaultSyncConfiguration? {
+    guard
+      let rawURL = environment["ENCHIRIDION_LOCAL_VAULT_URL"],
+      let baseURL = URL(string: rawURL),
+      let scheme = baseURL.scheme?.lowercased(),
+      scheme == "http" || scheme == "https",
+      isLoopbackHost(baseURL.host),
+      let token = environment["ENCHIRIDION_LOCAL_VAULT_TOKEN"],
+      !token.isEmpty,
+      var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+    else {
+      return nil
+    }
+
+    components.scheme = scheme == "https" ? "wss" : "ws"
+    let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    components.path = basePath.isEmpty ? "/sync" : "/\(basePath)/sync"
+    components.query = nil
+    components.fragment = nil
+    guard let syncURL = components.url else { return nil }
+
+    let storePath = environment["ENCHIRIDION_LOCAL_STORE_PATH"].flatMap { path in
+      path.isEmpty ? nil : path
+    }
+    return LocalVaultSyncConfiguration(
+      baseURL: baseURL,
+      syncURL: syncURL,
+      token: token,
+      storePath: storePath
+    )
+  }
+
+  private static func isLoopbackHost(_ host: String?) -> Bool {
+    switch host?.lowercased() {
+    case "localhost", "127.0.0.1", "::1", "[::1]": true
+    default: false
+    }
+  }
 
   /// `workers/vault/src/enroll-routes.ts`'s `POST /enroll/provision` route
   /// (task #95), for `EnchiridionCore.VaultDeviceEnrollmentClient`'s

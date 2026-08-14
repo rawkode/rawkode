@@ -121,6 +121,22 @@ public struct PageDocumentVersion: Codable, Hashable, Sendable {
   public static let empty = PageDocumentVersion(encoded: Data())
 }
 
+/// The catalog fields embedded in every page document at creation time.
+/// Sync uses this to introduce a locally-created page to Vault before sending
+/// its bytes, without inventing a parallel source of truth for page kind or
+/// creation time.
+public struct PageDocumentMetadata: Hashable, Sendable {
+  public let pageID: PageID
+  public let kind: PageKind
+  public let createdAt: Date
+
+  public init(pageID: PageID, kind: PageKind, createdAt: Date) {
+    self.pageID = pageID
+    self.kind = kind
+    self.createdAt = createdAt
+  }
+}
+
 // MARK: - Projection
 
 /// Everything the rest of the app (a future `EnchiridionStore` GRDB
@@ -625,6 +641,23 @@ public enum PageDocument {
 
   public static func projection(of snapshot: Data) throws -> PageDocumentProjection {
     try projection(try loadedDocument(from: snapshot))
+  }
+
+  /// Returns the immutable catalog identity stored in `snapshot`. The
+  /// returned values are used to form a `CatalogEntry` before a native client
+  /// uploads a locally-created page to Vault.
+  public static func metadata(of snapshot: Data) throws -> PageDocumentMetadata {
+    let root = scalarMap(try loadedDocument(from: snapshot).getMap(id: Container.root))
+    guard
+      case .string(let pageIDRaw)? = root["pageID"],
+      case .string(let kindJSON)? = root["kind"],
+      let kindData = kindJSON.data(using: .utf8),
+      let kind = try? JSONDecoder.enchiridion.decode(PageKind.self, from: kindData),
+      let createdAt = stringValue(root["createdAt"]).flatMap(Date.fromEnchiridionISO8601)
+    else {
+      throw PageDocumentError.invalidSchema
+    }
+    return PageDocumentMetadata(pageID: PageID(rawValue: pageIDRaw), kind: kind, createdAt: createdAt)
   }
 
   /// See this file's header for why this is a pure application-level

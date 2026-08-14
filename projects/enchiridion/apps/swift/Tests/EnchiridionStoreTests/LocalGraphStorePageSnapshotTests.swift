@@ -62,6 +62,44 @@ final class LocalGraphStorePageSnapshotTests: XCTestCase {
     XCTAssertEqual(try PageDocument.projection(of: unwrapped.snapshot).plainText, "edited")
   }
 
+  func testSaveDocumentSnapshotPublishesItsCommittedLocalChange() async throws {
+    let store = try makeStore()
+    let pageID = PageID.free()
+    let created = try PageDocument.create(id: pageID, kind: .free, title: "Sync me")
+    let stream = await store.documentSnapshotChanges()
+    var changes = stream.makeAsyncIterator()
+
+    try await store.saveDocumentSnapshot(
+      pageID: pageID, snapshot: created.document, version: created.version)
+
+    let nextChange = await changes.next()
+    let change = try XCTUnwrap(nextChange)
+    XCTAssertEqual(change.pageID, pageID)
+    XCTAssertEqual(change.snapshot, created.document)
+    XCTAssertEqual(change.version, created.version)
+    XCTAssertEqual(change.origin, .local)
+  }
+
+  func testDocumentSnapshotChangesBroadcastToMultipleSubscribers() async throws {
+    let store = try makeStore()
+    let pageID = PageID.free()
+    let created = try PageDocument.create(id: pageID, kind: .free, title: "Both subscribers")
+    let firstStream = await store.documentSnapshotChanges()
+    let secondStream = await store.documentSnapshotChanges()
+    var firstChanges = firstStream.makeAsyncIterator()
+    var secondChanges = secondStream.makeAsyncIterator()
+
+    try await store.saveDocumentSnapshot(
+      pageID: pageID, snapshot: created.document, version: created.version)
+
+    let firstNext = await firstChanges.next()
+    let secondNext = await secondChanges.next()
+    let firstChange = try XCTUnwrap(firstNext)
+    let secondChange = try XCTUnwrap(secondNext)
+    XCTAssertEqual(firstChange.snapshot, created.document)
+    XCTAssertEqual(secondChange.snapshot, created.document)
+  }
+
   // MARK: - Compare-and-swap persist (task #90)
 
   func testSaveDocumentSnapshotIfCurrentVersionSucceedsWhenVersionMatches() async throws {

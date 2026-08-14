@@ -161,6 +161,7 @@ public final class PageEditorController {
   private var titleAtLastFlush: String
   private var pendingRemoteUpdate: Data?
   private var flushTask: Task<Void, Never>?
+  @ObservationIgnored private var remoteChangeTask: Task<Void, Never>?
 
   /// Task #78: when non-nil, every successful `flush()` persists the new
   /// `durableDocument` here (see this file's header). `nil` for sessions
@@ -181,6 +182,10 @@ public final class PageEditorController {
     self.titleAtLastFlush = projection.title
     self.body = PageEditorBody.from(projection: projection)
     self.store = store
+    self.remoteChangeTask = nil
+    if let store {
+      beginObservingRemoteChanges(from: store)
+    }
   }
 
   public convenience init(pageID: PageID, document: Data, store: LocalGraphStore? = nil) throws {
@@ -406,6 +411,25 @@ public final class PageEditorController {
     }
   }
 
+  /// Adopts a remotely committed snapshot from the same durable store. The
+  /// store labels inbound Vault writes `.remote`, so this never reacts to the
+  /// editor's own flushes or turns a local write into a feedback loop.
+  private func beginObservingRemoteChanges(from store: LocalGraphStore) {
+    let pageID = pageID
+    remoteChangeTask = Task { [weak self, store, pageID] in
+      let changes = await store.documentSnapshotChanges()
+      for await change in changes where change.pageID == pageID && change.origin == .remote {
+        guard let self else { return }
+        guard change.version != self.durableVersion else { continue }
+        do {
+          try self.applyRemoteUpdate(change.snapshot)
+        } catch {
+          self.lastFlushError = error.localizedDescription
+        }
+      }
+    }
+  }
+
   /// Replays every queued title/body op against `durableDocument`, in
   /// order, then updates all published state exactly once. Safe to call
   /// re-entrantly (e.g. a debounced call landing while an explicit
@@ -530,5 +554,7 @@ public final class PageEditorController {
   public func invalidate() {
     flushTask?.cancel()
     flushTask = nil
+    remoteChangeTask?.cancel()
+    remoteChangeTask = nil
   }
 }

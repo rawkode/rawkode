@@ -118,3 +118,12 @@ bun run lint
 
 Lint is tracked separately while the existing Biome configuration is brought
 to the production standard. It is not evidence that a deployment is safe.
+
+## Local synced prototype (macOS)
+
+Run `./scripts/run-local-prototype.sh` to start the real local Vault Worker,
+build the macOS app, and launch it with sync enabled. The Worker keeps its
+local durable state under `/private/tmp/enchiridion-vault-prototype-state`; it
+is never a production deployment. The unsigned development app keeps its
+SQLite store at `/private/tmp/enchiridion-local-prototype.sqlite`. Quit the app
+to stop the Worker.

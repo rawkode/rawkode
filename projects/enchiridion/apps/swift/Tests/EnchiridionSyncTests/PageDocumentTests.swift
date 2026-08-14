@@ -51,6 +51,20 @@ final class PageDocumentTests: XCTestCase {
     XCTAssertEqual(projection.title, "")
   }
 
+  func testMetadataRoundTripsThePageCatalogIdentity() throws {
+    let day = DayKey(rawValue: "2026-08-14")
+    let pageID = PageID.daily(day)
+    let createdAt = Date(timeIntervalSince1970: 1_786_176_000)
+    let created = try PageDocument.create(
+      id: pageID, kind: .daily(day), title: "Friday", createdAt: createdAt)
+
+    let metadata = try PageDocument.metadata(of: created.document)
+
+    XCTAssertEqual(metadata.pageID, pageID)
+    XCTAssertEqual(metadata.kind, .daily(day))
+    XCTAssertEqual(metadata.createdAt, createdAt)
+  }
+
   // MARK: - Text + marks
 
   func testInsertBodyTextAndApplyStrongMark() throws {
