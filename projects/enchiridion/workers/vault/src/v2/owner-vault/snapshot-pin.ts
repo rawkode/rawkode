@@ -853,6 +853,92 @@ export const makeOwnerVaultSnapshotPinController = (
       }),
     );
 
+  /**
+   * C2 closes the archive and releases its COW retention in one transaction.
+   * Public transaction reads deliberately remain at the durable start state, so
+   * this must derive every final row from one prestate rather than completing
+   * and then rereading through `releaseSnapshotInTx`.
+   */
+  const finalizeSnapshotInTx = (
+    tx: OwnerVaultTx,
+    pin: OwnerVaultSnapshotPin,
+    manifestDigest: string,
+  ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
+    tx.get(address("backup.pin", pin.backupID)).pipe(
+      Effect.flatMap((stored) => {
+        const prior = stored === undefined ? undefined : decodePin(stored.payload);
+        if (prior === undefined || !pinMatches(prior, pin))
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "identity_conflict",
+          } as const);
+        if (!digestPattern.test(manifestDigest))
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "invalid_record",
+          } as const);
+        const completesOpen =
+          prior.state === OwnerVaultSnapshotPinState.Open &&
+          prior.retained &&
+          prior.manifestDigest === undefined;
+        const releasesCompleted =
+          prior.state === OwnerVaultSnapshotPinState.Completed &&
+          prior.retained &&
+          prior.manifestDigest === manifestDigest;
+        const replaysCompleted =
+          prior.state === OwnerVaultSnapshotPinState.Completed &&
+          !prior.retained &&
+          prior.manifestDigest === manifestDigest;
+        if (!completesOpen && !releasesCompleted && !replaysCompleted)
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "identity_conflict",
+          } as const);
+        if (replaysCompleted) return Effect.void;
+        const revision = ownerVaultCatalogRevisionIdentifier(prior.catalogRevision);
+        if (revision === undefined)
+          return Effect.fail({
+            _tag: "OwnerVaultStorageError",
+            reason: "state_corrupt",
+          } as const);
+        // This is the last public read.  Do it before the first intent so this
+        // remains correct under the repository's durable-start read contract.
+        return tx.get(address("catalog.retention", revision)).pipe(
+          Effect.flatMap((retention) => {
+            const count = retention === undefined ? undefined : plain(retention.payload)?.pinCount;
+            if (!nonNegative(count) || count < 1)
+              return Effect.fail({
+                _tag: "OwnerVaultStorageError",
+                reason: "state_corrupt",
+              } as const);
+            const next = count - 1;
+            return tx
+              .put(
+                address("backup.pin", pin.backupID),
+                encodePin({
+                  ...prior,
+                  state: OwnerVaultSnapshotPinState.Completed,
+                  manifestDigest,
+                  retained: false,
+                }),
+              )
+              .pipe(
+                Effect.zipRight(tx.put(address("catalog.retention", revision), { pinCount: next })),
+                Effect.zipRight(
+                  next === 0
+                    ? tx.put(address("backup.gc-journal", pin.backupID), {
+                        backupID: pin.backupID,
+                        catalogRevision: prior.catalogRevision,
+                        nextOrdinal: 0,
+                      })
+                    : Effect.void,
+                ),
+              );
+          }),
+        );
+      }),
+    );
+
   const releaseSnapshot = (
     pin: OwnerVaultSnapshotPin,
     fence?: import("./backup-types").OwnerVaultControlFence,
@@ -1034,10 +1120,7 @@ export const makeOwnerVaultSnapshotPinController = (
     readSnapshotPage,
     releaseSnapshot,
     completedManifestDigest,
-    finalizeSnapshotInTx: (tx, pin, manifestDigest) =>
-      transitionInTx(tx, pin, OwnerVaultSnapshotPinState.Completed, manifestDigest).pipe(
-        Effect.zipRight(releaseSnapshotInTx(tx, pin)),
-      ),
+    finalizeSnapshotInTx,
     completeSnapshot: (pin: OwnerVaultSnapshotPin, manifestDigest: string) =>
       transition(pin, OwnerVaultSnapshotPinState.Completed, manifestDigest),
     abortSnapshot: (pin: OwnerVaultSnapshotPin) =>

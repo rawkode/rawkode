@@ -14,30 +14,49 @@ import { makeOwnerVaultSnapshotPinController } from "./snapshot-pin";
 const scope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1 } as const;
 const root = { ...scope, namespaceState: "PRIVATE" } as const;
 const backupID = "snapshot-pin-0001";
+const alarmSentinel = 1_725_000_000_000;
 
 const nativeState = () => {
   const entries = new Map<string, unknown>();
-  const transaction: DurableObjectTransactionNative = {
+  let alarm: number | null = null;
+  let durablePrestateReadKeysForNextTransaction: ReadonlySet<string> | undefined;
+  const operations: DurableObjectTransactionNative = {
     get: (key) => Promise.resolve(entries.get(key)),
     put: (key, value) => {
       entries.set(key, value);
       return Promise.resolve();
     },
     delete: (key) => Promise.resolve(entries.delete(key)),
-    getAlarm: () => Promise.resolve(null),
-    setAlarm: () => Promise.resolve(),
-    deleteAlarm: () => Promise.resolve(),
+    getAlarm: () => Promise.resolve(alarm),
+    setAlarm: (next) => {
+      alarm = next;
+      return Promise.resolve();
+    },
+    deleteAlarm: () => {
+      alarm = null;
+      return Promise.resolve();
+    },
   };
   const storage: DurableObjectStorageNative = {
-    ...transaction,
-    getAlarm: () => Promise.resolve(null),
-    setAlarm: () => Promise.resolve(),
-    deleteAlarm: () => Promise.resolve(),
+    ...operations,
     transaction: <A>(work: (inside: DurableObjectTransactionNative) => Promise<A>) => {
+      const durablePrestateReadKeys = durablePrestateReadKeysForNextTransaction;
+      durablePrestateReadKeysForNextTransaction = undefined;
       const before = new Map(entries);
+      const beforeAlarm = alarm;
+      const transaction: DurableObjectTransactionNative = {
+        get: (key) =>
+          Promise.resolve(durablePrestateReadKeys?.has(key) ? before.get(key) : entries.get(key)),
+        put: operations.put,
+        delete: operations.delete,
+        getAlarm: operations.getAlarm,
+        setAlarm: operations.setAlarm,
+        deleteAlarm: operations.deleteAlarm,
+      };
       return work(transaction).catch((error: unknown) => {
         entries.clear();
         for (const [key, value] of before) entries.set(key, value);
+        alarm = beforeAlarm;
         return Promise.reject(error);
       });
     },
@@ -45,7 +64,17 @@ const nativeState = () => {
   const state: DurableObjectStateNative = { storage, blockConcurrencyWhile: (work) => work() };
   const repository = () =>
     makeDurableObjectOwnerVaultStorageRepository(makeDurableObjectBoundary(state).storage, storage);
-  return { entries, repository };
+  return {
+    entries,
+    alarm: () => alarm,
+    setAlarm: (next: number) => {
+      alarm = next;
+    },
+    requireDurablePrestateReadsForNextTransaction: (...keys: readonly string[]) => {
+      durablePrestateReadKeysForNextTransaction = new Set(keys);
+    },
+    repository,
+  };
 };
 
 const setup = async () => {
@@ -65,6 +94,7 @@ const setup = async () => {
         ),
     ),
   );
+  native.setAlarm(alarmSentinel);
   return {
     native,
     repository,
@@ -179,6 +209,7 @@ describe("OwnerVault durable snapshot pins", () => {
     const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
     const manifest = ownerVaultBackupDigest(new TextEncoder().encode("c2-terminal-manifest"));
     const before = new Map(native.entries);
+    const beforeAlarm = native.alarm();
     const failed = await Effect.runPromiseExit(
       repository.transact((tx) =>
         controller
@@ -192,12 +223,224 @@ describe("OwnerVault durable snapshot pins", () => {
     );
     expect(Exit.isFailure(failed)).toBe(true);
     expect(native.entries).toEqual(before);
+    expect(native.alarm()).toBe(beforeAlarm);
+  });
+
+  test("C2 finalization combines completion and retention release from one durable prestate", async () => {
+    const { native, repository, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+    const manifest = ownerVaultBackupDigest(new TextEncoder().encode("c2-terminal-manifest"));
+    const before = new Map(native.entries);
+    const beforeAlarm = native.alarm();
+    const pinKey = `v2.ov/backup/pin/${backupID}`;
+    const retentionKey = "v2.ov/catalog/retention/00000000000000000001";
+    const journalKey = `v2.ov/backup/gc-journal/${backupID}`;
+
+    native.requireDurablePrestateReadsForNextTransaction(pinKey, retentionKey);
     await Effect.runPromise(
       repository.transact((tx) => controller.finalizeSnapshotInTx(tx, pin, manifest)),
     );
-    expect(await Effect.runPromise(controller.completedManifestDigest(scope, backupID))).toBe(
-      manifest,
+
+    expect(native.entries.get(pinKey)).toMatchObject({
+      category: "backup.pin",
+      version: 1,
+      payload: { ...pin, state: "COMPLETED", manifestDigest: manifest, retained: false },
+    });
+    expect(native.entries.get(retentionKey)).toEqual({
+      category: "catalog.retention",
+      version: 1,
+      payload: { pinCount: 0 },
+    });
+    expect(native.entries.get(journalKey)).toEqual({
+      category: "backup.gc-journal",
+      version: 1,
+      payload: { backupID, catalogRevision: 1, nextOrdinal: 0 },
+    });
+    expect(native.alarm()).toBe(beforeAlarm);
+    const changed = [...native.entries.keys()].filter(
+      (key) => JSON.stringify(native.entries.get(key)) !== JSON.stringify(before.get(key)),
     );
+    expect(changed).toEqual(["v2.ov/root/accounting", pinKey, retentionKey, journalKey]);
+    expect(native.entries.get("v2.ov/root/accounting")).toEqual({
+      category: "root.accounting",
+      version: 1,
+      payload: { usedBytes: 2256 },
+    });
+    for (const [key, value] of before) {
+      if (!new Set(["v2.ov/root/accounting", pinKey, retentionKey, journalKey]).has(key))
+        expect(native.entries.get(key)).toEqual(value);
+    }
+  });
+
+  test("C2 finalization releases a retained completed pin from its durable prestate", async () => {
+    const completed = await setup();
+    const completedPin = await Effect.runPromise(
+      completed.controller.beginSnapshot(scope, backupID),
+    );
+    const completedManifest = ownerVaultBackupDigest(
+      new TextEncoder().encode("completed-retained"),
+    );
+    await Effect.runPromise(completed.controller.completeSnapshot(completedPin, completedManifest));
+    const beforeAlarm = completed.native.alarm();
+    await Effect.runPromise(
+      completed.repository.transact((tx) =>
+        completed.controller.finalizeSnapshotInTx(tx, completedPin, completedManifest),
+      ),
+    );
+    expect(completed.native.entries.get(`v2.ov/backup/pin/${backupID}`)).toMatchObject({
+      payload: { state: "COMPLETED", manifestDigest: completedManifest, retained: false },
+    });
+    expect(
+      completed.native.entries.get("v2.ov/catalog/retention/00000000000000000001"),
+    ).toMatchObject({ payload: { pinCount: 0 } });
+    expect(completed.native.alarm()).toBe(beforeAlarm);
+  });
+
+  test("C2 finalization retries exactly and fails closed for divergent or corrupt durable state", async () => {
+    const { native, repository, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+    const manifest = ownerVaultBackupDigest(new TextEncoder().encode("c2-retry-manifest"));
+    await Effect.runPromise(
+      repository.transact((tx) => controller.finalizeSnapshotInTx(tx, pin, manifest)),
+    );
+    const completed = new Map(native.entries);
+    const completedAlarm = native.alarm();
+
+    await Effect.runPromise(
+      repository.transact((tx) => controller.finalizeSnapshotInTx(tx, pin, manifest)),
+    );
+    expect(native.entries).toEqual(completed);
+    expect(native.alarm()).toBe(completedAlarm);
+    const restarted = makeOwnerVaultSnapshotPinController(native.repository());
+    await Effect.runPromise(
+      native.repository().transact((tx) => restarted.finalizeSnapshotInTx(tx, pin, manifest)),
+    );
+    expect(native.entries).toEqual(completed);
+    expect(native.alarm()).toBe(completedAlarm);
+
+    const divergent = ownerVaultBackupDigest(new TextEncoder().encode("other-manifest"));
+    for (const attempted of [divergent, "not-a-digest"]) {
+      const failed = await Effect.runPromiseExit(
+        repository.transact((tx) => controller.finalizeSnapshotInTx(tx, pin, attempted)),
+      );
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect(native.entries).toEqual(completed);
+      expect(native.alarm()).toBe(completedAlarm);
+    }
+
+    const retained = await Effect.runPromise(controller.beginSnapshot(scope, "snapshot-pin-0002"));
+    const retainedRow = native.entries.get("v2.ov/backup/pin/snapshot-pin-0002") as {
+      readonly payload: { readonly catalogRevision: number };
+    };
+    const retentionKey = `v2.ov/catalog/retention/${String(retainedRow.payload.catalogRevision).padStart(20, "0")}`;
+    native.entries.delete(retentionKey);
+    const missingRetention = new Map(native.entries);
+    const missingAlarm = native.alarm();
+    const missing = await Effect.runPromiseExit(
+      repository.transact((tx) =>
+        controller.finalizeSnapshotInTx(
+          tx,
+          retained,
+          ownerVaultBackupDigest(new TextEncoder().encode("retention-corrupt")),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(missing)).toBe(true);
+    expect(native.entries).toEqual(missingRetention);
+    expect(native.alarm()).toBe(missingAlarm);
+
+    const malformedSetup = await setup();
+    const malformedPin = await Effect.runPromise(
+      malformedSetup.controller.beginSnapshot(scope, "snapshot-pin-0003"),
+    );
+    const malformedPinRow = malformedSetup.native.entries.get(
+      "v2.ov/backup/pin/snapshot-pin-0003",
+    ) as { readonly payload: { readonly catalogRevision: number } };
+    const malformedRetentionKey = `v2.ov/catalog/retention/${String(malformedPinRow.payload.catalogRevision).padStart(20, "0")}`;
+    const retention = malformedSetup.native.entries.get(malformedRetentionKey) as {
+      readonly category: string;
+      readonly version: number;
+    };
+    malformedSetup.native.entries.set(malformedRetentionKey, {
+      ...retention,
+      payload: { pinCount: -1 },
+    });
+    const malformedRetention = new Map(malformedSetup.native.entries);
+    const malformedAlarm = malformedSetup.native.alarm();
+    const malformed = await Effect.runPromiseExit(
+      malformedSetup.repository.transact((tx) =>
+        malformedSetup.controller.finalizeSnapshotInTx(
+          tx,
+          malformedPin,
+          ownerVaultBackupDigest(new TextEncoder().encode("malformed-retention")),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(malformed)).toBe(true);
+    expect(malformedSetup.native.entries).toEqual(malformedRetention);
+    expect(malformedSetup.native.alarm()).toBe(malformedAlarm);
+  });
+
+  test("C2 finalization fails closed for illegal OPEN pin state correlations", async () => {
+    const unretained = await setup();
+    const unretainedPin = await Effect.runPromise(
+      unretained.controller.beginSnapshot(scope, backupID),
+    );
+    const pinKey = `v2.ov/backup/pin/${backupID}`;
+    const unretainedRow = unretained.native.entries.get(pinKey) as {
+      readonly category: string;
+      readonly version: number;
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+    unretained.native.entries.set(pinKey, {
+      ...unretainedRow,
+      payload: { ...unretainedRow.payload, retained: false },
+    });
+    const unretainedBefore = new Map(unretained.native.entries);
+    const unretainedAlarm = unretained.native.alarm();
+    const unretainedExit = await Effect.runPromiseExit(
+      unretained.repository.transact((tx) =>
+        unretained.controller.finalizeSnapshotInTx(
+          tx,
+          unretainedPin,
+          ownerVaultBackupDigest(new TextEncoder().encode("illegal-open-unretained")),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(unretainedExit)).toBe(true);
+    expect(unretained.native.entries).toEqual(unretainedBefore);
+    expect(unretained.native.alarm()).toBe(unretainedAlarm);
+
+    const manifested = await setup();
+    const manifestedPin = await Effect.runPromise(
+      manifested.controller.beginSnapshot(scope, backupID),
+    );
+    const manifestedRow = manifested.native.entries.get(pinKey) as {
+      readonly category: string;
+      readonly version: number;
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+    manifested.native.entries.set(pinKey, {
+      ...manifestedRow,
+      payload: {
+        ...manifestedRow.payload,
+        manifestDigest: ownerVaultBackupDigest(new TextEncoder().encode("corrupt-open-manifest")),
+      },
+    });
+    const manifestedBefore = new Map(manifested.native.entries);
+    const manifestedAlarm = manifested.native.alarm();
+    const manifestedExit = await Effect.runPromiseExit(
+      manifested.repository.transact((tx) =>
+        manifested.controller.finalizeSnapshotInTx(
+          tx,
+          manifestedPin,
+          ownerVaultBackupDigest(new TextEncoder().encode("attempted-open-manifest")),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(manifestedExit)).toBe(true);
+    expect(manifested.native.entries).toEqual(manifestedBefore);
+    expect(manifested.native.alarm()).toBe(manifestedAlarm);
   });
 
   test("recovers only the terminal manifest digest after response loss and restart", async () => {
