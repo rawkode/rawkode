@@ -77,6 +77,13 @@ public typealias OutboxActionSender = @Sendable (OutboxAction) async throws -> V
 /// `Package.swift` tools version 6.2) so connection-state transitions,
 /// in-flight sends, and outbox draining all serialize safely.
 public actor VaultSyncClient {
+  /// The explicitly opt-in development credential understood only by a
+  /// loopback `wrangler dev` Vault (see `workers/vault/src/access-auth.ts`).
+  /// It is deliberately distinct from Cloudflare Access's service-token
+  /// headers, so a production client cannot accidentally send one in place
+  /// of a real Access credential.
+  public static let localDevelopmentTokenHeader = "X-Enchiridion-Local-Token"
+
   public enum ConnectionState: Sendable, Equatable {
     case disconnected
     case connecting
@@ -98,7 +105,7 @@ public actor VaultSyncClient {
 
   private let incomingContinuation: AsyncStream<SyncProtocolMessage>.Continuation
   private let vaultURL: URL
-  private let accessCredential: @Sendable () async -> AccessServiceTokenCredential
+  private let requestHeaders: @Sendable () async -> [String: String]
   private let session: URLSession
   private let backoff: ReconnectBackoff
 
@@ -117,7 +124,35 @@ public actor VaultSyncClient {
     backoff: ReconnectBackoff = ReconnectBackoff()
   ) {
     self.vaultURL = vaultURL
-    self.accessCredential = accessCredential
+    self.requestHeaders = {
+      let credential = await accessCredential()
+      return [
+        "CF-Access-Client-Id": credential.clientId,
+        "CF-Access-Client-Secret": credential.clientSecret,
+      ]
+    }
+    self.session = session
+    self.outbox = outbox
+    self.backoff = backoff
+    var continuation: AsyncStream<SyncProtocolMessage>.Continuation!
+    self.incomingMessages = AsyncStream { continuation = $0 }
+    self.incomingContinuation = continuation
+  }
+
+  /// Builds a client for an explicitly configured loopback local Vault.
+  /// Production callers must keep using `init(vaultURL:accessCredential:)`;
+  /// this initializer does not know or emulate Cloudflare Access.
+  public init(
+    vaultURL: URL,
+    localDevelopmentToken: String,
+    session: URLSession = .shared,
+    outbox: OfflineOutbox = OfflineOutbox(),
+    backoff: ReconnectBackoff = ReconnectBackoff()
+  ) {
+    self.vaultURL = vaultURL
+    self.requestHeaders = {
+      [Self.localDevelopmentTokenHeader: localDevelopmentToken]
+    }
     self.session = session
     self.outbox = outbox
     self.backoff = backoff
@@ -188,9 +223,9 @@ public actor VaultSyncClient {
   private func openConnection() async {
     state = .connecting
     var request = URLRequest(url: vaultURL)
-    let credential = await accessCredential()
-    request.setValue(credential.clientId, forHTTPHeaderField: "CF-Access-Client-Id")
-    request.setValue(credential.clientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
+    for (name, value) in await requestHeaders() {
+      request.setValue(value, forHTTPHeaderField: name)
+    }
 
     let newTask = session.webSocketTask(with: request)
     task = newTask

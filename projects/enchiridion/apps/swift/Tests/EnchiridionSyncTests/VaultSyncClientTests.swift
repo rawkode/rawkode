@@ -39,6 +39,16 @@ final class VaultSyncClientTests: XCTestCase {
     XCTAssertEqual(state, .disconnected)
   }
 
+  func testLocalDevelopmentClientStartsDisconnected() async {
+    let client = VaultSyncClient(
+      vaultURL: URL(string: "ws://127.0.0.1:8787/sync")!,
+      localDevelopmentToken: "prototype-token"
+    )
+
+    let state = await client.connectionState
+    XCTAssertEqual(state, .disconnected)
+  }
+
   func testSendWithoutConnectingThrowsNotConnected() async {
     let client = VaultSyncClient(
       vaultURL: URL(string: "wss://vault.example.com/sync")!,
