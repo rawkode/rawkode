@@ -100,6 +100,7 @@ mkCapability {
       inputs.self.appBundles.fish.home
       inputs.self.appBundles.git.home
       inputs.self.appBundles.github.home
+      inputs.self.appBundles.helix.home
       inputs.self.appBundles.htop.home
       inputs.self.appBundles.jj.home
       inputs.self.appBundles.jq.home

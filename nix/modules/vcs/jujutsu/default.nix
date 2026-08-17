@@ -9,7 +9,6 @@ mkApp {
     {
       identity,
       pkgs,
-      preferences,
       ...
     }:
     {
@@ -38,7 +37,7 @@ mkApp {
             ];
             pager = [ (lib.getExe pkgs.delta) ];
             diff-formatter = ":git";
-            inherit (preferences) editor;
+            editor = lib.getExe pkgs.helix;
           };
         };
       };

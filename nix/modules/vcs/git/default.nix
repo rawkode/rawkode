@@ -9,7 +9,6 @@ mkApp {
     {
       identity,
       pkgs,
-      preferences,
       ...
     }:
     {
@@ -31,7 +30,7 @@ mkApp {
 
         settings = {
           core = {
-            inherit (preferences) editor;
+            editor = lib.getExe pkgs.helix;
             pager = lib.getExe pkgs.delta;
           };
 
