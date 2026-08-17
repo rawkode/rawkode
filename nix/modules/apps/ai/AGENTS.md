@@ -14,11 +14,17 @@
 
 - A one-file Homebrew tap/formula/cask list change is low risk. For these changes, use focused status, diff, formatter, and parser checks; do not run the full architecture or adversarial-review workflow unless the change spans modules, changes architecture, or introduces a material integration risk.
 
+## Scope-Proportional Workflow
+
+- A small, bounded change can remain low risk even when it touches multiple related files. Do not trigger the material-task workflow solely because a coordinated edit spans files when it preserves existing interfaces and patterns (for example, changing one shared editor, package, or configuration value).
+- For low-risk coordinated edits, work directly: inspect status and scope, make the focused change, run formatter/parser/evaluation checks appropriate to the files, and report any unrelated validation blockers. Skip Sol/Terra/Luna planning, architecture gates, and adversarial review unless genuine ambiguity, architectural change, or material integration risk appears.
+- Keep the workflow proportional to the requested outcome. Do not turn a small configuration substitution into a new abstraction, broad refactor, deployment, or multi-agent workstream without a separate requirement.
+
 ## Model Workflow
 
 For every material implementation task, use separate delegated agents for planning, building, and reviewing when delegation is available.
 
-A material task changes runtime behaviour, architecture, data, dependencies, permissions, build or release configuration, or multiple files. Typo- and comment-only changes are exempt but still require scoped verification.
+A material task has meaningful architectural, data, dependency, permission, build/release, security, persistence, migration, concurrency, or integration risk. File count and ordinary bounded runtime/configuration changes are not sufficient by themselves; judge materiality by risk and scope. Typo- and comment-only changes are exempt but still require scoped verification.
 
 ### 1. Optional Problem Framing — Sol
 
