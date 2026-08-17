@@ -40,7 +40,9 @@ public enum MarkToggleEngine {
     runs: [MarkRun]
   ) -> MarkFormattingState {
     guard !range.isEmpty else {
-      let styles = runs.first(where: { MarkRunAlgebra.absorbsInsert(at: range.lowerBound, run: $0) })?.styles ?? []
+      let styles = runs
+        .first(where: { $0.range.lowerBound < range.lowerBound && range.lowerBound <= $0.range.upperBound })
+        .map { MarkRunAlgebra.stylesForInsert(at: range.lowerBound, in: $0) } ?? []
       return styles.contains(style) ? .on : .off
     }
 

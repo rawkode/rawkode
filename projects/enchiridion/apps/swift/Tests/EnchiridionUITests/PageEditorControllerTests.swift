@@ -128,6 +128,45 @@ final class PageEditorControllerTests: XCTestCase {
     XCTAssertTrue(flushed)
   }
 
+  func testExplicitCaretFormattingPersistsOnInsertedText() async throws {
+    let controller = try makeController()
+
+    controller.applyBodyReplacement(
+      TextReplacement(range: 0..<0, replacement: "important"),
+      formattingStyles: [.bold, .italic])
+
+    XCTAssertEqual(MarkToggleEngine.state(of: .bold, in: 0..<9, runs: controller.body.markRuns), .on)
+    XCTAssertEqual(MarkToggleEngine.state(of: .italic, in: 0..<9, runs: controller.body.markRuns), .on)
+    let flushed = await controller.flush()
+    XCTAssertTrue(flushed)
+
+    XCTAssertEqual(
+      controller.projection.formattingMarks,
+      [
+        FormattingMarkRun(style: .bold, range: 0..<9),
+        FormattingMarkRun(style: .italic, range: 0..<9),
+      ])
+  }
+
+  func testExplicitCaretFormattingCanStopStyleInheritedAtATrailingBoundary() async throws {
+    let controller = try makeController()
+    controller.insertText("bold", at: 0)
+    controller.toggleMark(.bold, over: 0..<4)
+    let initialFlush = await controller.flush()
+    XCTAssertTrue(initialFlush)
+
+    controller.applyBodyReplacement(
+      TextReplacement(range: 4..<4, replacement: " prose"),
+      formattingStyles: [])
+    let trailingFlush = await controller.flush()
+    XCTAssertTrue(trailingFlush)
+
+    XCTAssertEqual(controller.projection.plainText, "bold prose")
+    XCTAssertEqual(
+      controller.projection.formattingMarks,
+      [FormattingMarkRun(style: .bold, range: 0..<4)])
+  }
+
   // MARK: - Page reference insertion (task point: "producing a correct addPageReferenceMark call")
 
   func testInsertPageReferenceProducesACorrectAddPageReferenceMarkResult() async throws {

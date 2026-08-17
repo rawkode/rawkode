@@ -65,6 +65,31 @@ public actor LoroEngine: CRDTEngine {
     case pageReference
     case attachment
 
+    /// Whether text typed exactly at this style's trailing edge inherits the
+    /// style. This is public because the native editor needs to render the
+    /// same caret behaviour the CRDT will persist; keeping it private made
+    /// the local preview treat inline code as if it expanded like bold.
+    public var continuesAtTrailingBoundary: Bool {
+      switch self {
+      case .bold, .italic, .underline, .strikethrough:
+        true
+      case .code, .pageReference, .attachment:
+        false
+      }
+    }
+
+    /// Marks that are ordinary inline formatting controls in the editor.
+    /// References and attachments carry payloads and therefore must never
+    /// be manufactured by an empty-caret formatting action.
+    public var isInlineFormatting: Bool {
+      switch self {
+      case .bold, .italic, .underline, .strikethrough, .code:
+        true
+      case .pageReference, .attachment:
+        false
+      }
+    }
+
     // `internal` (not `fileprivate`): `PageDocument` (PageDocument.swift,
     // same module) reuses this exact expand-policy table via
     // `LoroEngine.makeConfiguredDocument()` below so a page document's rich
@@ -73,12 +98,7 @@ public actor LoroEngine: CRDTEngine {
     // "what happens when you type at a mark's boundary", not two that could
     // drift.
     var expand: ExpandType {
-      switch self {
-      case .bold, .italic, .underline, .strikethrough:
-        return .after
-      case .code, .pageReference, .attachment:
-        return .none
-      }
+      continuesAtTrailingBoundary ? .after : .none
     }
   }
 

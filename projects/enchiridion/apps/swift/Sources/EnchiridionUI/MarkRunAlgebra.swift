@@ -45,48 +45,53 @@ enum MarkRunAlgebra {
     return merged
   }
 
-  /// Whether an insert at `position` should be absorbed into `run` (grow it
-  /// to cover the new text) rather than land in an unstyled gap: `position`
-  /// is inside `run`, including its *right* edge — `run.lowerBound <
-  /// position <= run.upperBound`. Typing right after a bold run therefore
-  /// continues bold (the common "keep typing" case); typing right before a
-  /// run does not retroactively pull in the new text. `MarkToggleEngine`'s
-  /// caret-state check (MarkToggleEngine.swift) uses this exact predicate
-  /// too, so "what the formatting button shows as active" and "what
-  /// inserting a character right here would do" never disagree.
-  ///
-  /// This is a deliberate simplification of Loro's real per-style `expand`
-  /// policy (`.after` for bold/italic/underline/strikethrough vs. `.none`
-  /// for code/pageReference — see `LoroEngine.MarkStyle.expand`, `internal`
-  /// to EnchiridionSync and so unavailable here): every style behaves like
-  /// `.after` in this local preview, including `code`, which really expands
-  /// `.none`. The CRDT document itself still applies the real per-style
-  /// policy once a mutation is flushed (`PageDocument.mark`/`insertText`),
-  /// so the only user-visible effect is that typing immediately after an
-  /// inline-code run may render as still-code locally until the next
-  /// flush's projection corrects it — never a data-loss or
-  /// wrong-document-content bug, purely a local-preview staleness window.
-  /// Documented here and in the P1 report rather than duplicating
-  /// `LoroEngine`'s private policy table for one edge case.
-  static func absorbsInsert(at position: Int, run: MarkRun) -> Bool {
-    run.range.lowerBound < position && position <= run.range.upperBound
+  /// The styles an insert at `position` inherits from `run`. An insertion in
+  /// the middle of a run retains every style; at the trailing edge it retains
+  /// only marks whose CRDT expand policy continues there. This keeps the
+  /// immediate native preview and the eventually flushed Loro document in
+  /// lockstep, including the important case that inline code does not swallow
+  /// ordinary prose typed immediately after it.
+  static func stylesForInsert(at position: Int, in run: MarkRun) -> Set<LoroEngine.MarkStyle> {
+    guard run.range.lowerBound < position, position <= run.range.upperBound else { return [] }
+    guard position == run.range.upperBound else { return run.styles }
+    return Set(run.styles.filter(\.continuesAtTrailingBoundary))
   }
 
-  /// Reshapes `runs` for `length` scalars inserted at `position` — see
-  /// `absorbsInsert(at:run:)` for which run (if any) grows to cover the new
-  /// text vs. it landing in a fresh unstyled gap.
+  /// Reshapes `runs` for `length` scalars inserted at `position`, preserving
+  /// the per-style boundary policy from `stylesForInsert(at:in:)`.
   static func shiftedForInsert(_ runs: [MarkRun], at position: Int, length: Int) -> [MarkRun] {
     guard length > 0 else { return runs }
     var result: [MarkRun] = []
-    var absorbed = false
+    var inserted = false
     for run in runs {
-      let willAbsorb = absorbsInsert(at: position, run: run)
-      let newLower = run.range.lowerBound >= position ? run.range.lowerBound + length : run.range.lowerBound
-      let newUpper = run.range.upperBound >= position ? run.range.upperBound + length : run.range.upperBound
-      result.append(MarkRun(range: newLower..<newUpper, styles: run.styles))
-      if willAbsorb { absorbed = true }
+      if !inserted, position < run.range.lowerBound {
+        result.append(MarkRun(range: position..<(position + length), styles: []))
+        inserted = true
+      }
+
+      if !inserted, run.range.lowerBound < position, position < run.range.upperBound {
+        result.append(MarkRun(range: run.range.lowerBound..<position, styles: run.styles))
+        result.append(MarkRun(range: position..<(position + length), styles: run.styles))
+        result.append(MarkRun(range: (position + length)..<(run.range.upperBound + length), styles: run.styles))
+        inserted = true
+        continue
+      }
+
+      let shiftedLower = run.range.lowerBound >= position ? run.range.lowerBound + length : run.range.lowerBound
+      // A run ending exactly at the insertion point stays ended there; the
+      // inserted span is represented separately below with the appropriate
+      // trailing-boundary styles. Shifting `>=` here would extend the old
+      // run *and* add the inserted run, producing overlapping ranges.
+      let shiftedUpper = run.range.upperBound > position ? run.range.upperBound + length : run.range.upperBound
+      result.append(MarkRun(range: shiftedLower..<shiftedUpper, styles: run.styles))
+
+      if !inserted, position == run.range.upperBound {
+        result.append(MarkRun(
+          range: position..<(position + length), styles: stylesForInsert(at: position, in: run)))
+        inserted = true
+      }
     }
-    if !absorbed {
+    if !inserted {
       result.append(MarkRun(range: position..<(position + length), styles: []))
     }
     return normalize(result)

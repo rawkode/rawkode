@@ -18,6 +18,20 @@ final class PageEditorBodyTests: XCTestCase {
     XCTAssertTrue(outcome.brokenReferences.isEmpty)
   }
 
+  /// Inline code deliberately has Loro's `.none` trailing-boundary policy:
+  /// prose typed immediately after a code span must not render as code in the
+  /// local editor and then change appearance only after the next flush.
+  func testInsertRightAfterInlineCodeStartsPlainText() {
+    let body = PageEditorBody(text: "code", markRuns: [MarkRun(range: 0..<4, styles: [.code])])
+
+    let outcome = body.applyingInsert(text: " prose", at: 4)
+
+    XCTAssertEqual(outcome.body.text, "code prose")
+    XCTAssertEqual(
+      outcome.body.markRuns,
+      [MarkRun(range: 0..<4, styles: [.code]), MarkRun(range: 4..<10, styles: [])])
+  }
+
   /// Typing right *before* the start of a styled run does NOT retroactively
   /// join it — only the right edge continues a style.
   func testInsertRightBeforeAStyledRunStaysUnstyled() {

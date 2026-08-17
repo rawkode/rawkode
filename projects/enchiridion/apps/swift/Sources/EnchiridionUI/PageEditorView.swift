@@ -15,15 +15,10 @@
 // bridge (selection.swift below), and the `[[` trigger picker's dismiss
 // timing.
 //
-// PLATFORM DIFFERENCES (task point 3): this file has NO `#if os(macOS)` at
-// all — `TextEditor(text:selection:)`, `.keyboardShortcut`, `.buttonStyle`,
-// and `safeAreaInset` all behave the same on both platforms at this
-// package's deployment target (iOS 26 / macOS 26), so there was nothing
-// here that genuinely needed to diverge. If a future pass wants native
-// macOS toolbar chrome (`.toolbar { ToolbarItemGroup }` bound to a window's
-// title bar, vs. this in-content bottom bar) or an iOS-only on-screen
-// keyboard accessory, that's the point to introduce `#if os(macOS)` — kept
-// out for now rather than added speculatively.
+// PLATFORM DIFFERENCES: macOS now uses the window toolbar where a writer
+// expects formatting controls, while iOS keeps a reachable bottom accessory.
+// Both platforms share the same text/selection/controller path, so this is
+// presentation divergence only — never a second editing or sync model.
 
 import EnchiridionBlobs
 import EnchiridionCanvas
@@ -49,6 +44,14 @@ public struct PageEditorView: View {
   private let blobCache: BlobCache
 
   @State private var selection = AttributedTextSelection()
+  /// Formatting explicitly armed at a bare insertion caret. Loro cannot
+  /// retain a zero-length mark, so this is deliberately view-local until
+  /// the next text insertion turns it into a real styled range.
+  @State private var typingStyles: Set<LoroEngine.MarkStyle> = []
+  /// Text entry normally moves the selection. Preserve the explicitly armed
+  /// styles through that synthetic move; a later deliberate caret move reads
+  /// the formatting at the new location instead.
+  @State private var preserveTypingStylesThroughNextSelectionChange = false
   @State private var activeTrigger: PageReferenceTriggerMatch?
   @State private var canvasSheetContext: PageCanvasSheetContext?
 
@@ -65,16 +68,23 @@ public struct PageEditorView: View {
   }
 
   public var body: some View {
+    platformEditor
+      .onDisappear {
+        Task { await controller.flush() }
+        controller.invalidate()
+      }
+      .sheet(item: $canvasSheetContext) { context in
+        PageAttachmentCanvasSheet(
+          context: context, blobCache: blobCache,
+          onSave: { reference, canvasSize in handleCanvasSaved(context: context, reference: reference, canvasSize: canvasSize) },
+          onCancel: { canvasSheetContext = nil }
+        )
+      }
+  }
+
+  private var editorContent: some View {
     VStack(alignment: .leading, spacing: 0) {
-      TextField(
-        "Untitled",
-        text: Binding(get: { controller.title }, set: { controller.setTitle($0) })
-      )
-      .font(.title2.weight(.semibold))
-      .textFieldStyle(.plain)
-      .padding(.horizontal)
-      .padding(.top, 12)
-      .padding(.bottom, 8)
+      titleEditor
 
       Divider()
 
@@ -82,29 +92,84 @@ public struct PageEditorView: View {
         canvasSheetContext = .existing(run)
       }
 
+      writingSurface
+    }
+  }
+
+  @ViewBuilder
+  private var platformEditor: some View {
+#if os(macOS)
+    editorContent
+      .toolbar {
+        ToolbarItemGroup(placement: .primaryAction) {
+          formattingButton(.bold, title: "Bold", systemImage: "bold", shortcut: "b")
+          formattingButton(.italic, title: "Italic", systemImage: "italic", shortcut: "i")
+          formattingButton(.underline, title: "Underline", systemImage: "underline", shortcut: "u")
+          formattingButton(.strikethrough, title: "Strikethrough", systemImage: "strikethrough", shortcut: nil)
+          formattingButton(.code, title: "Inline Code", systemImage: "chevron.left.forwardslash.chevron.right", shortcut: "e")
+
+          Menu {
+            Button("Link Page", systemImage: "link", action: insertReferenceFromToolbar)
+            Button("Insert Canvas", systemImage: "scribble.variable", action: insertCanvasFromToolbar)
+          } label: {
+            Label("Insert", systemImage: "plus")
+          }
+          .help("Insert a page reference or canvas")
+
+          editorSaveState
+        }
+      }
+#else
+    editorContent
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        formattingToolbar
+      }
+#endif
+  }
+
+  private var titleEditor: some View {
+    HStack(spacing: 0) {
+      Spacer(minLength: 20)
+      TextField(
+        "Untitled",
+        text: Binding(get: { controller.title }, set: { controller.setTitle($0) })
+      )
+      .font(.system(size: 30, weight: .bold))
+      .textFieldStyle(.plain)
+      .accessibilityLabel("Note title")
+      .frame(maxWidth: 820, alignment: .leading)
+      Spacer(minLength: 20)
+    }
+    .padding(.top, 22)
+    .padding(.bottom, 12)
+  }
+
+  private var writingSurface: some View {
+    HStack(spacing: 0) {
+      Spacer(minLength: 20)
       ZStack(alignment: .bottomLeading) {
         TextEditor(text: attributedBodyBinding, selection: $selection)
-          .padding(.horizontal, 8)
-          .onChange(of: selection) { _, _ in updateActiveTrigger() }
+          .font(.body)
+          .scrollContentBackground(.hidden)
+          .padding(.vertical, 12)
+          .accessibilityLabel("Note body")
+          .onChange(of: selection) { _, _ in handleSelectionChange() }
+
+        if controller.body.text.isEmpty {
+          Text("Start writing…")
+            .foregroundStyle(.tertiary)
+            .padding(.leading, 6)
+            .padding(.top, 17)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+        }
 
         if let trigger = activeTrigger {
           referencePicker(for: trigger)
         }
       }
-    }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      formattingToolbar
-    }
-    .onDisappear {
-      Task { await controller.flush() }
-      controller.invalidate()
-    }
-    .sheet(item: $canvasSheetContext) { context in
-      PageAttachmentCanvasSheet(
-        context: context, blobCache: blobCache,
-        onSave: { reference, canvasSize in handleCanvasSaved(context: context, reference: reference, canvasSize: canvasSize) },
-        onCancel: { canvasSheetContext = nil }
-      )
+      .frame(maxWidth: 820, maxHeight: .infinity, alignment: .topLeading)
+      Spacer(minLength: 20)
     }
   }
 
@@ -178,7 +243,10 @@ public struct PageEditorView: View {
         guard newPlainText != controller.body.text,
           let replacement = TextDiff.replacement(from: controller.body.text, to: newPlainText)
         else { return }
-        controller.applyBodyReplacement(replacement)
+        if !replacement.replacement.isEmpty {
+          preserveTypingStylesThroughNextSelectionChange = true
+        }
+        controller.applyBodyReplacement(replacement, formattingStyles: formattingStylesForIncomingText())
       }
     )
   }
@@ -202,16 +270,43 @@ public struct PageEditorView: View {
     }
   }
 
-  // MARK: - Formatting toolbar (task point 2 — matches `LoroEngine.MarkStyle` exactly)
+  private func formattingStylesForIncomingText() -> Set<LoroEngine.MarkStyle> {
+    guard let range = currentOffsetRange else { return typingStyles }
+    guard !range.isEmpty else { return typingStyles }
+    return inlineStyles(in: range)
+  }
+
+  private func inlineStyles(in range: Range<Int>) -> Set<LoroEngine.MarkStyle> {
+    Set(
+      LoroEngine.MarkStyle.allCases.filter {
+        $0.isInlineFormatting && MarkToggleEngine.state(of: $0, in: range, runs: controller.body.markRuns) == .on
+      })
+  }
+
+  private func handleSelectionChange() {
+    updateActiveTrigger()
+    guard let range = currentOffsetRange, range.isEmpty else {
+      preserveTypingStylesThroughNextSelectionChange = false
+      return
+    }
+    if preserveTypingStylesThroughNextSelectionChange {
+      preserveTypingStylesThroughNextSelectionChange = false
+    } else {
+      typingStyles = inlineStyles(in: range)
+    }
+  }
+
+  // MARK: - Formatting controls
 
   private var formattingToolbar: some View {
     HStack(spacing: 4) {
-      formattingButton(.bold, systemImage: "bold", shortcut: "b")
-      formattingButton(.italic, systemImage: "italic", shortcut: "i")
-      formattingButton(.underline, systemImage: "underline", shortcut: "u")
-      formattingButton(.strikethrough, systemImage: "strikethrough", shortcut: nil)
-      formattingButton(.code, systemImage: "chevron.left.forwardslash.chevron.right", shortcut: "e")
+      formattingButton(.bold, title: "Bold", systemImage: "bold", shortcut: "b")
+      formattingButton(.italic, title: "Italic", systemImage: "italic", shortcut: "i")
+      formattingButton(.underline, title: "Underline", systemImage: "underline", shortcut: "u")
+      formattingButton(.strikethrough, title: "Strikethrough", systemImage: "strikethrough", shortcut: nil)
+      formattingButton(.code, title: "Inline Code", systemImage: "chevron.left.forwardslash.chevron.right", shortcut: "e")
       Spacer()
+      editorSaveState
       Button {
         insertReferenceFromToolbar()
       } label: {
@@ -233,18 +328,69 @@ public struct PageEditorView: View {
     .background(.bar)
   }
 
-  private func formattingButton(_ style: LoroEngine.MarkStyle, systemImage: String, shortcut: Character?) -> some View {
-    let isOn = currentOffsetRange.map { MarkToggleEngine.state(of: style, in: $0, runs: controller.body.markRuns) == .on } ?? false
+  private func formattingButton(
+    _ style: LoroEngine.MarkStyle,
+    title: String,
+    systemImage: String,
+    shortcut: Character?
+  ) -> some View {
+    let isOn = isFormattingEnabled(style)
     return Button {
-      guard let range = currentOffsetRange, !range.isEmpty else { return }
-      controller.toggleMark(style, over: range)
+      toggleFormatting(style)
     } label: {
       Image(systemName: systemImage)
         .foregroundStyle(isOn ? Color.accentColor : Color.primary)
     }
     .buttonStyle(.borderless)
     .modifier(OptionalKeyboardShortcut(character: shortcut))
-    .disabled(currentOffsetRange?.isEmpty ?? true)
+    .disabled(currentOffsetRange == nil)
+    .accessibilityLabel(title)
+    .accessibilityValue(isOn ? "On" : "Off")
+    .help(shortcut.map { "\(title) (Command-\($0.uppercased()))" } ?? title)
+  }
+
+  private func isFormattingEnabled(_ style: LoroEngine.MarkStyle) -> Bool {
+    guard let range = currentOffsetRange else { return false }
+    if range.isEmpty { return typingStyles.contains(style) }
+    return MarkToggleEngine.state(of: style, in: range, runs: controller.body.markRuns) == .on
+  }
+
+  private func toggleFormatting(_ style: LoroEngine.MarkStyle) {
+    guard let range = currentOffsetRange else { return }
+    if range.isEmpty {
+      if typingStyles.contains(style) {
+        typingStyles.remove(style)
+      } else {
+        typingStyles.insert(style)
+      }
+    } else {
+      controller.toggleMark(style, over: range)
+    }
+  }
+
+  @ViewBuilder
+  private var editorSaveState: some View {
+    if let error = controller.lastFlushError {
+      Image(systemName: "exclamationmark.circle.fill")
+        .foregroundStyle(.red)
+        .help("Couldn't save: \(error)")
+        .accessibilityLabel("Couldn't save note")
+    } else if controller.isFlushing {
+      ProgressView()
+        .controlSize(.small)
+        .help("Saving note")
+        .accessibilityLabel("Saving note")
+    } else if controller.isDirty {
+      Image(systemName: "arrow.triangle.2.circlepath")
+        .foregroundStyle(.secondary)
+        .help("Saving note")
+        .accessibilityLabel("Saving note")
+    } else {
+      Image(systemName: "checkmark")
+        .foregroundStyle(.secondary)
+        .help("All changes saved")
+        .accessibilityLabel("All changes saved")
+    }
   }
 
   // MARK: - "[[" page-reference trigger + insertion (task point 2)

@@ -163,6 +163,11 @@ public final class PageEditorController {
   private var flushTask: Task<Void, Never>?
   @ObservationIgnored private var remoteChangeTask: Task<Void, Never>?
 
+  /// The only marks a typing-format state may create. References and
+  /// attachments have payloads and must keep flowing through their dedicated
+  /// insertion APIs instead of becoming accidental zero-context marks.
+  private static let inlineFormattingStyles = Set(LoroEngine.MarkStyle.allCases.filter(\.isInlineFormatting))
+
   /// Task #78: when non-nil, every successful `flush()` persists the new
   /// `durableDocument` here (see this file's header). `nil` for sessions
   /// constructed via `create(...)`/the plain `init`s below — those stay
@@ -265,14 +270,57 @@ public final class PageEditorController {
   }
 
   /// Applies a `TextDiff.replacement(from:to:)` result in one step — the
-  /// entry point a `TextEditor` change handler should call.
-  public func applyBodyReplacement(_ replacement: TextReplacement) {
+  /// entry point a `TextEditor` change handler should call. When
+  /// `formattingStyles` is supplied, inserted text is reconciled to that
+  /// exact inline-style set after the cheap local insert. This is how a
+  /// toolbar command at a bare caret affects the text subsequently typed,
+  /// without writing a zero-length CRDT mark that Loro cannot preserve.
+  public func applyBodyReplacement(
+    _ replacement: TextReplacement,
+    formattingStyles: Set<LoroEngine.MarkStyle>? = nil
+  ) {
     if !replacement.range.isEmpty {
       deleteText(range: replacement.range)
     }
     if !replacement.replacement.isEmpty {
-      insertText(replacement.replacement, at: replacement.range.lowerBound)
+      let position = replacement.range.lowerBound
+      insertText(replacement.replacement, at: position)
+      if let formattingStyles {
+        reconcileInsertedTextFormatting(
+          formattingStyles,
+          over: position..<(position + replacement.replacement.scalarCount))
+      }
     }
+  }
+
+  /// Reconciles the local preview and queued CRDT operations after inserting
+  /// text with an explicit caret-format state. We only queue marks that
+  /// differ from the style the insertion would naturally inherit, so ordinary
+  /// typing in a bold/italic run stays on the lightweight fast path.
+  private func reconcileInsertedTextFormatting(
+    _ desiredStyles: Set<LoroEngine.MarkStyle>,
+    over range: Range<Int>
+  ) {
+    guard !range.isEmpty else { return }
+    let desiredInlineStyles = Set(desiredStyles.filter(\.isInlineFormatting))
+    var changed = false
+
+    for style in Self.inlineFormattingStyles {
+      let isEnabled = MarkToggleEngine.state(of: style, in: range, runs: body.markRuns) == .on
+      let shouldEnable = desiredInlineStyles.contains(style)
+      guard isEnabled != shouldEnable else { continue }
+
+      body.markRuns = MarkToggleEngine.applying(style, enable: shouldEnable, over: range, to: body.markRuns)
+      pendingBodyOps.append(
+        .mark(
+          container: .body,
+          range: UInt32(range.lowerBound)..<UInt32(range.upperBound),
+          style: style,
+          value: shouldEnable ? .bool(true) : nil))
+      changed = true
+    }
+
+    if changed { scheduleFlush() }
   }
 
   public func toggleMark(_ style: LoroEngine.MarkStyle, over range: Range<Int>) {
