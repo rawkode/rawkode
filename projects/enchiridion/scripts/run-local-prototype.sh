@@ -98,4 +98,8 @@ if [[ ! -x "$app/Contents/MacOS/Enchiridion2Mac" ]]; then
 fi
 
 echo "Launching Enchiridion with local Vault sync enabled. Quit the app to stop the local Worker."
-"$app/Contents/MacOS/Enchiridion2Mac"
+open --fresh --new --wait-apps \
+  --env "ENCHIRIDION_LOCAL_VAULT_URL=${ENCHIRIDION_LOCAL_VAULT_URL}" \
+  --env "ENCHIRIDION_LOCAL_VAULT_TOKEN=${ENCHIRIDION_LOCAL_VAULT_TOKEN}" \
+  --env "ENCHIRIDION_LOCAL_STORE_PATH=${ENCHIRIDION_LOCAL_STORE_PATH}" \
+  "$app"
