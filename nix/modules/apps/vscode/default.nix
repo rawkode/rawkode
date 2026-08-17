@@ -10,13 +10,13 @@ mkApp {
     stylix.targets.vscode.enable = false;
   };
 
-  # Linux: use vscode-fhs package via home-manager
+  # Linux: use the standard VS Code package via home-manager
   linux.home =
     { pkgs, ... }:
     {
       programs.vscode = {
         enable = true;
-        package = pkgs.vscode-fhs;
+        package = pkgs.vscode;
       };
 
       programs.niri.settings.window-rules = [
@@ -45,7 +45,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = [ "visual-studio-code" ];
+        casks = [ "visual-studio-code@insiders" ];
       };
     };
 }
