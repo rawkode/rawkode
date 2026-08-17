@@ -13,7 +13,6 @@ mkCapability {
         [
           appBundles.ghostty.home
           appBundles.google-chrome.home
-          appBundles.forklift.home
           appBundles.onepassword.home
           appBundles.deskflow.home
           appBundles.zed.home
@@ -62,11 +61,9 @@ mkCapability {
   ];
 
   darwin = with inputs.self; [
-    appBundles.bloom.darwin
     appBundles.firefox-nightly.darwin
     appBundles.ghostty.darwin
     appBundles.google-chrome.darwin
-    appBundles.forklift.darwin
     appBundles.onepassword.darwin
     appBundles.deskflow.darwin
     appBundles.zed.darwin
