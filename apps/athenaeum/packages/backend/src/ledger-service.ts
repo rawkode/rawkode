@@ -1,7 +1,9 @@
 import {
+  ACCEPT_CHAT_FORK_MESSAGE_DERIVATION_VERSION,
   LEDGER_COMMAND_VERSION,
   LEDGER_MESSAGE_DERIVATION_VERSION,
   LedgerCommand,
+  acceptChatForkCommitMessage,
   createNodeCommitMessage
 } from "@athenaeum/domain"
 import * as Schema from "effect/Schema"
@@ -107,5 +109,58 @@ export class LedgerService {
   receipt(requestIdentity: string, fingerprint: string, output: unknown): void {
     this.sql.exec("INSERT INTO ledger_receipts (requestIdentity, fingerprint, output) VALUES (?, ?, ?)",
       requestIdentity, fingerprint, JSON.stringify(output))
+  }
+
+  /** Records a chat-fork acceptance as the command type promised by the public routing manifest.
+   * The immutable proposal rationale is included in the commit message so the ledger explains why
+   * the edit was accepted, while the proposal identity remains the replay key. */
+  appendAcceptedChatFork(command: {
+    readonly proposalId: string; readonly nodeId: string; readonly workspaceId: string; readonly principal: string; readonly policy: string
+    readonly rationale: string; readonly provenance: unknown; readonly input: unknown; readonly result: unknown; readonly createdAt: string
+  }): void {
+    const requestIdentity = `chat-fork:${command.proposalId}`
+    const fingerprint = `chat-fork:${command.proposalId}`
+    if (this.existing(requestIdentity, fingerprint) !== undefined) return
+    const message = `${acceptChatForkCommitMessage(command.proposalId, command.nodeId)} Reason: ${command.rationale.trim()}`
+    const persisted = Schema.decodeUnknownSync(LedgerCommand)({
+      version: LEDGER_COMMAND_VERSION, requestId: command.proposalId, fingerprint, type: "acceptChatFork",
+      workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy,
+      messageDerivationVersion: ACCEPT_CHAT_FORK_MESSAGE_DERIVATION_VERSION, message,
+      payload: { provenance: command.provenance, input: command.input, result: command.result }, createdAt: command.createdAt
+    })
+    this.sql.exec(
+      `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      requestIdentity, persisted.requestId, persisted.fingerprint, persisted.version, persisted.type, persisted.workspaceId,
+      persisted.principal, persisted.capability, persisted.policy, persisted.messageDerivationVersion, persisted.message,
+      JSON.stringify(persisted.payload), persisted.createdAt
+    )
+    this.receipt(requestIdentity, fingerprint, command.result)
+  }
+
+  /** The proposal path has caller-supplied rationale and provenance; unlike createNode it never
+   * manufactures a message from a title. Kept here so the audit command/receipt shares the DO's
+   * existing durable ledger tables and idempotency key. */
+  appendAcceptedPageProposal(command: {
+    readonly proposalId: string; readonly workspaceId: string; readonly principal: string; readonly policy: string
+    readonly rationale: string; readonly provenance: unknown; readonly input: unknown; readonly result: unknown; readonly createdAt: string
+  }): void {
+    const requestIdentity = `page-proposal:${command.proposalId}`
+    const fingerprint = `page-proposal:${command.proposalId}`
+    if (this.existing(requestIdentity, fingerprint) !== undefined) return
+    const persisted = Schema.decodeUnknownSync(LedgerCommand)({
+      version: LEDGER_COMMAND_VERSION, requestId: command.proposalId, fingerprint, type: "acceptPageProposal",
+      workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy,
+      messageDerivationVersion: "caller-rationale.v1", message: command.rationale,
+      payload: { provenance: command.provenance, input: command.input, result: command.result }, createdAt: command.createdAt
+    })
+    this.sql.exec(
+      `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      requestIdentity, persisted.requestId, persisted.fingerprint, persisted.version, persisted.type, persisted.workspaceId,
+      persisted.principal, persisted.capability, persisted.policy, persisted.messageDerivationVersion, persisted.message,
+      JSON.stringify(persisted.payload), persisted.createdAt
+    )
+    this.receipt(requestIdentity, fingerprint, command.result)
   }
 }

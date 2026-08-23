@@ -122,6 +122,14 @@ import {
   RevertChangesOutput,
   RevertChatForkInput,
   RevertChatForkOutput,
+  ProposePageEditInput,
+  ProposePageEditOutput,
+  PreviewPageProposalInput,
+  PreviewPageProposalOutput,
+  AcceptPageProposalInput,
+  AcceptPageProposalOutput,
+  RevertPageProposalInput,
+  RevertPageProposalOutput,
   RevokeShareLinkInput,
   RevokeShareLinkOutput,
   RotateEpochInput,
@@ -227,6 +235,10 @@ interface WorkspaceApi {
   chatForkPreview(input: unknown): Promise<unknown>
   acceptChatFork(input: unknown): Promise<unknown>
   revertChatFork(input: unknown): Promise<unknown>
+  proposePageEdit(input: unknown): Promise<unknown>
+  previewPageProposal(input: unknown): Promise<unknown>
+  acceptPageProposal(input: unknown): Promise<unknown>
+  revertPageProposal(input: unknown): Promise<unknown>
   // --- Web stage: sharing/multi-workspace (task item 3) — mirrors `WorkspaceRpcApi`'s Phase 4 sharing
   // methods (`workspace-durable-object.ts`) exactly, per `sharing-rpc.ts`'s method list. ------------
   addCollaborator(input: unknown): Promise<unknown>
@@ -369,6 +381,10 @@ export interface WorkspaceRpcClientService {
   readonly chatForkPreview: (input: ChatForkPreviewInput) => Effect.Effect<ChatForkPreviewOutput, DomainError>
   readonly acceptChatFork: (input: AcceptChatForkInput) => Effect.Effect<AcceptChatForkOutput, DomainError>
   readonly revertChatFork: (input: RevertChatForkInput) => Effect.Effect<RevertChatForkOutput, DomainError>
+  readonly proposePageEdit: (input: ProposePageEditInput) => Effect.Effect<ProposePageEditOutput, DomainError>
+  readonly previewPageProposal: (input: PreviewPageProposalInput) => Effect.Effect<PreviewPageProposalOutput, DomainError>
+  readonly acceptPageProposal: (input: AcceptPageProposalInput) => Effect.Effect<AcceptPageProposalOutput, DomainError>
+  readonly revertPageProposal: (input: RevertPageProposalInput) => Effect.Effect<RevertPageProposalOutput, DomainError>
   // --- Web stage: sharing/multi-workspace (task item 3) ---------------------------------------------
   readonly addCollaborator: (input: AddCollaboratorInput) => Effect.Effect<AddCollaboratorOutput, DomainError>
   readonly previewRemoveCollaborator: (
@@ -650,6 +666,22 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         revertChatFork: (input) =>
           callForValue(RevertChatForkOutput, () =>
             workspaceStub.revertChatFork(Schema.encodeSync(RevertChatForkInput)(input))
+          ),
+        proposePageEdit: (input) =>
+          callForValue(ProposePageEditOutput, () =>
+            workspaceStub.proposePageEdit(Schema.encodeSync(ProposePageEditInput)(input))
+          ),
+        previewPageProposal: (input) =>
+          callForValue(PreviewPageProposalOutput, () =>
+            workspaceStub.previewPageProposal(Schema.encodeSync(PreviewPageProposalInput)(input))
+          ),
+        acceptPageProposal: (input) =>
+          callForValue(AcceptPageProposalOutput, () =>
+            workspaceStub.acceptPageProposal(Schema.encodeSync(AcceptPageProposalInput)(input))
+          ),
+        revertPageProposal: (input) =>
+          callForValue(RevertPageProposalOutput, () =>
+            workspaceStub.revertPageProposal(Schema.encodeSync(RevertPageProposalInput)(input))
           ),
 
         // --- Web stage: sharing/multi-workspace (task item 3) ------------------------------------

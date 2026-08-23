@@ -107,6 +107,14 @@ import {
   CreateNodeOutput,
   CreatePageInput,
   CreatePageOutput,
+  ProposePageEditInput,
+  ProposePageEditOutput,
+  PreviewPageProposalInput,
+  PreviewPageProposalOutput,
+  AcceptPageProposalInput,
+  AcceptPageProposalOutput,
+  RevertPageProposalInput,
+  RevertPageProposalOutput,
   CreateRelationDefinitionInput,
   CreateRelationDefinitionOutput,
   CreateTagInput,
@@ -275,6 +283,8 @@ import { ensureMentionRelationSeeded } from "./mention-seed.js"
 import { GraphService, makeGraphServiceLive } from "./graph-service-live.js"
 import { NotesService, makeNotesServiceLive } from "./notes-service-live.js"
 import { ChatForkService, makeChatForkServiceLive } from "./chat-fork-service-live.js"
+import { makePageProposalCollections } from "./page-proposal-collections.js"
+import { PageProposalService, makePageProposalServiceLive } from "./page-proposal-service-live.js"
 import { ViewsService, makeViewsServiceLive } from "./views-service-live.js"
 import { AgentEditService, makeAgentEditServiceLive } from "./agent-edit-service-live.js"
 import { makeAgentEditCollections } from "./agent-edit-collections.js"
@@ -342,6 +352,11 @@ import type { Env } from "./index.js"
  * built exactly once per DO construction (below), matching every other service's Layer lifecycle —
  * only the per-call dispatch is live.
  */
+/** Test-only seam for the crash window after the ledger transaction commits and before cache publication. */
+export const pageProposalAcceptanceTestHook: { afterTransactionBeforePublish: (() => void) | undefined } = {
+  afterTransactionBeforePublish: undefined
+}
+
 export const agentEditModelClientTestHook: {
   converse:
     | ((
@@ -406,6 +421,7 @@ type WorkspaceServices =
   | GraphService
   | NotesService
   | ChatForkService
+  | PageProposalService
   | ViewsService
   | AgentEditService
   | AppsService
@@ -986,6 +1002,83 @@ class WorkspaceRpcApi extends RpcTarget {
     return runRpcProgram(this.#runtime, program, PageSyncMessageOutput)
   }
 
+  // --- Durable page proposals ---------------------------------------------------------------
+  // The raw page APIs above remain intentionally direct. These reviewable proposals are the
+  // separate, ledger-routed mutation path; acceptance alone can publish a proposed page edit.
+  async proposePageEdit(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(ProposePageEditInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => PageProposalService.pipe(
+        Effect.flatMap((service) => service.propose(decoded)),
+        Effect.map((proposal) => new ProposePageEditOutput({ proposal }))
+      ))
+    )
+    return runRpcProgram(this.#runtime, program, ProposePageEditOutput)
+  }
+
+  async previewPageProposal(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(PreviewPageProposalInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) => PageProposalService.pipe(
+        Effect.flatMap((service) => service.preview(decoded.proposalId)),
+        Effect.map(({ proposal, text }) => new PreviewPageProposalOutput({ proposal, text }))
+      ))
+    )
+    return runRpcProgram(this.#runtime, program, PreviewPageProposalOutput)
+  }
+
+  async acceptPageProposal(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const ledger = this.#ledger
+    const storage = this.#storage
+    const program = decodeRpcInput(AcceptPageProposalInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const service = yield* PageProposalService
+        const sharing = yield* SharingService
+        const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
+        const result = yield* Effect.try({
+          try: () => storage.transactionSync(() => {
+            const exit = Effect.runSyncExit(service.accept(decoded.proposalId))
+            if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+            const accepted = exit.value
+            ledger.appendAcceptedPageProposal({
+              proposalId: accepted.proposal.proposalId, workspaceId: decoded.workspaceId,
+              principal: currentUser?.email ?? "anonymous", policy, rationale: accepted.proposal.rationale,
+              provenance: accepted.proposal.provenance, input: { proposalId: decoded.proposalId },
+              result: { headsHash: accepted.commit.committedHeadsHash, proposalHeadsHash: accepted.proposal.proposalHeadsHash },
+              createdAt: accepted.commit.committedAt
+            })
+            return accepted
+          }),
+          catch: (error): DomainError => error instanceof ValidationError || error instanceof UnexpectedError ? error : new UnexpectedError({ message: String(error) })
+        })
+        pageProposalAcceptanceTestHook.afterTransactionBeforePublish?.()
+        result.publish()
+        return new AcceptPageProposalOutput(result)
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, AcceptPageProposalOutput)
+  }
+
+  async revertPageProposal(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(RevertPageProposalInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => PageProposalService.pipe(
+        Effect.flatMap((service) => service.revert(decoded.proposalId)),
+        Effect.map((proposal) => new RevertPageProposalOutput({ proposal }))
+      ))
+    )
+    return runRpcProgram(this.#runtime, program, RevertPageProposalOutput)
+  }
+
   // --- Chat-fork provisional edits (Phase 3 spike, plan risk #4) ------------------------------
   //
   // Deliberately separate from the page-bodies methods above: these never touch
@@ -1048,14 +1141,33 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async acceptChatFork(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const ledger = this.#ledger
+    const storage = this.#storage
     const program = decodeRpcInput(AcceptChatForkInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const chatFork = yield* ChatForkService
-          const { page, text } = yield* chatFork.accept(decoded.chatId, decoded.nodeId)
-          return new AcceptChatForkOutput({ page, text })
+          const proposal = yield* chatFork.proposalForAcceptance(decoded.chatId, decoded.nodeId)
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
+          const accepted = yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const exit = Effect.runSyncExit(chatFork.accept(proposal.proposalId))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              const result = exit.value
+              ledger.appendAcceptedChatFork({
+                proposalId: proposal.proposalId, nodeId: decoded.nodeId, workspaceId: decoded.workspaceId, principal: currentUser?.email ?? "anonymous", policy,
+                rationale: proposal.rationale, provenance: proposal.provenance, input: { chatId: decoded.chatId, nodeId: decoded.nodeId },
+                result: { headsHash: result.page.headsHash, proposalHeadsHash: proposal.proposalHeadsHash }, createdAt: proposal.updatedAt
+              })
+              return result
+            }),
+            catch: (error): DomainError => error instanceof ValidationError || error instanceof UnexpectedError ? error : new UnexpectedError({ message: String(error) })
+          })
+          accepted.publish()
+          return new AcceptChatForkOutput({ page: accepted.page, text: accepted.text })
         })
       )
     )
@@ -2532,6 +2644,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
 
     const nodesCollections = makeWorkspaceCollections(ctx.storage)
     const pagesCollections = makePagesCollections(ctx.storage)
+    const pageProposalCollections = makePageProposalCollections(ctx.storage)
     const tagsCollections = makeTagsCollections(ctx.storage)
     const tagClosureCollections = makeTagClosureCollections(ctx.storage)
     const factsCollections = makeFactsCollections(ctx.storage)
@@ -2573,11 +2686,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       this.#sql
     ).pipe(Layer.provide(repositoriesLayer))
     const notesServiceLive = makeNotesServiceLive(pagesCollections, this.#sql).pipe(Layer.provide(repositoriesLayer))
+    const pageProposalServiceLive = makePageProposalServiceLive(pageProposalCollections).pipe(Layer.provide(notesServiceLive))
     // Phase 3 spike (plan risk #4): the Automerge-fork-as-chat-branch mechanism. Depends on
     // `NotesService` itself (not the raw `pagesCollections`) — see chat-fork-service-live.ts's
     // header comment for why every mainline read/write must go through NotesService's own doc
     // cache rather than around it.
-    const chatForkServiceLive = makeChatForkServiceLive().pipe(Layer.provide(notesServiceLive))
+    const chatForkServiceLive = makeChatForkServiceLive(this.#workspaceId).pipe(Layer.provide(pageProposalServiceLive))
     const viewsServiceLive = makeViewsServiceLive(this.#sql)
     const loggerLive = Logger.minimumLogLevel(LogLevel.Info)
 
@@ -2789,6 +2903,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       graphServiceLive,
       notesServiceLive,
       chatForkServiceLive,
+      pageProposalServiceLive,
       viewsServiceLive,
       agentEditServiceLive,
       appsServiceLive,

@@ -35,6 +35,11 @@ export interface WorkspaceApi {
   startPageSync(input: unknown): Promise<unknown>
   pageSyncMessage(input: unknown): Promise<unknown>
 
+  proposePageEdit(input: unknown): Promise<unknown>
+  previewPageProposal(input: unknown): Promise<unknown>
+  acceptPageProposal(input: unknown): Promise<unknown>
+  revertPageProposal(input: unknown): Promise<unknown>
+
   forkChatEdit(input: unknown): Promise<unknown>
   applyChatForkEdit(input: unknown): Promise<unknown>
   chatForkPreview(input: unknown): Promise<unknown>
