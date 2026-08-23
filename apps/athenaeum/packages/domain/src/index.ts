@@ -6,6 +6,14 @@
 // that actually needs them.
 
 export { EntityId, IsoDateTimeString, Node, PendingMarker } from "./node.js"
+export {
+  LEDGER_COMMAND_VERSION,
+  LEDGER_MESSAGE_DERIVATION_VERSION,
+  LedgerCommand,
+  LedgerReceipt,
+  createNodeCommitMessage,
+  normalizeCreateNodeTitle
+} from "./ledger.js"
 
 export {
   CardinalityViolation,
