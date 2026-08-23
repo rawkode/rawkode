@@ -153,6 +153,11 @@ export { RelationDefinitionsRepository } from "./relation-definitions-repository
 export { GraphIssuesRepository } from "./graph-issues-repository.js"
 
 export { JsonValue } from "./json-value.js"
+export { CANONICAL_SNAPSHOT_VERSION, canonicalJson, canonicalJsonBytes, canonicalSha256, sha256Hex, sha256HexSync } from "./canonical-hash.js"
+export {
+  AgentChangeOperation, AgentChangeProposal, AgentChangeProposalDecision, AgentChangeProposalState, AgentChangeReservation,
+  AgentChangeSnapshot, AgentChangeTargetKind, agentChangeReservationKey
+} from "./agent-change-proposal.js"
 export { Page } from "./page.js"
 export { canonicalAutomergeHeadsHash } from "./automerge-heads.js"
 export { PageProposal, PageProposalProvenance, PageCommit } from "./page-proposal.js"

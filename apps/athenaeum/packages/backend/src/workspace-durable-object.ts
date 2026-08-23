@@ -241,6 +241,7 @@ import {
   Unauthorized,
   UnexpectedError,
   ValidationError,
+  AgentChangeProposal,
   WhoamiOutput,
   ImportWorkoutInput,
   ImportWorkoutOutput,
@@ -288,6 +289,7 @@ import { PageProposalService, makePageProposalServiceLive } from "./page-proposa
 import { ViewsService, makeViewsServiceLive } from "./views-service-live.js"
 import { AgentEditService, makeAgentEditServiceLive } from "./agent-edit-service-live.js"
 import { makeAgentEditCollections } from "./agent-edit-collections.js"
+import { makeAgentChangeProposalCollections } from "./agent-change-proposal-collections.js"
 import { makeAppCollections } from "./app-collections.js"
 import { makeAppsRepositoryLive } from "./apps-repository-live.js"
 import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
@@ -2722,6 +2724,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       })
     )
     const agentEditCollections = makeAgentEditCollections(ctx.storage)
+    const agentChangeProposalCollections = makeAgentChangeProposalCollections(ctx.storage, this.#sql)
     const agentEditServiceLive = makeAgentEditServiceLive(
       this.#workspaceId,
       agentEditCollections,
@@ -2729,6 +2732,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       factsCollections,
       edgesCollections,
       appCollections,
+      agentChangeProposalCollections,
       this.#sql
     ).pipe(
       Layer.provide(
@@ -3285,6 +3289,56 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
   async debugListShareKeyRows(): Promise<ReadonlyArray<{ readonly hash: string; readonly linkId: string; readonly alias: boolean }>> {
     const rows = await Effect.runPromise(this.#sharingCollections.shareKeys.list())
     return rows.map((row) => ({ hash: row.hash, linkId: row.linkId, alias: row.alias }))
+  }
+
+  /**
+   * P5.1's only capture entrypoint. This is a `ctx.exports`-only trusted internal seam, never a
+   * Cap'n Web `WorkspaceRpcApi` method: it lets the eventual authorised command owner invoke one
+   * complete synchronous DO transaction, while tests exercise the actual transaction/rollback
+   * boundary without granting connected clients a reservation capability.
+   */
+  async debugCaptureAgentChangeProposal(input: unknown): Promise<unknown> {
+    const decoded = Schema.decodeUnknownSync(Schema.Struct({
+      chatId: EntityId,
+      operation: Schema.Literal("merge", "revert"),
+      rangeBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+      requestId: Schema.String.pipe(Schema.minLength(1)),
+      actor: Schema.String.pipe(Schema.minLength(1)),
+      provenance: Schema.String.pipe(Schema.minLength(1))
+    }))(input)
+    const program = AgentEditService.pipe(
+      Effect.flatMap((agentEdit) => Effect.try({
+        try: () => this.#storage.transactionSync(() => {
+          const exit = Effect.runSyncExit(agentEdit.captureProposalAndReserve(decoded))
+          if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+          return exit.value
+        }),
+        catch: (error): DomainError => error instanceof ValidationError || error instanceof UnexpectedError
+          ? error : new UnexpectedError({ message: `agent change capture transaction failed: ${error instanceof Error ? error.message : String(error)}` })
+      }))
+    )
+    const captured = await runOrThrowRpcError(this.#runtime, program)
+    return Schema.encodeSync(AgentChangeProposal)(captured)
+  }
+
+  /** Read-only `ctx.exports` inspection paired with `debugCaptureAgentChangeProposal`; no public
+   * client route or mutation-routing-manifest entry is added in P5.1. */
+  async debugGetAgentChangeProposal(requestId: string): Promise<unknown | null> {
+    const captured = await runOrThrowRpcError(
+      this.#runtime,
+      AgentEditService.pipe(Effect.flatMap((agentEdit) => agentEdit.capturedProposalForRequest(requestId)))
+    )
+    return captured === undefined ? null : Schema.encodeSync(AgentChangeProposal)(captured)
+  }
+
+  /** Test-only trusted caller for the real crash-reconciliation path. It deliberately remains
+   * outside `WorkspaceRpcApi`, where an arbitrary connected client could not trigger it. */
+  async debugReconcileAgentChanges(chatId: string): Promise<{ readonly reAdopted: number; readonly reaped: number }> {
+    const decodedChatId = Schema.decodeUnknownSync(EntityId)(chatId)
+    return runOrThrowRpcError(
+      this.#runtime,
+      AgentEditService.pipe(Effect.flatMap((agentEdit) => agentEdit.reconcilePendingChanges(decodedChatId)))
+    )
   }
 
   // --- Phase 6 debug/test hooks (`ctx.exports`-only, never Cap'n Web-exposed — same access rule
