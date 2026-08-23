@@ -1,0 +1,22 @@
+{
+  // Deliberately does NOT extend ../tsconfig.json: this package runs on Node via the alchemy
+  // CLI (not workerd), and depends on effect@4.0.0-rc — a different major than the workspace
+  // catalog's effect@3.22.1 the shared config's consumers use (see package.json + README for
+  // why alchemy forces that split). Kept self-contained so the two effect majors never meet
+  // in one program.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "ESNext.Disposable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["alchemy.run.ts"],
+  "exclude": ["node_modules", ".alchemy"]
+}

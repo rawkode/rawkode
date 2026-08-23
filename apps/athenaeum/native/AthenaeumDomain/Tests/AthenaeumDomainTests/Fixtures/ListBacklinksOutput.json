@@ -1,0 +1,10 @@
+{
+  "edges": [
+    {
+      "id": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e64",
+      "relationDefinitionId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e65",
+      "sourceNodeId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61",
+      "targetNodeId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e60"
+    }
+  ]
+}

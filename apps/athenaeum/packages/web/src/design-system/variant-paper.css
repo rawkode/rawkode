@@ -1,0 +1,209 @@
+/* ============================================================================
+   Design-review prototype — Variant A: "Paper"
+   Light-first, page-centered, serif-led. Activated ONLY via ?variant=paper
+   (main.tsx sets html[data-variant="paper"]). With no query param every rule
+   in this file is inert — the default app is untouched.
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   SHARED STRUCTURAL LAYER (applies under any data-variant)
+   ---------------------------------------------------------------------------- */
+
+/* S1 — backlinks never beside prose; kills the 46rem container branch
+   (specificity 0,2,1 beats 0,1,0) */
+html[data-variant] .daily-note {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* S2 — chat rail = summonable drawer at EVERY width; quiet toggle
+   (surface, not solid accent) */
+html[data-variant] .shell {
+  grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+}
+html[data-variant] .shell-chat {
+  position: fixed;
+  inset-block: 0;
+  right: 0;
+  width: min(92vw, var(--shell-chat-w));
+  transform: translateX(100%);
+  transition: transform 0.22s var(--ease-out-quart);
+  z-index: 40;
+  box-shadow: var(--shadow-raised);
+}
+html[data-variant] .shell-chat-open {
+  transform: translateX(0);
+}
+html[data-variant] .shell-chat-toggle {
+  display: inline-flex;
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 41;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  font-weight: 600;
+  box-shadow: var(--shadow-raised);
+}
+html[data-variant] .shell-chat-scrim {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: var(--variant-scrim);
+  z-index: 39;
+  animation: fade-in 0.22s ease-out backwards;
+}
+
+/* S3 — header ceremony to one line */
+html[data-variant] .daily-note-eyebrow {
+  display: none;
+}
+html[data-variant] .daily-note-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+html[data-variant] .daily-note-header h2 {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  margin: 0;
+}
+html[data-variant] .daily-note-date {
+  margin: 0;
+}
+
+/* S4 — sync silent when successful (space reserved) */
+html[data-variant] .sync-status-synced {
+  visibility: hidden;
+}
+
+/* S5 — docked creation forms → progressive disclosure
+   (hover/focus-within keeps them reachable) */
+html[data-variant] .workspace-switcher-create {
+  display: none;
+}
+html[data-variant] .shell-session:hover .workspace-switcher-create,
+html[data-variant] .shell-session:focus-within .workspace-switcher-create {
+  display: flex;
+}
+html[data-variant] .link-form {
+  display: none;
+}
+html[data-variant] .backlinks:hover .link-form,
+html[data-variant] .backlinks:focus-within .link-form {
+  display: flex;
+}
+
+/* S6 — PENDING CHANGES only when pending */
+html[data-variant] .chat-pending:has(.chat-pending-empty) {
+  display: none;
+}
+
+/* S7 — UUID out of chrome (sidebar footer; select option text is TSX,
+   out of scope) */
+html[data-variant] .shell-workspace-id {
+  display: none;
+}
+
+/* S8 — nav a step quieter */
+html[data-variant] .shell-nav-core-item {
+  font-size: var(--text-base);
+}
+html[data-variant] .shell-nav-item {
+  font-size: var(--text-sm);
+}
+
+/* S9 — empty-note invitation (matches ProseMirror empty doc) */
+html[data-variant] .rich-note-editor .ProseMirror > p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------------------------
+   VARIANT A — "Paper" tokens + page treatment
+   ---------------------------------------------------------------------------- */
+
+html[data-variant="paper"] {
+  --hue-paper: 85;
+  --hue-ink: 250;
+  --color-ground: oklch(97.3% 0.007 var(--hue-paper));
+  --color-surface: oklch(98.8% 0.004 var(--hue-paper));
+  --color-surface-raised: oklch(100% 0 0);
+  --color-surface-sunken: oklch(95% 0.008 var(--hue-paper));
+  --color-border: oklch(89% 0.012 var(--hue-paper));
+  --color-border-strong: oklch(58% 0.02 var(--hue-paper));
+  --color-text: oklch(30% 0.015 var(--hue-ink));
+  --color-text-muted: oklch(40% 0.015 var(--hue-ink));
+  --color-text-faint: oklch(48% 0.012 var(--hue-ink));
+  --color-accent: oklch(48% 0.085 200);
+  --color-accent-strong: oklch(40% 0.095 200);
+  --color-accent-muted: oklch(92% 0.035 200);
+  --color-accent-tint: oklch(95.5% 0.02 200);
+  --color-on-accent: oklch(98.5% 0.005 200);
+  --color-danger: oklch(50% 0.18 27);
+  --color-danger-muted: oklch(94% 0.035 27);
+  --color-danger-border: oklch(70% 0.09 27);
+  --color-danger-text-strong: oklch(42% 0.16 27);
+  --color-success: oklch(46% 0.12 152);
+  --color-success-muted: oklch(94% 0.04 152);
+  --color-warning: oklch(50% 0.11 85);
+  --color-warning-muted: oklch(94% 0.05 85);
+  --color-warning-border: oklch(75% 0.08 85);
+  --shadow-raised: 0 1px 2px oklch(40% 0.02 85 / 0.08), 0 10px 28px -16px oklch(35% 0.02 85 / 0.22);
+  --variant-scrim: oklch(35% 0.02 85 / 0.35);
+  --font-data: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+html[data-variant="paper"] .daily-note {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: var(--space-6) 0;
+}
+html[data-variant="paper"] .route-view {
+  margin-inline: auto;
+  max-width: 40.5rem;
+}
+html[data-variant="paper"] .route-view--light,
+html[data-variant="paper"] .route-view:has(.graph-view),
+html[data-variant="paper"] .route-view:has(.supertags-panel),
+html[data-variant="paper"] .route-view:has(.share-panel) {
+  max-width: 56rem;
+}
+html[data-variant="paper"] .shell-sidebar {
+  background: var(--color-ground);
+}
+html[data-variant="paper"] .shell-session {
+  background: transparent;
+  border-color: var(--color-border);
+}
+html[data-variant="paper"] .supertag-chip {
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+}
+html[data-variant="paper"] .rich-note-editor .ProseMirror .entity-ref {
+  background: transparent;
+  color: var(--color-accent);
+  padding: 0;
+  border-radius: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+html[data-variant="paper"] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+html[data-variant="paper"] *::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-color: var(--color-ground);
+}

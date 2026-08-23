@@ -1,0 +1,37 @@
+{
+  "name": "athenaeum",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test:run",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "workspaces": {
+    "packages": [
+      "packages/*",
+      "infra"
+    ],
+    "catalog": {
+      "effect": "3.22.1",
+      "capnweb": "^0.11.1",
+      "wrangler": "^4.124.0",
+      "@cloudflare/vitest-pool-workers": "^0.22.0",
+      "@cloudflare/workers-types": "^5.20260820.1",
+      "vite": "7.3.6",
+      "vitest": "^4.1.10",
+      "react": "^19.2.8",
+      "react-dom": "^19.2.8",
+      "@types/react": "^19.2.18",
+      "@types/react-dom": "^19.2.4",
+      "@vitejs/plugin-react": "^5.2.0",
+      "typescript": "^5.9.3",
+      "@automerge/automerge": "^3.4.1"
+    }
+  }
+}

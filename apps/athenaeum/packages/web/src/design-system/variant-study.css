@@ -1,0 +1,176 @@
+/* ============================================================================
+   Design-review prototype — Variant B: "Study"
+   Dark kept, execution fixed: softer prose contrast, centered measure,
+   quieter chips, drawer chat. Activated ONLY via ?variant=study
+   (main.tsx sets html[data-variant="study"]). With no query param every rule
+   in this file is inert — the default app is untouched.
+
+   NOTE: the shared structural layer below is duplicated in variant-paper.css
+   on purpose — each variant file is self-contained, both gate on
+   html[data-variant] so the duplicate rules resolve identically.
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   SHARED STRUCTURAL LAYER (applies under any data-variant)
+   ---------------------------------------------------------------------------- */
+
+/* S1 — backlinks never beside prose; kills the 46rem container branch
+   (specificity 0,2,1 beats 0,1,0) */
+html[data-variant] .daily-note {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* S2 — chat rail = summonable drawer at EVERY width; quiet toggle
+   (surface, not solid accent) */
+html[data-variant] .shell {
+  grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+}
+html[data-variant] .shell-chat {
+  position: fixed;
+  inset-block: 0;
+  right: 0;
+  width: min(92vw, var(--shell-chat-w));
+  transform: translateX(100%);
+  transition: transform 0.22s var(--ease-out-quart);
+  z-index: 40;
+  box-shadow: var(--shadow-raised);
+}
+html[data-variant] .shell-chat-open {
+  transform: translateX(0);
+}
+html[data-variant] .shell-chat-toggle {
+  display: inline-flex;
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 41;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  font-weight: 600;
+  box-shadow: var(--shadow-raised);
+}
+html[data-variant] .shell-chat-scrim {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: var(--variant-scrim);
+  z-index: 39;
+  animation: fade-in 0.22s ease-out backwards;
+}
+
+/* S3 — header ceremony to one line */
+html[data-variant] .daily-note-eyebrow {
+  display: none;
+}
+html[data-variant] .daily-note-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+html[data-variant] .daily-note-header h2 {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  margin: 0;
+}
+html[data-variant] .daily-note-date {
+  margin: 0;
+}
+
+/* S4 — sync silent when successful (space reserved) */
+html[data-variant] .sync-status-synced {
+  visibility: hidden;
+}
+
+/* S5 — docked creation forms → progressive disclosure
+   (hover/focus-within keeps them reachable) */
+html[data-variant] .workspace-switcher-create {
+  display: none;
+}
+html[data-variant] .shell-session:hover .workspace-switcher-create,
+html[data-variant] .shell-session:focus-within .workspace-switcher-create {
+  display: flex;
+}
+html[data-variant] .link-form {
+  display: none;
+}
+html[data-variant] .backlinks:hover .link-form,
+html[data-variant] .backlinks:focus-within .link-form {
+  display: flex;
+}
+
+/* S6 — PENDING CHANGES only when pending */
+html[data-variant] .chat-pending:has(.chat-pending-empty) {
+  display: none;
+}
+
+/* S7 — UUID out of chrome (sidebar footer; select option text is TSX,
+   out of scope) */
+html[data-variant] .shell-workspace-id {
+  display: none;
+}
+
+/* S8 — nav a step quieter */
+html[data-variant] .shell-nav-core-item {
+  font-size: var(--text-base);
+}
+html[data-variant] .shell-nav-item {
+  font-size: var(--text-sm);
+}
+
+/* S9 — empty-note invitation (matches ProseMirror empty doc) */
+html[data-variant] .rich-note-editor .ProseMirror > p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------------------------
+   VARIANT B — "Study" tokens + page treatment
+   ---------------------------------------------------------------------------- */
+
+html[data-variant="study"] {
+  /* ~11:1 on surface, was ~15:1; UI text untouched */
+  --color-prose: oklch(86% 0.02 var(--hue-warm));
+  --color-accent-strong: oklch(78% 0.12 200);
+  --variant-scrim: oklch(8% 0.01 var(--hue-neutral) / 0.55);
+}
+html[data-variant="study"] .daily-note-body,
+html[data-variant="study"] .rich-note-editor .ProseMirror {
+  color: var(--color-prose);
+}
+html[data-variant="study"] .route-view {
+  margin-inline: auto;
+  max-width: 46rem;
+}
+html[data-variant="study"] .daily-note {
+  padding: var(--space-6);
+}
+html[data-variant="study"] .supertag-chip {
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-muted);
+}
+html[data-variant="study"] .rich-note-editor .ProseMirror .entity-ref {
+  background: transparent;
+  color: var(--color-accent);
+  padding: 0;
+}
+html[data-variant="study"] .shell-sidebar {
+  background: var(--color-ground);
+  border-right-color: transparent;
+}
+html[data-variant="study"] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+html[data-variant="study"] *::-webkit-scrollbar-thumb {
+  border-color: var(--color-ground);
+}

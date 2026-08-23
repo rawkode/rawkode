@@ -1,0 +1,494 @@
+/* AppShell layout — sidebar / routed main / docked chat rail. `container-type: inline-size` on
+   `.shell` is what makes the chat rail's collapse a container query (`@container shell`), not a
+   viewport media query: it responds to the shell's own rendered width, which matters once this
+   app is embedded or resized independently of the browser viewport, and reads as more correct
+   for "this component collapses when ITS box gets tight," not "the whole page is tight." */
+
+/* A dedicated outer wrapper establishes the container-query context; `.shell` (the grid whose own
+   `grid-template-columns` the query below rewrites) is its DESCENDANT, not the container itself —
+   a container restyling its own established container via `@container` is unreliable across
+   engines (self-referential sizing), whereas an ancestor container reliably restyles any
+   descendant, including one that also happens to be a grid. */
+.shell-container {
+  container-type: inline-size;
+  container-name: shell;
+  height: 100dvh;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr) var(--shell-chat-w);
+  height: 100%;
+  background: var(--color-ground);
+  color: var(--color-text);
+}
+
+/* --- Sidebar ---------------------------------------------------------------------------------- */
+
+.shell-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  overflow-y: auto;
+}
+
+.shell-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) 0;
+}
+
+.shell-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.shell-brand-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.shell-session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.shell-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+
+.shell-account-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.shell-account-badge {
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.65rem;
+  background: var(--color-warning-muted);
+  color: var(--color-warning);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.shell-sign-out {
+  align-self: flex-start;
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.shell-sign-out:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+/* --- Core nav (Today / Supertags) — adversarial-review fix: real visual primacy, not list order
+   alone. Same "icon in a tinted box" language `.shell-brand-mark` uses for the app mark itself,
+   deliberately reused so these two read as being at the brand's own tier, not just the top of an
+   otherwise-uniform list. --------------------------------------------------------------------- */
+
+.shell-nav-core {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.shell-nav-core-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.shell-nav-core-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.shell-nav-core-item:hover {
+  background: var(--color-surface-raised);
+}
+
+.shell-nav-core-item-active {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent-muted);
+}
+
+.shell-nav-core-item-active .shell-nav-core-icon {
+  background: var(--color-accent);
+  color: var(--color-on-accent, var(--color-surface));
+}
+
+/* Divider + "More" label demoting the remaining, orbiting sections beneath the core two. */
+.shell-nav-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.shell-nav-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.shell-nav-divider span {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+}
+
+.shell-nav-more {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.shell-nav-item {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.shell-nav-item:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.shell-nav-item-active {
+  color: var(--color-text);
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent-muted);
+}
+
+.shell-workspace-id {
+  margin: auto 0 0;
+  padding: var(--space-2) var(--space-3) 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.shell-workspace-id code {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+/* --- Main ------------------------------------------------------------------------------------- */
+
+.shell-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-7);
+}
+
+/* --- Chat rail (docked, always visible on a wide-enough shell) ------------------------------- */
+
+.shell-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.shell-chat > .chat-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-chat-toggle {
+  display: none;
+}
+
+.shell-chat-scrim {
+  display: none;
+}
+
+/* --- Sidebar drawer toggle/scrim (hidden until the narrow-shell breakpoint below turns the
+   sidebar into an off-canvas drawer, mirroring the chat rail's own mechanism above) ------------ */
+
+.shell-sidebar-toggle {
+  display: none;
+}
+
+.shell-sidebar-scrim {
+  display: none;
+}
+
+/* --- Narrow shell: the chat rail becomes a toggleable slide-in drawer instead of a third
+   permanent column — a container query against the shell's own box, not the viewport. */
+@container shell (max-width: 920px) {
+  .shell {
+    grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+  }
+
+  /* Refinement pass (live-screenshot finding): once the floating Agent/Menu pills exist (this
+     breakpoint and below), they sat on top of the page's last content ("No backlinks yet." at
+     ~500px wide). Reserve their whole occupied band — bottom offset (space-5) + pill height
+     (~2.8rem: space-3 vertical padding + one text line) + a space-4 gap — as scroll-past padding,
+     so content can always clear them, plus the home-indicator safe area on notched devices. */
+  .shell-main {
+    padding-bottom: calc(var(--space-5) + 2.8rem + var(--space-4) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Touch-target fix: nav items measured ~38.8px tall at narrow widths; ensure the WCAG/44px
+     minimum without changing their wide-viewport sizing. Applies to both nav tiers — the core
+     items already clear 44px from their own padding/font-size, but pinning `min-height`
+     explicitly here keeps both groups governed by the same documented rule rather than one
+     relying on incidental sizing. */
+  .shell-nav-item,
+  .shell-nav-core-item {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* Touch-target fix: .shell-sign-out's own `padding: var(--space-1) var(--space-2)` rule
+     (specificity 0,1,0) outranks base.css's generic `button { padding-block: var(--space-3) }`
+     container-query bump (specificity 0,0,1), so it never actually grew at narrow widths —
+     measured 25px tall. Set min-height directly on the class so it clears 44px regardless of
+     which padding rule wins. */
+  .shell-sign-out {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .shell-chat {
+    position: fixed;
+    inset-block: 0;
+    right: 0;
+    width: min(92vw, var(--shell-chat-w));
+    transform: translateX(100%);
+    /* Motion pass: decisive deceleration instead of symmetric ease — the drawer arrives fast and
+       settles, same curve as every other entrance in the app. Transform-only, composited. */
+    transition: transform 0.22s var(--ease-out-quart);
+    z-index: 40;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .shell-chat-open {
+    transform: translateX(0);
+  }
+
+  .shell-chat-toggle {
+    display: inline-flex;
+    position: fixed;
+    right: var(--space-5);
+    bottom: var(--space-5);
+    z-index: 41;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-3) var(--space-4);
+    border-radius: 999px;
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    border-color: var(--color-accent-strong);
+    font-family: var(--font-data);
+    font-weight: 600;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .shell-chat-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: oklch(8% 0.01 var(--hue-neutral) / 0.55);
+    z-index: 39;
+    /* Mounts with the drawer (conditional render in AppShell.tsx) — fade in alongside the slide
+       so the dimming doesn't pop. `fade-in` is declared once in base.css. */
+    animation: fade-in 0.22s ease-out backwards;
+  }
+}
+
+/* --- Narrower still: the sidebar becomes a toggleable slide-in drawer instead of a permanent
+   grid column, reusing the exact mechanism the chat rail already uses above (fixed-position panel
+   translated off-screen, a floating toggle button only rendered at this width, a click-to-dismiss
+   scrim, `aria-expanded` on the toggle) — translated to the left edge instead of the right. -------- */
+@container shell (max-width: 640px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell-sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    width: min(85vw, 18rem);
+    transform: translateX(-100%);
+    /* Same curve as the chat drawer above — one easing vocabulary shell-wide. */
+    transition: transform 0.22s var(--ease-out-quart);
+    z-index: 40;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .shell-sidebar-open {
+    transform: translateX(0);
+  }
+
+  .shell-sidebar-toggle {
+    display: inline-flex;
+    position: fixed;
+    left: var(--space-5);
+    bottom: var(--space-5);
+    z-index: 41;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-3) var(--space-4);
+    border-radius: 999px;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    border-color: var(--color-border-strong);
+    font-family: var(--font-data);
+    font-weight: 600;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .shell-sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: oklch(8% 0.01 var(--hue-neutral) / 0.55);
+    z-index: 39;
+    /* Same mount-time fade as .shell-chat-scrim above. */
+    animation: fade-in 0.22s ease-out backwards;
+  }
+
+  /* Same floating-pill clearance as the 920px block above — restated because this shorthand
+     would otherwise reset padding-bottom at ≤640px, exactly where BOTH pills exist. */
+  .shell-main {
+    padding: var(--space-5) var(--space-4)
+      calc(var(--space-5) + 2.8rem + var(--space-4) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* --- Sidebar search (retrieval pass — design-review 2026-08-22 finding #1) --------------------
+   The one persistent search input the review's Flow 3 verified didn't exist. Structural chrome
+   only — colors/spacing come from the existing tokens, so it follows whichever theme direction
+   wins. Results render in-flow (the sidebar is its own scroll container), not as an overlay, so
+   no z-index/positioning games against the nav below. */
+
+.shell-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.shell-search-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.shell-search-status {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+.shell-search-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 20rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.shell-search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.shell-search-result:hover:not(:disabled) {
+  background: var(--color-accent-tint);
+  border-color: transparent;
+}
+
+.shell-search-result-title {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+.shell-search-result-snippet {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

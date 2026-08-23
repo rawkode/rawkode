@@ -1,0 +1,29 @@
+{
+  "name": "@athenaeum/domain",
+  "version": "0.0.0",
+  "private": true,
+  "description": "effect/Schema entities, Data.TaggedError classes, Context.Tag services. Zero Cloudflare/React deps.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
