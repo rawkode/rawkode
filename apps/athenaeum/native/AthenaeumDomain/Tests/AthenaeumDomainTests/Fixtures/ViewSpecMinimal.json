@@ -1,0 +1,7 @@
+{
+  "view": "table",
+  "visibleColumns": [
+    "title"
+  ],
+  "rowLimit": 10
+}

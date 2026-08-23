@@ -1,0 +1,33 @@
+# Copy this file to `.dev.vars` (git-ignored — see ../../.gitignore) to enable the dev sign-in
+# route (`POST /api/dev/sign-in`) for local `wrangler dev` and this package's own
+# vitest-pool-workers test suite. See dev-auth.ts's and wrangler.jsonc's header comments for why
+# these two keys live here instead of wrangler.jsonc's checked-in `vars` block.
+DEV_AUTH_ENABLED=true
+# Any non-empty string works — it's a dev-only HMAC signing key, not a real secret. Generate one
+# with: openssl rand -hex 32
+DEV_AUTH_HMAC_SECRET=replace-with-any-random-hex-string
+
+# Phase 5 (calendar-oauth-state.ts) — same "any non-empty string" dev-only discipline.
+CALENDAR_OAUTH_STATE_SECRET=replace-with-any-random-hex-string
+# Not a secret — the OAuth redirect URI this deployment is registered under in Google Cloud
+# Console (see google-calendar-client-real.ts's own doc comment for what real registration needs).
+CALENDAR_OAUTH_REDIRECT_URI=https://your-deployment.example/oauth/google-calendar/callback
+
+# Adversarial-review fix (gatekeeper-service-credential.ts) — MUST be the exact same value as
+# athenaeum-gatekeeper-google-calendar's own GATEKEEPER_CALLER_HMAC_SECRET (see that package's own
+# .dev.vars.example). Only takes effect once GATEKEEPER_GOOGLE_CALENDAR (a service binding, not a
+# .dev.vars key — see index.ts's Env doc comment) is also wired up.
+GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_SECRET=replace-with-any-random-hex-string
+
+# AI Gateway routing (docs/ai-gateway-decisions.md) — optional, shared by every real inference
+# client (ModelClientAnthropic/CloudTranscriptionClientOpenAI/RealtimeVoiceClientOpenAI). Both
+# must be set together (GATEWAY mode) or both left unset/commented out (DIRECT mode, calling each
+# provider directly — the default; exactly one set is a misconfiguration that fails loud at DO
+# construction). Not secrets — a Cloudflare account ID and a gateway name, safe in this file.
+# CF_AI_GATEWAY_ACCOUNT_ID=your-cloudflare-account-id
+# CF_AI_GATEWAY_NAME=your-gateway-name
+
+# Only needed if "Authenticated Gateway" is turned on for the gateway above in the Cloudflare
+# dashboard (off is the default for a new gateway) — a gateway-scoped "Run" token minted there,
+# NOT a Cloudflare account API token.
+# CF_AI_GATEWAY_TOKEN=replace-with-a-real-gateway-run-token

@@ -1,0 +1,2379 @@
+/* Panel-level styling — layered on `design-system/tokens.css` + `base.css` + `AppShell.css`
+   (all loaded before this file, see main.tsx). Retains every class name the existing panel
+   components already render (`ChatPanel.tsx`, `SharePanel.tsx`, `CalendarPanel.tsx`, etc. are
+   unchanged markup/logic this pass, per the hard constraint) — this file re-skins them onto the
+   token system instead of the old hardcoded hex/px "Phase 0 spike" values. */
+
+/* Screen-reader-only utility — visually removes an element while keeping it in the accessibility
+   tree (the standard clip-rect recipe). Used for `NotesRoute`'s document-outline `h1` (the daily
+   note's own visible header carries the on-screen identity) and by `GraphView`'s existing
+   `sr-only` table-header span, which referenced this class without any definition existing. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Route views (the main-column content inside AppShell's `<Outlet />`) --------------------- */
+
+.route-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 56rem;
+}
+
+/* Route-content entrance — the app's ONE orchestrated moment (motion pass). Each route's root
+   remounts on navigation (react-router swaps the <Outlet/> element), so a mount-time animation on
+   the route view's direct children replays exactly once per navigation: a short fade + 8px rise,
+   staggered ~45ms across the first few sections, capped so late children never trail behind.
+   Transform/opacity only (composited — no layout/paint work); `backwards` fill keeps delayed
+   children invisible until their turn. Transient transform note: sticky headers / fixed popovers
+   inside a section are unaffected once the animation ends (no forwards fill — computed transform
+   returns to none). */
+.route-view > * {
+  animation: route-rise var(--motion-enter) var(--ease-out-quart) backwards;
+}
+
+.route-view > *:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.route-view > *:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.route-view > *:nth-child(n + 4) {
+  animation-delay: 120ms;
+}
+
+@keyframes route-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* --- Shared "panel" box treatment — every section card in a route view --------------------------
+   (daily note, graph view, chat, share, calendar, bookmarks, meetings, workouts, backlinks) ------ */
+
+.daily-note,
+.graph-view,
+.chat-panel,
+.share-panel,
+.supertags-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+/* --- Secondary content views (Calendar / Bookmarks / Meetings / Workouts) ----------------------
+   Deliberately lighter/less clinical than the bordered "panel" surfaces above: a route-level
+   header (below) now carries page identity, so these views drop the filled-surface card treatment
+   entirely — open background, dividers instead of boxes, generous top-level rhythm. Notes/Graph/
+   Chat/Sharing are untouched (still the bordered-panel look, per the hard constraint on other
+   route files). */
+
+.route-view--light {
+  gap: var(--space-7);
+}
+
+.route-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.route-heading-kicker {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+}
+
+.route-heading h1 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.route-heading p {
+  margin: 0;
+  max-width: 40rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Each secondary panel's own in-component `<h2>` (unchanged markup) drops to the same quiet
+   "section label" treatment `.chat-panel > h2` already uses elsewhere in this file — reusing an
+   established pattern rather than inventing a new one for these four views. */
+.calendar-panel,
+.calendar-day-view,
+.bookmarks-panel,
+.meetings-panel,
+.workouts-panel {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.calendar-panel > h2,
+.calendar-day-view > h2,
+.bookmarks-panel > h2,
+.meetings-panel > h2,
+.workouts-panel > h2 {
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+/* The connect/disconnect status card is secondary to the day view above it — a thin top divider
+   instead of its own box keeps it visually quieter without touching CalendarPanel.tsx/
+   CalendarRoute.tsx's DOM order (day view first, connect status second, unchanged). */
+.calendar-panel {
+  margin-top: var(--space-2);
+  padding-top: var(--space-5);
+  border-top: 1px dashed var(--color-border);
+}
+
+/* Secondary content within the daily note, not its own card — a top-border-only divider,
+   matching Calendar/Meetings/Workouts' existing secondary-content treatment above rather than
+   its own boxed-card treatment (was a nested card inside the already-bordered .daily-note panel). */
+.backlinks {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Supertag-centering pass (docs/supertag-centering-decisions.md §3, "Daily note gets its tags
+   surfaced prominently") — same "top-border-only divider, not its own boxed card" treatment as
+   `.backlinks` above, sitting between the editor and it. */
+.note-tags {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+
+.note-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Tag add/remove feedback (motion pass): a newly-applied tag's chip mounts here, so a quick
+   scale-settle + fade acknowledges the add (typing `#Person` inline, or an agent applying one).
+   Removal is instant (unmount). Scoped to this list only — the popover-header chip and inline
+   editor chips don't re-mount on state changes and shouldn't shimmer. */
+.note-tags-list .supertag-chip {
+  animation: chip-in 160ms var(--ease-out-quart) backwards;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.note-tags-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* --- Supertag field-editing popover (decisions doc §2) ---------------------------------------
+   `.impeccable.md`'s "sidebar-adjacent chrome, not a competing visual system" — a fixed, quiet
+   panel rather than a full-screen modal, so it never blocks the note itself. */
+.supertag-popover {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  width: 20rem;
+  max-width: calc(100vw - var(--space-6) * 2);
+  max-height: min(28rem, calc(100vh - var(--space-6) * 2));
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-4);
+  z-index: 40;
+  /* Open feedback (motion pass): mounts on open, so a mount-time fade + 6px rise reads as the
+     panel arriving from the note rather than blinking into existence. Close stays instant
+     (exit > entrance speed; unmount needs no choreography). Transform on a fixed element is
+     safe — it has no fixed/sticky descendants of its own. */
+  animation: pop-rise var(--motion-base) var(--ease-out-quart) backwards;
+}
+
+@keyframes pop-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Mobile click-through finding (supertag-centering wiring pass): below the same "shell" container
+   query breakpoint AppShell.css uses to turn the agent chat rail into a floating pill toggle
+   (`.shell-chat-toggle`, fixed bottom-right, z-index 41), the popover's own bottom-right anchor
+   collided with it — the toggle sat visually on top of the popover's "Add" button, unclickable.
+   Below that width the popover becomes a near-full-width sheet anchored well above the toggle row
+   (toggle height ~2.75rem + its own var(--space-5) offset from the edge; space-8 clears it with
+   room to spare) rather than a floating card sized for desktop's empty bottom-right corner. */
+@container shell (max-width: 920px) {
+  .supertag-popover {
+    left: var(--space-4);
+    right: var(--space-4);
+    bottom: var(--space-8);
+    width: auto;
+    max-width: none;
+  }
+}
+
+.supertag-popover-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.supertag-popover-header .supertag-chip {
+  margin-right: auto;
+}
+
+/* Adversarial-review fix: the only UI undo path for a tag assignment (agent-applied or inline) —
+   see SupertagFieldPopover.tsx's own doc comment on `handleRemoveTag`. Deliberately a quiet,
+   text-style button (same tier as `.shell-sign-out`), not a loud destructive-red one: removing a
+   Supertag is a normal, reversible (re-typeable/re-assignable) edit, not data loss. */
+.supertag-popover-remove {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.supertag-popover-remove:hover {
+  color: var(--color-danger, var(--color-text));
+  border-color: var(--color-danger-muted, var(--color-border-strong));
+}
+
+.supertag-popover-remove:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.supertag-popover-remove-error {
+  margin-bottom: var(--space-2);
+}
+
+.supertag-popover-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: var(--space-1);
+}
+
+.supertag-popover-close:hover {
+  color: var(--color-text);
+}
+
+.supertag-popover-loading,
+.supertag-popover-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.supertag-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.supertag-field-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.supertag-field-inherited {
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+.supertag-field-row input,
+.supertag-field-row select {
+  min-width: 0;
+}
+
+/* Interaction pass (design-review finding #2): the per-field Save button's grid slot, repurposed
+   as the save-feedback surface ("Saving…" / "✓ Saved" flash). Fixed min-width so the row doesn't
+   reflow as the status appears/disappears. */
+.supertag-field-status {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  color: var(--color-success, var(--color-text-muted));
+  min-width: 3.4rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.supertag-popover-add-field {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+
+.supertag-popover-add-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- Daily note: the one prose surface — generous spacing, the reading typeface --------------
+   `.notes-route` is the container-query context (its `.daily-note` child rewrites its own grid
+   at width, matching AppShell.css's own ancestor-container pattern for the chat rail) — direction:
+   "the daily note gets room to breathe" vs. the tight data-dense treatment graph view gets below. */
+
+.notes-route {
+  container-type: inline-size;
+  container-name: notes;
+}
+
+.daily-note {
+  padding: var(--space-7);
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.daily-note-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.daily-note-header {
+  margin: 0 0 var(--space-5);
+}
+
+.daily-note-eyebrow {
+  display: block;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.daily-note-header h2 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 400;
+}
+
+.daily-note-date {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.daily-note-loading {
+  color: var(--color-text-faint);
+}
+
+/* Refinement pass (live-screenshot finding): this used to be its own sunken, bordered inner box —
+   a card nested inside the already-bordered `.daily-note` card, with an 18rem void when the note
+   was empty. The prose now sits directly on the card surface (no inner background/border; the
+   card's own `--space-7` padding is the breathing room) and the empty-note floor lives on the
+   `.ProseMirror` element in `rich-text.css`, reduced to a few lines rather than a screenful. */
+.daily-note-body {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  color: inherit;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  min-height: 1.2em;
+  margin: var(--space-3) 0 0;
+}
+
+.sync-status-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  flex: none;
+  background: var(--color-text-faint);
+  /* State-change feedback (motion pass): color crossfades between idle/syncing/synced/error
+     instead of snapping — background is paint-only but the element is 6px square, so the cost is
+     nil. While actively syncing, a gentle opacity pulse (composited) signals in-progress work;
+     the color ALSO changes, so reduced-motion users (who see a static dot) lose nothing. */
+  transition: background var(--motion-base) ease;
+}
+
+.sync-status-syncing .sync-status-dot {
+  background: var(--color-warning);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.sync-status-synced .sync-status-dot {
+  background: var(--color-success);
+}
+
+.sync-status-error .sync-status-dot {
+  background: var(--color-danger);
+}
+
+.link-form {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.link-form input {
+  flex: 1;
+}
+
+/* Wide-enough shell: the note keeps its generous prose measure in the left column while
+   Backlinks — a tight, data-dense list, not prose — sits beside it rather than beneath. */
+@container notes (min-width: 46rem) {
+  .daily-note {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+}
+
+/* Narrow shell (mobile, sidebar collapsed to its off-canvas drawer by the shell-responsive pass):
+   the note's own internal padding is too generous once the available column is this tight —
+   drop to the standard "dense" spacing step rather than the prose-reading luxury above. */
+@container notes (max-width: 640px) {
+  .daily-note {
+    padding: var(--space-4);
+  }
+}
+
+/* --- Graph view: tight, data-dense table (direction: "tight spacing in data-dense views," the
+   opposite number of the daily note's generous prose treatment above). Ids/dates use the
+   mono-adjacent data face (already the app's base font-family — see base.css — so no override
+   needed) with tabular numerals for alignment. */
+
+.graph-view-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.graph-view-eyebrow {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-1);
+}
+
+.graph-view-eyebrow code {
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-text-muted);
+}
+
+.graph-view-header h2 {
+  margin: 0;
+}
+
+.graph-view-count {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  padding-bottom: 0.2rem;
+}
+
+.graph-view-toolbar {
+  display: flex;
+  align-items: center;
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+.graph-view-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.graph-view-filter:has(input:checked) {
+  border-color: var(--color-accent-muted);
+  background: var(--color-accent-tint);
+  color: var(--color-text);
+}
+
+.graph-view-filter input {
+  appearance: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  background: var(--color-surface-sunken);
+  display: inline-grid;
+  place-content: center;
+}
+
+.graph-view-filter input:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.graph-view-filter input:checked::after {
+  content: "";
+  width: 0.3rem;
+  height: 0.5rem;
+  border: solid var(--color-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.graph-view-table-wrap {
+  overflow-x: auto;
+}
+
+.graph-view table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.graph-view th {
+  text-align: left;
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border-strong);
+  position: sticky;
+  top: 0;
+  background: var(--color-surface);
+}
+
+.graph-view td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  line-height: 1.9;
+}
+
+.graph-view tbody tr:hover td {
+  background: var(--color-surface-raised);
+}
+
+.graph-view-col-id {
+  width: 6.5rem;
+}
+
+.graph-view-col-id code {
+  color: var(--color-text-faint);
+  letter-spacing: 0.02em;
+}
+
+.graph-view-col-created {
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.graph-view-created-time {
+  color: var(--color-text-faint);
+  margin-left: var(--space-2);
+}
+
+.graph-view-col-action {
+  width: 1%;
+  text-align: right;
+}
+
+.graph-view-col-action button {
+  padding: 0.2rem var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.graph-view td.graph-view-empty {
+  color: var(--color-text-faint);
+  padding: var(--space-3);
+}
+
+/* --- Chat panel (also rendered docked in the AppShell rail — see AppShell.css for its outer
+   frame; these rules style its own internal layout regardless of where it's mounted) ----------- */
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat-panel > h2 {
+  padding: var(--space-4) var(--space-4) 0;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-weight: 600;
+}
+
+.chat-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 0 var(--space-4) var(--space-4);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.chat-list {
+  flex: none;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-3);
+}
+
+.chat-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.chat-list-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+
+.chat-list-item:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.chat-list-item-active {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+/* Touch-target sizing at narrow shell widths — same "shell" container query AppShell.css already
+   establishes for the chat-rail/sidebar collapse; declared here since it's a `.chat-list-item`-only
+   concern, not shared shell layout. */
+@container shell (max-width: 920px) {
+  .chat-list-item {
+    min-height: 44px;
+  }
+}
+
+.chat-list-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+}
+
+.chat-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.chat-active,
+.chat-active-empty {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-model-unavailable {
+  background: var(--color-warning-muted);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 6rem;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: var(--space-1);
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  /* Arrival feedback (motion pass): each message mounts once (sent, or streamed in from the
+     agent) — a 4px rise + fade marks the arrival without any stagger games. Opacity/transform
+     only; on first render of a long history every bubble runs the same cheap composited
+     animation simultaneously, which reads as the thread loading in, not per-row choreography. */
+  animation: message-in 180ms var(--ease-out-quart) backwards;
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.chat-message-user {
+  background: var(--color-surface-raised);
+  align-self: flex-end;
+  max-width: 92%;
+}
+
+.chat-message-assistant {
+  background: var(--color-accent-tint);
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.chat-message-tool {
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.chat-message-tool-error {
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text-strong);
+}
+
+.chat-message-role {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+}
+
+.chat-message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.chat-tool-call-input {
+  margin-left: var(--space-2);
+  color: var(--color-text-faint);
+}
+
+.chat-send-form {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  flex: none;
+}
+
+.chat-send-form input {
+  flex: 1;
+}
+
+.chat-pending {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  flex: none;
+}
+
+.chat-pending h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.chat-pending-count {
+  font-size: 0.7rem;
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  border-radius: 999px;
+  padding: 0.05rem var(--space-2);
+}
+
+.chat-pending-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.chat-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+
+.chat-pending-kind {
+  display: inline-block;
+  min-width: 4.2rem;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+}
+
+.chat-pending-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chat-pending-revert {
+  background: transparent;
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text-strong);
+}
+
+.chat-note-fork {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.chat-note-fork-node {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.chat-note-fork-preview {
+  white-space: pre-wrap;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-2);
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+/* --- Sign-in screen ------------------------------------------------------------------------- */
+
+.sign-in-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-ground);
+  gap: var(--space-5);
+}
+
+.sign-in-screen h1 {
+  font-size: var(--text-2xl);
+}
+
+.sign-in-card {
+  width: 100%;
+  max-width: 26rem;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.dev-auth-banner {
+  font-size: var(--text-sm);
+  background: var(--color-warning-muted);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  margin: 0 0 var(--space-4);
+}
+
+.sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sign-in-form label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* --- Workspace switcher (rendered inside the AppShell sidebar) ------------------------------------ */
+
+.workspace-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.workspace-switcher label {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-switcher select {
+  width: 100%;
+}
+
+.workspace-switcher-loading {
+  color: var(--color-text-faint);
+}
+
+.workspace-switcher-create {
+  /* The sidebar column is permanently narrow (15.5rem): side-by-side, the button's intrinsic
+     "+ New workspace" width crushes the flexed input to a sliver (observed live as a tiny black
+     square at every width). Stack instead — full-width input above a full-width button, matching
+     the sign-in form's vertical rhythm. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.workspace-switcher-create input {
+  min-width: 0;
+}
+
+/* --- Sharing ------------------------------------------------------------------------------- */
+
+.share-section {
+  margin-bottom: var(--space-5);
+}
+
+.share-section:last-child {
+  margin-bottom: 0;
+}
+
+.share-section h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.share-form {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.share-form input {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.share-redeem-form {
+  margin-top: var(--space-3);
+}
+
+.share-minted-key {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.share-minted-key label {
+  display: block;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+.share-minted-key input {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+.share-redeem-success {
+  color: var(--color-success);
+  font-size: var(--text-sm);
+}
+
+.share-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.share-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.share-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+
+.share-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.share-affected-warning {
+  color: var(--color-warning);
+  font-size: var(--text-xs);
+}
+
+.share-confirm-remove {
+  background: transparent;
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text-strong);
+}
+
+/* --- Google Calendar + Bookmarks --------------------------------------------------------------- */
+
+.calendar-not-configured {
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.calendar-connected {
+  font-size: var(--text-sm);
+}
+
+.calendar-connected-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.calendar-redirect-ready {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.calendar-redirect-link {
+  display: inline-block;
+  margin: var(--space-2) 0;
+}
+
+.calendar-redirect-debug {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.calendar-day-view-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.calendar-day-view-synced {
+  color: var(--color-success);
+  font-size: var(--text-sm);
+}
+
+.calendar-day-view-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.calendar-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.calendar-event {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.calendar-event-cancelled {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.calendar-event-time {
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 9rem;
+}
+
+.calendar-event-title {
+  flex: 1;
+}
+
+.calendar-event-attendees {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.bookmarks-form {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.bookmarks-form input {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.bookmarks-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.bookmarks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bookmarks-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.bookmarks-list-item a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmarks-captured-at {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* --- Meetings ------------------------------------------------------------------------------- */
+
+/* List + detail side-by-side on wide viewports — a more open, app-like read for a read-only view
+   than the single stacked column every other route uses. `MeetingsPanel.tsx`'s DOM (unchanged)
+   is: h2, hint, refresh button, optional error/empty message, the list, then the optional
+   transcript — each mapped to a grid column below by its own selector, no markup changes needed. */
+.meetings-panel {
+  display: grid;
+  grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
+  column-gap: var(--space-7);
+  align-items: start;
+}
+
+.meetings-panel > h2,
+.meetings-panel > .meetings-panel-hint,
+.meetings-panel > .error,
+.meetings-empty {
+  grid-column: 1 / -1;
+}
+
+/* Refresh is a secondary, incidental action, not a page-level CTA — natural inline width,
+   left-aligned under the hint text (not spanning the full grid like the headings above it). */
+.meetings-panel > button {
+  width: fit-content;
+  justify-self: start;
+}
+
+.meetings-list {
+  grid-column: 1;
+}
+
+@media (max-width: 720px) {
+  .meetings-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meetings-list,
+  .meetings-transcript {
+    grid-column: 1;
+  }
+
+  .meetings-transcript {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    border-left: none;
+  }
+}
+
+.meetings-panel-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
+
+.meetings-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.meetings-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.meetings-list-item-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.meetings-list-item-button-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.meetings-list-item-meta {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.meetings-in-progress {
+  color: var(--color-success);
+}
+
+.meetings-transcript {
+  grid-column: 2;
+  margin-top: 0;
+  padding-top: 0;
+  padding-left: var(--space-6);
+  border-top: none;
+  border-left: 1px solid var(--color-border);
+}
+
+.meetings-transcript-header h3 {
+  margin: 0 0 var(--space-1);
+}
+
+.meetings-transcript-meta,
+.meetings-linked-node,
+.meetings-speakers {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0.15rem 0;
+}
+
+.meetings-transcript-empty,
+.meetings-transcript-loading {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.meetings-transcript-segments {
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.meetings-transcript-segment {
+  display: grid;
+  grid-template-columns: 3.5rem 8rem 1fr auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.meetings-transcript-segment-offset {
+  color: var(--color-text-faint);
+}
+
+.meetings-transcript-segment-speaker {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meetings-transcript-segment-text {
+  overflow-wrap: anywhere;
+}
+
+.meetings-transcript-segment-source {
+  font-size: 0.68rem;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.meetings-transcript-segment-source-on-device {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.meetings-transcript-segment-source-cloud {
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+}
+
+/* --- Workouts ------------------------------------------------------------------------------- */
+
+/* List + detail side-by-side on wide viewports, matching Meetings' treatment above — same
+   rationale, same unchanged-DOM-mapping approach (`WorkoutsPanel.tsx`'s markup is untouched). */
+.workouts-panel {
+  display: grid;
+  grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
+  column-gap: var(--space-7);
+  align-items: start;
+}
+
+.workouts-panel > h2,
+.workouts-panel > .workouts-panel-hint,
+.workouts-panel > .error,
+.workouts-empty {
+  grid-column: 1 / -1;
+}
+
+/* Refresh is a secondary, incidental action, not a page-level CTA — natural inline width,
+   left-aligned under the hint text (not spanning the full grid like the headings above it). */
+.workouts-panel > button {
+  width: fit-content;
+  justify-self: start;
+}
+
+.workouts-list {
+  grid-column: 1;
+}
+
+@media (max-width: 720px) {
+  .workouts-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workouts-list,
+  .workouts-detail {
+    grid-column: 1;
+  }
+
+  .workouts-detail {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    border-left: none;
+  }
+}
+
+.workouts-panel-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
+
+.workouts-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.workouts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.workouts-list-item-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.workouts-list-item-button-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.workouts-list-item-kind {
+  font-size: 0.68rem;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.workouts-list-item-activity {
+  font-weight: 600;
+  flex: 1;
+}
+
+.workouts-list-item-meta {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.workouts-detail {
+  grid-column: 2;
+  margin-top: 0;
+  padding-top: 0;
+  padding-left: var(--space-6);
+  border-top: none;
+  border-left: 1px solid var(--color-border);
+}
+
+.workouts-detail-header h3 {
+  margin: 0 0 var(--space-1);
+  text-transform: capitalize;
+}
+
+.workouts-raw-activity {
+  color: var(--color-text-faint);
+  font-weight: 400;
+  text-transform: none;
+}
+
+.workouts-detail-meta,
+.workouts-detail-cardio-rollups {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0.15rem 0;
+}
+
+.workouts-detail-cardio-rollups {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.workouts-detail-vitals {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  margin: 0.15rem 0;
+}
+
+.workouts-source {
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+.workouts-detail-empty,
+.workouts-detail-loading {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.workouts-exercises,
+.workouts-splits {
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.workouts-exercise {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workouts-exercise-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.workouts-exercise-ordinal,
+.workouts-set-ordinal,
+.workouts-split-ordinal {
+  color: var(--color-text-faint);
+}
+
+.workouts-exercise-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.workouts-exercise-volume {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.workouts-sets {
+  margin: var(--space-2) 0 0;
+  padding: 0 0 0 var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.workouts-set {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.workouts-set-rpe {
+  color: var(--color-accent);
+}
+
+.workouts-split {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workouts-split-pace {
+  color: var(--color-accent);
+}
+
+/* --- OAuth callback overlay ---------------------------------------------------------------- */
+
+.oauth-callback-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(10% 0.015 var(--hue-neutral) / 0.85);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+}
+
+.oauth-callback-card {
+  width: 100%;
+  max-width: 26rem;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: center;
+  box-shadow: var(--shadow-raised);
+}
+
+.oauth-callback-success {
+  color: var(--color-success);
+}
+
+.footnote {
+  margin-top: var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+/* --- App Library ----------------------------------------------------------------------------- */
+
+/* Create form on top, list below, detail/editor stacked underneath the selected app — a simpler
+   single-column flow than Meetings'/Workouts' list+detail grid (an App's editor/preview pane needs
+   full width for the code textarea and preview iframe, not a narrow side column). */
+.app-library-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.app-library-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.app-library-create-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.app-library-create-form input[aria-label="App icon"] {
+  width: 3.5rem;
+  text-align: center;
+}
+
+.app-library-create-form input[aria-label="App title"] {
+  flex: 1;
+}
+
+.app-library-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.app-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-library-list-item-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  text-align: left;
+  font-size: var(--text-sm);
+}
+
+.app-library-list-item-button-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.app-library-list-item-icon {
+  font-size: var(--text-lg);
+}
+
+.app-library-detail {
+  margin-top: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.app-library-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.app-library-detail-header > div {
+  flex: 1;
+}
+
+.app-library-detail-header h3 {
+  margin: 0;
+}
+
+.app-library-detail-icon {
+  font-size: var(--text-2xl);
+}
+
+.app-library-detail-meta {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  margin: 0.15rem 0 0;
+}
+
+.app-library-delete-button {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.app-library-tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.app-library-tab {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.app-library-tab-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+}
+
+.app-library-code-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.app-library-code-editor > button {
+  width: fit-content;
+}
+
+.app-library-code-textarea {
+  width: 100%;
+  min-height: 12rem;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+
+.app-library-preview-heading {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.app-library-preview-frame {
+  width: 100%;
+  min-height: 16rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* --- App Launcher (icon grid, "like on iPhone") ----------------------------------------------- */
+
+.app-launcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: var(--space-4);
+}
+
+.app-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: center;
+  transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.app-tile:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-2px);
+}
+
+.app-tile:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.app-tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--text-2xl);
+  line-height: 1;
+}
+
+.app-tile-title {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.app-tile-pending-badge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.app-tile-new {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.app-tile-new .app-tile-icon {
+  background: transparent;
+  border: 1px dashed var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-size: var(--text-xl);
+}
+
+.app-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.app-create-form input[aria-label="App icon"] {
+  width: 3.5rem;
+  text-align: center;
+}
+
+.app-create-form-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.app-create-form-cancel {
+  color: var(--color-text-muted);
+}
+
+.app-dev-seed {
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+}
+
+.app-dev-seed-button {
+  border-color: var(--color-warning-border);
+  color: var(--color-warning);
+}
+
+.app-dev-seed-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  max-width: 34rem;
+}
+
+/* --- App launch view (running app) / edit view -------------------------------------------------- */
+
+.app-launch-view,
+.app-edit-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.app-launch-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.app-launch-back {
+  color: var(--color-text-muted);
+}
+
+.app-launch-icon {
+  font-size: var(--text-lg);
+}
+
+.app-launch-title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.app-launch-edit {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.app-launch-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+}
+
+.app-launch-frame {
+  width: 100%;
+  min-height: 32rem;
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+/* --- Supertags admin (`SupertagsManager.tsx`) ---------------------------------------------------
+   List/detail grid, same shape as `.workouts-panel` (data-dense per .impeccable.md) — a narrow
+   tag list on the left, the selected tag's parents/children/fields on the right. */
+
+.supertags-panel {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  column-gap: var(--space-7);
+  align-items: start;
+}
+
+.supertags-list-column {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.supertags-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.supertags-create-form-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.supertags-create-form-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.supertags-create-form-parents {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+}
+
+.supertags-create-form-parents legend {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  padding: 0 var(--space-1);
+}
+
+.supertags-create-form-parent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+.supertags-create-form-parent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.supertags-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.supertags-list-item-button {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.supertags-list-item-button-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.supertags-list-item-name {
+  font-weight: 600;
+}
+
+.supertags-list-item-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.supertags-list-item-parents {
+  flex-basis: 100%;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.supertags-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+}
+
+.supertags-detail {
+  grid-column: 2;
+  padding-left: var(--space-6);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* Mobile click-through finding (supertag-centering wiring pass): this container-query override
+   must appear AFTER the unconditional `.supertags-detail` rule above — cascade order (not rule
+   nesting) breaks ties at equal specificity, so when this block sat earlier in the file (right
+   after `.supertags-list-column`'s own base rule, above), the later unconditional `grid-column: 2`
+   here always won regardless of container width. That silently left `.supertags-detail` pinned to
+   grid column 2 even once `.supertags-panel` itself collapsed to a single explicit column, which
+   forced the grid to fabricate an implicit second column sized to the detail panel's content,
+   squeezed the explicit first (list) column to 0 width, and rendered the list column's real
+   content overflowing on top of the detail panel — confirmed both in a real 534px-wide browser
+   viewport and by instrumenting computed styles directly. Verify any future edit here by checking
+   `getComputedStyle(.supertags-panel).gridTemplateColumns` resolves to a single track below 720px
+   container width, not two. */
+@container shell (max-width: 720px) {
+  .supertags-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .supertags-list-column,
+  .supertags-detail {
+    grid-column: 1;
+  }
+
+  .supertags-detail {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    border-left: none;
+  }
+}
+
+.supertags-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.supertags-detail-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+}
+
+.supertags-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.supertags-detail-meta > div {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.supertags-detail-meta dt {
+  color: var(--color-text-faint);
+  min-width: 5rem;
+}
+
+.supertags-detail-meta dd {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.supertags-fields h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.supertags-fields-loading,
+.supertags-fields-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.supertags-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.supertags-field-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+/* Own line when it wraps (mirrors `.supertags-list-item-parents`'s identical "drop to full
+   width rather than mid-word-wrap" treatment) — an inherited field's provenance note is the
+   least important thing in the row, so it's the one allowed to reflow first. */
+.supertags-field-row .supertag-field-inherited {
+  flex-basis: 100%;
+}
+
+.supertags-field-name {
+  font-weight: 600;
+}
+
+.supertags-field-kind {
+  color: var(--color-text-faint);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+}
+
+.supertags-field-builtin {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--color-text-faint);
+}
+
+/* --- Retrieval pass (design-review 2026-08-22 finding #1) --------------------------------------
+   Day navigation on the daily note, the /node/:id view, and link affordances on the surfaces
+   (graph rows, backlinks) that were inert text. Structural only — every color/space comes from
+   the existing tokens, so these follow whichever theme direction wins. */
+
+.daily-note-day-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.daily-note-day-nav-step {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.daily-note-day-nav-step:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.daily-note-day-nav-date {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.daily-note-day-nav-today {
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-accent);
+}
+
+/* Node view — reuses the shared bordered-panel language (.daily-note et al above). */
+.node-view {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.node-view-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.node-view-eyebrow {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+}
+
+.node-view-header h1 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-2xl);
+  font-weight: 400;
+}
+
+.node-view-open-daily {
+  align-self: flex-start;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+}
+
+.node-view-loading {
+  color: var(--color-text-faint);
+}
+
+/* Backlink entries + graph-row titles: real links now (were inert <strong>/StaticText — the
+   review's Flow 3 dead ends). Inherit the accent link color from base.css's `a` rule; keep the
+   backlink entry's former strong weight so the list reads the same, just clickable. */
+.backlink-source-link {
+  font-weight: 600;
+}
+
+.graph-view-title-link {
+  color: inherit;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+
+.graph-view-title-link:hover {
+  color: var(--color-accent);
+}

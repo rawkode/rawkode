@@ -1,0 +1,45 @@
+{
+  "name": "@athenaeum/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React + Vite frontend, Effect-based data layer.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "clean": "rm -rf dist",
+    "preview": "vite preview",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@athenaeum/domain": "workspace:*",
+    "@automerge/automerge": "catalog:",
+    "capnweb": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-router": "^8.3.0",
+    "prosemirror-model": "1.25.11",
+    "prosemirror-state": "1.4.4",
+    "prosemirror-view": "1.42.2",
+    "prosemirror-transform": "1.12.0",
+    "prosemirror-changeset": "2.4.2",
+    "prosemirror-history": "1.5.0",
+    "prosemirror-keymap": "1.2.3",
+    "prosemirror-commands": "1.7.2",
+    "prosemirror-inputrules": "1.5.1",
+    "prosemirror-schema-list": "1.5.1",
+    "prosemirror-dropcursor": "1.8.3",
+    "prosemirror-gapcursor": "1.4.1"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "catalog:"
+  }
+}

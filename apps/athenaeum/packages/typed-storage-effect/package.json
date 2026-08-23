@@ -1,0 +1,31 @@
+{
+  "name": "@athenaeum/typed-storage-effect",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Effect-wrapped DO-SQLite KV collection layer. Reimplements cloudflare-os's packages/typed-storage pattern against DO's synchronous storage.kv/storage.transactionSync(), wrapped in Effect at the collection-method boundary. Not a dependency on cloudflare-os.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
