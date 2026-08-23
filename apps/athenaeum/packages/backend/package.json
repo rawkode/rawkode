@@ -11,6 +11,7 @@
     "build": "tsc",
     "clean": "rm -rf dist .wrangler",
     "test:run": "vitest run",
+    "test:mutation-routing-audit": "node scripts/verify-mutation-routing-manifest.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

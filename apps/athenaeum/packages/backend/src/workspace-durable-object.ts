@@ -295,6 +295,7 @@ import { resolveAiGatewayRoute } from "./ai-gateway-route.js"
 import { ensureGraphViews, indexNodeText, upsertNode } from "./read-model.js"
 import { NodesSubscription } from "./nodes-subscription.js"
 import { decodeRpcInput, domainErrorFromCause, runOrThrowRpcError, runRpcProgram } from "./rpc-boundary.js"
+import { LedgerConflict, LedgerService, ledgerFingerprint } from "./ledger-service.js"
 import { makeMeetingCollections } from "./meeting-collections.js"
 import {
   makeMeetingAudioBucketR2Live,
@@ -709,6 +710,8 @@ class WorkspaceRpcApi extends RpcTarget {
    *  don't hand the whole `Env` down" discipline this class already applies to `scheduleEviction`
    *  above. */
   readonly #devAuthHmacSecret: string | undefined
+  readonly #ledger: LedgerService
+  readonly #storage: DurableObjectStorage
 
   constructor(
     runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>,
@@ -718,7 +721,8 @@ class WorkspaceRpcApi extends RpcTarget {
     currentUser: AuthenticatedUser | undefined,
     scheduleEviction: (emails: ReadonlyArray<string>, reason: string) => void,
     liveVoiceAudioSessions: Map<string, LiveVoiceAudioSessionHandle>,
-    devAuthHmacSecret: string | undefined
+    devAuthHmacSecret: string | undefined,
+    storage: DurableObjectStorage
   ) {
     super()
     this.#runtime = runtime
@@ -729,6 +733,8 @@ class WorkspaceRpcApi extends RpcTarget {
     this.#scheduleEviction = scheduleEviction
     this.#liveVoiceAudioSessions = liveVoiceAudioSessions
     this.#devAuthHmacSecret = devAuthHmacSecret
+    this.#storage = storage
+    this.#ledger = new LedgerService(sql)
   }
 
   // --- Phase 4 prerequisite: auth-context plumbing proof ---------------------------------------
@@ -760,6 +766,11 @@ class WorkspaceRpcApi extends RpcTarget {
   async createNode(input: unknown): Promise<unknown> {
     const sql = this.#sql
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    // This identity is deliberately per outer RPC invocation. The existing public input has no
+    // caller retry key, so only an explicit node id can identify a separate client retry.
+    const requestId = crypto.randomUUID()
     const program = decodeRpcInput(CreateNodeInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
@@ -767,29 +778,52 @@ class WorkspaceRpcApi extends RpcTarget {
         Effect.gen(function* () {
           const repository = yield* NodesRepository
           const syncFeed = yield* SyncFeedService
-          const node = new NodeEntity({
-            // Web-stage addition (see domain's `CreateNodeInput.id` doc comment): an explicit
-            // caller-supplied id (the daily-note deterministic-id flow) wins; every other caller
-            // gets the original Phase 0 behavior of a fresh random id.
-            id: decoded.id ?? Schema.decodeUnknownSync(EntityId)(crypto.randomUUID()),
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
+          const principal = currentUser?.email ?? "anonymous"
+          const requestIdentity = decoded.id === undefined ? `rpc:${requestId}` : `node:${decoded.id}`
+          const command = {
+            requestIdentity,
+            requestId,
             workspaceId: decoded.workspaceId,
+            principal,
+            policy,
             title: decoded.title,
-            createdAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date().toISOString())
+            payload: { id: decoded.id, title: decoded.title }
+          }
+          const fingerprint = ledgerFingerprint(command)
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const replay = ledger.existing(requestIdentity, fingerprint)
+              if (replay !== undefined) return Schema.decodeUnknownSync(CreateNodeOutput)(replay.output)
+              const node = new NodeEntity({
+                id: decoded.id ?? Schema.decodeUnknownSync(EntityId)(crypto.randomUUID()),
+                workspaceId: decoded.workspaceId,
+                title: decoded.title,
+                createdAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date().toISOString())
+              })
+              ledger.append({ ...command, fingerprint, createdAt: node.createdAt })
+              const write = Effect.gen(function* () {
+                const created = yield* repository.put(node)
+                yield* upsertNode(sql, created)
+                yield* indexNodeText(sql, created.id, created.title, "")
+                yield* syncFeed.append("node", created.id, "put", created)
+                return new CreateNodeOutput({ node: created })
+              })
+              const exit = Effect.runSyncExit(write)
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              const output = exit.value
+              ledger.appendOutboxIntent(requestIdentity, output.node.id)
+              ledger.receipt(requestIdentity, fingerprint, Schema.encodeSync(CreateNodeOutput)(output))
+              return output
+            }),
+            catch: (error): DomainError =>
+              error instanceof LedgerConflict || error instanceof ValidationError
+                ? new ValidationError({ message: error.message })
+                : error instanceof Unauthorized || error instanceof UnexpectedError
+                  ? error
+                  : new UnexpectedError({ message: `ledgered createNode failed: ${error instanceof Error ? error.message : String(error)}` })
           })
-          const created = yield* repository.put(node)
-          // Views/Search stage additions to this otherwise-untouched Phase 0 method: keep the
-          // `read-model.ts` SQL read-model (`upsertNode`) and the `graph_text_search` FTS5 index
-          // (`indexNodeText` — title only at creation time, empty body until a page exists) in
-          // sync with the canonical KV write above, same pattern as every other mutation in this
-          // file/`graph-service-live.ts`/`notes-service-live.ts`.
-          yield* upsertNode(sql, created)
-          yield* indexNodeText(sql, created.id, created.title, "")
-          // Structured-record sync feed (task item 6: "records every mutation to nodes/tags/
-          // facts/relationDefinitions/edges as a feed entry") — Phase 0's `createNode` predates
-          // the feed, so this is the Storage/Views stage's one addition to an otherwise-untouched
-          // Phase 0 method, not a rewrite of its own logic.
-          yield* syncFeed.append("node", created.id, "put", created)
-          return new CreateNodeOutput({ node: created })
         })
       )
     )
@@ -3052,7 +3086,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           currentUser,
           (emails, reason) => this.#scheduleRevocationEviction(emails, reason),
           this.#liveVoiceAudioSessions,
-          this.env.DEV_AUTH_HMAC_SECRET
+          this.env.DEV_AUTH_HMAC_SECRET,
+          this.#storage
         )
       )
       return new Response(null, { status: 101, webSocket: client })
@@ -3069,7 +3104,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           currentUser,
           (emails, reason) => this.#scheduleRevocationEviction(emails, reason),
           this.#liveVoiceAudioSessions,
-          this.env.DEV_AUTH_HMAC_SECRET
+          this.env.DEV_AUTH_HMAC_SECRET,
+          this.#storage
         )
       )
       response.headers.set("Access-Control-Allow-Origin", "*")
@@ -3202,6 +3238,29 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       Effect.asVoid
     )
     return runOrThrowRpcError(this.#runtime, program)
+  }
+
+  /** Test-only inspection of the transitional local ledger. It is deliberately native-RPC-only:
+   * receipts are an operational audit artifact, not part of the existing public client contract. */
+  async debugGetLedgerReceipt(requestIdentity: string): Promise<unknown | null> {
+    const row = this.#sql.exec<{ fingerprint: string; output: string }>(
+      "SELECT fingerprint, output FROM ledger_receipts WHERE requestIdentity = ?", requestIdentity
+    ).toArray()[0]
+    return row === undefined ? null : { fingerprint: row.fingerprint, output: JSON.parse(row.output) }
+  }
+
+  async debugGetLedgerCommand(requestIdentity: string): Promise<unknown | null> {
+    const row = this.#sql.exec<{
+      version: string; requestId: string; fingerprint: string; type: string; workspaceId: string;
+      principal: string; capability: string; policy: string; messageDerivationVersion: string;
+      message: string; payload: string; createdAt: string
+    }>(
+      `SELECT version, requestId, fingerprint, type, workspaceId, principal, capability, policy,
+              messageDerivationVersion, message, payload, createdAt
+       FROM ledger_commands WHERE requestIdentity = ?`,
+      requestIdentity
+    ).toArray()[0]
+    return row === undefined ? null : { ...row, payload: JSON.parse(row.payload) }
   }
 
   /**
