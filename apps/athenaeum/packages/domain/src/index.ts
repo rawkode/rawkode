@@ -9,8 +9,13 @@ export { EntityId, IsoDateTimeString, Node, PendingMarker } from "./node.js"
 export {
   LEDGER_COMMAND_VERSION,
   LEDGER_MESSAGE_DERIVATION_VERSION,
+  ACCEPT_CHAT_FORK_MESSAGE_DERIVATION_VERSION,
+  AcceptChatForkLedgerCommand,
+  AcceptPageProposalLedgerCommand,
+  CreateNodeLedgerCommand,
   LedgerCommand,
   LedgerReceipt,
+  acceptChatForkCommitMessage,
   createNodeCommitMessage,
   normalizeCreateNodeTitle
 } from "./ledger.js"
@@ -149,6 +154,12 @@ export { GraphIssuesRepository } from "./graph-issues-repository.js"
 
 export { JsonValue } from "./json-value.js"
 export { Page } from "./page.js"
+export { canonicalAutomergeHeadsHash } from "./automerge-heads.js"
+export { PageProposal, PageProposalProvenance, PageCommit } from "./page-proposal.js"
+export {
+  ProposePageEditInput, ProposePageEditOutput, PreviewPageProposalInput, PreviewPageProposalOutput,
+  AcceptPageProposalInput, AcceptPageProposalOutput, RevertPageProposalInput, RevertPageProposalOutput
+} from "./page-proposal-rpc.js"
 export { BASE_TAGS, BaseTagIds, Tag } from "./tag.js"
 export { Fact } from "./fact.js"
 export { RelationCardinality, RelationDefinition } from "./relation-definition.js"

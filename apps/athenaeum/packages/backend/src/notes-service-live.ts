@@ -25,7 +25,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Automerge from "@automerge/automerge"
-import { NodeNotFound, NodesRepository, Page, PageNotFound, PagesRepository, UnexpectedError, type EntityId } from "@athenaeum/domain"
+import { canonicalAutomergeHeadsHash, NodeNotFound, NodesRepository, Page, PageNotFound, PagesRepository, UnexpectedError, type EntityId } from "@athenaeum/domain"
 import type { PagesCollections, PageDocRow } from "./pages-repository-live.js"
 import { revivePage, toUnexpectedError } from "./pages-repository-live.js"
 import { SyncFeedService } from "./sync-feed-service-live.js"
@@ -40,8 +40,7 @@ export interface PageDoc {
   readonly [key: string]: unknown
 }
 
-const headsHashOf = (doc: Automerge.Doc<PageDoc>): string =>
-  Automerge.getHeads(doc).slice().sort().join(",")
+const headsHashOf = (doc: Automerge.Doc<PageDoc>): string => canonicalAutomergeHeadsHash(Automerge.getHeads(doc))
 
 /**
  * Test-only injection point, same pattern as `graph-service-live.ts`'s `createEdgeTestHook`: the
@@ -57,6 +56,14 @@ export interface PageSyncResult {
   readonly message: Uint8Array | null
   readonly converged: boolean
   readonly reset: boolean
+}
+
+/** A durable page write that is deliberately not visible through the in-memory document cache
+ * until its caller's enclosing SQLite transaction has committed. */
+export interface PreparedMergedDoc {
+  readonly page: Page
+  readonly text: string
+  readonly publish: () => void
 }
 
 export class NotesService extends Context.Tag("@athenaeum/backend/NotesService")<
@@ -104,6 +111,19 @@ export class NotesService extends Context.Tag("@athenaeum/backend/NotesService")
       nodeId: EntityId,
       mergedDoc: Automerge.Doc<PageDoc>
     ) => Effect.Effect<{ page: Page; text: string }, UnexpectedError>
+    /** Transaction fanout seam for ledgered mutations. Persists page bytes, page metadata,
+     * search projection, and sync-feed record, but leaves cache publication to `publish()` after
+     * the outer Durable Object transaction succeeds. */
+    readonly prepareMergedDoc: (
+      nodeId: EntityId,
+      mergedDoc: Automerge.Doc<PageDoc>
+    ) => Effect.Effect<PreparedMergedDoc, UnexpectedError>
+    /** Restores a committed doc to the instance-local cache during an accepted-proposal replay. */
+    readonly restoreCommittedDoc: (
+      nodeId: EntityId,
+      committedBytes: Uint8Array,
+      committedHeadsHash: string
+    ) => Effect.Effect<{ page: Page; text: string }, PageNotFound | UnexpectedError>
   }
 >() {}
 
@@ -190,6 +210,24 @@ export const makeNotesServiceLive = (
           const page = new Page({ nodeId, automergeDocId, headsHash: headsHashOf(doc) })
           yield* collections.pages.put(page).pipe(Effect.mapError(toUnexpectedError))
           return page
+        })
+
+      const prepareMergedDoc = (
+        nodeId: EntityId,
+        mergedDoc: Automerge.Doc<PageDoc>
+      ): Effect.Effect<PreparedMergedDoc, UnexpectedError> =>
+        Effect.gen(function* () {
+          // Do not publish `mergedDoc` to docCache yet. A ledger caller may still roll back its
+          // enclosing `transactionSync`; cache publication happens only through the returned
+          // closure after that transaction has committed.
+          const bytes = Automerge.save(mergedDoc)
+          yield* collections.pageDocs.put({ nodeId, bytes }).pipe(Effect.mapError(toUnexpectedError))
+          const existingPage = yield* collections.pages.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
+          const page = new Page({ nodeId, automergeDocId: existingPage?.automergeDocId ?? nodeId, headsHash: headsHashOf(mergedDoc) })
+          yield* collections.pages.put(page).pipe(Effect.mapError(toUnexpectedError))
+          yield* reindex(nodeId, mergedDoc.text)
+          yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: page.headsHash })
+          return { page, text: mergedDoc.text, publish: () => docCache.set(nodeId, mergedDoc) }
         })
 
       /** Re-indexes `graph_text_search` (Views/Search stage, plan §"Full-text search") for one
@@ -301,10 +339,31 @@ export const makeNotesServiceLive = (
 
         applyMergedDoc: (nodeId, mergedDoc) =>
           Effect.gen(function* () {
-            const page = yield* saveDoc(nodeId, mergedDoc)
-            yield* reindex(nodeId, mergedDoc.text)
-            yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: page.headsHash })
-            return { page, text: mergedDoc.text }
+            const prepared = yield* prepareMergedDoc(nodeId, mergedDoc)
+            prepared.publish()
+            return { page: prepared.page, text: prepared.text }
+          }),
+
+        prepareMergedDoc,
+        restoreCommittedDoc: (nodeId, committedBytes, committedHeadsHash) =>
+          Effect.gen(function* () {
+            const page = yield* pagesRepository.get(nodeId)
+            if (page.headsHash === committedHeadsHash) {
+              const committedDoc = Automerge.load<PageDoc>(committedBytes)
+              docCache.set(nodeId, committedDoc)
+              return { page, text: committedDoc.text }
+            }
+
+            // A later direct/sync write has already superseded this accepted proposal. A retry
+            // is idempotent for its ledger receipt, not authorization to overwrite that newer
+            // durable page state; bypass the cache because it may be the stale pre-commit doc.
+            const currentRow = yield* collections.pageDocs.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
+            if (currentRow === undefined) {
+              return yield* Effect.fail(new UnexpectedError({ message: `page ${nodeId} exists but its Automerge doc blob is missing` }))
+            }
+            const currentDoc = Automerge.load<PageDoc>((currentRow as PageDocRow).bytes)
+            docCache.set(nodeId, currentDoc)
+            return { page, text: currentDoc.text }
           })
       }
     })

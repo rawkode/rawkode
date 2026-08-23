@@ -5,7 +5,7 @@ const backendRoot = fileURLToPath(new URL("..", import.meta.url))
 const source = readFileSync(new URL("../src/workspace-durable-object.ts", import.meta.url), "utf8")
 const manifest = readFileSync(new URL("../src/mutation-routing-manifest.ts", import.meta.url), "utf8")
 const names = [...source.matchAll(/^  async (\w+)\(/gm)].map((match) => match[1])
-const mutationPrefixes = /^(add|create|update|delete|apply|append|assign|unassign|define|syncNote|syncGoogle|rotate|fork|accept|revert|revoke|merge|send|start|end|open|close|commit|import|connect|disconnect|redeem|remove|link|pageSync|googleCalendarOAuth|mint)/
+const mutationPrefixes = /^(add|create|update|delete|apply|append|assign|unassign|define|syncNote|syncGoogle|rotate|fork|propose|accept|revert|revoke|merge|send|start|end|open|close|commit|import|connect|disconnect|redeem|remove|link|pageSync|googleCalendarOAuth|mint)/
 const actual = names.filter((name) => mutationPrefixes.test(name))
 const listed = [...manifest.matchAll(/\b(\w+): "(?:ledger|direct)"/g)].map((match) => match[1]).filter((name) => name !== "appRunHttp")
 const missing = actual.filter((name) => !listed.includes(name))
@@ -13,7 +13,8 @@ const stale = listed.filter((name) => !actual.includes(name))
 if (missing.length || stale.length) {
   throw new Error(`mutation-routing manifest drift; missing=[${missing}] stale=[${stale}] (root ${backendRoot})`)
 }
-if (!/createNode: "ledger"/.test(manifest) || (manifest.match(/: "ledger"/g) ?? []).length !== 1) {
-  throw new Error("createNode must be the sole ledger-routed public mutation")
+const ledgerRoutes = ["createNode", "acceptChatFork", "acceptPageProposal"]
+if (ledgerRoutes.some((name) => !new RegExp(`${name}: "ledger"`).test(manifest)) || (manifest.match(/: "ledger"/g) ?? []).length !== ledgerRoutes.length) {
+  throw new Error(`ledger routing manifest must contain exactly ${ledgerRoutes.join(", ")}`)
 }
 console.log(`mutation-routing manifest verified (${actual.length} public mutations)`)

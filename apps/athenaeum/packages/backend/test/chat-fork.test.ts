@@ -174,6 +174,30 @@ describe("ChatForkService: accept merges the fork into mainline", () => {
     expect(accepted.text).toContain("[user edit]")
     expect(accepted.text).toContain("Mainline content")
   })
+
+  it("accepts the newest proposed chat-fork cycle instead of replaying an earlier accepted cycle", async () => {
+    const setup = await setupWorkspaceWithPage()
+    workspaceStub = setup.workspaceStub
+    const { workspaceId, nodeId } = setup
+
+    await workspaceStub.forkChatEdit(Schema.encodeSync(ForkChatEditInput)(new ForkChatEditInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    await workspaceStub.applyChatForkEdit(Schema.encodeSync(ApplyChatForkEditInput)(
+      new ApplyChatForkEditInput({ workspaceId, chatId: CHAT_ID, nodeId, index: "Mainline content".length, deleteCount: 0, insertText: " one" })
+    ))
+    const first = Schema.decodeUnknownSync(AcceptChatForkOutput)(
+      await workspaceStub.acceptChatFork(Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    )
+    expect(first.text).toBe("Mainline content one")
+
+    await workspaceStub.forkChatEdit(Schema.encodeSync(ForkChatEditInput)(new ForkChatEditInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    await workspaceStub.applyChatForkEdit(Schema.encodeSync(ApplyChatForkEditInput)(
+      new ApplyChatForkEditInput({ workspaceId, chatId: CHAT_ID, nodeId, index: first.text.length, deleteCount: 0, insertText: " two" })
+    ))
+    const second = Schema.decodeUnknownSync(AcceptChatForkOutput)(
+      await workspaceStub.acceptChatFork(Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    )
+    expect(second.text).toBe("Mainline content one two")
+  })
 })
 
 describe("ChatForkService: revert leaves mainline completely unaffected, no leaked state", () => {

@@ -1,14 +1,15 @@
 /**
  * Source-verified routing inventory for the public Workspace RPC mutation surface, including
  * credential minting even though it does not itself persist workspace application state.
- * `createNode` is the sole transitional ledger route. Every other entry is deliberately a
+ * `createNode`, `acceptChatFork`, and `acceptPageProposal` are ledger routes. Every other entry is deliberately a
  * direct bypass until it receives its own compatible command contract; this manifest prevents
  * silently implying that the ledger governs mutations it does not yet govern.
  */
 export const WORKSPACE_MUTATION_ROUTING = {
   createNode: "ledger",
   createPage: "direct", applyPageEdit: "direct", startPageSync: "direct", pageSyncMessage: "direct",
-  forkChatEdit: "direct", applyChatForkEdit: "direct", acceptChatFork: "direct", revertChatFork: "direct",
+  forkChatEdit: "direct", applyChatForkEdit: "direct", acceptChatFork: "ledger", revertChatFork: "direct",
+  proposePageEdit: "direct", acceptPageProposal: "ledger", revertPageProposal: "direct",
   createTag: "direct", addFact: "direct", createRelationDefinition: "direct", createEdge: "direct",
   syncNoteReferences: "direct", assignTag: "direct", unassignTag: "direct", defineTagField: "direct", applySupertag: "direct",
   rotateEpoch: "direct", createChat: "direct", sendChatMessage: "direct", mergeChanges: "direct", revertChanges: "direct",
