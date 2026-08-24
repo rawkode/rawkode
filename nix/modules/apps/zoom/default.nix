@@ -14,11 +14,17 @@ mkApp {
     };
 
   darwin.system =
-    { lib, ... }:
+    { config, lib, ... }:
     {
-      homebrew = {
-        enable = lib.mkDefault true;
-        casks = [ "zoom" ];
+      options.rawkOS.apps.zoom.enable = lib.mkEnableOption "Zoom Homebrew cask" // {
+        default = true;
+      };
+
+      config = lib.mkIf config.rawkOS.apps.zoom.enable {
+        homebrew = {
+          enable = lib.mkDefault true;
+          casks = [ "zoom" ];
+        };
       };
     };
 }

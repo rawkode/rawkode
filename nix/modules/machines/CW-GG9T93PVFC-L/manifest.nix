@@ -13,6 +13,8 @@
     disabledCapabilities = [ ];
     traits = [ ];
     users.dflanagan = { };
-    modules = [ ];
+    modules = [
+      { rawkOS.apps.zoom.enable = false; }
+    ];
   };
 }
