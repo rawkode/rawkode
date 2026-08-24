@@ -85,13 +85,9 @@ private struct WorkspaceView: View {
 
                 Divider()
 
-                // Phase 5 native stage: calendar day view (read-only against already-synced
-                // `calendarEvents` — see `CalendarDayView.swift`'s own header comment for why this
-                // pass ships no "Connect Google Calendar" UI affordance) + bookmarks capture.
-                // Both accept an anonymous connection (`bearerCredential: nil`) for an ungoverned
-                // workspace, matching every other pre-Phase-4 panel's behavior — `SharePanelView`
-                // below is the one exception that genuinely requires a real caller identity.
-                CalendarDayView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential)
+                // Today Brief is a server-owned local-day projection. It replaces the legacy
+                // raw synced-event CalendarDayView; the view never joins or sorts provider data.
+                TodayBriefView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential)
 
                 Divider()
 

@@ -204,7 +204,14 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "CreateBookmarkInput", swiftStructName: "CreateBookmarkInput" },
   { tsExportName: "CreateBookmarkOutput", swiftStructName: "CreateBookmarkOutput" },
   { tsExportName: "ListBookmarksInput", swiftStructName: "ListBookmarksInput" },
-  { tsExportName: "ListBookmarksOutput", swiftStructName: "ListBookmarksOutput" }
+  { tsExportName: "ListBookmarksOutput", swiftStructName: "ListBookmarksOutput" },
+
+  // Today Brief: deliberately privacy-safe calendar read projection.
+  { tsExportName: "TodayBriefPerson", swiftStructName: "TodayBriefPerson" },
+  { tsExportName: "TodayBriefEvent", swiftStructName: "TodayBriefEvent" },
+  { tsExportName: "TodayBriefCalendarHistory", swiftStructName: "TodayBriefCalendarHistory" },
+  { tsExportName: "GetTodayBriefInput", swiftStructName: "GetTodayBriefInput" },
+  { tsExportName: "GetTodayBriefOutput", swiftStructName: "GetTodayBriefOutput" }
 ]
 
 const KNOWN_LIMITATIONS = [
@@ -214,7 +221,7 @@ const KNOWN_LIMITATIONS = [
   "EntityId/IsoDateTimeString/WorkspaceEpoch (branded scalars, no fields) are out of scope for a field-name diff by construction.",
   "Role (sharing.ts's build/use Schema.Literal union) and ShareKeyHash (a branded scalar, like EntityId) are likewise out of scope for a field-name diff — Role is diffed nowhere automatically (same limitation as RelationCardinality etc., above); ShareKeyHash's Swift mirror is hand-verified against sharing.ts's own regex.",
   "PermissionEdge (sharing.ts's Schema.Union(UserEdge, ShareLinkEdge)) is not itself diffed — only its two member classes (UserEdge, ShareLinkEdge) are, individually, via MIRRORED_CLASSES; the Swift-side tagged-union Codable dispatch (Sharing.swift) is hand-verified against the TS union's shared `type` discriminant, same convention as ViewSpec.swift/RpcError.swift.",
-  "Phase 5 native stage additions follow the identical existing pattern, not a new gap: CalendarEventTime (calendar-event.ts's Schema.Union, hand-Codable in CalendarEvent.swift, same convention as PermissionEdge/ViewPredicate), CalendarEventStatus/GatekeeperKind (Schema.Literal unions, like RelationCardinality — diffed nowhere automatically), BookmarkUrl (a branded scalar, like ShareKeyHash/EntityId — out of scope for a field-name diff by construction), and GatekeeperBindingConfig (gatekeeper-binding.ts's Schema.Union(GoogleCalendarBindingConfig), one real member today — only that member is diffed via MIRRORED_CLASSES, same convention as PermissionEdge above)."
+  "Phase 5 native stage additions follow the identical existing pattern, not a new gap: CalendarEventTime (calendar-event.ts's Schema.Union, hand-Codable in CalendarEvent.swift, same convention as PermissionEdge/ViewPredicate), CalendarEventStatus/GatekeeperKind/TodayBriefHistoryStatus (Schema.Literal unions, like RelationCardinality — diffed nowhere automatically), BookmarkUrl/LocalDate/IanaTimeZone (branded scalars, like ShareKeyHash/EntityId — out of scope for a field-name diff by construction), and GatekeeperBindingConfig (gatekeeper-binding.ts's Schema.Union(GoogleCalendarBindingConfig), one real member today — only that member is diffed via MIRRORED_CLASSES, same convention as PermissionEdge above)."
 ]
 
 // --- Swift side: extract stored-property names per top-level struct ---------------------------

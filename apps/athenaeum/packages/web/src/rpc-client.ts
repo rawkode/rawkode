@@ -150,6 +150,8 @@ import {
   SyncGoogleCalendarOutput,
   SyncNoteReferencesInput,
   SyncNoteReferencesOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   AppendTranscriptSegmentInput,
   AppendTranscriptSegmentOutput,
   WhoamiOutput,
@@ -258,6 +260,7 @@ interface WorkspaceApi {
   disconnectGoogleCalendar(input: unknown): Promise<unknown>
   syncGoogleCalendar(input: unknown): Promise<unknown>
   listCalendarEvents(input: unknown): Promise<unknown>
+  getTodayBrief(input: unknown): Promise<unknown>
   linkCalendarEventToNode(input: unknown): Promise<unknown>
   createBookmark(input: unknown): Promise<unknown>
   listBookmarks(input: unknown): Promise<unknown>
@@ -419,6 +422,7 @@ export interface WorkspaceRpcClientService {
   readonly listCalendarEvents: (
     input: ListCalendarEventsInput
   ) => Effect.Effect<ListCalendarEventsOutput, DomainError>
+  readonly getTodayBrief: (input: GetTodayBriefInput) => Effect.Effect<GetTodayBriefOutput, DomainError>
   readonly linkCalendarEventToNode: (
     input: LinkCalendarEventToNodeInput
   ) => Effect.Effect<LinkCalendarEventToNodeOutput, DomainError>
@@ -756,6 +760,11 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         listCalendarEvents: (input) =>
           callForValue(ListCalendarEventsOutput, () =>
             workspaceStub.listCalendarEvents(Schema.encodeSync(ListCalendarEventsInput)(input))
+          ),
+
+        getTodayBrief: (input) =>
+          callForValue(GetTodayBriefOutput, () =>
+            workspaceStub.getTodayBrief(Schema.encodeSync(GetTodayBriefInput)(input))
           ),
 
         linkCalendarEventToNode: (input) =>

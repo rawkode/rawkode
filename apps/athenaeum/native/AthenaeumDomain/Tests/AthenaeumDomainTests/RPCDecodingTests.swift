@@ -206,4 +206,20 @@ final class RPCDecodingTests: XCTestCase {
         XCTAssertNil(output.message)
         try assertRoundTrips(output)
     }
+
+    // MARK: - today-brief-rpc.ts (privacy-safe calendar projection)
+
+    func testGetTodayBriefInputOutput() throws {
+        let input = try decodeFixture(GetTodayBriefInput.self, "GetTodayBriefInput")
+        XCTAssertEqual(input.localDate.rawValue, "2026-11-01")
+        XCTAssertEqual(input.timeZone.rawValue, "America/New_York")
+        try assertRoundTrips(input)
+
+        let output = try decodeFixture(GetTodayBriefOutput.self, "GetTodayBriefOutput")
+        XCTAssertEqual(output.from.rawValue, "2026-11-01T04:00:00.000Z")
+        XCTAssertEqual(output.to.rawValue, "2026-11-02T05:00:00.000Z")
+        XCTAssertEqual(output.calendarHistory.status, .found)
+        XCTAssertEqual(output.events.first?.people.map(\.displayName), ["Alice", nil])
+        try assertRoundTrips(output)
+    }
 }

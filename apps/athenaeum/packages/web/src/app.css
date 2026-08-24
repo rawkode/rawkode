@@ -117,7 +117,6 @@
    "section label" treatment `.chat-panel > h2` already uses elsewhere in this file — reusing an
    established pattern rather than inventing a new one for these four views. */
 .calendar-panel,
-.calendar-day-view,
 .bookmarks-panel,
 .meetings-panel,
 .workouts-panel {
@@ -128,7 +127,6 @@
 }
 
 .calendar-panel > h2,
-.calendar-day-view > h2,
 .bookmarks-panel > h2,
 .meetings-panel > h2,
 .workouts-panel > h2 {
@@ -1157,55 +1155,65 @@
   font-size: var(--text-xs);
 }
 
-.calendar-day-view-controls {
+.today-brief {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.today-brief-heading {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
 }
 
-.calendar-day-view-synced {
-  color: var(--color-success);
-  font-size: var(--text-sm);
+.today-brief-heading h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
 }
 
-.calendar-day-view-empty {
+.today-brief-date,
+.today-brief-history {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-brief-history,
+.today-brief-state {
+  margin: var(--space-2) 0;
+}
+
+.today-brief-events {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.today-brief-event {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.today-brief-event time {
+  min-width: 5rem;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.calendar-event-list {
+.today-brief-event div {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.calendar-event {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--text-sm);
-}
-
-.calendar-event-cancelled {
-  opacity: 0.5;
-  text-decoration: line-through;
-}
-
-.calendar-event-time {
-  color: var(--color-text-faint);
-  font-variant-numeric: tabular-nums;
-  min-width: 9rem;
-}
-
-.calendar-event-title {
-  flex: 1;
-}
-
-.calendar-event-attendees {
+.today-brief-event span {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
 }

@@ -17,8 +17,14 @@ let package = Package(
     products: [
         .library(name: "AthenaeumRPC", targets: ["AthenaeumRPC"])
     ],
+    dependencies: [
+        .package(name: "AthenaeumDomain", path: "../AthenaeumDomain")
+    ],
     targets: [
-        .target(name: "AthenaeumRPC"),
+        .target(
+            name: "AthenaeumRPC",
+            dependencies: [.product(name: "AthenaeumDomain", package: "AthenaeumDomain")]
+        ),
         .testTarget(name: "AthenaeumRPCTests", dependencies: ["AthenaeumRPC"])
     ]
 )

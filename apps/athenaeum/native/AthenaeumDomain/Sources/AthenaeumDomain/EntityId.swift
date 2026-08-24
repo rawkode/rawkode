@@ -168,4 +168,7 @@ public enum AthenaeumDomainDecodingError: Error, Sendable, Equatable {
     case invalidShareKeyHash(String)
     /// Phase 5 addition — see `Bookmark.swift`'s `BookmarkUrl.init(validating:)`.
     case invalidBookmarkUrl(String)
+    /// Today Brief additions — see `TodayBriefRPC.swift`.
+    case invalidLocalDate(String)
+    case invalidIanaTimeZone(String)
 }

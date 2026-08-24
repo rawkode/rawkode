@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router"
 import { DailyNote } from "../DailyNote.js"
+import { TodayBrief } from "../TodayBrief.js"
 import { localDateStamp, parseDateStamp } from "../daily-note-id.js"
 
 // One file per routed section (task item 3), so a later restyling pass can rework exactly this
@@ -42,6 +43,7 @@ export function NotesRoute() {
   return (
     <div className="route-view notes-route">
       <h1 className="sr-only">Daily note for {stamp}</h1>
+      <TodayBrief />
       <DailyNote key={stamp} date={date} onNavigateDate={navigateToDate} />
     </div>
   )

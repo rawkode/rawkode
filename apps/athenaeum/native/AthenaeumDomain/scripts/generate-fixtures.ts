@@ -49,6 +49,8 @@ import {
   GetNodeOutput,
   GetPageTextInput,
   GetPageTextOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   GraphIssue,
   ListBacklinksInput,
   ListBacklinksOutput,
@@ -80,6 +82,9 @@ import {
   SyncFeedOutput,
   Tag,
   TagClosureEntry,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefPerson,
   ViewSpec
 } from "../../../packages/domain/dist/index.js"
 
@@ -439,6 +444,35 @@ write(
 )
 write("RotateEpochInput", encode(RotateEpochInput, new RotateEpochInput({ workspaceId })))
 write("RotateEpochOutput", encode(RotateEpochOutput, new RotateEpochOutput({ epoch: "epoch-def456" })))
+
+// --- Today Brief (privacy-safe calendar projection) -------------------------------------------
+
+write(
+  "GetTodayBriefInput",
+  encode(GetTodayBriefInput, new GetTodayBriefInput({ workspaceId, localDate: "2026-11-01", timeZone: "America/New_York" }))
+)
+write(
+  "GetTodayBriefOutput",
+  encode(
+    GetTodayBriefOutput,
+    new GetTodayBriefOutput({
+      localDate: "2026-11-01",
+      timeZone: "America/New_York",
+      from: "2026-11-01T04:00:00.000Z",
+      to: "2026-11-02T05:00:00.000Z",
+      calendarHistory: new TodayBriefCalendarHistory({ status: "found" }),
+      events: [
+        new TodayBriefEvent({
+          id: nodeId,
+          title: "Planning",
+          start: "2026-11-01T14:00:00.000Z",
+          end: "2026-11-01T14:30:00.000Z",
+          people: [new TodayBriefPerson({ displayName: "Alice" }), new TodayBriefPerson({})]
+        })
+      ]
+    })
+  )
+)
 
 // --- RpcErrorEnvelope fixtures (hand-constructed via each DomainError's real encodeRpcError) ---
 

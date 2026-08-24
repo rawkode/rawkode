@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as Schema from "effect/Schema"
-import { GetTodayBriefInput, IanaTimeZone, LocalDate } from "./today-brief-rpc.js"
+import { GetTodayBriefInput, IanaTimeZone, LocalDate, TodayBriefPerson } from "./today-brief-rpc.js"
 
 const workspaceId = "00000000-0000-4000-8000-000000000001"
 
@@ -15,5 +15,11 @@ describe("Today Brief RPC contract", () => {
     expect(Schema.decodeUnknownEither(LocalDate)("2026-02-29")._tag).toBe("Left")
     expect(Schema.decodeUnknownEither(LocalDate)("2026-2-1")._tag).toBe("Left")
     expect(Schema.decodeUnknownEither(IanaTimeZone)("Not/AZone")._tag).toBe("Left")
+  })
+
+  it("accepts an omitted person display name but rejects null and empty values", () => {
+    expect(Schema.decodeUnknownSync(TodayBriefPerson)({}).displayName).toBeUndefined()
+    expect(Schema.decodeUnknownEither(TodayBriefPerson)({ displayName: null })._tag).toBe("Left")
+    expect(Schema.decodeUnknownEither(TodayBriefPerson)({ displayName: "" })._tag).toBe("Left")
   })
 })
