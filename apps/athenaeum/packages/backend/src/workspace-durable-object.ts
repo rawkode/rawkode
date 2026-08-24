@@ -141,6 +141,8 @@ import {
   GetNodeOutput,
   GetPageTextInput,
   GetPageTextOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
   GraphIssuesRepository,
@@ -2148,6 +2150,24 @@ class WorkspaceRpcApi extends RpcTarget {
       )
     )
     return runRpcProgram(this.#runtime, program, ListCalendarEventsOutput)
+  }
+
+  async getTodayBrief(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(GetTodayBriefInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      // Keep the authorization boundary centralized at the RPC edge. CalendarService then applies
+      // the calendar-derived visibility policy and deliberately makes a denial look like no local
+      // retained data, rather than disclosing any binding or observer state.
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const calendar = yield* CalendarService
+          return yield* calendar.getTodayBrief(decoded, currentUser?.email)
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, GetTodayBriefOutput)
   }
 
   async linkCalendarEventToNode(input: unknown): Promise<unknown> {

@@ -379,6 +379,17 @@ export {
   SyncGoogleCalendarOutput
 } from "./gatekeeper-rpc.js"
 
+export {
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
+  IanaTimeZone,
+  LocalDate,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefHistoryStatus,
+  TodayBriefPerson
+} from "./today-brief-rpc.js"
+
 // Phase 6 spike (plan §"Meetings & voice") — see cloud-transcription.ts's own header comment for
 // the full design rationale and its relationship to model-client.ts's established pattern.
 export {

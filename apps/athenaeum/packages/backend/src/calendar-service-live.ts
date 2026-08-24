@@ -80,12 +80,17 @@ import {
   FactsRepository,
   GatekeeperBinding,
   GatekeeperNotConnected,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   GoogleCalendarBindingConfig,
   IsoDateTimeString,
   NodesRepository,
   Node as NodeEntity,
   OAuthExchangeFailed,
   ValidationError,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefPerson,
   type DomainError
 } from "@athenaeum/domain"
 import {
@@ -162,6 +167,13 @@ export interface CalendarServiceApi {
     to: IsoDateTimeString | undefined,
     callerEmail: string | undefined
   ) => Effect.Effect<ReadonlyArray<CalendarEvent>, DomainError>
+
+  /** Read-only local projection for the Today Brief. Visibility denial intentionally produces the
+   * same retained-data result as an empty local projection. */
+  readonly getTodayBrief: (
+    input: GetTodayBriefInput,
+    callerEmail: string | undefined
+  ) => Effect.Effect<GetTodayBriefOutput, never>
 
   readonly linkEventToNode: (
     workspaceId: EntityId,
@@ -718,6 +730,41 @@ export const makeCalendarServiceLive = (
           })
         })
 
+      const getTodayBrief: CalendarServiceApi["getTodayBrief"] = (input, callerEmail) => {
+        const { timeZone, from, to } = resolveTodayBriefWindow(input.localDate, input.timeZone)
+        return listEvents(input.workspaceId, from, to, callerEmail).pipe(
+          Effect.map((events) => {
+            const projected = projectTodayBriefEvents(events, from, to, input.timeZone, callerEmail)
+            return new GetTodayBriefOutput({
+              localDate: input.localDate,
+              timeZone,
+              from,
+              to,
+              calendarHistory: new TodayBriefCalendarHistory({
+                // This only describes what was present in Athenaeum's already-retained local
+                // projection. It is deliberately not a claim about the external calendar.
+                status: projected.length > 0 ? "found" : "noneInRetainedData"
+              }),
+              events: projected
+            })
+          }),
+          // A projection-storage failure must not turn a read into a calendar-oracle. The bounded
+          // response says only that Athenaeum could not read its own retained projection.
+          Effect.catchAll(() =>
+            Effect.succeed(
+              new GetTodayBriefOutput({
+                localDate: input.localDate,
+                timeZone,
+                from,
+                to,
+                calendarHistory: new TodayBriefCalendarHistory({ status: "unavailable" }),
+                events: []
+              })
+            )
+          )
+        )
+      }
+
       const linkEventToNode: CalendarServiceApi["linkEventToNode"] = (workspaceId, calendarEventId, nodeId) =>
         Effect.gen(function* () {
           yield* nodesRepository.get(nodeId)
@@ -778,6 +825,7 @@ export const makeCalendarServiceLive = (
         disconnect,
         sync,
         listEvents,
+        getTodayBrief,
         linkEventToNode,
         createBookmark,
         listBookmarks,
@@ -790,6 +838,137 @@ export const makeCalendarServiceLive = (
   )
 
 const eventTimeValue = (value: CalendarEventTime): string => (value.kind === "date" ? `${value.date}T00:00:00.000Z` : value.dateTime)
+
+/** Resolve midnight through the server's ICU data. The small fixed-point loop is important: a
+ * local day is not always 24 hours, and the offset at UTC midnight can differ from the offset at
+ * the local midnight being resolved. */
+const localMidnightToInstant = (localDate: string, timeZone: string): IsoDateTimeString => {
+  const [year, month, day] = localDate.split("-").map(Number)
+  const nominalUtc = Date.UTC(year!, month! - 1, day!)
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  })
+  let candidate = nominalUtc
+  let converged = false
+  for (let i = 0; i < 3; i++) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]))
+    const renderedAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second))
+    const next = nominalUtc - (renderedAsUtc - candidate)
+    if (next === candidate) {
+      converged = true
+      break
+    }
+    candidate = next
+  }
+  const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]))
+  const renderedDate = `${parts.year}-${parts.month}-${parts.day}`
+  if (!converged || renderedDate !== localDate || parts.hour !== "00" || parts.minute !== "00" || parts.second !== "00") {
+    throw new RangeError(`Local midnight does not exist for ${localDate} in ${timeZone}`)
+  }
+  return IsoDateTimeString.make(new Date(candidate).toISOString())
+}
+
+const nextLocalDate = (localDate: string): string => {
+  const [year, month, day] = localDate.split("-").map(Number)
+  const next = new Date(Date.UTC(year!, month! - 1, day! + 1))
+  return next.toISOString().slice(0, 10)
+}
+
+export const resolveTodayBriefWindow = (localDate: string, requestedTimeZone: string) => {
+  const timeZone = Intl.DateTimeFormat("en-GB", { timeZone: requestedTimeZone }).resolvedOptions().timeZone
+  return {
+    timeZone: timeZone as GetTodayBriefOutput["timeZone"],
+    from: localMidnightToInstant(localDate, timeZone),
+    to: localMidnightToInstant(nextLocalDate(localDate), timeZone)
+  }
+}
+
+const normalizeEmail = (value: string): string => value.trim().toLowerCase()
+
+const calendarEventInstant = (value: CalendarEventTime, timeZone: string): number =>
+  Date.parse(value.kind === "date" ? localMidnightToInstant(value.date, timeZone) : value.dateTime)
+
+const compareStableStrings = (left: string, right: string): number => (left === right ? 0 : left > right ? 1 : -1)
+
+/**
+ * Orders duplicate retained rows from older to newer canonical state. Equal sync instants use the
+ * documented status order tentative < confirmed < cancelled so cancellation tombstones win, then
+ * the immutable local row id as the stable final tie-breaker. This makes selection independent of
+ * storage or input iteration order.
+ */
+const compareCanonicalCalendarEvents = (left: CalendarEvent, right: CalendarEvent): number => {
+  const bySyncedAt = compareStableStrings(left.syncedAt, right.syncedAt)
+  if (bySyncedAt !== 0) return bySyncedAt
+
+  const statusOrder = { tentative: 0, confirmed: 1, cancelled: 2 } as const
+  const byStatus = statusOrder[left.status] - statusOrder[right.status]
+  return byStatus !== 0 ? byStatus : compareStableStrings(left.id, right.id)
+}
+
+/** The projection is deliberately narrower than `CalendarEvent`: no provider id, recurrence
+ * metadata, linked node, attendee email, or sync timestamp is exposed. */
+export const projectTodayBriefEvents = (
+  events: ReadonlyArray<CalendarEvent>,
+  from: IsoDateTimeString,
+  to: IsoDateTimeString,
+  timeZone: string,
+  callerEmail: string | undefined
+): ReadonlyArray<TodayBriefEvent> => {
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  const self = callerEmail === undefined ? undefined : normalizeEmail(callerEmail)
+  const canonical = new Map<string, CalendarEvent>()
+  for (const event of events) {
+    // A recurring master is a definition, not an occurrence in a person's day.
+    if (event.seriesId !== undefined && event.occurrenceId === undefined) continue
+    // A provider row is canonical for standalone events; a series + original occurrence identity
+    // is canonical for recurring instances even if a sync retry duplicated the materialized row.
+    // Resolve this before filtering cancelled rows: a newer cancellation tombstone must suppress
+    // the older confirmed row regardless of input order.
+    const key = event.occurrenceId === undefined ? event.providerEventId : `${event.seriesId ?? ""}:${event.occurrenceId}`
+    const existing = canonical.get(key)
+    if (existing === undefined || compareCanonicalCalendarEvents(event, existing) > 0) {
+      canonical.set(key, event)
+    }
+  }
+
+  return [...canonical.values()]
+    .filter((event) => {
+      if (event.status === "cancelled") return false
+      const startMs = calendarEventInstant(event.start, timeZone)
+      const endMs = calendarEventInstant(event.end, timeZone)
+      return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > fromMs && startMs < toMs
+    })
+    .sort((left, right) => {
+      const byStart = calendarEventInstant(left.start, timeZone) - calendarEventInstant(right.start, timeZone)
+      return byStart !== 0 ? byStart : left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
+    })
+    .map((event) => {
+      const seenPeople = new Set<string>()
+      const people: TodayBriefPerson[] = []
+      for (const attendee of event.attendees) {
+        const email = normalizeEmail(attendee.email)
+        if (email === self || seenPeople.has(email)) continue
+        seenPeople.add(email)
+        const displayName = attendee.displayName?.trim()
+        people.push(new TodayBriefPerson(displayName === undefined || displayName.length === 0 ? {} : { displayName }))
+      }
+      return new TodayBriefEvent({
+        id: event.id,
+        title: event.title,
+        start: IsoDateTimeString.make(new Date(calendarEventInstant(event.start, timeZone)).toISOString()),
+        end: IsoDateTimeString.make(new Date(calendarEventInstant(event.end, timeZone)).toISOString()),
+        people
+      })
+    })
+}
 
 const describeError = (cause: unknown): string =>
   cause instanceof Error ? cause.message : typeof cause === "object" && cause !== null && "message" in cause ? String((cause as { message: unknown }).message) : String(cause)

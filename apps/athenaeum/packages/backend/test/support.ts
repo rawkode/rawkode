@@ -98,6 +98,7 @@ export interface WorkspaceApi {
   disconnectGoogleCalendar(input: unknown): Promise<unknown>
   syncGoogleCalendar(input: unknown): Promise<unknown>
   listCalendarEvents(input: unknown): Promise<unknown>
+  getTodayBrief(input: unknown): Promise<unknown>
   linkCalendarEventToNode(input: unknown): Promise<unknown>
   createBookmark(input: unknown): Promise<unknown>
   listBookmarks(input: unknown): Promise<unknown>

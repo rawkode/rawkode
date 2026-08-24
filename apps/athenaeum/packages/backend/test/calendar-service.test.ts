@@ -446,6 +446,14 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
       events: ReadonlyArray<{ title: string }>
     }
     expect(grantedEvents.events.map((e) => e.title)).toContain("1:1 with Alice")
+    const localDate = new Date().toISOString().slice(0, 10)
+    const ownerBrief = (await ownerStub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
+      calendarHistory: { status: string }
+      events: ReadonlyArray<{ title: string; people: ReadonlyArray<{ displayName?: string }> }>
+    }
+    expect(ownerBrief.calendarHistory.status).toBe("found")
+    expect(ownerBrief.events).toEqual(expect.arrayContaining([expect.objectContaining({ title: "1:1 with Alice" })]))
+    expect(JSON.stringify(ownerBrief)).not.toContain("alice@example.test")
     const grantedNodes = (await grantedStub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     expect(grantedNodes.nodes.some((n) => n.title === "Alice")).toBe(true)
     expect(grantedNodes.nodes.some((n) => n.title === "Plain workspace note")).toBe(true)
@@ -454,6 +462,13 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
     const { stub: deniedStub } = await connectToWorkspaceWithSocketAs(workspaceId, deniedCred)
     const deniedEvents = (await deniedStub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<unknown> }
     expect(deniedEvents.events).toHaveLength(0)
+    const deniedBrief = (await deniedStub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
+      calendarHistory: { status: string }
+      events: ReadonlyArray<unknown>
+    }
+    // A calendar-policy denial is intentionally identical to a workspace with no matching
+    // Athenaeum-retained events: neither the binding nor observer state is exposed.
+    expect(deniedBrief).toMatchObject({ calendarHistory: { status: "noneInRetainedData" }, events: [] })
     const deniedNodes = (await deniedStub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     // Excluded specifically: the attendee-imported Person node is gone...
     expect(deniedNodes.nodes.some((n) => n.title === "Alice")).toBe(false)
