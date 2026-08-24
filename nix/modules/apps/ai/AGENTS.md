@@ -20,20 +20,22 @@
 - For low-risk coordinated edits, work directly: inspect status and scope, make the focused change, run formatter/parser/evaluation checks appropriate to the files, and report any unrelated validation blockers. Skip Sol/Terra/Luna planning, architecture gates, and adversarial review unless genuine ambiguity, architectural change, or material integration risk appears.
 - Keep the workflow proportional to the requested outcome. Do not turn a small configuration substitution into a new abstraction, broad refactor, deployment, or multi-agent workstream without a separate requirement.
 
-## Model Workflow
+## Material-task workflow
 
-For every material implementation task, use separate delegated agents for planning, building, and reviewing when delegation is available.
+Use this workflow only for material implementation tasks. Simple, bounded, low-risk, typo, comment, and documentation-only changes do not need design or planning: work directly and use focused verification appropriate to the files. Do not invoke Sol/Terra/Luna planning, architecture gates, integration workflow, or adversarial review for those changes.
 
 A material task has meaningful architectural, data, dependency, permission, build/release, security, persistence, migration, concurrency, or integration risk. File count and ordinary bounded runtime/configuration changes are not sufficient by themselves; judge materiality by risk and scope. Typo- and comment-only changes are exempt but still require scoped verification.
 
-### 1. Optional Problem Framing — Sol
+For material implementation tasks, use separate delegated agents for planning, building, and reviewing when delegation is available.
+
+### 1. Optional Problem Framing — Sol (material tasks only)
 
 - Terra is the default operational coordinator. Do not use Sol as the continuous coordinator for repository exploration or routine delegation.
 - For genuinely ambiguous, high-stakes, or architecture-heavy tasks, request one bounded framing pass from GPT-5.6 Sol (`gpt-5.6-sol`) before exploration.
 - Sol identifies the hardest unknowns, architectural risks, assumptions to challenge, research questions, and acceptance threats. It does not perform a broad repository scan or produce the full execution plan.
 - Return a compact framing brief to Terra. Skip this stage when the request and architecture are already clear.
 
-### 2. Explore and Plan — Terra
+### 2. Explore and Plan — Terra (material tasks only)
 
 - Delegate operational coordination and read-only planning to GPT-5.6 Terra (`gpt-5.6-terra`).
 - Terra inspects the repository baseline, relevant instructions, existing implementation, tests, and established patterns.
@@ -55,16 +57,16 @@ A material task has meaningful architectural, data, dependency, permission, buil
 - Identify the critical path, integration owner, merge order, and final system-level verification.
 - Continue without an approval pause when safe in-scope defaults exist. Ask the user only when a material product or scope decision remains unresolved.
 
-### 3. Architecture Gate — Sol
+### 3. Architecture Gate — Sol (material tasks only)
 
-- Before implementation, give Sol the original request, acceptance criteria, optional framing brief, Terra's proposed execution plan, and compact evidence handoffs with repository references.
+- Before implementing a material task, give Sol the original request, acceptance criteria, optional framing brief, Terra's proposed execution plan, and compact evidence handoffs with repository references.
 - Keep this review bounded. Do not send the complete exploration transcript or duplicate raw repository context unless Sol requests a specific missing artifact.
 - Sol must try to falsify the plan and identify architectural flaws, missing constraints, unsafe boundaries, needless complexity, weak abstractions, data-flow errors, security or privacy risks, migration or compatibility gaps, concurrency or sync hazards, integration risks, and insufficient verification.
 - Sol returns precise amendments classified as `blocking` or `non-blocking`; it should not rewrite the whole plan when targeted corrections are sufficient.
 - Terra incorporates accepted amendments and republishes the execution plan. Implementation begins only after zero blocking architecture findings remain.
 - Repeat the gate only when plan changes materially affect architecture or risk.
 
-### 4. Build — Terra or Luna
+### 4. Build — Terra or Luna (material tasks only)
 
 - The Terra coordinator assigns each approved work package.
 - Use Terra for architectural, cross-cutting, ambiguous, high-risk, security or privacy, persistence, migration, sync, concurrency, integration, and difficult debugging work.
@@ -73,32 +75,32 @@ A material task has meaningful architectural, data, dependency, permission, buil
 - Every builder must stay within its ownership boundary, follow the package contract, record deviations, preserve unrelated work, and return implementation plus verification evidence.
 - Parallel builders may work only on independent scopes.
 
-### 5. Integrate — Terra
+### 5. Integrate — Terra (material tasks only)
 
 - The Terra integration owner collects package handoffs, resolves cross-package conflicts, checks interface contracts, and runs integration and system-level verification.
 - Reconcile the final diff against the approved plan and record all material deviations.
 - If integration reveals a new architectural assumption or invalidates the approved design, return to the Sol architecture gate before continuing.
 
-### 6. Final Adversarial Review — Sol
+### 6. Final Adversarial Review — Sol (material tasks only)
 
-- After integration, delegate an independent final review to Sol before declaring completion. High-risk packages may receive an additional bounded Sol review before integration.
+- After integrating a material task, delegate an independent final review to Sol before declaring completion. High-risk packages may receive an additional bounded Sol review before integration.
 - Give Sol the original request, acceptance criteria, approved plan, package handoffs, exact revision and diff, recorded deviations, and concise verification evidence. Include raw excerpts when failures or disputed claims require them.
 - Do not give Sol the builders' verdicts or ask it to confirm a preferred conclusion.
 - Sol may inspect the repository and run checks, but must not edit the implementation.
 - Sol must attempt to falsify correctness by looking for regressions, missed requirements, edge cases, missing tests, architectural drift, unsafe data changes, security or privacy risks, concurrency or migration failures, integration defects, and unsupported claims.
 - Findings must cite evidence and be classified as `blocking` or `non-blocking`.
 - Return blocking findings to the appropriate builder or integration owner. Repeat affected verification and Sol review after material fixes.
-- Completion requires zero unresolved blocking findings.
+- A material task using this workflow requires zero unresolved blocking findings before completion.
 
-## Token and Context Efficiency
+## Material-task workflow efficiency
 
-- Use Sol for bounded framing and review gates, not continuous orchestration or routine repository exploration.
+- Use Sol for bounded framing and review gates on material tasks, not continuous orchestration or routine repository exploration.
 - Keep one Terra coordinator responsible for the repository map, execution plan, and integration state.
 - Partition exploration and implementation by independent questions and ownership boundaries instead of duplicating broad context across agents.
 - Prefer compact, evidence-backed handoffs with repository references. Pass the minimum sufficient context and let a reviewer request specific missing evidence.
 - Reuse accepted findings and plans across stages rather than asking later agents to rediscover the same facts.
 
-## Reasoning Effort
+## Reasoning effort for material tasks
 
 - Never prescribe a fixed reasoning effort globally, by role, or by model.
 - Prefer leaving reasoning effort unspecified so the selected model and runtime can choose appropriately.
@@ -114,8 +116,11 @@ Before declaring work complete:
 
 - inspect repository status, the scoped diff, and relevant ancestry;
 - confirm the final diff contains only requested work;
+- run checks appropriate to the files and scope, and report exact verification commands and results;
+
+For material tasks that use the workflow above, additionally:
+
 - verify every work package and its handoff contract;
 - run final integration and system-level checks;
 - report material deviations from the plan;
-- report exact verification commands and results;
 - report Sol's verdict and remaining non-blocking risks.
