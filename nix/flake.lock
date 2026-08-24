@@ -257,6 +257,31 @@
         "type": "github"
       }
     },
+    "cuetty": {
+      "inputs": {
+        "flake-utils": "flake-utils_5",
+        "nixpkgs": [
+          "nixpkgs-stable"
+        ],
+        "rust-overlay": "rust-overlay_2"
+      },
+      "locked": {
+        "dir": "apps/cuetty",
+        "lastModified": 1787687385,
+        "narHash": "sha256-14yM3zyG07OzPx2DrjH0DtLlOrAjDKMAAaUmsGWbYV8=",
+        "owner": "cuenv",
+        "repo": "cuenv",
+        "rev": "7afacce08b64dc7ca4cf2b5cf5c968fb51a9a127",
+        "type": "github"
+      },
+      "original": {
+        "dir": "apps/cuetty",
+        "owner": "cuenv",
+        "repo": "cuenv",
+        "rev": "7afacce08b64dc7ca4cf2b5cf5c968fb51a9a127",
+        "type": "github"
+      }
+    },
     "devshell": {
       "inputs": {
         "nixpkgs": [
@@ -641,6 +666,22 @@
       }
     },
     "flake-utils_5": {
+      "locked": {
+        "lastModified": 1652776076,
+        "narHash": "sha256-gzTw/v1vj4dOVbpBSJX4J0DwUR6LIyXo7/SuuTJp1kM=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "04c1b180862888302ddfb2e3ad9eaa63afc60cf8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "ref": "v1.0.0",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "flake-utils_6": {
       "inputs": {
         "systems": "systems_7"
       },
@@ -658,7 +699,7 @@
         "type": "github"
       }
     },
-    "flake-utils_6": {
+    "flake-utils_7": {
       "inputs": {
         "systems": "systems_11"
       },
@@ -889,7 +930,7 @@
     },
     "kree": {
       "inputs": {
-        "flake-utils": "flake-utils_5",
+        "flake-utils": "flake-utils_6",
         "nixpkgs": "nixpkgs_7"
       },
       "locked": {
@@ -909,7 +950,7 @@
           "nixpkgs"
         ],
         "pre-commit": "pre-commit",
-        "rust-overlay": "rust-overlay_2"
+        "rust-overlay": "rust-overlay_3"
       },
       "locked": {
         "lastModified": 1787571731,
@@ -1620,6 +1661,7 @@
         "comma": "comma",
         "coreweave": "coreweave",
         "cuenv": "cuenv",
+        "cuetty": "cuetty",
         "disko": "disko",
         "flake-parts": "flake-parts_3",
         "flatpaks": "flatpaks",
@@ -1686,6 +1728,27 @@
       }
     },
     "rust-overlay_2": {
+      "inputs": {
+        "nixpkgs": [
+          "cuetty",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787540965,
+        "narHash": "sha256-48/4bbmK3W3Av3YPnrFb/tVQXPvBwU6kyM3Pb13VVD8=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "ab450d47a3f906d19de1b332915bfc6e5b29c853",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "rust-overlay_3": {
       "inputs": {
         "nixpkgs": [
           "lanzaboote",
@@ -2073,7 +2136,7 @@
     },
     "vicinae": {
       "inputs": {
-        "flake-utils": "flake-utils_6",
+        "flake-utils": "flake-utils_7",
         "nixpkgs": "nixpkgs_13"
       },
       "locked": {

@@ -13,6 +13,7 @@ mkCapability {
     bun.home
     comma.home
     cuenv.home
+    cuetty.home
     cue.home
     deno.home
     devenv.home

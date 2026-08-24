@@ -34,6 +34,13 @@
     comma.url = "github:nix-community/comma";
     coreweave.url = "github:coreweave/coreweave.nix";
     cuenv.url = "github:cuenv/cuenv";
+    # Cuetty is currently published from the app flake in the open Cuenv PR.
+    # Keep the exact reviewed revision in the lock file until the package is
+    # exported from Cuenv's root flake.
+    cuetty = {
+      url = "github:cuenv/cuenv/7afacce08b64dc7ca4cf2b5cf5c968fb51a9a127?dir=apps/cuetty";
+      inputs.nixpkgs.follows = "nixpkgs-stable";
+    };
     disko.url = "github:nix-community/disko";
     kree.url = "path:../apps/kree";
     flatpaks.url = "github:gmodena/nix-flatpak";
