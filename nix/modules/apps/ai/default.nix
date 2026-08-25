@@ -96,7 +96,7 @@ mkApp {
         casks = [
           "antigravity-cli"
           "chatgpt"
-          "claude-code"
+          "claude-code@latest"
           "codex"
           "codex-app"
           "openusage"
