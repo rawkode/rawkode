@@ -42,6 +42,18 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Raise focused windows", selection: $appState.focusRaisePolicy) {
+                        ForEach(FocusRaisePolicy.allCases) { policy in
+                            Text(policy.displayName).tag(policy)
+                        }
+                    }
+                    Text("Choose whether focusing may move a window above overlapping windows.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
             }
         }
         .padding()
