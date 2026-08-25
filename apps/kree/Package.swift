@@ -20,6 +20,10 @@ let package = Package(
                 .unsafeFlags(["-framework", "ApplicationServices"]),
                 .unsafeFlags(["-framework", "Carbon"])
             ]
+        ),
+        .testTarget(
+            name: "KreeTests",
+            dependencies: ["Kree"]
         )
     ]
 )

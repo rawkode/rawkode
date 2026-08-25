@@ -44,6 +44,13 @@ class AppState: ObservableObject {
             updateEngineConfig()
         }
     }
+
+    @Published var focusRaisePolicy: FocusRaisePolicy {
+        didSet {
+            UserDefaults.standard.set(focusRaisePolicy.rawValue, forKey: "focusRaisePolicy")
+            updateEngineConfig()
+        }
+    }
     
     @Published var isTrusted: Bool = AXIsProcessTrusted()
     
@@ -58,6 +65,10 @@ class AppState: ObservableObject {
         } else {
             self.disableModifier = .none
         }
+
+        self.focusRaisePolicy = FocusRaisePolicy.decode(
+            UserDefaults.standard.string(forKey: "focusRaisePolicy")
+        )
         
         focusEngine.onTrustChange = { [weak self] trusted in
             DispatchQueue.main.async {
@@ -72,7 +83,8 @@ class AppState: ObservableObject {
     private func updateEngineConfig() {
         focusEngine.setConfiguration(
             delay: focusDelay,
-            disableModifier: disableModifier.flags
+            disableModifier: disableModifier.flags,
+            raisePolicy: focusRaisePolicy
         )
     }
     
