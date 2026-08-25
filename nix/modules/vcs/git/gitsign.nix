@@ -14,7 +14,7 @@ mkApp {
     }:
     let
       cacheSocket =
-        if pkgs.stdenv.isDarwin then
+        if pkgs.stdenv.hostPlatform.isDarwin then
           "${config.home.homeDirectory}/Library/Caches/sigstore/gitsign/cache.sock"
         else
           "${config.xdg.cacheHome}/sigstore/gitsign/cache.sock";
@@ -48,7 +48,7 @@ mkApp {
         };
       }
 
-      (lib.mkIf pkgs.stdenv.isLinux {
+      (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
         home.file.".cache/sigstore/gitsign/.keep".text = "";
 
         systemd.user.services.gitsign-credential-cache = {
@@ -69,7 +69,7 @@ mkApp {
         };
       })
 
-      (lib.mkIf pkgs.stdenv.isDarwin {
+      (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
         home.file."Library/Caches/sigstore/gitsign/.keep".text = "";
 
         launchd.agents.gitsign-credential-cache = {
