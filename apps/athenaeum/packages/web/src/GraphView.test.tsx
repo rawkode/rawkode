@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { act } from "react"
+import { act, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { WorkspaceNotFound } from "@athenaeum/domain"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -25,7 +25,7 @@ vi.mock("react-router", () => ({
     className
   }: {
     readonly to: string
-    readonly children: unknown
+    readonly children: ReactNode
     readonly className?: string
   }) => <a className={className} href={to}>{children}</a>
 }))

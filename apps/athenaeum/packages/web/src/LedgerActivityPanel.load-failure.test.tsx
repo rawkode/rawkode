@@ -30,9 +30,10 @@ vi.mock("./use-effect-query.js", () => ({
         return { status: "success" as const, value: { entries: precedingEntries } }
       }
     }
-    const outcome = typeof refreshKey === "number" ? queryStateMock.outcomes.get(refreshKey) ?? "failure" : "loading"
+    const numericRefreshKey = typeof refreshKey === "number" ? refreshKey : undefined
+    const outcome = numericRefreshKey === undefined ? "loading" : queryStateMock.outcomes.get(numericRefreshKey) ?? "failure"
     if (outcome === "loading") return { status: "loading" as const }
-    if (outcome === "success") return { status: "success" as const, value: { entries: queryStateMock.entries.get(refreshKey) ?? [] } }
+    if (outcome === "success") return { status: "success" as const, value: { entries: queryStateMock.entries.get(numericRefreshKey!) ?? [] } }
     return { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
   }
 }))

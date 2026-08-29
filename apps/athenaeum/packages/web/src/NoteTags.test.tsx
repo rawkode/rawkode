@@ -24,6 +24,8 @@ vi.mock("./use-effect-query.js", () => ({
 }))
 
 import { NoteTags } from "./NoteTags.js"
+import type { NoteTagChip } from "./NoteTags.js"
+import type { FloatingAnchorRect, FloatingAnchorRectSource } from "./floating-popover-position.js"
 
 const nodeId = EntityId.make("00000000-0000-4000-8000-000000000001")
 const otherNodeId = EntityId.make("00000000-0000-4000-8000-000000000006")
@@ -39,7 +41,11 @@ const flush = async (): Promise<void> => {
 const render = async (
   root: Root,
   refreshKey: number,
-  onSelectTag: ReturnType<typeof vi.fn>,
+  onSelectTag: (
+    chip: NoteTagChip,
+    anchorRect: FloatingAnchorRect,
+    anchorRectSource: FloatingAnchorRectSource
+  ) => void,
   currentNodeId: EntityId = nodeId
 ): Promise<void> => {
   await act(async () => {
