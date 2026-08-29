@@ -34,7 +34,7 @@ public struct RPCTag: Sendable, Equatable {
 }
 
 /// Mirrors `packages/domain/src/tag-field-definition.ts`'s `TagFieldValueKind`.
-public enum RPCTagFieldValueKind: String, Sendable, Equatable {
+public enum RPCTagFieldValueKind: String, Sendable, Equatable, Hashable {
     case text
     case number
     case date
@@ -85,6 +85,13 @@ public struct RPCResolvedTagField: Sendable, Equatable, Identifiable {
         guard let inherited = try value.field("inherited").boolValue else {
             throw CapnWebError.malformedMessage("malformed ResolvedTagField: \(value)")
         }
+        self.inherited = inherited
+    }
+
+    /// Construction seam for an accepted mutation receipt. The server returns the declaring
+    /// field directly, while the read projection carries inheritance metadata.
+    public init(field: RPCTagFieldDefinition, inherited: Bool = false) {
+        self.field = field
         self.inherited = inherited
     }
 }
@@ -165,6 +172,30 @@ extension WorkspaceRPCClient {
     public func listTagFields(tagId: String) async throws -> [RPCResolvedTagField] {
         let result = try await rpc("listTagFields", ["tagId": .string(tagId)])
         return try (result.field("fields").arrayValue ?? []).map(RPCResolvedTagField.init)
+    }
+
+    /// Defines a direct field on a tag. Root-only eligibility is a native UI policy for this
+    /// surface; this binding deliberately mirrors the existing backend RPC without claiming the
+    /// server enforces that additional policy.
+    public func defineTagField(
+        tagId: String,
+        name: String,
+        valueKind: RPCTagFieldValueKind,
+        sortOrder: Int,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCTagFieldDefinition {
+        let result = try await rpc("defineTagField", [
+            "tagId": .string(tagId),
+            "name": .string(name),
+            "valueKind": .string(valueKind.rawValue),
+            "sortOrder": .int(sortOrder),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
+        ])
+        return try RPCTagFieldDefinition(result.field("fieldDefinition"))
     }
 
     public func assignTag(nodeId: String, tagId: String, requestId: String, commitMessage: String, attribution: MutationAttribution) async throws {

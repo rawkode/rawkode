@@ -10,11 +10,24 @@ struct PendingSupertagIntent: Equatable {
     let attribution: MutationAttribution
 }
 
+/// Frozen at the moment the user chooses to define a field. Retrying must replay this exact
+/// semantic operation rather than silently adopting a changed selection or draft.
+struct PendingTagFieldIntent: Equatable {
+    let tagId: String
+    let name: String
+    let valueKind: RPCTagFieldValueKind
+    let sortOrder: Int
+    let requestId: String
+    let rationale: String
+    let attribution: MutationAttribution
+}
+
 @MainActor
 protocol SupertagsCatalogTransport {
     func listTags() async throws -> [RPCTag]
     func listTagFields(tagId: String) async throws -> [RPCResolvedTagField]
     func createTag(intent: PendingSupertagIntent) async throws -> RPCTag
+    func defineTagField(intent: PendingTagFieldIntent) async throws -> RPCTagFieldDefinition
 }
 
 private struct WorkspaceSupertagsCatalogTransport: SupertagsCatalogTransport {
@@ -37,15 +50,21 @@ private struct WorkspaceSupertagsCatalogTransport: SupertagsCatalogTransport {
             attribution: intent.attribution
         )
     }
+
+    func defineTagField(intent: PendingTagFieldIntent) async throws -> RPCTagFieldDefinition {
+        try await client.defineTagField(tagId: intent.tagId, name: intent.name, valueKind: intent.valueKind, sortOrder: intent.sortOrder, requestId: intent.requestId, commitMessage: intent.rationale, attribution: intent.attribution)
+    }
 }
 
-/// Native type-system browser and root-tag creator. Field definition remains web-only while its
-/// ledgered write path matures for cross-client parity.
+/// Native type-system browser and root-tag creator/field definer.
 @MainActor
 final class SupertagsViewModel: ObservableObject {
     @Published private(set) var tags: [RPCTag] = []
     @Published private(set) var hasLoadedTags = false
+    /// Last successful server snapshots. A receipt never becomes a snapshot: until this is true,
+    /// the form remains disabled and no follow-on write can be derived from stale data.
     @Published private(set) var fieldsByTagId: [String: [RPCResolvedTagField]] = [:]
+    @Published private(set) var hasSuccessfulFieldSnapshotTagIds: Set<String> = []
     @Published private(set) var fieldsLoadingTagIds: Set<String> = []
     @Published private(set) var fieldErrorsByTagId: [String: String] = [:]
     @Published private(set) var isLoading = false
@@ -53,11 +72,17 @@ final class SupertagsViewModel: ObservableObject {
     @Published private(set) var isCreating = false
     @Published private(set) var creationErrorMessage: String?
     @Published private(set) var pendingCreationIntent: PendingSupertagIntent?
+    @Published private(set) var isDefiningField = false
+    @Published private(set) var fieldDefinitionErrorMessage: String?
+    @Published private(set) var pendingFieldDefinitionIntent: PendingTagFieldIntent?
 
     private let transport: any SupertagsCatalogTransport
     /// A create receipt is stronger evidence than a stale catalog projection. There is no delete
     /// route in this surface, so retain confirmed tags for this view-model's lifetime.
     private var confirmedCreatedTagsById: [String: RPCTag] = [:]
+    /// Accepted receipts are durable model-lifetime custody, merged over later stale reads.
+    private var confirmedDefinedFieldsByTagId: [String: [String: RPCResolvedTagField]] = [:]
+    private var fieldReadGenerationByTagId: [String: UUID] = [:]
 
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
@@ -99,18 +124,25 @@ final class SupertagsViewModel: ObservableObject {
         "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
     }
 
-    func refreshFields(for tagId: String) async {
-        guard !fieldsLoadingTagIds.contains(tagId) else { return }
+    func refreshFields(for tagId: String, force: Bool = false) async {
+        guard force || !fieldsLoadingTagIds.contains(tagId) else { return }
+        let generation = UUID()
+        fieldReadGenerationByTagId[tagId] = generation
         fieldsLoadingTagIds.insert(tagId)
         fieldErrorsByTagId[tagId] = nil
-        defer { fieldsLoadingTagIds.remove(tagId) }
 
         do {
-            fieldsByTagId[tagId] = try await transport.listTagFields(tagId: tagId)
+            let snapshot = try await transport.listTagFields(tagId: tagId)
+            guard fieldReadGenerationByTagId[tagId] == generation else { return }
+            fieldsByTagId[tagId] = snapshot
+            hasSuccessfulFieldSnapshotTagIds.insert(tagId)
+            fieldErrorsByTagId[tagId] = nil
         } catch {
-            fieldsByTagId[tagId] = nil
+            guard fieldReadGenerationByTagId[tagId] == generation else { return }
             fieldErrorsByTagId[tagId] = Self.fieldLoadFailureMessage(for: error)
         }
+        guard fieldReadGenerationByTagId[tagId] == generation else { return }
+        fieldsLoadingTagIds.remove(tagId)
     }
 
     /// Field reads can contain backend or credential-adjacent detail. The selected tag and its
@@ -248,7 +280,113 @@ final class SupertagsViewModel: ObservableObject {
     }
 
     func fields(for tagId: String) -> [RPCResolvedTagField]? {
-        fieldsByTagId[tagId]
+        guard let snapshot = fieldsByTagId[tagId] else { return nil }
+        return Self.mergingConfirmedFields(confirmedDefinedFieldsByTagId[tagId] ?? [:], into: snapshot)
+    }
+
+    func hasSuccessfulFieldSnapshot(for tagId: String) -> Bool {
+        hasSuccessfulFieldSnapshotTagIds.contains(tagId)
+    }
+
+    static func mergingConfirmedFields(_ receipts: [String: RPCResolvedTagField], into snapshot: [RPCResolvedTagField]) -> [RPCResolvedTagField] {
+        let receiptIDs = Set(receipts.keys)
+        return snapshot.filter { !receiptIDs.contains($0.id) } + receipts.values.sorted { $0.field.sortOrder < $1.field.sortOrder }
+    }
+
+    static func nextDirectSortOrder(for fields: [RPCResolvedTagField]) -> Int {
+        (fields.filter { !$0.inherited }.map(\.field.sortOrder).max() ?? -1) + 1
+    }
+
+    static func canDefineField(tag: RPCTag?, hasSuccessfulSnapshot: Bool, name: String, rationale: String) -> Bool {
+        guard let tag, tag.parentIds.isEmpty, hasSuccessfulSnapshot else { return false }
+        return !canonicalizedDraft(name).isEmpty && !canonicalizedDraft(rationale).isEmpty && canonicalizedDraft(rationale).utf16.count <= 500
+    }
+
+    /// This is deliberately the one retry policy shared by the model and the presentation: a
+    /// pending request belongs to one selected, extant root tag. A selection change never turns a
+    /// replay into a write against another tag.
+    static func canRetryFieldDefinition(
+        pendingIntent: PendingTagFieldIntent?,
+        currentSelectedTagId: String?,
+        currentTag: RPCTag?,
+        isDefiningField: Bool
+    ) -> Bool {
+        guard !isDefiningField,
+              let pendingIntent,
+              currentSelectedTagId == pendingIntent.tagId,
+              currentTag?.id == pendingIntent.tagId,
+              currentTag?.parentIds.isEmpty == true else { return false }
+        return true
+    }
+
+    func canRetryFieldDefinition(currentSelectedTagId: String?) -> Bool {
+        Self.canRetryFieldDefinition(
+            pendingIntent: pendingFieldDefinitionIntent,
+            currentSelectedTagId: currentSelectedTagId,
+            currentTag: currentSelectedTagId.flatMap(tag(withId:)),
+            isDefiningField: isDefiningField
+        )
+    }
+
+    func startFieldDefinition(tag: RPCTag?, name: String, valueKind: RPCTagFieldValueKind, rationale: String) async -> RPCTagFieldDefinition? {
+        guard !isDefiningField, pendingFieldDefinitionIntent == nil,
+              let selectedTagId = tag?.id,
+              let selectedTag = self.tag(withId: selectedTagId),
+              selectedTag.parentIds.isEmpty,
+              hasSuccessfulFieldSnapshot(for: selectedTag.id) else { return nil }
+        let canonicalName = Self.canonicalizedDraft(name)
+        let canonicalRationale = Self.canonicalizedDraft(rationale)
+        guard !canonicalName.isEmpty, !canonicalRationale.isEmpty, canonicalRationale.utf16.count <= 500 else { return nil }
+        let intent = PendingTagFieldIntent(tagId: selectedTag.id, name: canonicalName, valueKind: valueKind, sortOrder: Self.nextDirectSortOrder(for: fields(for: selectedTag.id) ?? []), requestId: UUID().uuidString.lowercased(), rationale: canonicalRationale, attribution: MutationAttribution(kind: "humanUi", surface: "ios-supertags"))
+        pendingFieldDefinitionIntent = intent
+        return await submitFieldDefinition(intent)
+    }
+
+    func retryFieldDefinition(currentSelectedTagId: String?) async -> RPCTagFieldDefinition? {
+        guard canRetryFieldDefinition(currentSelectedTagId: currentSelectedTagId),
+              let intent = pendingFieldDefinitionIntent else { return nil }
+        return await submitFieldDefinition(intent)
+    }
+
+    func discardPendingFieldDefinition() {
+        guard !isDefiningField else { return }
+        pendingFieldDefinitionIntent = nil
+        fieldDefinitionErrorMessage = nil
+    }
+
+    private func submitFieldDefinition(_ intent: PendingTagFieldIntent) async -> RPCTagFieldDefinition? {
+        isDefiningField = true
+        fieldDefinitionErrorMessage = nil
+        defer { isDefiningField = false }
+        do {
+            let receipt = try await transport.defineTagField(intent: intent)
+            guard Self.matches(receipt: receipt, intent: intent) else {
+                fieldDefinitionErrorMessage = Self.fieldDefinitionFailureMessage()
+                return nil
+            }
+            confirmedDefinedFieldsByTagId[intent.tagId, default: [:]][receipt.id] = RPCResolvedTagField(field: receipt)
+            pendingFieldDefinitionIntent = nil
+            // A newer read supersedes any suspended read; its failure leaves the accepted receipt visible.
+            await refreshFields(for: intent.tagId, force: true)
+            return receipt
+        } catch {
+            fieldDefinitionErrorMessage = Self.fieldDefinitionFailureMessage()
+            return nil
+        }
+    }
+
+    static func fieldDefinitionFailureMessage() -> String {
+        "We couldn’t confirm that this field was defined. Your field details are still here. Review the fields before taking another action."
+    }
+
+    /// The receipt is confirmation only if it is the exact immutable operation we sent. This
+    /// intentionally rejects even a structurally valid field from a different operation.
+    static func matches(receipt: RPCTagFieldDefinition, intent: PendingTagFieldIntent) -> Bool {
+        receipt.tagId == intent.tagId &&
+            receipt.name == intent.name &&
+            receipt.valueKind == intent.valueKind &&
+            receipt.sortOrder == intent.sortOrder &&
+            !receipt.builtin
     }
 
     func isLoadingFields(for tagId: String) -> Bool {
@@ -306,6 +444,9 @@ public struct SupertagsView: View {
     @State private var isCatalogRefreshInFlight = false
     @State private var newTagName = ""
     @State private var newTagRationale = ""
+    @State private var newFieldName = ""
+    @State private var newFieldRationale = ""
+    @State private var newFieldValueKind: RPCTagFieldValueKind = .text
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let onOpenToday: (() -> Void)?
 
@@ -399,6 +540,9 @@ public struct SupertagsView: View {
         .onChange(of: newTagRationale) { _ in
             model.discardPendingRootTagCreation()
         }
+        .onChange(of: newFieldName) { _ in model.discardPendingFieldDefinition() }
+        .onChange(of: newFieldRationale) { _ in model.discardPendingFieldDefinition() }
+        .onChange(of: newFieldValueKind) { _ in model.discardPendingFieldDefinition() }
     }
 
     private var isLoadingCatalog: Bool {
@@ -502,7 +646,7 @@ public struct SupertagsView: View {
                 }
             }
 
-            Text("Root tags only. Add field definitions from the web type-system view.")
+            Text("Root tags only. Select a root Supertag below to define its fields.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -605,11 +749,7 @@ public struct SupertagsView: View {
                 }
 
                 fieldDefinitions(for: tag)
-
-                Text("Field definitions are mirrored here. Use the web type-system view to add or change them for now.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 6)
+                fieldDefinitionForm(for: tag)
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -635,23 +775,11 @@ public struct SupertagsView: View {
             if model.isLoadingFields(for: tag.id) {
                 ProgressView("Loading fields…")
                     .controlSize(.small)
-            } else if let error = model.fieldError(for: tag.id) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    if SupertagsViewModel.canRetryFields(
-                        tagId: tag.id,
-                        isLoadingFields: model.isLoadingFields(for: tag.id)
-                    ) {
-                        Button("Retry fields") {
-                            Task { await model.refreshFields(for: tag.id) }
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Retries loading fields for this Supertag.")
-                    }
-                }
-            } else if let fields = model.fields(for: tag.id) {
+            }
+
+            let fields = model.fields(for: tag.id)
+            if SupertagsFieldDefinitionsPresentation.shouldRenderFields(fields) {
+                let fields = fields ?? []
                 if fields.isEmpty {
                     Text("No fields defined yet.")
                         .font(.callout)
@@ -681,14 +809,101 @@ public struct SupertagsView: View {
                     }
                 }
             }
+
+            if let error = model.fieldError(for: tag.id) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    if SupertagsViewModel.canRetryFields(
+                        tagId: tag.id,
+                        isLoadingFields: model.isLoadingFields(for: tag.id)
+                    ) {
+                        Button("Retry fields") {
+                            Task { await model.refreshFields(for: tag.id) }
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Retries loading fields for this Supertag.")
+                    }
+                }
+            }
         }
         .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func fieldDefinitionForm(for tag: RPCTag) -> some View {
+        if tag.parentIds.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Define a field")
+                    .font(.headline)
+                if !model.hasSuccessfulFieldSnapshot(for: tag.id) {
+                    Text("Load a successful field snapshot before defining a field.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                TextField("Field name", text: $newFieldName)
+                    .textFieldStyle(.roundedBorder).disabled(model.isDefiningField)
+                Picker("Value kind", selection: $newFieldValueKind) {
+                    ForEach([RPCTagFieldValueKind.text, .number, .date, .checkbox, .entityRef], id: \.self) { kind in
+                        Text(kind.rawValue).tag(kind)
+                    }
+                }
+                TextField("Why does this field belong here?", text: $newFieldRationale, axis: .vertical)
+                    .textFieldStyle(.roundedBorder).lineLimit(2...4).disabled(model.isDefiningField)
+                if let error = model.fieldDefinitionErrorMessage {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+                HStack {
+                    Button(model.isDefiningField ? "Defining…" : "Define field") {
+                        Task { await defineField(for: tag) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isDefiningField || model.pendingFieldDefinitionIntent != nil || !SupertagsViewModel.canDefineField(tag: tag, hasSuccessfulSnapshot: model.hasSuccessfulFieldSnapshot(for: tag.id), name: newFieldName, rationale: newFieldRationale))
+                    if model.canRetryFieldDefinition(currentSelectedTagId: selectedTagId) {
+                        Button("Retry") { Task { await retryFieldDefinition() } }.buttonStyle(.bordered)
+                        Button("Cancel") { model.discardPendingFieldDefinition() }.buttonStyle(.borderless)
+                    } else if model.pendingFieldDefinitionIntent != nil, !model.isDefiningField {
+                        Text("This pending field belongs to another root Supertag. Select that root to retry, or cancel this pending action.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Cancel") { model.discardPendingFieldDefinition() }.buttonStyle(.borderless)
+                    }
+                }
+                Text("Only root Supertags can define fields in the native app.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        } else {
+            Text("Native field definition is currently available only on root Supertags. This child tag can use inherited fields, but field editing remains unavailable here.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func defineField(for tag: RPCTag) async {
+        guard await model.startFieldDefinition(tag: tag, name: newFieldName, valueKind: newFieldValueKind, rationale: newFieldRationale) != nil else { return }
+        newFieldName = ""
+        newFieldRationale = ""
+    }
+
+    private func retryFieldDefinition() async {
+        guard await model.retryFieldDefinition(currentSelectedTagId: selectedTagId) != nil else { return }
+        newFieldName = ""
+        newFieldRationale = ""
+    }
+}
+
+/// Receipt-backed fields and a reconciliation error are deliberately orthogonal: an accepted
+/// receipt remains useful evidence while the user is offered a safe retry for the read.
+enum SupertagsFieldDefinitionsPresentation {
+    static func shouldRenderFields(_ fields: [RPCResolvedTagField]?) -> Bool {
+        fields != nil
     }
 }
 
 enum SupertagsEmptyStatePresentation {
     static let title = "No Supertags yet"
-    static let message = "Create root Supertags here. Add or change field definitions from the web type-system view."
+    static let message = "Create root Supertags here. Define fields from a selected root Supertag."
     static let todayActionTitle = "Open today’s note"
 
     static func shouldShowTodayAction(onOpenToday: (() -> Void)?) -> Bool {
