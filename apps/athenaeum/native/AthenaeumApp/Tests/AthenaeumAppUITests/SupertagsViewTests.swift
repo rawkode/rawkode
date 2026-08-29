@@ -16,6 +16,8 @@ final class SupertagsViewTests: XCTestCase {
         var shouldSuspendCatalogReads = false
         private(set) var suspendedCatalogReadCount = 0
         private var catalogContinuation: CheckedContinuation<[RPCTag], Error>?
+        var shouldSuspendCreates = false
+        private var createContinuation: CheckedContinuation<RPCTag, Error>?
 
         func listTags() async throws -> [RPCTag] {
             if shouldSuspendCatalogReads {
@@ -40,8 +42,19 @@ final class SupertagsViewTests: XCTestCase {
 
         func createTag(intent: PendingSupertagIntent) async throws -> RPCTag {
             createIntents.append(intent)
+            if shouldSuspendCreates {
+                return try await withCheckedThrowingContinuation { continuation in
+                    createContinuation = continuation
+                }
+            }
             guard !createResults.isEmpty else { throw PrivateTransportError() }
             return try createResults.removeFirst().get()
+        }
+
+        func completeSuspendedCreate(with result: Result<RPCTag, Error>) {
+            let continuation = createContinuation
+            createContinuation = nil
+            continuation?.resume(with: result)
         }
     }
 
@@ -340,6 +353,39 @@ final class SupertagsViewTests: XCTestCase {
         XCTAssertEqual(retryResult?.id, "created")
         XCTAssertEqual(transport.createIntents, [frozen, frozen])
         XCTAssertNil(model.pendingCreationIntent)
+    }
+
+    func testCreationRejectsRapidDoubleActivationWhileTheFirstRequestIsInFlight() async throws {
+        let created = try tag(id: "created", name: "Project", parentIds: [], builtin: false)
+        let transport = RecordingTransport()
+        transport.shouldSuspendCreates = true
+        let model = SupertagsViewModel(transport: transport)
+
+        let firstTask = Task {
+            await model.startRootTagCreation(
+                name: "Project",
+                rationale: "Shared project vocabulary",
+                surface: "ios-supertags"
+            )
+        }
+        while transport.createIntents.isEmpty {
+            await Task.yield()
+        }
+
+        let secondResult = await model.startRootTagCreation(
+            name: "Project",
+            rationale: "Shared project vocabulary",
+            surface: "ios-supertags"
+        )
+        XCTAssertNil(secondResult)
+        XCTAssertTrue(model.isCreating)
+        XCTAssertEqual(transport.createIntents.count, 1)
+
+        transport.completeSuspendedCreate(with: .success(created))
+        let firstResult = await firstTask.value
+        XCTAssertEqual(firstResult?.id, created.id)
+        XCTAssertFalse(model.isCreating)
+        XCTAssertEqual(transport.createIntents.count, 1)
     }
 
     func testEditingOrCancellingFailedCreationDiscardsReplayIdentity() async throws {
