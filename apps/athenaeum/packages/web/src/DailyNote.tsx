@@ -180,11 +180,14 @@ export const resolveDailyNote = (
 export function DailyNote({
   date,
   onNavigateDate,
-  onPrepareMeetingReady
+  onPrepareMeetingReady,
+  todayBriefTargetId
 }: {
   readonly date: Date
   readonly onNavigateDate: (stamp: string) => void
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
+  /** Fragment target for the current day's secondary context, shown as a quiet mobile affordance. */
+  readonly todayBriefTargetId?: string
 }) {
   const navigate = useNavigate()
   // This intentionally plain cell is stable for the component/date lifetime, but it does not
@@ -378,6 +381,11 @@ export function DailyNote({
               >
                 Today
               </button>
+            )}
+            {todayBriefTargetId !== undefined && (
+              <a className="daily-note-brief-jump" href={`#${todayBriefTargetId}`}>
+                Today’s brief
+              </a>
             )}
           </nav>
         </header>

@@ -25,6 +25,8 @@ describe("Today Brief route ownership", () => {
   it("makes the daily note the route's primary document before its context aside", () => {
     expect(notesRouteSource).not.toContain('className="sr-only"')
     expect(notesRouteSource).toContain('className="notes-layout"')
+    expect(notesRouteSource).toContain('todayBriefTargetId={isToday ? "today-brief" : undefined}')
+    expect(notesRouteSource).toContain('id={isToday ? "today-brief" : undefined}')
     const renderedNotesRoute = renderedRouteSource(notesRouteSource)
     expect(renderedNotesRoute.indexOf("<DailyNote")).toBeLessThan(renderedNotesRoute.indexOf("<TodayBrief"))
     expect(dailyNoteSource.match(/<h1\b/g)).toHaveLength(1)
@@ -35,7 +37,7 @@ describe("Today Brief route ownership", () => {
     expect(dailyNoteSource).toContain("{isToday && <DailyStandup />}")
     expect(ledgerActivitySource).toContain("export function DailyStandup()")
     expect(notesRouteSource).not.toContain("LedgerActivityPanel")
-    expect(todayBriefSource).toContain('<aside className="today-brief" aria-labelledby="today-brief-title">')
+    expect(todayBriefSource).toContain('<aside id={id} className="today-brief" aria-labelledby="today-brief-title">')
     expect(todayBriefSource).toContain("No events.")
   })
 

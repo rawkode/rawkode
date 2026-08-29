@@ -99,9 +99,20 @@ export function NotesRoute() {
   return (
     <div className="route-view notes-route">
       <div className="notes-layout">
-        <DailyNote key={stamp} date={date} onNavigateDate={navigateToDate} onPrepareMeetingReady={onPrepareMeetingReady} />
+        <DailyNote
+          key={stamp}
+          date={date}
+          onNavigateDate={navigateToDate}
+          onPrepareMeetingReady={onPrepareMeetingReady}
+          todayBriefTargetId={isToday ? "today-brief" : undefined}
+        />
         <div className="notes-context-column">
-          <TodayBrief reference={date} isToday={isToday} onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined} />
+          <TodayBrief
+            id={isToday ? "today-brief" : undefined}
+            reference={date}
+            isToday={isToday}
+            onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined}
+          />
         </div>
       </div>
     </div>

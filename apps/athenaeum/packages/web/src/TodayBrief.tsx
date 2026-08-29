@@ -126,7 +126,7 @@ export function projectTodayBriefSchedule(
   }
 }
 
-export function TodayBrief({ reference = new Date(), isToday = true, clock = defaultClock, onPrepareMeeting }: { readonly reference?: Date; readonly isToday?: boolean; readonly clock?: () => Date; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }) {
+export function TodayBrief({ id, reference = new Date(), isToday = true, clock = defaultClock, onPrepareMeeting }: { readonly id?: string; readonly reference?: Date; readonly isToday?: boolean; readonly clock?: () => Date; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }) {
   const [now, setNow] = useState<Date | undefined>(() => isToday ? clock() : undefined)
   const [stale, setStale] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -172,7 +172,7 @@ export function TodayBrief({ reference = new Date(), isToday = true, clock = def
   }, [isToday, reference])
 
   return (
-    <aside className="today-brief" aria-labelledby="today-brief-title">
+    <aside id={id} className="today-brief" aria-labelledby="today-brief-title">
       <div className="today-brief-heading">
         <div>
           <span className="section-kicker">Daily context</span>

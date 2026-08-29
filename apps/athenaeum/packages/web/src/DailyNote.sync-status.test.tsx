@@ -53,13 +53,13 @@ const successState = () => ({
   }
 })
 
-const mount = async (): Promise<HTMLDivElement> => {
+const mount = async (todayBriefTargetId?: string): Promise<HTMLDivElement> => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   roots.push({ root, host })
   await act(async () => {
-    root.render(<DailyNote date={date} onNavigateDate={vi.fn()} />)
+    root.render(<DailyNote date={date} onNavigateDate={vi.fn()} todayBriefTargetId={todayBriefTargetId} />)
     await flush()
   })
   return host
@@ -88,6 +88,14 @@ afterEach(() => {
 })
 
 describe("DailyNote sync status", () => {
+  it("offers a current-day jump to the brief when the route provides a target", async () => {
+    const host = await mount("today-brief")
+
+    const link = host.querySelector<HTMLAnchorElement>(".daily-note-brief-jump")
+    expect(link?.textContent).toBe("Today’s brief")
+    expect(link?.getAttribute("href")).toBe("#today-brief")
+  })
+
   it("keeps idle and synced states silent without reserving a status row", async () => {
     const host = await mount()
 
