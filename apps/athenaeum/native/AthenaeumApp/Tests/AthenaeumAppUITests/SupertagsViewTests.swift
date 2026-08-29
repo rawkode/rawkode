@@ -8,6 +8,28 @@ final class SupertagsViewTests: XCTestCase {
         let description = "backend=https://internal.example/api?credential=private-token"
     }
 
+    private final class RecordingTransport: SupertagsCatalogTransport {
+        var catalog: [RPCTag] = []
+        var listTagsError: Error?
+        var createResults: [Result<RPCTag, Error>] = []
+        private(set) var createIntents: [PendingSupertagIntent] = []
+
+        func listTags() async throws -> [RPCTag] {
+            if let listTagsError { throw listTagsError }
+            return catalog
+        }
+
+        func listTagFields(tagId _: String) async throws -> [RPCResolvedTagField] {
+            []
+        }
+
+        func createTag(intent: PendingSupertagIntent) async throws -> RPCTag {
+            createIntents.append(intent)
+            guard !createResults.isEmpty else { throw PrivateTransportError() }
+            return try createResults.removeFirst().get()
+        }
+    }
+
     func testSortsBaseTagsBeforeCustomTagsThenByName() throws {
         let tags = [
             try tag(id: "custom-b", name: "zebra", parentIds: [], builtin: false),
@@ -253,6 +275,104 @@ final class SupertagsViewTests: XCTestCase {
         )
         XCTAssertTrue(
             SupertagsEmptyStatePresentation.shouldShowTodayAction(onOpenToday: {})
+        )
+    }
+
+    func testCreationCanonicalizesNameAndRationaleAndUsesRootOnlyIntent() async throws {
+        let created = try tag(id: "created", name: "Project Plan", parentIds: [], builtin: false)
+        let transport = RecordingTransport()
+        transport.createResults = [.success(created)]
+        let model = SupertagsViewModel(transport: transport)
+
+        let result = await model.startRootTagCreation(
+            name: "\u{FEFF}  Project\n\tPlan  ",
+            rationale: "  Keep\u{00A0}related\nwork\u{0009}together  ",
+            surface: "ios-supertags"
+        )
+
+        XCTAssertEqual(result?.id, "created")
+        XCTAssertEqual(transport.createIntents.count, 1)
+        let intent = try XCTUnwrap(transport.createIntents.first)
+        XCTAssertEqual(intent.name, "Project Plan")
+        XCTAssertEqual(intent.rationale, "Keep related work together")
+        XCTAssertEqual(intent.parentIds, [])
+        XCTAssertEqual(intent.attribution.kind, "humanUi")
+        XCTAssertEqual(intent.attribution.surface, "ios-supertags")
+    }
+
+    func testCreationRequiresNonblankNameAndRationaleAndBoundsRationaleByUTF16() {
+        XCTAssertFalse(SupertagsViewModel.canCreate(name: "  ", rationale: "reason"))
+        XCTAssertFalse(SupertagsViewModel.canCreate(name: "Tag", rationale: "\u{FEFF}\n"))
+        XCTAssertTrue(SupertagsViewModel.canCreate(name: "Tag", rationale: String(repeating: "a", count: 500)))
+        XCTAssertFalse(SupertagsViewModel.canCreate(name: "Tag", rationale: String(repeating: "😀", count: 251)))
+    }
+
+    func testCreationRetryReusesExactlyTheFrozenIntent() async throws {
+        let created = try tag(id: "created", name: "Project", parentIds: [], builtin: false)
+        let transport = RecordingTransport()
+        transport.createResults = [.failure(PrivateTransportError()), .success(created)]
+        let model = SupertagsViewModel(transport: transport)
+
+        let firstResult = await model.startRootTagCreation(name: " Project ", rationale: " Make projects visible ", surface: "ios-supertags")
+        XCTAssertNil(firstResult)
+        let frozen = try XCTUnwrap(model.pendingCreationIntent)
+        XCTAssertEqual(
+            model.creationErrorMessage,
+            "We couldn’t confirm that this Supertag was created. Your name and rationale are still here. Review the catalog before taking another action."
+        )
+
+        let retryResult = await model.retryRootTagCreation()
+        XCTAssertEqual(retryResult?.id, "created")
+        XCTAssertEqual(transport.createIntents, [frozen, frozen])
+        XCTAssertNil(model.pendingCreationIntent)
+    }
+
+    func testEditingOrCancellingFailedCreationDiscardsReplayIdentity() async throws {
+        let transport = RecordingTransport()
+        transport.createResults = [.failure(PrivateTransportError()), .failure(PrivateTransportError())]
+        let model = SupertagsViewModel(transport: transport)
+
+        let firstResult = await model.startRootTagCreation(name: "Project", rationale: "First reason", surface: "ios-supertags")
+        XCTAssertNil(firstResult)
+        let first = try XCTUnwrap(model.pendingCreationIntent)
+        model.discardPendingRootTagCreation()
+        XCTAssertNil(model.pendingCreationIntent)
+
+        let secondResult = await model.startRootTagCreation(name: "Project", rationale: "Edited reason", surface: "ios-supertags")
+        XCTAssertNil(secondResult)
+        let second = try XCTUnwrap(model.pendingCreationIntent)
+        XCTAssertNotEqual(first.requestId, second.requestId)
+        XCTAssertNotEqual(first.rationale, second.rationale)
+    }
+
+    func testConfirmedCreateRemainsSelectedCandidateWhenReconciliationFailsOrOmitsIt() async throws {
+        let created = try tag(id: "created", name: "Project", parentIds: [], builtin: false)
+        let other = try tag(id: "other", name: "Task", parentIds: [], builtin: true)
+        let transport = RecordingTransport()
+        transport.createResults = [.success(created)]
+        transport.catalog = [other]
+        let model = SupertagsViewModel(transport: transport)
+
+        let result = await model.startRootTagCreation(name: "Project", rationale: "Shared project vocabulary", surface: "ios-supertags")
+        XCTAssertEqual(result?.id, created.id)
+        await model.refresh(preserving: result)
+
+        XCTAssertEqual(model.tags.map(\.id), [other.id, created.id])
+        XCTAssertEqual(
+            SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
+            created.id
+        )
+
+        transport.listTagsError = PrivateTransportError()
+        await model.refresh(preserving: result)
+        XCTAssertNotNil(model.tag(withId: created.id))
+        XCTAssertEqual(
+            model.errorMessage,
+            "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
+        )
+        XCTAssertEqual(
+            SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
+            created.id
         )
     }
 

@@ -2,11 +2,45 @@ import SwiftUI
 import AthenaeumDomain
 import AthenaeumRPC
 
-/// Native read-only mirror of the web type-system surface. Supertags are the organizing primitive
-/// of the second brain, so they deserve a first-class destination rather than being visible only
-/// as inline chips in the daily note. Native reads the effective schema from the same RPC as web;
-/// creation and field definition remain web-only for now, while their ledgered write paths mature
-/// for cross-client parity.
+struct PendingSupertagIntent: Equatable {
+    let name: String
+    let parentIds: [String]
+    let requestId: String
+    let rationale: String
+    let attribution: MutationAttribution
+}
+
+@MainActor
+protocol SupertagsCatalogTransport {
+    func listTags() async throws -> [RPCTag]
+    func listTagFields(tagId: String) async throws -> [RPCResolvedTagField]
+    func createTag(intent: PendingSupertagIntent) async throws -> RPCTag
+}
+
+private struct WorkspaceSupertagsCatalogTransport: SupertagsCatalogTransport {
+    let client: WorkspaceRPCClient
+
+    func listTags() async throws -> [RPCTag] {
+        try await client.listTags()
+    }
+
+    func listTagFields(tagId: String) async throws -> [RPCResolvedTagField] {
+        try await client.listTagFields(tagId: tagId)
+    }
+
+    func createTag(intent: PendingSupertagIntent) async throws -> RPCTag {
+        try await client.createTag(
+            name: intent.name,
+            parentIds: intent.parentIds,
+            requestId: intent.requestId,
+            commitMessage: intent.rationale,
+            attribution: intent.attribution
+        )
+    }
+}
+
+/// Native type-system browser and root-tag creator. Field definition remains web-only while its
+/// ledgered write path matures for cross-client parity.
 @MainActor
 final class SupertagsViewModel: ObservableObject {
     @Published private(set) var tags: [RPCTag] = []
@@ -16,23 +50,34 @@ final class SupertagsViewModel: ObservableObject {
     @Published private(set) var fieldErrorsByTagId: [String: String] = [:]
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var isCreating = false
+    @Published private(set) var creationErrorMessage: String?
+    @Published private(set) var pendingCreationIntent: PendingSupertagIntent?
 
-    private let client: WorkspaceRPCClient
+    private let transport: any SupertagsCatalogTransport
 
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
-        self.client = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
+        self.transport = WorkspaceSupertagsCatalogTransport(
+            client: WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
+        )
     }
 
-    func refresh() async {
+    init(transport: any SupertagsCatalogTransport) {
+        self.transport = transport
+    }
+
+    func refresh(preserving confirmedTag: RPCTag? = nil) async {
         isLoading = true
         defer { isLoading = false }
         do {
-            tags = Self.sortedTags(try await client.listTags())
+            tags = Self.mergingConfirmedTag(confirmedTag, into: try await transport.listTags())
             hasLoadedTags = true
             errorMessage = nil
         } catch {
-            errorMessage = Self.catalogLoadFailureMessage(for: error)
+            errorMessage = confirmedTag == nil
+                ? Self.catalogLoadFailureMessage(for: error)
+                : Self.catalogReconciliationFailureMessage(for: error)
         }
     }
 
@@ -42,6 +87,10 @@ final class SupertagsViewModel: ObservableObject {
         "Supertags couldn’t be loaded. Nothing has been changed. Refresh to check the catalog again."
     }
 
+    static func catalogReconciliationFailureMessage(for _: Error) -> String {
+        "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
+    }
+
     func refreshFields(for tagId: String) async {
         guard !fieldsLoadingTagIds.contains(tagId) else { return }
         fieldsLoadingTagIds.insert(tagId)
@@ -49,7 +98,7 @@ final class SupertagsViewModel: ObservableObject {
         defer { fieldsLoadingTagIds.remove(tagId) }
 
         do {
-            fieldsByTagId[tagId] = try await client.listTagFields(tagId: tagId)
+            fieldsByTagId[tagId] = try await transport.listTagFields(tagId: tagId)
         } catch {
             fieldsByTagId[tagId] = nil
             fieldErrorsByTagId[tagId] = Self.fieldLoadFailureMessage(for: error)
@@ -96,6 +145,86 @@ final class SupertagsViewModel: ObservableObject {
         }
     }
 
+    /// A confirmed create receipt is authoritative for this screen even if its following catalog
+    /// read fails or is temporarily stale. Prefer the receipt when ids collide.
+    static func mergingConfirmedTag(_ confirmedTag: RPCTag?, into catalog: [RPCTag]) -> [RPCTag] {
+        guard let confirmedTag else { return sortedTags(catalog) }
+        return sortedTags([confirmedTag] + catalog.filter { $0.id != confirmedTag.id })
+    }
+
+    static func canonicalizedDraft(_ raw: String) -> String {
+        let trimmed = trimECMAScriptWhitespace(raw)
+        var words: [String] = []
+        var word = ""
+        for scalar in trimmed.unicodeScalars {
+            if isECMAScriptWhitespace(scalar) {
+                if !word.isEmpty {
+                    words.append(word)
+                    word = ""
+                }
+            } else {
+                word.unicodeScalars.append(scalar)
+            }
+        }
+        if !word.isEmpty { words.append(word) }
+        return words.joined(separator: " ")
+    }
+
+    static func canCreate(name: String, rationale: String) -> Bool {
+        !canonicalizedDraft(name).isEmpty &&
+            !canonicalizedDraft(rationale).isEmpty &&
+            canonicalizedDraft(rationale).utf16.count <= 500
+    }
+
+    func startRootTagCreation(name: String, rationale: String, surface: String) async -> RPCTag? {
+        guard !isCreating, pendingCreationIntent == nil else { return nil }
+        let canonicalName = Self.canonicalizedDraft(name)
+        let canonicalRationale = Self.canonicalizedDraft(rationale)
+        guard Self.canCreate(name: canonicalName, rationale: canonicalRationale) else { return nil }
+        let intent = PendingSupertagIntent(
+            name: canonicalName,
+            parentIds: [],
+            requestId: UUID().uuidString.lowercased(),
+            rationale: canonicalRationale,
+            attribution: MutationAttribution(kind: "humanUi", surface: surface)
+        )
+        pendingCreationIntent = intent
+        return await submitCreation(intent)
+    }
+
+    func retryRootTagCreation() async -> RPCTag? {
+        guard !isCreating, let pendingCreationIntent else { return nil }
+        return await submitCreation(pendingCreationIntent)
+    }
+
+    /// Editing or cancelling a failed request deliberately discards its replay identity. The next
+    /// activation builds a new immutable intent and UUID from the changed draft.
+    func discardPendingRootTagCreation() {
+        guard !isCreating else { return }
+        pendingCreationIntent = nil
+        creationErrorMessage = nil
+    }
+
+    private func submitCreation(_ intent: PendingSupertagIntent) async -> RPCTag? {
+        isCreating = true
+        creationErrorMessage = nil
+        defer { isCreating = false }
+        do {
+            let tag = try await transport.createTag(intent: intent)
+            tags = Self.mergingConfirmedTag(tag, into: tags)
+            hasLoadedTags = true
+            pendingCreationIntent = nil
+            return tag
+        } catch {
+            creationErrorMessage = Self.creationFailureMessage(for: error)
+            return nil
+        }
+    }
+
+    static func creationFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that this Supertag was created. Your name and rationale are still here. Review the catalog before taking another action."
+    }
+
     /// Keep the schema browser useful whenever a successful catalog contains tags. A valid user
     /// choice survives refreshes; a missing or stale choice falls back to the first sorted tag.
     static func resolveSelectedTagId(selectedTagId: String?, tags: [RPCTag]) -> String? {
@@ -138,6 +267,16 @@ final class SupertagsViewModel: ObservableObject {
             .map(\.name)
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
+    private static func isECMAScriptWhitespace(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0,
+             0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// The catalog and its selected-field follow-up remain model-owned; this claim only rejects rapid
@@ -156,6 +295,8 @@ public struct SupertagsView: View {
     @StateObject private var model: SupertagsViewModel
     @State private var selectedTagId: String?
     @State private var isCatalogRefreshInFlight = false
+    @State private var newTagName = ""
+    @State private var newTagRationale = ""
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let onOpenToday: (() -> Void)?
 
@@ -194,6 +335,8 @@ public struct SupertagsView: View {
             Text("Typed tags give the entities in your second brain a shared vocabulary.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+
+            creationForm
 
             if let error = model.errorMessage {
                 Text(error)
@@ -241,6 +384,12 @@ public struct SupertagsView: View {
             guard let selectedTagId else { return }
             await model.refreshFields(for: selectedTagId)
         }
+        .onChange(of: newTagName) { _ in
+            model.discardPendingRootTagCreation()
+        }
+        .onChange(of: newTagRationale) { _ in
+            model.discardPendingRootTagCreation()
+        }
     }
 
     private var isLoadingCatalog: Bool {
@@ -277,8 +426,8 @@ public struct SupertagsView: View {
         await refreshCatalog()
     }
 
-    private func refreshCatalog() async {
-        await model.refresh()
+    private func refreshCatalog(preserving confirmedTag: RPCTag? = nil) async {
+        await model.refresh(preserving: confirmedTag)
 
         guard model.errorMessage == nil else {
             if let selectedTagId {
@@ -299,6 +448,87 @@ public struct SupertagsView: View {
         if selectedTagIdBeforeResolution == resolvedTagId, let resolvedTagId {
             await model.refreshFields(for: resolvedTagId)
         }
+    }
+
+    private var creationForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Create a root Supertag")
+                .font(.headline)
+            TextField("Name", text: $newTagName)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Supertag name")
+                .disabled(model.isCreating)
+            TextField("Why does this belong in the shared vocabulary?", text: $newTagRationale, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...4)
+                .accessibilityLabel("Creation rationale")
+                .disabled(model.isCreating)
+
+            if let creationErrorMessage = model.creationErrorMessage {
+                Text(creationErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button(model.isCreating ? "Creating…" : "Create Supertag") {
+                    Task { await createRootTag() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    model.isCreating ||
+                        model.pendingCreationIntent != nil ||
+                        !SupertagsViewModel.canCreate(name: newTagName, rationale: newTagRationale)
+                )
+
+                if model.pendingCreationIntent != nil, !model.isCreating {
+                    Button("Retry") {
+                        Task { await retryRootTag() }
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Cancel") {
+                        model.discardPendingRootTagCreation()
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            Text("Root tags only. Add field definitions from the web type-system view.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func createRootTag() async {
+        guard let created = await model.startRootTagCreation(
+            name: newTagName,
+            rationale: newTagRationale,
+            surface: Self.mutationSurface
+        ) else {
+            return
+        }
+        newTagName = ""
+        newTagRationale = ""
+        selectedTagId = created.id
+        await refreshCatalog(preserving: created)
+    }
+
+    private func retryRootTag() async {
+        guard let created = await model.retryRootTagCreation() else { return }
+        newTagName = ""
+        newTagRationale = ""
+        selectedTagId = created.id
+        await refreshCatalog(preserving: created)
+    }
+
+    private static var mutationSurface: String {
+        #if os(iOS)
+        "ios-supertags"
+        #else
+        "macos"
+        #endif
     }
 
     private var tagList: some View {
