@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react"
 import { useNavigate } from "react-router"
 import type { SearchResultEntry } from "@athenaeum/domain"
-import { useNodeSearch } from "./SearchBox.js"
+import { searchResultDestination, useNodeSearch } from "./SearchBox.js"
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
@@ -85,7 +85,7 @@ export function CommandPalette({
   if (!open) return null
 
   const navigateEntry = (entry: PaletteEntry) => {
-    navigate(entry.kind === "command" ? entry.command.to : `/node/${entry.result.nodeId}`)
+    navigate(entry.kind === "command" ? entry.command.to : searchResultDestination(entry.result.nodeId))
     onClose()
     onNavigated?.()
   }

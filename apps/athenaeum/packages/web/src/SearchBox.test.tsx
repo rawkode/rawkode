@@ -10,7 +10,8 @@ const queryStateMock = vi.hoisted(() => ({ current: undefined as unknown }))
 
 vi.mock("./use-effect-query.js", () => ({ useEffectQuery: () => queryStateMock.current }))
 
-import { SearchBox } from "./SearchBox.js"
+import { searchResultDestination, SearchBox } from "./SearchBox.js"
+import { dailyNoteIdForDate } from "./daily-note-id.js"
 
 const firstNodeId = EntityId.make("00000000-0000-4000-8000-000000000011")
 const secondNodeId = EntityId.make("00000000-0000-4000-8000-000000000012")
@@ -28,7 +29,7 @@ const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 
 function LocationProbe() {
   const location = useLocation()
-  return <output data-location>{location.pathname}</output>
+  return <output data-location>{location.pathname}{location.search}</output>
 }
 
 const flush = async (): Promise<void> => {
@@ -86,6 +87,13 @@ afterEach(() => {
 })
 
 describe("SearchBox", () => {
+  it("keeps ordinary and malformed reserved ids on the generic node route", () => {
+    expect(searchResultDestination(secondNodeId)).toBe(`/node/${secondNodeId}`)
+    expect(searchResultDestination("00000000-0000-4000-8000-000099999999")).toBe(
+      "/node/00000000-0000-4000-8000-000099999999"
+    )
+  })
+
   it("moves the active result with arrow keys and opens that result on Enter", async () => {
     const { host, input, onNavigated } = await mount()
     await searchFor(input)
@@ -182,5 +190,17 @@ describe("SearchBox", () => {
     expect(onNavigated).toHaveBeenCalledTimes(1)
     expect(input.value).toBe("project")
     expect(host.querySelectorAll("[role=option]")).toHaveLength(2)
+  })
+
+  it("opens a canonical daily-note result in the date-addressed editor", async () => {
+    const dailyNoteId = dailyNoteIdForDate(new Date(2026, 7, 22))
+    queryStateMock.current = successfulSearch([
+      new SearchResultEntry({ nodeId: dailyNoteId, title: "Daily Note — 2026-08-22", snippet: "A daily note" })
+    ])
+    const { host, input } = await mount()
+    await searchFor(input, "2026-08-22")
+
+    await act(async () => press(input, "Enter"))
+    expect(host.querySelector("[data-location]")?.textContent).toBe("/notes?date=2026-08-22")
   })
 })

@@ -6,6 +6,7 @@ import type { DomainError } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
+import { dateStampFromDailyNoteId } from "./daily-note-id.js"
 
 // Retrieval pass (design-review 2026-08-22 finding #1, "Search"): the review's Flow 3 verified
 // there was "no search input anywhere in the shell" while the backend has shipped a real,
@@ -13,12 +14,19 @@ import { workspaceId } from "./workspace-id.js"
 // is the missing UI half of that existing RPC, nothing more. Lives in the sidebar (persistent,
 // one input, no new route or palette chrome — the review's own findings warn against more
 // resident furniture; a ⌘K palette is a direction-level upgrade that can absorb this later).
-// Each result links to `/node/:id` (`NodeRoute`), the same destination graph rows, backlinks and
-// mentions now share.
+// Ordinary results still open `/node/:id`, while deterministic daily-note results use the
+// date-addressed editor route directly. `NodeRoute` remains a defense-in-depth redirect for old
+// links, but retrieval should not make a daily note take an unnecessary detour through it.
 
 const SEARCH_DEBOUNCE_MS = 250
 
 const EMPTY_SEARCH_OUTPUT = new SearchNodesOutput({ results: [] })
+
+/** Returns the canonical web destination for a search result. */
+export const searchResultDestination = (nodeId: string): string => {
+  const dateStamp = dateStampFromDailyNoteId(nodeId)
+  return dateStamp === undefined ? `/node/${nodeId}` : `/notes?date=${dateStamp}`
+}
 
 /** Shared retrieval state for the resident sidebar search and the transient command palette. */
 export function useNodeSearch(query: string, enabled = true) {
@@ -97,7 +105,7 @@ export function SearchBox({
     // AppShell persists across node routes, so retain this current, typed search session while a
     // person inspects a result. Escape and a subsequent edit remain the explicit clear/change
     // paths, and `hasCurrentSearch` still fails closed during a new debounce window.
-    navigate(`/node/${nodeId}`)
+    navigate(searchResultDestination(nodeId))
     onNavigated?.()
   }
 

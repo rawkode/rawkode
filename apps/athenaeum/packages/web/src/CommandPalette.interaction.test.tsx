@@ -12,6 +12,7 @@ vi.mock("./use-effect-query.js", () => ({ useEffectQuery: () => queryStateMock.c
 vi.mock("react-router", () => ({ useNavigate: () => routerMock.navigate }))
 
 import { CommandPalette } from "./CommandPalette.js"
+import { dailyNoteIdForDate } from "./daily-note-id.js"
 
 const staleNodeId = EntityId.make("00000000-0000-4000-8000-000000000021")
 const staleSearch = {
@@ -172,6 +173,22 @@ describe("CommandPalette search freshness", () => {
     expect(document.activeElement).toBe(input)
 
     await act(async () => { press(lastEnabled!, "Escape") })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("opens a canonical daily-note result in the date-addressed editor", async () => {
+    const dailyNoteId = dailyNoteIdForDate(new Date(2026, 7, 22))
+    queryStateMock.current = {
+      status: "success" as const,
+      value: new SearchNodesOutput({
+        results: [new SearchResultEntry({ nodeId: dailyNoteId, title: "Daily Note — 2026-08-22", snippet: "A daily note" })]
+      })
+    }
+    const { input, onClose } = await mount()
+    await searchFor(input, "2026-08-22")
+
+    await act(async () => press(input, "Enter"))
+    expect(routerMock.navigate).toHaveBeenCalledWith("/notes?date=2026-08-22")
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
