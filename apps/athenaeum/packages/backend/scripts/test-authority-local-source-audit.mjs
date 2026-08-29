@@ -9,7 +9,7 @@ assert.deepEqual(
   ["/entry.ts", "/helper.ts"]
 )
 assert.throws(
-  () => auditLocalHandlerGraph({ "/entry.ts": "export { value } from './helper.js'", "/helper.ts": "export const value = Promise.resolve(1)" }, ["/entry.ts"]),
+  () => auditLocalHandlerGraph({ "/entry.ts": "export { value } from './helper.js'", "/helper.ts": "export function value() { return Promise.resolve(1) }" }, ["/entry.ts"]),
   /Promise/
 )
 assert.throws(
@@ -19,11 +19,11 @@ assert.throws(
 assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "import './missing.js'" }, ["/entry.ts"]), /unresolved/)
 assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "import { digestCanonicalV2 } from '@athenaeum/domain'; export { digestCanonicalV2 }" }, ["/entry.ts"]), /nonlocal/)
 assert.throws(
-  () => auditLocalHandlerGraph({ "/entry.ts": "const x = import('./helper.js')", "/helper.ts": "export const x = 1" }, ["/entry.ts"]),
+  () => auditLocalHandlerGraph({ "/entry.ts": "export function x() { return import('./helper.js') }", "/helper.ts": "export const x = 1" }, ["/entry.ts"]),
   /dynamic import/
 )
 assert.throws(
-  () => auditLocalHandlerGraph({ "/entry.ts": "const x = require('./helper.js')", "/helper.ts": "export const x = 1" }, ["/entry.ts"]),
+  () => auditLocalHandlerGraph({ "/entry.ts": "export function x() { return require('./helper.js') }", "/helper.ts": "export const x = 1" }, ["/entry.ts"]),
   /require/
 )
 assert.doesNotThrow(() => auditLocalHandlerGraph({ "/entry.ts": "const text = 'Promise.resolve(1)'" }, ["/entry.ts"]))
@@ -33,27 +33,37 @@ assert.throws(
   "reserved ambient spellings remain forbidden even when locally shadowed"
 )
 assert.doesNotThrow(
-  () => auditLocalHandlerGraph({ "/entry.ts": "export const x = Object.keys(JSON.parse('{\\\"safe\\\":true}'))" }, ["/entry.ts"]),
+  () => auditLocalHandlerGraph({ "/entry.ts": "export function x() { return Object.keys(JSON.parse('{\\\"safe\\\":true}')) }" }, ["/entry.ts"]),
   "curated JSON/Object calls remain available for trusted data"
 )
 for (const source of [
-  "export const x = globalThis",
-  "export const x = Date.now()",
-  "export const x = Reflect.get({}, 'x')",
-  "export const x = Object.constructor",
-  "export const x = queueMicrotask(() => {})",
-  "export const x = Atomics.waitAsync",
-  "export const x = eval('1')",
-  "export const x = Function('return 1')"
+  "let retained; export function handler() { return retained }",
+  "const retained: unknown[] = []; export function handler() { return retained }"
+]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /mutable module state/)
+for (const source of [
+  "export function x() { return globalThis }",
+  "export function x() { return Date.now() }",
+  "export function x() { return Reflect.get({}, 'x') }",
+  "export function x() { return Object.constructor }",
+  "export function x() { return queueMicrotask(() => {}) }",
+  "export function x() { return Atomics.waitAsync }",
+  "export function x() { return eval('1') }",
+  "export function x() { return Function('return 1') }"
 ]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|unresolved/)
 for (const source of [
-  "export const x = Object.getPrototypeOf({})",
-  "export const x = Object.getOwnPropertyDescriptor({}, 'constructor')",
-  "const key = 'get' + 'PrototypeOf'; export const x = Object[key]({})",
-  "const entries = Object.entries; export const x = entries({})",
-  "export const x = Object.entries(Object)",
-  "export const x = Object.values(Object)",
-  "export const x = Array.isArray(Array)"
+  "export const handler = () => { void (async () => { await 0 })() }",
+  "export async function handler() { return 1 }",
+  "export function* handler() { yield 1 }",
+  "export async function handler() { for await (const value of values) {} }"
+]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /suspending|for-await/)
+for (const source of [
+  "export function x() { return Object.getPrototypeOf({}) }",
+  "export function x() { return Object.getOwnPropertyDescriptor({}, 'constructor') }",
+  "export function x() { const key = 'get' + 'PrototypeOf'; return Object[key]({}) }",
+  "export function x() { const entries = Object.entries; return entries({}) }",
+  "export function x() { return Object.entries(Object) }",
+  "export function x() { return Object.values(Object) }",
+  "export function x() { return Array.isArray(Array) }"
 ]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|computed/)
 assert.throws(
   () => auditLocalHandlerGraph({ "/entry.ts": "export const handler = (Object: unknown) => Object.entries({})" }, ["/entry.ts"]),
@@ -64,15 +74,15 @@ assert.throws(
   /may not shadow pure intrinsic/
 )
 for (const source of [
-  "const { 'constructor': C } = capability.readLocal; export const x = C('return globalThis')()",
-  "const { prototype: P } = capability.readLocal; export const x = P",
-  "const { __proto__: P } = capability.readLocal; export const x = P",
-  "const { call: C } = capability.readLocal; export const x = C",
-  "const { constructor } = capability.readLocal; export const x = constructor",
+  "export function x() { const { 'constructor': C } = capability.readLocal; return C('return globalThis')() }",
+  "export function x() { const { prototype: P } = capability.readLocal; return P }",
+  "export function x() { const { __proto__: P } = capability.readLocal; return P }",
+  "export function x() { const { call: C } = capability.readLocal; return C }",
+  "export function x() { const { constructor } = capability.readLocal; return constructor }",
   "export const handler = ({ 'bind': B }: Record<string, unknown>) => B",
-  "({ 'apply': A } = capability.readLocal); export const x = A",
-  "const { [key]: C } = capability.readLocal; export const x = C",
-  "({ [key]: C } = capability.readLocal); export const x = C"
+  "export function x() { ({ 'apply': A } = capability.readLocal); return A }",
+  "export function x() { const { [key]: C } = capability.readLocal; return C }",
+  "export function x() { ({ [key]: C } = capability.readLocal); return C }"
 ]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|computed/)
-assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "export { x } from './helper.js'", "/helper.ts": "const alias = fetch; export const x = alias" }, ["/entry.ts"]), /forbidden|unresolved/)
+assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "export { x } from './helper.js'", "/helper.ts": "export function x() { const alias = fetch; return alias }" }, ["/entry.ts"]), /forbidden|unresolved/)
 console.log("authority local source audit fixtures verified")

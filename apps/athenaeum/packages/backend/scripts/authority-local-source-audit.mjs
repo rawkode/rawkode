@@ -98,6 +98,30 @@ const validateObjectBindingKeys = (tree, file) => {
   visit(tree)
 }
 
+const unparenthesized = (node) => ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node) ? unparenthesized(node.expression) : node
+
+const isObjectFreeze = (node) => ts.isCallExpression(node) && node.arguments.length === 1 && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "Object" && node.expression.name.text === "freeze"
+
+const isImmutableModuleValue = (value) => {
+  const node = unparenthesized(value)
+  if (ts.isStringLiteral(node) || ts.isNumericLiteral(node) || node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword || node.kind === ts.SyntaxKind.NullKeyword || ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return true
+  if (!isObjectFreeze(node)) return false
+  const frozen = unparenthesized(node.arguments[0])
+  if (ts.isArrayLiteralExpression(frozen)) return frozen.elements.every((element) => !ts.isSpreadElement(element) && isImmutableModuleValue(element))
+  if (ts.isObjectLiteralExpression(frozen)) return frozen.properties.every((property) => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && isImmutableModuleValue(property.initializer))
+  return false
+}
+
+const validateModuleState = (tree, file) => {
+  for (const statement of tree.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) throw new Error(`mutable module state is forbidden in local handler: ${file}`)
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.initializer === undefined || !isImmutableModuleValue(declaration.initializer)) throw new Error(`mutable module state is forbidden in local handler: ${file}`)
+    }
+  }
+}
+
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
 const normalizeRelative = (from, specifier) => {
@@ -116,7 +140,11 @@ const normalizeRelative = (from, specifier) => {
 const forbiddenSyntax = (source, file) => {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   if (tree.parseDiagnostics.length > 0) throw new Error(`unparseable local handler source: ${file}`)
+  validateModuleState(tree, file)
   const visit = (node) => {
+    if (ts.isFunctionLike(node) && (node.asteriskToken !== undefined || node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword))) throw new Error(`suspending local handler function is forbidden: ${file}`)
+    if (ts.isAwaitExpression(node) || ts.isYieldExpression(node)) throw new Error(`suspending local handler expression is forbidden: ${file}`)
+    if (ts.isForOfStatement(node) && node.awaitModifier !== undefined) throw new Error(`for-await local handler loop is forbidden: ${file}`)
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const specifier = literalModuleSpecifier(node)
       if (specifier === undefined) throw new Error(`dynamic or unresolved local handler import in ${file}`)
