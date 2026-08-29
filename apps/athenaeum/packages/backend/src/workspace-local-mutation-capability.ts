@@ -6,34 +6,33 @@
  * handler only synchronous local projection primitives plus typed outbox staging.
  */
 import { decodeTrustedDataToken, trustedDataValue, type TrustedDataToken } from "./authority-trusted-data-token.js"
-export type StagedMutationIntent = Readonly<{ recipient: string; payload: TrustedDataToken }>
-export const localMutationResultToken = Symbol("athenaeum.localMutationResultToken")
+/** Internal post-callback record; only the capability may turn a payload token into this value. */
+export type StagedMutationIntent = Readonly<{ recipient: string; payload: unknown }>
 export type LocalMutationCapability = Readonly<{
   readLocal: (key: string) => TrustedDataToken | undefined
   writeLocal: (key: string, value: TrustedDataToken) => void
   deleteLocal: (key: string) => void
-  stageIntent: (intent: StagedMutationIntent) => void
-  issueResult: (value: unknown) => LocalMutationResultToken
+  stageIntent: (recipient: string, payload: TrustedDataToken) => void
+  issueResult: (value: TrustedDataToken) => LocalMutationResultToken
 }>
-export type LocalMutationResultToken = Readonly<{ readonly [localMutationResultToken]: true }>
+export type LocalMutationResultToken = Readonly<Record<never, never>>
 export type LocalMutationCapabilityScope = Readonly<{
   capability: LocalMutationCapability
   begin: () => void
   revoke: () => void
 }>
 
-const resultValues = new WeakMap<object, unknown>()
-const makeResultToken = (value: unknown): LocalMutationResultToken => {
-  value = trustedDataValue(value)
-  const token = Object.create(null) as Record<PropertyKey, unknown>
-  Object.defineProperty(token, localMutationResultToken, { value: true, enumerable: false, configurable: false, writable: false })
-  const frozen = Object.freeze(token) as LocalMutationResultToken
+const resultValues = new WeakMap<object, TrustedDataToken>()
+const makeResultToken = (value: TrustedDataToken): LocalMutationResultToken => {
+  trustedDataValue(value)
+  const frozen = Object.freeze(Object.create(null))
   resultValues.set(frozen, value)
-  return frozen
+  return frozen as LocalMutationResultToken
 }
 export const materializeLocalMutationResult = <T>(value: unknown): T => {
+  // Do not read any property (not even `then`) of handler-controlled output.
   if (value === null || (typeof value !== "object" && typeof value !== "function") || !resultValues.has(value)) throw new Error("local mutation handler must return a capability-issued result token")
-  return freezeLocalMutationInput(resultValues.get(value)) as T
+  return trustedDataValue<T>(resultValues.get(value))
 }
 export const isLocalMutationResultToken = (value: unknown): value is LocalMutationResultToken => value !== null && (typeof value === "object" || typeof value === "function") && resultValues.has(value)
 
@@ -68,23 +67,18 @@ export const freezeLocalMutationInput = <T>(value: T): T => {
   return clone(value) as T
 }
 
+type RawLocalState = Readonly<{ readLocal: (key: string) => unknown; writeLocal: (key: string, value: unknown) => void; deleteLocal: (key: string) => void; stageIntent: (recipient: string, payload: unknown) => void }>
 /** Build a null-prototype, non-extensible capability with immutable method slots. */
-export const createLocalMutationCapability = (
-  readLocal: LocalMutationCapability["readLocal"],
-  writeLocal: LocalMutationCapability["writeLocal"],
-  deleteLocal: LocalMutationCapability["deleteLocal"],
-  stageIntent: LocalMutationCapability["stageIntent"],
-  lifecycle: { active?: boolean; executing?: boolean } = {}
-): LocalMutationCapability => {
+const createLocalMutationCapability = (raw: RawLocalState, lifecycle: { active: boolean; executing: boolean }): LocalMutationCapability => {
   const assertLive = () => { if (lifecycle.active === false || lifecycle.executing === false) throw new Error("local mutation capability is no longer active") }
   const safeRead: LocalMutationCapability["readLocal"] = (key) => {
     assertLive()
-    const value = readLocal(key)
+    const value = raw.readLocal(key)
     return value === undefined ? undefined : decodeTrustedDataToken(JSON.stringify(freezeLocalMutationInput(value)))
   }
-  const safeWrite: LocalMutationCapability["writeLocal"] = (key, value) => { assertLive(); writeLocal(key, trustedDataValue(value)) }
-  const safeDelete: LocalMutationCapability["deleteLocal"] = (key) => { assertLive(); deleteLocal(key) }
-  const safeStage: LocalMutationCapability["stageIntent"] = (intent) => { assertLive(); stageIntent(freezeLocalMutationInput({ recipient: intent.recipient, payload: trustedDataValue(intent.payload) })) }
+  const safeWrite: LocalMutationCapability["writeLocal"] = (key, value) => { assertLive(); raw.writeLocal(key, trustedDataValue(value)) }
+  const safeDelete: LocalMutationCapability["deleteLocal"] = (key) => { assertLive(); raw.deleteLocal(key) }
+  const safeStage: LocalMutationCapability["stageIntent"] = (recipient, payload) => { assertLive(); if (typeof recipient !== "string" || recipient.trim() === "") throw new Error("staged intent recipient must be non-empty"); raw.stageIntent(recipient, trustedDataValue(payload)) }
   const issueResult: LocalMutationCapability["issueResult"] = (value) => { assertLive(); return makeResultToken(value) }
   const capability = Object.create(null) as Record<string, unknown>
   Object.defineProperties(capability, {
@@ -98,16 +92,18 @@ export const createLocalMutationCapability = (
 }
 
 export const createScopedLocalMutationCapability = (
-  readLocal: LocalMutationCapability["readLocal"],
-  writeLocal: LocalMutationCapability["writeLocal"],
-  deleteLocal: LocalMutationCapability["deleteLocal"],
-  stageIntent: LocalMutationCapability["stageIntent"]
+  raw: RawLocalState
 ): LocalMutationCapabilityScope => {
   const state = { active: true, executing: false }
-  const capability = createLocalMutationCapability(readLocal, writeLocal, deleteLocal, stageIntent, state)
+  const capability = createLocalMutationCapability(raw, state)
   return Object.freeze({
     capability,
     begin: () => { if (!state.active || state.executing) throw new Error("local mutation capability is not idle"); state.executing = true },
     revoke: () => { state.executing = false; state.active = false }
   })
 }
+
+/** Test-only compatibility constructor; it is inert until a kernel scope calls begin. */
+export const createLocalMutationCapabilityForTests = (raw: RawLocalState): LocalMutationCapability => createScopedLocalMutationCapability(raw).capability
+/** @deprecated test support must use a scoped capability and call begin explicitly. */
+export const createLocalMutationCapability = (readLocal: RawLocalState["readLocal"], writeLocal: RawLocalState["writeLocal"], deleteLocal: RawLocalState["deleteLocal"], stageIntent: RawLocalState["stageIntent"]): LocalMutationCapability => createLocalMutationCapabilityForTests({ readLocal, writeLocal, deleteLocal, stageIntent })

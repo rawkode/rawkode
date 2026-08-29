@@ -63,9 +63,22 @@ export const verifyAuthorityLocalCallback = (sourceRoot = defaultRoot) => {
   const internalPath = realpathSync(resolve(root, "workspace-mutation-authority-internal.ts"))
   const testSupportCandidate = resolve(root, "../test/authority-kernel-test-support.ts")
   const testSupportPath = existsSync(testSupportCandidate) ? realpathSync(testSupportCandidate) : undefined
-  const entry = resolve(root, "authority-local-command-registry.ts")
+  const entry = resolve(root, "authority-local-commands.ts")
 
   auditLocalHandlerFiles(root, [entry], (file) => readFileSync(file, "utf8"), resolveSource)
+
+  const roots = ["index.ts", "workspace-durable-object.ts", "user-durable-object.ts"].map((name) => resolve(root, name)).filter(existsSync)
+  const reachesForbidden = (start, visited = new Set()) => {
+    const real = realpathSync(start); if (visited.has(real)) return false; visited.add(real)
+    for (const specifier of moduleSpecifiers(real, readFileSync(real, "utf8"))) {
+      if (!specifier.startsWith(".")) continue
+      const target = resolveSource(real, specifier)
+      if (target === authorityPath || target === internalPath) return true
+      if (reachesForbidden(target, visited)) return true
+    }
+    return false
+  }
+  for (const rootEntry of roots) if (reachesForbidden(rootEntry)) throw new Error(`pre-bridge runtime root reaches unwired authority executor: ${rootEntry}`)
 
   for (const file of sourceFilesUnder(root)) {
     for (const specifier of moduleSpecifiers(file, readFileSync(file, "utf8"))) {

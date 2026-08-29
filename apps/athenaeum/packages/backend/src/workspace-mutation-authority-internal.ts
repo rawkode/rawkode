@@ -60,7 +60,18 @@ export const executeMutationAuthorityWithRegistry = async <Output = unknown>(
       const sequence = transaction.allocateNextSequence(); transaction.hitFailpoint("after-sequence")
       const eventId = identity.nextEventId(); const staged: StagedMutationIntent[] = []
       const base = transaction.localMutation()
-      const scope = createScopedLocalMutationCapability(base.readLocal, base.writeLocal, base.deleteLocal, (intent) => { if (!nonBlank(intent.recipient)) throw new Error("staged intent recipient must be non-empty"); staged.push(freezeLocalMutationInput({ recipient: intent.recipient, payload: trustedDataValue(intent.payload) }) as StagedMutationIntent) })
+      const scope = createScopedLocalMutationCapability({
+        readLocal: (key) => {
+          const token = base.readLocal(key)
+          return token === undefined ? undefined : trustedDataValue(token)
+        },
+        writeLocal: (key, value) => base.writeLocal(key, decodeTrustedDataToken(JSON.stringify(value))),
+        deleteLocal: base.deleteLocal,
+        stageIntent: (recipient, payload) => {
+          if (!nonBlank(recipient)) throw new Error("staged intent recipient must be non-empty")
+          staged.push(freezeLocalMutationInput({ recipient, payload }) as StagedMutationIntent)
+        }
+      })
       const capability = scope.capability
       const handler = commandRegistry.get(input.kind); if (handler === undefined) throw new Error(`unregistered local command: ${input.kind}`)
       scope.begin()

@@ -1,8 +1,9 @@
-import type { LocalMutationCapability } from "./workspace-local-mutation-capability.js"
+import type { TrustedDataToken } from "./authority-trusted-data-token.js"
+import type { LocalMutationCapability, LocalMutationResultToken } from "./workspace-local-mutation-capability.js"
 import { AUTHORITY_LOCAL_COMMANDS } from "./authority-local-commands.js"
 
 /** A handler is a synchronous, statically registered command implementation. */
-export type LocalCommandHandler<Output = unknown> = (capability: LocalMutationCapability, payload: unknown) => Output
+export type LocalCommandHandler = (capability: LocalMutationCapability, payload: TrustedDataToken) => LocalMutationResultToken
 export type LocalCommandEntry = Readonly<{ kind: string; handler: LocalCommandHandler }>
 export type AuthorityLocalCommandRegistry = Readonly<{
   get: (kind: string) => LocalCommandHandler | undefined

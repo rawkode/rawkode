@@ -5,28 +5,38 @@ const forbiddenIdentifiers = new Set(["Promise", "WebSocket", "fetch", "caches",
 const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env", "constructor", "prototype"])
 const allowedIntrinsics = new Set(AUTHORITY_PURE_INTRINSICS)
 
-const validateClosedBindings = (tree, file) => {
-  const bound = new Set()
-  const bind = (node) => {
-    if (ts.isIdentifier(node)) bound.add(node.text)
-    else if (ts.isBindingElement(node)) bind(node.name)
-    else if (ts.isParameter(node)) bind(node.name)
-  }
-  const collect = (node) => {
-    if (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isImportClause(node) || ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportEqualsDeclaration(node)) bind(node.name)
-    if (ts.isParameter(node)) bind(node.name)
-    ts.forEachChild(node, collect)
-  }
-  tree.forEachChild(collect)
-  const visit = (node) => {
-    if (ts.isIdentifier(node) && !ts.isDeclarationName(node) && !allowedIntrinsics.has(node.text)) {
-      const parent = node.parent
-      const ignored = ts.isTypeNode(parent) || ts.isPropertyAccessExpression(parent) && parent.name === node || ts.isQualifiedName(parent) || ts.isImportClause(parent) || ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || ts.isLabelledStatement(parent)
-      if (!ignored && !bound.has(node.text)) throw new Error(`unresolved or ambient local handler identifier: ${node.text} in ${file}`)
+const bindName = (scope, node) => {
+  if (ts.isIdentifier(node)) scope.add(node.text)
+  else if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) for (const element of node.elements) if (ts.isBindingElement(element)) bindName(scope, element.name)
+}
+const declarationName = (node) => ts.isDeclarationName(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isPropertyAccessExpression(node.parent) && node.parent.name === node || ts.isPropertyAssignment(node.parent) && node.parent.name === node || ts.isPropertyDeclaration(node.parent) && node.parent.name === node || ts.isQualifiedName(node.parent) || ts.isTypeNode(node.parent) || ts.isLabelledStatement(node.parent)
+const hoist = (scope, node) => {
+  for (const statement of node.statements ?? []) {
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) { if (statement.name) bindName(scope, statement.name) }
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) bindName(scope, declaration.name)
+    if (ts.isImportDeclaration(statement) && statement.importClause) {
+      const clause = statement.importClause
+      if (clause.name) bindName(scope, clause.name)
+      const bindings = clause.namedBindings
+      if (bindings && ts.isNamespaceImport(bindings)) bindName(scope, bindings.name)
+      if (bindings && ts.isNamedImports(bindings)) for (const item of bindings.elements) bindName(scope, item.name)
     }
-    ts.forEachChild(node, visit)
   }
-  visit(tree)
+}
+/** Lexical, not file-global, free-variable check. Every scope carries only ancestors' bindings. */
+const validateClosedBindings = (tree, file) => {
+  const walk = (node, inherited) => {
+    const scope = new Set(inherited)
+    if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) hoist(scope, node)
+    if (ts.isFunctionLike(node)) {
+      if (node.name && ts.isIdentifier(node.name)) bindName(scope, node.name)
+      for (const parameter of node.parameters) bindName(scope, parameter.name)
+    }
+    if (ts.isCatchClause(node) && node.variableDeclaration) bindName(scope, node.variableDeclaration.name)
+    if (ts.isIdentifier(node) && !declarationName(node) && !scope.has(node.text) && !allowedIntrinsics.has(node.text)) throw new Error(`unresolved or ambient local handler identifier: ${node.text} in ${file}`)
+    ts.forEachChild(node, (child) => walk(child, scope))
+  }
+  walk(tree, new Set())
 }
 
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
@@ -60,10 +70,7 @@ const forbiddenSyntax = (source, file) => {
     if (ts.isIdentifier(node) && forbiddenIdentifiers.has(node.text)) throw new Error(`forbidden local handler API: ${node.text}`)
     if (ts.isPropertyAccessExpression(node) && forbiddenProperties.has(node.name.text)) throw new Error(`forbidden local handler property: ${node.name.text}`)
     if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) && forbiddenProperties.has(node.argumentExpression.text)) throw new Error(`forbidden local handler property: ${node.argumentExpression.text}`)
-    if (ts.isIdentifier(node) && node.parent && !ts.isDeclarationName(node) && !ts.isPropertyAccessExpression(node.parent) && allowedIntrinsics.has(node.text) === false) {
-      const checkerIgnored = ts.isTypeNode(node.parent) || ts.isImportClause(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)
-      if (!checkerIgnored && node.text === "Atomics") throw new Error("forbidden local handler API: Atomics")
-    }
+    if (ts.isIdentifier(node) && node.text === "Atomics") throw new Error("forbidden local handler API: Atomics")
     ts.forEachChild(node, visit)
   }
   visit(tree)

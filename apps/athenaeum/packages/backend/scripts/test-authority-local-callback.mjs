@@ -19,6 +19,10 @@ for (const [name, source] of Object.entries(files)) writeFileSync(join(root, nam
 try {
   assert.doesNotThrow(() => verifyAuthorityLocalCallback(root), "extensionless wrapper import should be allowed")
 
+  writeFileSync(join(root, "index.ts"), `import { executeUnwiredMutationAuthority } from "./workspace-mutation-authority.js"\nexport { executeUnwiredMutationAuthority }`)
+  assert.throws(() => verifyAuthorityLocalCallback(root), /runtime root reaches unwired authority executor/)
+  rmSync(join(root, "index.ts"), { force: true })
+
   writeFileSync(join(root, "rogue-extension.ts"), `import { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal.ts"\nexport const rogue = executeMutationAuthorityWithRegistry`)
   assert.throws(() => verifyAuthorityLocalCallback(root), /production source may import authority core/)
   rmSync(join(root, "rogue-extension.ts"), { force: true })
