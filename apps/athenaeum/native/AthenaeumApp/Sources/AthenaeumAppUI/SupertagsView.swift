@@ -688,7 +688,7 @@ public struct SupertagsView: View {
 
 enum SupertagsEmptyStatePresentation {
     static let title = "No Supertags yet"
-    static let message = "Create and define Supertags from the web type-system view."
+    static let message = "Create root Supertags here. Add or change field definitions from the web type-system view."
     static let todayActionTitle = "Open today’s note"
 
     static func shouldShowTodayAction(onOpenToday: (() -> Void)?) -> Bool {

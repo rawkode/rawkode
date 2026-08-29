@@ -279,7 +279,7 @@ final class SupertagsViewTests: XCTestCase {
         XCTAssertEqual(SupertagsEmptyStatePresentation.title, "No Supertags yet")
         XCTAssertEqual(
             SupertagsEmptyStatePresentation.message,
-            "Create and define Supertags from the web type-system view."
+            "Create root Supertags here. Add or change field definitions from the web type-system view."
         )
         XCTAssertEqual(
             SupertagsEmptyStatePresentation.todayActionTitle,
