@@ -17,6 +17,7 @@ assert.throws(
   /cycle/
 )
 assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "import './missing.js'" }, ["/entry.ts"]), /unresolved/)
+assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "import { digestCanonicalV2 } from '@athenaeum/domain'; export { digestCanonicalV2 }" }, ["/entry.ts"]), /nonlocal/)
 assert.throws(
   () => auditLocalHandlerGraph({ "/entry.ts": "const x = import('./helper.js')", "/helper.ts": "export const x = 1" }, ["/entry.ts"]),
   /dynamic import/

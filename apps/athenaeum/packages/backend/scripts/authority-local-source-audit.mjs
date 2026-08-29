@@ -61,7 +61,7 @@ const forbiddenSyntax = (source, file) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const specifier = literalModuleSpecifier(node)
       if (specifier === undefined) throw new Error(`dynamic or unresolved local handler import in ${file}`)
-      if (!specifier.startsWith(".") && specifier !== "@athenaeum/domain") throw new Error(`nonlocal local handler import: ${specifier}`)
+      if (!specifier.startsWith(".")) throw new Error(`nonlocal local handler import: ${specifier}`)
     }
     if (ts.isCallExpression(node)) {
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) throw new Error(`dynamic import in local handler: ${file}`)
@@ -91,7 +91,7 @@ export const auditLocalHandlerGraph = (files, entrypoints) => {
     tree.forEachChild((node) => {
       if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node) || !isRuntimeModuleDeclaration(node)) return
       const specifier = literalModuleSpecifier(node)
-      if (!specifier || specifier === "@athenaeum/domain") return
+      if (!specifier) return
       const target = normalizeRelative(file, specifier)
       if (!target || !(target in files)) throw new Error(`unresolved or escaping local handler import: ${specifier} from ${file}`)
       walk(target)

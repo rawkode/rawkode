@@ -8,7 +8,6 @@
  */
 import { sha256HexSync, type DeliverySeedV2, type LedgerEventV2, type LedgerReceiptV2, type OutboxIntentV2, type SameAdmittedAudienceChangedMaterialConflictV2 } from "@athenaeum/domain"
 import { authorityLocalCommandRegistry } from "./authority-local-command-registry.js"
-import type { LocalMutationCapability } from "./workspace-local-mutation-capability.js"
 import { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal.js"
 
 type Brand<T, Name extends string> = T & { readonly __brand: Name }
@@ -132,6 +131,13 @@ export type ImmutableOutboxIntent = OutboxIntentV2 & Readonly<{
 export type DeliverySeed = DeliverySeedV2 & Readonly<{ outboxId: OutboxId; idempotencyKey: Digest }>
 export type AuthorityFailpoint = "after-sequence" | "after-local-write" | "after-request" | "after-event" | "after-outbox" | "after-delivery" | "after-receipt"
 
+/** Kernel-only same-transaction storage; never exposed to a local command handler. */
+export type LocalMutationStoragePort = Readonly<{
+  readLocal: (key: string) => unknown
+  writeLocal: (key: string, value: unknown) => void
+  deleteLocal: (key: string) => void
+  stageIntent: (recipient: string, payload: unknown) => void
+}>
 export type AuthorityTransaction<Receipt> = Readonly<{
   /** This must be the first transaction operation. It performs only current admission checks. */
   recheckReplayAdmission: (snapshot: ReplayAdmission) => "admitted" | "denied"
@@ -140,7 +146,7 @@ export type AuthorityTransaction<Receipt> = Readonly<{
   recheckActionFence: (input: { workspaceId: WorkspaceId; actor: ResolvedActorContext; fence: ActionFence; expectedEpoch: AuthorityEpoch; nowEpochMs: number }) => "current" | "retry"
   currentEpoch: () => AuthorityEpoch
   allocateNextSequence: () => LedgerSequence
-  localMutation: () => LocalMutationCapability
+  localMutation: () => LocalMutationStoragePort
   insertCommittedRequest: (record: CommittedRequestRecord<Receipt>) => void
   insertCommandProvenance: (record: ImmutableCommandProvenance) => void
   insertEvent: (event: ImmutableEvent) => void
