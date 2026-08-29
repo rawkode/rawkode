@@ -55,6 +55,9 @@ final class SupertagsViewModel: ObservableObject {
     @Published private(set) var pendingCreationIntent: PendingSupertagIntent?
 
     private let transport: any SupertagsCatalogTransport
+    /// A create receipt is stronger evidence than a stale catalog projection. There is no delete
+    /// route in this surface, so retain confirmed tags for this view-model's lifetime.
+    private var confirmedCreatedTagsById: [String: RPCTag] = [:]
 
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
@@ -68,14 +71,19 @@ final class SupertagsViewModel: ObservableObject {
     }
 
     func refresh(preserving confirmedTag: RPCTag? = nil) async {
+        if let confirmedTag { confirmedCreatedTagsById[confirmedTag.id] = confirmedTag }
         isLoading = true
         defer { isLoading = false }
         do {
-            tags = Self.mergingConfirmedTag(confirmedTag, into: try await transport.listTags())
+            let catalog = try await transport.listTags()
+            tags = Self.mergingConfirmedTags(
+                Array(confirmedCreatedTagsById.values),
+                into: catalog
+            )
             hasLoadedTags = true
             errorMessage = nil
         } catch {
-            errorMessage = confirmedTag == nil
+            errorMessage = confirmedTag == nil && confirmedCreatedTagsById.isEmpty
                 ? Self.catalogLoadFailureMessage(for: error)
                 : Self.catalogReconciliationFailureMessage(for: error)
         }
@@ -147,9 +155,9 @@ final class SupertagsViewModel: ObservableObject {
 
     /// A confirmed create receipt is authoritative for this screen even if its following catalog
     /// read fails or is temporarily stale. Prefer the receipt when ids collide.
-    static func mergingConfirmedTag(_ confirmedTag: RPCTag?, into catalog: [RPCTag]) -> [RPCTag] {
-        guard let confirmedTag else { return sortedTags(catalog) }
-        return sortedTags([confirmedTag] + catalog.filter { $0.id != confirmedTag.id })
+    static func mergingConfirmedTags(_ confirmedTags: [RPCTag], into catalog: [RPCTag]) -> [RPCTag] {
+        let confirmedIds = Set(confirmedTags.map(\.id))
+        return sortedTags(confirmedTags + catalog.filter { !confirmedIds.contains($0.id) })
     }
 
     static func canonicalizedDraft(_ raw: String) -> String {
@@ -211,7 +219,8 @@ final class SupertagsViewModel: ObservableObject {
         defer { isCreating = false }
         do {
             let tag = try await transport.createTag(intent: intent)
-            tags = Self.mergingConfirmedTag(tag, into: tags)
+            confirmedCreatedTagsById[tag.id] = tag
+            tags = Self.mergingConfirmedTags(Array(confirmedCreatedTagsById.values), into: tags)
             hasLoadedTags = true
             pendingCreationIntent = nil
             return tag

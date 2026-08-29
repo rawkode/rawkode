@@ -13,10 +13,25 @@ final class SupertagsViewTests: XCTestCase {
         var listTagsError: Error?
         var createResults: [Result<RPCTag, Error>] = []
         private(set) var createIntents: [PendingSupertagIntent] = []
+        var shouldSuspendCatalogReads = false
+        private(set) var suspendedCatalogReadCount = 0
+        private var catalogContinuation: CheckedContinuation<[RPCTag], Error>?
 
         func listTags() async throws -> [RPCTag] {
+            if shouldSuspendCatalogReads {
+                suspendedCatalogReadCount += 1
+                return try await withCheckedThrowingContinuation { continuation in
+                    catalogContinuation = continuation
+                }
+            }
             if let listTagsError { throw listTagsError }
             return catalog
+        }
+
+        func completeSuspendedCatalogRead(with result: Result<[RPCTag], Error>) {
+            let continuation = catalogContinuation
+            catalogContinuation = nil
+            continuation?.resume(with: result)
         }
 
         func listTagFields(tagId _: String) async throws -> [RPCResolvedTagField] {
@@ -370,6 +385,43 @@ final class SupertagsViewTests: XCTestCase {
             model.errorMessage,
             "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
         )
+        XCTAssertEqual(
+            SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
+            created.id
+        )
+
+        transport.catalog = []
+        await model.refresh()
+        XCTAssertNotNil(model.tag(withId: created.id))
+        XCTAssertEqual(
+            SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
+            created.id
+        )
+    }
+
+    func testInFlightStaleCatalogRefreshCannotEraseConfirmedCreate() async throws {
+        let created = try tag(id: "created", name: "Project", parentIds: [], builtin: false)
+        let transport = RecordingTransport()
+        transport.createResults = [.success(created)]
+        transport.shouldSuspendCatalogReads = true
+        let model = SupertagsViewModel(transport: transport)
+
+        let refreshTask = Task { await model.refresh() }
+        while transport.suspendedCatalogReadCount == 0 {
+            await Task.yield()
+        }
+
+        let createResult = await model.startRootTagCreation(
+            name: "Project",
+            rationale: "Shared project vocabulary",
+            surface: "ios-supertags"
+        )
+        XCTAssertEqual(createResult?.id, created.id)
+
+        transport.completeSuspendedCatalogRead(with: .success([]))
+        await refreshTask.value
+
+        XCTAssertNotNil(model.tag(withId: created.id))
         XCTAssertEqual(
             SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
             created.id
