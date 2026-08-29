@@ -8,7 +8,9 @@ const defaultSourceRoot = realpathSync(new URL("../src", import.meta.url).pathna
 const forbiddenNames = new Set([
   "standup-publication-private-contract.ts",
   "standup-publication-collections.ts",
-  "standup-publication-service-live.ts"
+  "standup-publication-service-live.ts",
+  "standup-run-grant-issuer-private-contract.ts",
+  "standup-run-grant-issuer-private-service.ts"
 ])
 
 const resolveLocalSource = (from, specifier) => {
@@ -94,16 +96,20 @@ try {
   rootFiles()
   assert.doesNotThrow(() => verifyStandupPublicationPrivateReachability(fixtureRoot), "a valid transitive root closure must pass")
 
-  write("nested/helper.ts", "export { dormant as value } from '../standup-publication-service-live.js'")
-  assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /reaches dormant private standup module/)
-  write("nested/helper.ts", "export const value = 1")
+  for (const forbiddenName of forbiddenNames) {
+    const specifier = `./${forbiddenName.replace(/\.ts$/, ".js")}`
+    write("nested/helper.ts", `export { dormant as value } from '../${forbiddenName.replace(/\.ts$/, ".js")}';`)
+    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /reaches dormant private standup module/)
+    write("nested/helper.ts", "export const value = 1")
 
-  write("index.ts", "const path = './standup-publication-service-live.js'; export const run = import(path)")
-  assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /dynamic import/)
-  write("index.ts", "export const run = import('./standup-publication-service-live.js')")
-  assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /dynamic import/)
-  write("index.ts", "import privatePublisher = require('./standup-publication-service-live.js'); export { privatePublisher }")
-  assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /import-equals/)
+    write("index.ts", `const path = '${specifier}'; export const run = import(path)`)
+    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /dynamic import/)
+    write("index.ts", `export const run = import('${specifier}')`)
+    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /dynamic import/)
+    write("index.ts", `import privatePublisher = require('${specifier}'); export { privatePublisher }`)
+    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /import-equals/)
+    write("index.ts", "import { safe } from './safe.js'; export { safe }")
+  }
   write("index.ts", "import { missing } from './does-not-exist.js'; export { missing }")
   assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /unresolved local module import/)
   console.log("standup publication private reachability fixtures verified")
