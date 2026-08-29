@@ -23,6 +23,48 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertTrue(DailyStandupRefreshPresentation.canStartRefresh(isRefreshInFlight: isRefreshInFlight))
     }
 
+    func testRecentActivityUsesTheSupportedWindowAndCalmDisclosureDefault() throws {
+        XCTAssertEqual(DailyStandupPresentation.fetchLimit, 20)
+        XCTAssertEqual(DailyStandupPresentation.initialVisibleEntryCount, 8)
+
+        let timestamp = try IsoDateTimeString(validating: "2026-08-27T09:30:00.000Z")
+        let entries = (0..<9).map { index in
+            RPCLedgerActivityEntry(
+                occurredAt: timestamp,
+                type: .createNodeWithIntent,
+                actor: .workspaceMember,
+                message: "Recorded change \(index + 1)"
+            )
+        }
+
+        XCTAssertEqual(DailyStandupPresentation.visibleEntries(entries, isExpanded: false).count, 8)
+        XCTAssertEqual(DailyStandupPresentation.visibleEntries(entries, isExpanded: true).count, 9)
+        XCTAssertEqual(DailyStandupPresentation.additionalEntryCount(entries), 1)
+        XCTAssertEqual(
+            DailyStandupPresentation.disclosureTitle(isExpanded: false, additionalEntryCount: 1),
+            "Show 1 more recorded change"
+        )
+        XCTAssertEqual(
+            DailyStandupPresentation.disclosureTitle(isExpanded: true, additionalEntryCount: 1),
+            "Show fewer recorded changes"
+        )
+    }
+
+    func testRecentActivityDoesNotNeedDisclosureWhenItFitsTheCalmDefault() throws {
+        let timestamp = try IsoDateTimeString(validating: "2026-08-27T09:30:00.000Z")
+        let entries = (0..<8).map { index in
+            RPCLedgerActivityEntry(
+                occurredAt: timestamp,
+                type: .createNodeWithIntent,
+                actor: .workspaceMember,
+                message: "Recorded change \(index + 1)"
+            )
+        }
+
+        XCTAssertEqual(DailyStandupPresentation.visibleEntries(entries, isExpanded: false).count, 8)
+        XCTAssertEqual(DailyStandupPresentation.additionalEntryCount(entries), 0)
+    }
+
     func testRefreshLoadsRecordedWork() async throws {
         let entry = RPCLedgerActivityEntry(
             occurredAt: try IsoDateTimeString(validating: "2026-08-26T09:30:00.000Z"),

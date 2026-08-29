@@ -46,7 +46,11 @@ final class DailyStandupViewModel: ObservableObject {
         )
         self.init(loader: {
             let window = DailyStandupDayWindow()
-            return try await client.listRecentLedgerActivity(from: window.from, to: window.to)
+            return try await client.listRecentLedgerActivity(
+                limit: DailyStandupPresentation.fetchLimit,
+                from: window.from,
+                to: window.to
+            )
         })
     }
 
@@ -98,9 +102,31 @@ enum DailyStandupRefreshPresentation {
     }
 }
 
+enum DailyStandupPresentation {
+    static let fetchLimit = 20
+    static let initialVisibleEntryCount = 8
+
+    static func visibleEntries(
+        _ entries: [RPCLedgerActivityEntry],
+        isExpanded: Bool
+    ) -> ArraySlice<RPCLedgerActivityEntry> {
+        isExpanded ? entries[...] : entries.prefix(initialVisibleEntryCount)
+    }
+
+    static func additionalEntryCount(_ entries: [RPCLedgerActivityEntry]) -> Int {
+        max(entries.count - initialVisibleEntryCount, 0)
+    }
+
+    static func disclosureTitle(isExpanded: Bool, additionalEntryCount: Int) -> String {
+        if isExpanded { return "Show fewer recorded changes" }
+        return "Show \(additionalEntryCount) more recorded \(additionalEntryCount == 1 ? "change" : "changes")"
+    }
+}
+
 public struct DailyStandupView: View {
     @StateObject private var model: DailyStandupViewModel
     @State private var isRefreshInFlight = false
+    @State private var isShowingAllEntries = false
 
     public init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         _model = StateObject(
@@ -143,7 +169,7 @@ public struct DailyStandupView: View {
                 }
             }
 
-            Text("Changes recorded today. Every entry has an actor and a commit reason.")
+            Text("Recent recorded changes today (up to \(DailyStandupPresentation.fetchLimit)). Every entry has an actor and a commit reason.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -167,10 +193,23 @@ public struct DailyStandupView: View {
                     Text("No recorded work yet.")
                         .foregroundStyle(.secondary)
                 } else {
+                    let visibleEntries = DailyStandupPresentation.visibleEntries(entries, isExpanded: isShowingAllEntries)
+                    let additionalEntryCount = DailyStandupPresentation.additionalEntryCount(entries)
                     VStack(alignment: .leading, spacing: 10) {
                         DailyStandupSummaryView(summary: DailyStandupSummary(entries: entries))
-                        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        ForEach(Array(visibleEntries.enumerated()), id: \.offset) { _, entry in
                             DailyStandupEntryRow(entry: entry)
+                        }
+                        if additionalEntryCount > 0 {
+                            Button(DailyStandupPresentation.disclosureTitle(
+                                isExpanded: isShowingAllEntries,
+                                additionalEntryCount: additionalEntryCount
+                            )) {
+                                isShowingAllEntries.toggle()
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            .accessibilityHint("Expands the recent recorded changes in this daily note.")
                         }
                     }
                 }
@@ -203,6 +242,7 @@ public struct DailyStandupView: View {
             return false
         }
         isRefreshInFlight = true
+        isShowingAllEntries = false
         return true
     }
 
