@@ -279,9 +279,6 @@ public struct WorkspaceCommandCenterView: View {
             if let model = host.model {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        if section.showsDestinationHeader {
-                            Text(section.title).font(.largeTitle.bold())
-                        }
                         iOSContent(section, model: model)
                     }
                     .padding(24)
