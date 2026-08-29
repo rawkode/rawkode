@@ -119,7 +119,10 @@ export {
   decodeResolvedMutationIntentV2,
   decideWorkspaceReplayV2,
   digestCanonicalV2,
+  canonicalDigestPreimageV2,
   commandFingerprintMaterialV2,
+  requestDigestMaterialV2,
+  evidenceDigestMaterialV2,
   custodyDigestMaterialV2,
   resolvedActorCustodyDigestV2,
   createPreAuthorizationIdentityV2,
@@ -130,12 +133,15 @@ export {
 export type {
   ActorContext,
   DeliveryRecordV2,
+  DeliverySeedV2,
   IngressEvidenceV2,
   LedgerEventV2,
+  LedgerReceiptV2,
   MutationRequestV2,
   OutboxDeliveryV2,
   OutboxIntentV2,
-  ResolvedMutationIntentV2
+  ResolvedMutationIntentV2,
+  SameAdmittedAudienceChangedMaterialConflictV2
 } from "./ledger-v2.js"
 export {
   LedgerActivityActor,

@@ -6,8 +6,7 @@
  * satisfy. The first transaction is read-only admission/replay; only an absent request proceeds
  * through fresh action resolution and a second transaction.
  */
-import { sha256HexSync } from "@athenaeum/domain"
-import type { DeliverySeedV2, LedgerEventV2, LedgerReceiptV2, OutboxIntentV2, SameAdmittedAudienceChangedMaterialConflictV2 } from "../../domain/src/ledger-v2.js"
+import { sha256HexSync, type DeliverySeedV2, type LedgerEventV2, type LedgerReceiptV2, type OutboxIntentV2, type SameAdmittedAudienceChangedMaterialConflictV2 } from "@athenaeum/domain"
 import { authorityLocalCommandRegistry } from "./authority-local-command-registry.js"
 import type { LocalMutationCapability } from "./workspace-local-mutation-capability.js"
 import { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal.js"
