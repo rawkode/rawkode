@@ -5,10 +5,10 @@
  * a mutable production hook.
  */
 import { digestCanonicalV2, normalizeMutationText } from "@athenaeum/domain"
-import { createLocalMutationCapability, freezeLocalMutationInput, type StagedMutationIntent } from "./workspace-local-mutation-capability.js"
+import { createScopedLocalMutationCapability, freezeLocalMutationInput, materializeLocalMutationResult, type StagedMutationIntent } from "./workspace-local-mutation-capability.js"
 import type { AuthorityLocalCommandRegistry } from "./authority-local-command-registry.js"
 import {
-  AUTHORITY_VERSION, PUBLIC_REQUEST_VERSION, RECEIPT_VERSION, actorCustodyMaterial, authorityFingerprint, deliveryIdempotencyKey, maybeThenable, nonBlank,
+  AUTHORITY_VERSION, PUBLIC_REQUEST_VERSION, RECEIPT_VERSION, actorCustodyMaterial, authorityFingerprint, deliveryIdempotencyKey, nonBlank,
   requireJsonValue, safeReplay, syncDigest, validatePreparedAction,
   type AuthorityAdmissionPort, type AuthorityInput, type AuthorityOutcome,
   type AuthorityReceipt, type AuthorityStore, type Digest, type KernelIdentityPort, type PreparedAction, type PreparedPublicRequest,
@@ -59,11 +59,18 @@ export const executeMutationAuthorityWithRegistry = async <Output = unknown>(
       const sequence = transaction.allocateNextSequence(); transaction.hitFailpoint("after-sequence")
       const eventId = identity.nextEventId(); const staged: StagedMutationIntent[] = []
       const base = transaction.localMutation()
-      const capability = createLocalMutationCapability(base.readLocal, base.writeLocal, base.deleteLocal, (intent) => { if (!nonBlank(intent.recipient)) throw new Error("staged intent recipient must be non-empty"); staged.push(freezeLocalMutationInput({ recipient: intent.recipient, payload: intent.payload })) })
+      const scope = createScopedLocalMutationCapability(base.readLocal, base.writeLocal, base.deleteLocal, (intent) => { if (!nonBlank(intent.recipient)) throw new Error("staged intent recipient must be non-empty"); staged.push(freezeLocalMutationInput({ recipient: intent.recipient, payload: intent.payload })) })
+      const capability = scope.capability
       const handler = commandRegistry.get(input.kind); if (handler === undefined) throw new Error(`unregistered local command: ${input.kind}`)
-      const output = handler(capability, prepared.payload) as Output
+      scope.begin()
+      let output: Output
+      try {
+        const resultToken = handler(capability, prepared.payload)
+        output = materializeLocalMutationResult<Output>(resultToken)
+      } finally {
+        scope.revoke()
+      }
       transaction.hitFailpoint("after-local-write")
-      if (maybeThenable(output)) throw new Error("local mutation handler must be synchronous")
       const commandFingerprint = authorityFingerprint(prepared, epoch)
       const createdAt = identity.nowIso(); const eventPayload = freezeLocalMutationInput(staged)
       const custodyDigest = syncDigest(actorCustodyMaterial(prepared.actor)) as Digest

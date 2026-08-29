@@ -1,7 +1,9 @@
 import ts from "typescript"
+import { AUTHORITY_PURE_INTRINSICS } from "../src/authority-pure-intrinsics.mjs"
 
-const forbiddenIdentifiers = new Set(["Promise", "WebSocket", "fetch", "caches", "Effect", "env", "crypto", "setTimeout", "setInterval", "queueMicrotask", "eval", "Function", "require"])
-const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env"])
+const forbiddenIdentifiers = new Set(["Promise", "WebSocket", "fetch", "caches", "Effect", "env", "crypto", "setTimeout", "setInterval", "queueMicrotask", "eval", "Function", "require", "globalThis", "window", "document", "process"])
+const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env", "constructor", "prototype"])
+const allowedIntrinsics = new Set(AUTHORITY_PURE_INTRINSICS)
 
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
@@ -34,6 +36,10 @@ const forbiddenSyntax = (source, file) => {
     if (ts.isIdentifier(node) && forbiddenIdentifiers.has(node.text)) throw new Error(`forbidden local handler API: ${node.text}`)
     if (ts.isPropertyAccessExpression(node) && forbiddenProperties.has(node.name.text)) throw new Error(`forbidden local handler property: ${node.name.text}`)
     if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) && forbiddenProperties.has(node.argumentExpression.text)) throw new Error(`forbidden local handler property: ${node.argumentExpression.text}`)
+    if (ts.isIdentifier(node) && node.parent && !ts.isDeclarationName(node) && !ts.isPropertyAccessExpression(node.parent) && allowedIntrinsics.has(node.text) === false) {
+      const checkerIgnored = ts.isTypeNode(node.parent) || ts.isImportClause(node.parent) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)
+      if (!checkerIgnored && node.text === "Atomics") throw new Error("forbidden local handler API: Atomics")
+    }
     ts.forEachChild(node, visit)
   }
   visit(tree)
