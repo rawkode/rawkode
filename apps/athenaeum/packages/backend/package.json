@@ -17,6 +17,7 @@
     "test:authority-local-callback-fixtures": "node scripts/test-authority-local-callback.mjs",
     "test:authority-local-source-audit": "node scripts/test-authority-local-source-audit.mjs",
     "test:protected-path-snapshot": "node scripts/test-protected-path-snapshot.mjs",
+    "test:standup-publication-private-reachability": "node scripts/verify-standup-publication-private-reachability.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

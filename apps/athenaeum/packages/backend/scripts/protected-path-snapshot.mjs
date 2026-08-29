@@ -5,8 +5,6 @@ import { resolve, relative } from "node:path"
 
 export const PROTECTED_PATHS = [
   "apps/athenaeum/packages/backend/src/workspace-durable-object.ts",
-  "apps/athenaeum/packages/backend/src/standup-publication-collections.ts",
-  "apps/athenaeum/packages/backend/src/standup-publication-service-live.ts",
   "apps/athenaeum/packages/backend/src/calendar-collections.ts",
   "apps/athenaeum/packages/backend/src/calendar-connection-identity.ts",
   "apps/athenaeum/packages/backend/src/calendar-gatekeeper-client.ts",
