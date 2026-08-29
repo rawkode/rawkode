@@ -5,12 +5,12 @@
  * cryptographic dependency. The authority kernel owns the surrounding transaction and gives a
  * handler only synchronous local projection primitives plus typed outbox staging.
  */
-import { trustedDataValue } from "./authority-trusted-data-token.js"
-export type StagedMutationIntent = Readonly<{ recipient: string; payload: unknown }>
+import { decodeTrustedDataToken, trustedDataValue, type TrustedDataToken } from "./authority-trusted-data-token.js"
+export type StagedMutationIntent = Readonly<{ recipient: string; payload: TrustedDataToken }>
 export const localMutationResultToken = Symbol("athenaeum.localMutationResultToken")
 export type LocalMutationCapability = Readonly<{
-  readLocal: (key: string) => unknown
-  writeLocal: (key: string, value: unknown) => void
+  readLocal: (key: string) => TrustedDataToken | undefined
+  writeLocal: (key: string, value: TrustedDataToken) => void
   deleteLocal: (key: string) => void
   stageIntent: (intent: StagedMutationIntent) => void
   issueResult: (value: unknown) => LocalMutationResultToken
@@ -80,11 +80,11 @@ export const createLocalMutationCapability = (
   const safeRead: LocalMutationCapability["readLocal"] = (key) => {
     assertLive()
     const value = readLocal(key)
-    return value === undefined ? undefined : freezeLocalMutationInput(value)
+    return value === undefined ? undefined : decodeTrustedDataToken(JSON.stringify(freezeLocalMutationInput(value)))
   }
-  const safeWrite: LocalMutationCapability["writeLocal"] = (key, value) => { assertLive(); writeLocal(key, freezeLocalMutationInput(value)) }
+  const safeWrite: LocalMutationCapability["writeLocal"] = (key, value) => { assertLive(); writeLocal(key, trustedDataValue(value)) }
   const safeDelete: LocalMutationCapability["deleteLocal"] = (key) => { assertLive(); deleteLocal(key) }
-  const safeStage: LocalMutationCapability["stageIntent"] = (intent) => { assertLive(); stageIntent(freezeLocalMutationInput(intent)) }
+  const safeStage: LocalMutationCapability["stageIntent"] = (intent) => { assertLive(); stageIntent(freezeLocalMutationInput({ recipient: intent.recipient, payload: trustedDataValue(intent.payload) })) }
   const issueResult: LocalMutationCapability["issueResult"] = (value) => { assertLive(); return makeResultToken(value) }
   const capability = Object.create(null) as Record<string, unknown>
   Object.defineProperties(capability, {

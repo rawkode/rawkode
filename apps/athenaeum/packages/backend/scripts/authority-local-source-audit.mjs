@@ -5,6 +5,30 @@ const forbiddenIdentifiers = new Set(["Promise", "WebSocket", "fetch", "caches",
 const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env", "constructor", "prototype"])
 const allowedIntrinsics = new Set(AUTHORITY_PURE_INTRINSICS)
 
+const validateClosedBindings = (tree, file) => {
+  const bound = new Set()
+  const bind = (node) => {
+    if (ts.isIdentifier(node)) bound.add(node.text)
+    else if (ts.isBindingElement(node)) bind(node.name)
+    else if (ts.isParameter(node)) bind(node.name)
+  }
+  const collect = (node) => {
+    if (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isImportClause(node) || ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportEqualsDeclaration(node)) bind(node.name)
+    if (ts.isParameter(node)) bind(node.name)
+    ts.forEachChild(node, collect)
+  }
+  tree.forEachChild(collect)
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && !ts.isDeclarationName(node) && !allowedIntrinsics.has(node.text)) {
+      const parent = node.parent
+      const ignored = ts.isTypeNode(parent) || ts.isPropertyAccessExpression(parent) && parent.name === node || ts.isQualifiedName(parent) || ts.isImportClause(parent) || ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || ts.isLabelledStatement(parent)
+      if (!ignored && !bound.has(node.text)) throw new Error(`unresolved or ambient local handler identifier: ${node.text} in ${file}`)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+}
+
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
 const normalizeRelative = (from, specifier) => {
@@ -43,6 +67,7 @@ const forbiddenSyntax = (source, file) => {
     ts.forEachChild(node, visit)
   }
   visit(tree)
+  validateClosedBindings(tree, file)
   return tree
 }
 

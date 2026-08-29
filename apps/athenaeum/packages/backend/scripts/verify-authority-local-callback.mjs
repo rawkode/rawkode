@@ -72,6 +72,7 @@ export const verifyAuthorityLocalCallback = (sourceRoot = defaultRoot) => {
       if (!specifier.startsWith(".")) continue
       const target = resolveSource(file, specifier)
       if (target === internalPath && file !== authorityPath) throw new Error(`production source may import authority core only through ${authorityPath}: ${file}`)
+      if (target === authorityPath) throw new Error(`pre-bridge production source may not reach unwired authority wrapper: ${file}`)
       if (testSupportPath !== undefined && target === testSupportPath) throw new Error(`production source may not import test-only authority support: ${file}`)
     }
   }
