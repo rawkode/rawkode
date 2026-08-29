@@ -286,6 +286,7 @@ public struct WorkspaceCommandCenterView: View {
                     }
                     .padding(24)
                 }
+                .navigationTitle(section.title)
             } else {
                 startupError
             }

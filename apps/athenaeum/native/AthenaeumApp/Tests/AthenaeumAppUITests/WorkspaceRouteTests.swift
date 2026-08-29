@@ -42,6 +42,16 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertNil(WorkspaceIOSHomePresentation.dailyNoteDate(for: .section(.supertags)))
     }
 
+    func testBrowseDestinationsExposeTheirNavigationTitles() {
+        let destinations = WorkspaceIOSHomePresentation.browseCoreSections + WorkspaceIOSHomePresentation.browseSections
+
+        XCTAssertTrue(destinations.allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        XCTAssertEqual(
+            destinations.map(\.title),
+            ["Supertags", "Calendar brief", "Meetings", "Workouts", "Graph", "Bookmarks", "Apps", "Voice", "Agent review", "Sharing"]
+        )
+    }
+
     func testGraphDetailBackLabelMatchesItsSourceSurface() {
         XCTAssertEqual(
             WorkspaceGraphDetailPresentation.backButtonTitle(for: .brief),
