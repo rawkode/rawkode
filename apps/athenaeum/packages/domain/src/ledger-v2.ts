@@ -15,7 +15,8 @@ export type IngressEvidenceV2 =
   | { kind: "system"; sourceId: string; declaredSource: string }
 
 export type MutationPayloadV2 =
-  | { nodeId: string; title: string }
+  /** The caller may suggest an id, but allocation remains a post-admission concern. */
+  | { title: string; requestedNodeId?: string }
   | { nodeId: string; tagId: string; fieldValues: readonly { fieldId: string; value: unknown }[] }
   | { proposalId: string; decision: "accept" | "reject" }
 
@@ -46,10 +47,14 @@ export type ActorContext = Readonly<{
 }>
 export type ResolvedMutationIntentV2 = Readonly<{ request: MutationRequestV2; actor: ActorContext; requestDigest: string; evidenceDigest: string; custodyDigest: string; commandFingerprint: string; workspaceEpoch: number; correlationId: string; causationId: string }>
 
-export type LedgerEventV2 = Readonly<{ eventId: string; workspaceId: string; workspaceEpoch: number; sequence: number; commandFingerprint: string; requestId: string; causationId: string; correlationId: string; recipient: string; payload: unknown; createdAt: string }>
+export type LedgerReceiptV2<Output = unknown> = Readonly<{ version: "athenaeum.ledger-receipt.v2"; workspaceId: string; requestId: string; commandFingerprint: string; workspaceEpoch: number; sequence: number; output: Output; stagedIntentCount: number }>
+export type LedgerEventV2 = Readonly<{ eventId: string; eventType: string; workspaceId: string; workspaceEpoch: number; sequence: number; commandFingerprint: string; requestId: string; causationId: string; correlationId: string; recipient: string; payload: unknown; createdAt: string }>
 export type OutboxIntentV2 = Readonly<{ outboxId: string; eventId: string; workspaceId: string; workspaceEpoch: number; sequence: number; commandFingerprint: string; requestId: string; causationId: string; correlationId: string; recipient: string; payload: unknown; createdAt: string }>
-export type OutboxDeliveryV2 = { consumer: string; idempotencyKey: string; state: "pending" | "leased" | "delivered" | "failed"; attempts: number; leaseOwner?: string; leaseToken?: string; leaseExpiresAt?: string; nextAttemptAt?: string; diagnostics?: readonly string[]; terminalAt?: string; terminalReason?: string }
+export type DeliverySeedV2 = Readonly<{ outboxId: string; consumerId: string; idempotencyKey: string; state: "pending"; attempts: 0 }>
+export type OutboxDeliveryV2 = { consumerId: string; idempotencyKey: string; state: "pending" | "leased" | "delivered" | "failed"; attempts: number; leaseOwner?: string; leaseToken?: string; leaseExpiresAt?: string; nextAttemptAt?: string; diagnostics?: readonly string[]; terminalAt?: string; terminalReason?: string }
 export type DeliveryRecordV2 = OutboxDeliveryV2 & { outboxId: string }
+/** Internal-only replay classification. Foreign or no-longer-admitted callers remain denied. */
+export type SameAdmittedAudienceChangedMaterialConflictV2 = Readonly<{ kind: "same-admitted-audience-changed-material"; workspaceId: string; requestId: string }>
 
 const exactKeys = (value: unknown, keys: readonly string[]): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
@@ -83,7 +88,7 @@ function decodeEvidence(value: unknown): IngressEvidenceV2 {
 function decodePayload(kind: MutationKindV2, value: unknown): MutationPayloadV2 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid mutation payload")
   const payload = value as Record<string, unknown>
-  if (kind === "createNode" && exactKeys(payload, ["nodeId", "title"]) && nonBlank(payload.nodeId) && nonBlank(payload.title)) return payload as MutationPayloadV2
+  if (kind === "createNode" && (exactKeys(payload, ["title"]) || exactKeys(payload, ["title", "requestedNodeId"])) && nonBlank(payload.title) && (payload.requestedNodeId === undefined || nonBlank(payload.requestedNodeId))) return { title: normalizeMutationText(payload.title), ...(payload.requestedNodeId === undefined ? {} : { requestedNodeId: payload.requestedNodeId }) }
   if (kind === "applySupertag" && exactKeys(payload, ["nodeId", "tagId", "fieldValues"]) && nonBlank(payload.nodeId) && nonBlank(payload.tagId) && Array.isArray(payload.fieldValues) && payload.fieldValues.every((field) => exactKeys(field, ["fieldId", "value"]) && nonBlank(field.fieldId))) return payload as MutationPayloadV2
   if (kind === "agentChangeDecision" && exactKeys(payload, ["proposalId", "decision"]) && nonBlank(payload.proposalId) && (payload.decision === "accept" || payload.decision === "reject")) return payload as MutationPayloadV2
   throw new Error(`invalid ${kind} payload`)
@@ -121,30 +126,33 @@ export function decodeActorContext(value: unknown, toolMediated: boolean): Actor
   if (toolMediated && actor.toolExecution === undefined) throw new Error("tool-mediated mutations require tool execution custody")
   return actor as ActorContext
 }
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
-  if (value && typeof value === "object") return `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`
+export function canonicalDigestPreimageV2(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalDigestPreimageV2).join(",")}]`
+  if (value && typeof value === "object") return `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${canonicalDigestPreimageV2((value as Record<string, unknown>)[key])}`).join(",")}}`
   return JSON.stringify(value) ?? "null"
 }
 export async function digestCanonicalV2(value: unknown): Promise<string> {
-  const bytes = Uint8Array.from(unescape(encodeURIComponent(canonical(value))), (char) => char.charCodeAt(0))
+  const bytes = Uint8Array.from(unescape(encodeURIComponent(canonicalDigestPreimageV2(value))), (char) => char.charCodeAt(0))
   const webCrypto = (globalThis as unknown as { crypto: { subtle: { digest: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer> } } }).crypto
   const digest = await webCrypto.subtle.digest("SHA-256", bytes)
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 /** Includes every authority field, including the immutable tool chain when present. */
-export const custodyDigestMaterialV2 = (actor: ActorContext) => canonical(actor)
+export const custodyDigestMaterialV2 = (actor: ActorContext) => canonicalDigestPreimageV2(actor)
 export const resolvedActorCustodyDigestV2 = (actor: ActorContext) => digestCanonicalV2(actor)
 /** Generated ids, sequence, and timestamps are deliberately excluded from this material. */
-export const commandFingerprintMaterialV2 = (input: { requestDigest: string; evidenceDigest: string; custodyDigest: string; workspaceId: string; workspaceEpoch: number; correlationId: string; causationId: string }) => canonical(input)
+export const requestDigestMaterialV2 = (request: MutationRequestV2) => ({ version: request.version, kind: request.kind, requestId: request.requestId, rationale: request.rationale, payload: request.payload, surface: request.surface })
+export const evidenceDigestMaterialV2 = (evidence: IngressEvidenceV2) => evidence
+/** Generated ids, sequence, timestamps, events, and outbox rows are never command material. */
+export const commandFingerprintMaterialV2 = (input: { requestDigest: string; evidenceDigest: string; custodyDigest: string; workspaceId: string; workspaceEpoch: number; correlationId: string; causationId: string }) => ({ version: "athenaeum.command-fingerprint.v2", ...input })
 export type PreAuthorizationIdentityV2 = Readonly<{ workspaceId: string; requestId: string; requestDigest: string; evidenceDigest: string; fingerprint: string }>
 export async function createPreAuthorizationIdentityV2(workspaceId: string, request: MutationRequestV2): Promise<PreAuthorizationIdentityV2> {
-  const requestDigest = await digestCanonicalV2({ version: request.version, kind: request.kind, requestId: request.requestId, rationale: request.rationale, payload: request.payload, surface: request.surface })
-  const evidenceDigest = await digestCanonicalV2(request.evidence)
+  const requestDigest = await digestCanonicalV2(requestDigestMaterialV2(request))
+  const evidenceDigest = await digestCanonicalV2(evidenceDigestMaterialV2(request.evidence))
   return { workspaceId, requestId: request.requestId, requestDigest, evidenceDigest, fingerprint: await digestCanonicalV2({ workspaceId, requestId: request.requestId, requestDigest, evidenceDigest }) }
 }
 /** Event and intent records bind the command fingerprint but never mutable delivery state. */
-export const eventDigestMaterialV2 = (event: LedgerEventV2 | OutboxIntentV2) => canonical(event)
+export const eventDigestMaterialV2 = (event: LedgerEventV2 | OutboxIntentV2) => event
 export type ReplayDecisionV2<T> = { kind: "replay"; receipt: T } | { kind: "conflict" } | { kind: "authorize" }
 /** Workspace-owned `(workspaceId, requestId)` staging rule: stored receipts win across epoch/policy changes. */
 export function decideWorkspaceReplayV2<T>(stored: { fingerprint: string; receipt: T } | undefined, fingerprint: string): ReplayDecisionV2<T> {
@@ -169,13 +177,13 @@ function decodeImmutable(value: unknown, keys: readonly string[]): Record<string
   if (!["eventId", "outboxId", "workspaceId", "commandFingerprint", "requestId", "causationId", "correlationId", "recipient", "createdAt"].filter((key) => key in record).every((key) => nonBlank(record[key])) || !Number.isInteger(record.workspaceEpoch) || !Number.isInteger(record.sequence)) throw new Error("invalid immutable record")
   return record
 }
-export function decodeLedgerEventV2(value: unknown): LedgerEventV2 { return decodeImmutable(value, ["eventId", "workspaceId", "workspaceEpoch", "sequence", "commandFingerprint", "requestId", "causationId", "correlationId", "recipient", "payload", "createdAt"]) as LedgerEventV2 }
+export function decodeLedgerEventV2(value: unknown): LedgerEventV2 { const event = decodeImmutable(value, ["eventId", "eventType", "workspaceId", "workspaceEpoch", "sequence", "commandFingerprint", "requestId", "causationId", "correlationId", "recipient", "payload", "createdAt"]); if (!nonBlank(event.eventType)) throw new Error("ledger event requires a non-empty event type"); return event as LedgerEventV2 }
 export function decodeOutboxIntentV2(value: unknown): OutboxIntentV2 { return decodeImmutable(value, ["outboxId", "eventId", "workspaceId", "workspaceEpoch", "sequence", "commandFingerprint", "requestId", "causationId", "correlationId", "recipient", "payload", "createdAt"]) as OutboxIntentV2 }
 export function decodeOutboxDeliveryV2(value: unknown): OutboxDeliveryV2 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid delivery")
-  const delivery = value as Record<string, unknown>; const allowed = ["consumer", "idempotencyKey", "state", "attempts", "leaseOwner", "leaseToken", "leaseExpiresAt", "nextAttemptAt", "diagnostics", "terminalAt", "terminalReason"]
+  const delivery = value as Record<string, unknown>; const allowed = ["consumerId", "idempotencyKey", "state", "attempts", "leaseOwner", "leaseToken", "leaseExpiresAt", "nextAttemptAt", "diagnostics", "terminalAt", "terminalReason"]
   const lease = ["leaseOwner", "leaseToken", "leaseExpiresAt"], terminal = ["terminalAt", "terminalReason"]
-  if (Object.keys(delivery).some((key) => !allowed.includes(key)) || !nonBlank(delivery.consumer) || !nonBlank(delivery.idempotencyKey) || !["pending", "leased", "delivered", "failed"].includes(delivery.state as string) || typeof delivery.attempts !== "number" || !Number.isInteger(delivery.attempts) || delivery.attempts < 0 || (delivery.diagnostics !== undefined && (!Array.isArray(delivery.diagnostics) || delivery.diagnostics.length > 8 || delivery.diagnostics.some((message) => !nonBlank(message) || message.length > 512)))) throw new Error("invalid mutable delivery")
+  if (Object.keys(delivery).some((key) => !allowed.includes(key)) || !nonBlank(delivery.consumerId) || !nonBlank(delivery.idempotencyKey) || !["pending", "leased", "delivered", "failed"].includes(delivery.state as string) || typeof delivery.attempts !== "number" || !Number.isInteger(delivery.attempts) || delivery.attempts < 0 || (delivery.diagnostics !== undefined && (!Array.isArray(delivery.diagnostics) || delivery.diagnostics.length > 8 || delivery.diagnostics.some((message) => !nonBlank(message) || message.length > 512)))) throw new Error("invalid mutable delivery")
   if (delivery.state === "pending" && [...lease, ...terminal].some((key) => key in delivery)) throw new Error("pending delivery cannot include lease or terminal")
   if (delivery.state === "leased" && (!lease.every((key) => nonBlank(delivery[key])) || terminal.some((key) => key in delivery))) throw new Error("leased delivery requires lease only")
   if ((delivery.state === "delivered" || delivery.state === "failed") && (!terminal.every((key) => nonBlank(delivery[key])) || lease.some((key) => key in delivery))) throw new Error("terminal delivery requires terminal metadata")

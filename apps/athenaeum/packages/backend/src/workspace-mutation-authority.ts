@@ -7,6 +7,7 @@
  * through fresh action resolution and a second transaction.
  */
 import { sha256HexSync } from "@athenaeum/domain"
+import type { DeliverySeedV2, LedgerEventV2, LedgerReceiptV2, OutboxIntentV2, SameAdmittedAudienceChangedMaterialConflictV2 } from "../../domain/src/ledger-v2.js"
 import { authorityLocalCommandRegistry } from "./authority-local-command-registry.js"
 import type { LocalMutationCapability } from "./workspace-local-mutation-capability.js"
 import { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal.js"
@@ -117,33 +118,19 @@ export type ImmutableCommandProvenance = Readonly<{
   causationId: string; correlationId: string; createdAt: string
 }>
 
-export type ImmutableEvent = Readonly<{
-  eventId: EventId
-  workspaceId: WorkspaceId
-  epoch: AuthorityEpoch
-  sequence: LedgerSequence
-  commandFingerprint: Digest
+/** Authority brands refine the canonical V2 event contract without changing its fields. */
+export type ImmutableEvent = LedgerEventV2 & Readonly<{
+  eventId: EventId; workspaceId: WorkspaceId; workspaceEpoch: AuthorityEpoch; sequence: LedgerSequence; commandFingerprint: Digest
   digest: Digest
-  causationId: string
-  correlationId: string
-  createdAt: string
-  payload: unknown
 }>
 
-export type ImmutableOutboxIntent = Readonly<{
-  outboxId: OutboxId
-  eventId: EventId
-  workspaceId: WorkspaceId
-  epoch: AuthorityEpoch
-  sequence: LedgerSequence
-  commandFingerprint: Digest
+/** Authority brands refine the canonical V2 outbox contract without changing its fields. */
+export type ImmutableOutboxIntent = OutboxIntentV2 & Readonly<{
+  outboxId: OutboxId; eventId: EventId; workspaceId: WorkspaceId; workspaceEpoch: AuthorityEpoch; sequence: LedgerSequence; commandFingerprint: Digest
   digest: Digest
-  recipient: string
-  payload: unknown
-  createdAt: string
 }>
 
-export type DeliverySeed = Readonly<{ outboxId: OutboxId; consumerId: string; state: "pending"; attempts: 0 }>
+export type DeliverySeed = DeliverySeedV2 & Readonly<{ outboxId: OutboxId; idempotencyKey: Digest }>
 export type AuthorityFailpoint = "after-sequence" | "after-local-write" | "after-request" | "after-event" | "after-outbox" | "after-delivery" | "after-receipt"
 
 export type AuthorityTransaction<Receipt> = Readonly<{
@@ -181,23 +168,18 @@ export type AuthorityAdmissionPort = Readonly<{
   resolveFreshAction: (input: PreparedPublicRequest) => Promise<{ actor: ResolvedActorContext; actionFence: ActionFence; expectedEpoch: AuthorityEpoch; correlationId?: string; causationId?: string }>
 }>
 
-export type AuthorityReceipt<Output = unknown> = Readonly<{
-  version: "athenaeum.authority-receipt.v1"
-  workspaceId: WorkspaceId
-  requestId: RequestId
-  commandFingerprint: Digest
-  epoch: AuthorityEpoch
-  sequence: LedgerSequence
-  output: Output
-  stagedIntentCount: number
-}>
+export type AuthorityReceipt<Output = unknown> = LedgerReceiptV2<Output> & Readonly<{ workspaceId: WorkspaceId; requestId: RequestId; commandFingerprint: Digest; workspaceEpoch: AuthorityEpoch; sequence: LedgerSequence }>
 
 export type AuthorityOutcome<Output = unknown> =
   | Readonly<{ kind: "committed"; receipt: AuthorityReceipt<Output>; replay: boolean }>
+  | Readonly<{ kind: "conflict"; conflict: SameAdmittedAudienceChangedMaterialConflict }>
   | Readonly<{ kind: "denied" }>
 
+/** Safe to map to a public conflict later; this is emitted only for the same admitted audience. */
+export type SameAdmittedAudienceChangedMaterialConflict = SameAdmittedAudienceChangedMaterialConflictV2 & Readonly<{ workspaceId: WorkspaceId; requestId: RequestId }>
+
 export const AUTHORITY_VERSION = "athenaeum.authority.v1" as const
-export const RECEIPT_VERSION = "athenaeum.authority-receipt.v1" as const
+export const RECEIPT_VERSION = "athenaeum.ledger-receipt.v2" as const
 export const PUBLIC_REQUEST_VERSION = "athenaeum.public-request.v1" as const
 export const nonBlank = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
 export const isJsonValue = (value: unknown, active = new Set<object>()): boolean => {
@@ -245,7 +227,12 @@ export const stableReplayAudienceId = (audience: ReplayAudience): ReplayAudience
   if (!audience || !["human", "agent", "system"].includes(audience.kind) || !nonBlank((audience as { tenantId?: unknown }).tenantId)) throw new Error("invalid replay audience")
   const required = audience.kind === "human" ? [audience.subjectId] : audience.kind === "agent" ? [audience.employeeId, audience.jobId, audience.sponsorHumanId] : [audience.principalId]
   if (required.some((value) => !nonBlank(value))) throw new Error("invalid replay audience")
-  return syncDigest({ version: "athenaeum.replay-audience.v1", audience }) as unknown as ReplayAudienceId
+  const material = audience.kind === "human"
+    ? { kind: audience.kind, tenantId: audience.tenantId, subjectId: audience.subjectId }
+    : audience.kind === "agent"
+      ? { kind: audience.kind, tenantId: audience.tenantId, employeeId: audience.employeeId, jobId: audience.jobId, sponsorHumanId: audience.sponsorHumanId }
+      : { kind: audience.kind, tenantId: audience.tenantId, principalId: audience.principalId }
+  return syncDigest({ version: "athenaeum.replay-audience.v1", audience: material }) as unknown as ReplayAudienceId
 }
 
 export const actorCustodyMaterial = (actor: ResolvedActorContext): Record<string, unknown> => {
@@ -278,8 +265,12 @@ export const authorityFingerprint = (prepared: PreparedAction, epoch: AuthorityE
 export const safeReplay = <Output>(prepared: PreparedPublicRequest, prior: CommittedRequestRecord<AuthorityReceipt<Output>> | undefined): AuthorityOutcome<Output> | undefined => {
   if (prior === undefined) return undefined
   if (prior.workspaceId === prepared.workspaceId && prior.requestId === prepared.requestId && prior.requestDigest === prepared.requestDigest && prior.evidenceDigest === prepared.evidenceDigest && prior.replayAudienceId === prepared.replayAdmission.audienceId) return { kind: "committed", receipt: prior.receipt, replay: true }
+  if (prior.workspaceId === prepared.workspaceId && prior.requestId === prepared.requestId && prior.replayAudienceId === prepared.replayAdmission.audienceId) return { kind: "conflict", conflict: { kind: "same-admitted-audience-changed-material", workspaceId: prepared.workspaceId, requestId: prepared.requestId } }
   return { kind: "denied" }
 }
+
+/** A delivery key is stable for an immutable outbox row and independent of mutable delivery state. */
+export const deliveryIdempotencyKey = (outboxId: OutboxId, consumerId: string): Digest => syncDigest({ version: "athenaeum.delivery-idempotency.v2", outboxId, consumerId })
 export const maybeThenable = (value: unknown): boolean => {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
   return typeof Reflect.get(value as object, "then") === "function"
