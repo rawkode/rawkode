@@ -1,7 +1,7 @@
 const BOOTSTRAP_ETC_ENTRY = "rawkos-nix-bootstrap.conf"
 const BOOTSTRAP_BEGIN = "# BEGIN rawkOS bootstrap-cache"
 const BOOTSTRAP_END = "# END rawkOS bootstrap-cache"
-const CACHE_REGEX = 'ghostty\.cachix\.org|wezterm\.cachix\.org|cuenv\.cachix\.org|devenv\.cachix\.org'
+const CACHE_REGEX = 'ghostty\.cachix\.org|cuenv\.cachix\.org|devenv\.cachix\.org'
 
 def log-info [message: string] {
 	print $"(ansi green_bold)[INFO](ansi reset) ($message)"
@@ -71,7 +71,7 @@ def show-daemon-config [] {
 		^nix config show
 		| lines
 		| where {|line|
-			$line =~ 'trusted-users|substituters|trusted-public-keys|trusted-substituters|cachix|ghostty|wezterm|cuenv|devenv'
+			$line =~ 'trusted-users|substituters|trusted-public-keys|trusted-substituters|cachix|ghostty|cuenv|devenv'
 		}
 	)
 

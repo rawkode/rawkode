@@ -285,8 +285,6 @@ mkApp {
           window-rules = [
             {
               matches = [
-                { app-id = "vivaldi"; }
-                { app-id = "vivaldi-stable"; }
                 { app-id = "firefox"; }
               ];
               open-on-workspace = "Web";
@@ -305,7 +303,6 @@ mkApp {
             {
               matches = [
                 { app-id = "com.slack.Slack"; }
-                { app-id = "org.zulip.Zulip"; }
               ];
               open-on-workspace = "Chat";
               open-focused = true;

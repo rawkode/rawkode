@@ -5,6 +5,14 @@ in
 mkApp {
   name = "firefox-nightly";
 
+  linux.system =
+    { inputs, pkgs, ... }:
+    {
+      environment.systemPackages = [
+        inputs.firefox-nightly.packages.${pkgs.stdenv.hostPlatform.system}.firefox-nightly-bin
+      ];
+    };
+
   darwin.system =
     { lib, ... }:
     {

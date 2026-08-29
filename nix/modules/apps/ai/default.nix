@@ -92,15 +92,14 @@ mkApp {
         brews = [
           "amp"
           "gemini-cli"
+          "orca"
         ];
         casks = [
           "antigravity-cli"
           "chatgpt"
           "claude-code@latest"
           "codex"
-          "codex-app"
           "openusage"
-          "orca"
         ];
       };
     };

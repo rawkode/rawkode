@@ -39,6 +39,7 @@ mkCapability {
     inputs.self.nixosModules.bluetooth
     inputs.self.nixosModules.desktop-common
     inputs.self.nixosModules.flatpak
+    inputs.self.nixosModules.firefox-nightly
     inputs.self.nixosModules.google-chrome
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.gnome

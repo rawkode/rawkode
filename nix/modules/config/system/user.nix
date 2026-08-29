@@ -56,7 +56,6 @@ in
             "adbusers"
             "audio"
             "dialout"
-            "docker"
             "input"
             "kvm"
             "lxd"

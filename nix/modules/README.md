@@ -50,10 +50,10 @@ Examples:
 - go, rust, python → you write code in these languages
 - bun, deno → runtimes you write JS/TS for
 - cue → configuration language you write
-- docker, podman → platforms you build containers with
+- podman → platform you build containers with
 - kubernetes → platform you deploy to
-- pulumi, dagger → platforms for IaC/CI
-- devenv, direnv, flox → dev environment tooling
+- kubernetes, dagger → platforms for IaC/CI
+- devenv, direnv → dev environment tooling
 
 Counter-examples:
 
@@ -61,7 +61,7 @@ Counter-examples:
 - htop → you don't build software with it
 - zed → editor is an APP you use (even though it's for coding)
 
-**Note:** Editors (zed, vscode, cursor) are apps because they're interactive tools you USE, not platforms you build ON. The code you write targets go/rust/docker, not the editor.
+**Note:** Editors (zed, vscode, cursor) are apps because they're interactive tools you USE, not platforms you build ON. The code you write targets go/rust/containers, not the editor.
 
 ### Rule 3: OS-Specific System Config → `linux/` or `macos/`
 
@@ -95,7 +95,7 @@ If you can run it as a standalone command without shell integration, and it's no
 | bun          | `development/` | Runtime you write JS for                        |
 | htop         | `apps/`        | Standalone process viewer                       |
 | zed          | `apps/`        | Editor is a tool you USE, not build ON          |
-| docker       | `development/` | Platform you build containers with              |
+| podman       | `development/` | Platform you build containers with              |
 | gnome-tweaks | `linux/`       | Linux-only, configures DE                       |
 | raycast      | `macos/`       | macOS-only, system launcher                     |
 

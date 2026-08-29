@@ -70,7 +70,7 @@
     systems = {
       url = "github:nix-systems/default";
     };
-    browser-previews.url = "github:nix-community/browser-previews";
+    firefox-nightly.url = "github:nix-community/flake-firefox-nightly";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     vicinae.url = "github:vicinaehq/vicinae/db4c91c6638d191609e9e7e92d4ecddc8d54b1bb";
   };

@@ -51,7 +51,6 @@ mkCapability {
           with pkgs;
           [
             cmake
-            docker-compose
             gcc
             gdb
             gh
