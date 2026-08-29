@@ -156,6 +156,7 @@ public struct SupertagsView: View {
     @StateObject private var model: SupertagsViewModel
     @State private var selectedTagId: String?
     @State private var isCatalogRefreshInFlight = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let onOpenToday: (() -> Void)?
 
     public init(
@@ -215,12 +216,22 @@ public struct SupertagsView: View {
             ) {
                 SupertagsEmptyState(onOpenToday: onOpenToday)
             } else {
-                HStack(alignment: .top, spacing: 20) {
-                    tagList
-                        .frame(minWidth: 220, maxWidth: 280, alignment: .leading)
-                    Divider()
-                    detail
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                if horizontalSizeClass == .compact {
+                    VStack(alignment: .leading, spacing: 16) {
+                        tagList
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                        detail
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 20) {
+                        tagList
+                            .frame(minWidth: 220, maxWidth: 280, alignment: .leading)
+                        Divider()
+                        detail
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
                 }
             }
         }
