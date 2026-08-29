@@ -32,10 +32,22 @@
     };
 
     comma.url = "github:nix-community/comma";
-    coreweave.url = "github:coreweave/coreweave.nix";
+    coreweave = {
+      url = "github:coreweave/coreweave.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+      inputs.nix-darwin.follows = "nix-darwin";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
     cuenv.url = "github:cuenv/cuenv";
-    disko.url = "github:nix-community/disko";
-    kree.url = "path:../apps/kree";
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    kree = {
+      url = "path:../apps/kree";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flatpaks.url = "github:gmodena/nix-flatpak";
 
     ghostty = {
@@ -52,13 +64,19 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    nixos-hardware = {
+      url = "github:NixOS/nixos-hardware/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     niri = {
       url = "github:sodiboo/niri-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-ai-tools.url = "github:numtide/llm-agents.nix";
-    nur.url = "github:nix-community/NUR";
+    nur = {
+      url = "github:nix-community/NUR";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     orca = {
       url = "github:stablyai/orca";
       flake = false;
@@ -71,7 +89,11 @@
       url = "github:nix-systems/default";
     };
     firefox-nightly.url = "github:nix-community/flake-firefox-nightly";
-    treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # Deliberately pinned to a specific commit (annotate why, or try unpinning).
     vicinae.url = "github:vicinaehq/vicinae/db4c91c6638d191609e9e7e92d4ecddc8d54b1bb";
   };
 }
