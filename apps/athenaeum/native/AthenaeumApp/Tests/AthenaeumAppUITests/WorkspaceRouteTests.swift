@@ -19,6 +19,12 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertTrue(WorkspaceSection.supertags.showsDestinationHeader)
     }
 
+    func testDailyNoteNavigationTitleFollowsTheSelectedDay() {
+        XCTAssertEqual(WorkspaceIOSHomePresentation.navigationTitle(isToday: true), "Today")
+        XCTAssertEqual(WorkspaceIOSHomePresentation.navigationTitle(isToday: false), "Daily note")
+        XCTAssertEqual(WorkspaceIOSHomePresentation.dailyNoteTitle, "Daily note")
+    }
+
     func testIOSHomeMakesTodayPrimaryAndKeepsSupportingSurfacesBrowsable() throws {
         let localDate = try LocalDate(validating: "2026-08-27")
 

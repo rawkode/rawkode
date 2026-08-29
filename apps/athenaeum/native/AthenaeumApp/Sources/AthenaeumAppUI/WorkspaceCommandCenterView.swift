@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AthenaeumDomain
 import AthenaeumRPC
 
@@ -154,7 +155,7 @@ public struct WorkspaceCommandCenterView: View {
     private var iOSShell: some View {
         NavigationStack(path: $iOSPath) {
             iOSHome
-                .navigationTitle("Today")
+                .navigationTitle(WorkspaceIOSHomePresentation.navigationTitle(isToday: host.isSelectedDateToday))
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button {
@@ -305,6 +306,7 @@ public struct WorkspaceCommandCenterView: View {
                 .task(id: localDate) {
                     model.showLocalDate(localDate)
                 }
+                .navigationTitle(WorkspaceIOSHomePresentation.dailyNoteTitle)
             } else {
                 startupError
             }
@@ -860,6 +862,11 @@ enum WorkspaceIOSHomePresentation {
     static let homeSection: WorkspaceSection = .today
     static let browseCoreSections: [WorkspaceSection] = [.supertags]
     static let browseSections = WorkspaceSection.browseSections
+    static let dailyNoteTitle = "Daily note"
+
+    static func navigationTitle(isToday: Bool) -> String {
+        isToday ? "Today" : dailyNoteTitle
+    }
 
     static func dailyNoteDate(for route: WorkspaceRoute) -> LocalDate? {
         guard case .dailyNote(let localDate) = route else { return nil }
@@ -923,9 +930,11 @@ private final class WorkspaceCommandCenterHost: ObservableObject {
     @Published private(set) var searchRows: [AthenaeumViewModel.SearchRow] = []
     @Published private(set) var searchError: String?
     @Published private(set) var isSearching = false
+    @Published private(set) var isSelectedDateToday = true
 
     private let searchClient: WorkspaceRPCClient
     private var searchTask: Task<Void, Never>?
+    private var selectedDateObserver: AnyCancellable?
     private var didStart = false
 
     var readClient: WorkspaceRPCClient { searchClient }
@@ -949,6 +958,15 @@ private final class WorkspaceCommandCenterHost: ObservableObject {
                 bearerCredential: bearerCredential
             )
             startupError = nil
+            isSelectedDateToday = model?.isSelectedDateToday ?? true
+            if let model {
+                selectedDateObserver = model.$selectedDate
+                    .receive(on: RunLoop.main)
+                    .sink { [weak self, weak model] _ in
+                        guard let self, let model else { return }
+                        self.isSelectedDateToday = model.isSelectedDateToday
+                    }
+            }
         } catch {
             model = nil
             startupError = WorkspaceStartupPresentation.failureMessage(for: error)
