@@ -2,6 +2,7 @@
 
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
+import { MemoryRouter } from "react-router"
 import { UnexpectedError } from "@athenaeum/domain"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -44,7 +45,7 @@ const catalogGenerations = (): number[] => [
 
 const render = async (root: Root): Promise<void> => {
   await act(async () => {
-    root.render(<SupertagsManager />)
+    root.render(<MemoryRouter><SupertagsManager /></MemoryRouter>)
     await flush()
   })
 }
