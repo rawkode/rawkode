@@ -9,7 +9,7 @@ const bindName = (scope, node) => {
   if (ts.isIdentifier(node)) scope.add(node.text)
   else if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) for (const element of node.elements) if (ts.isBindingElement(element)) bindName(scope, element.name)
 }
-const declarationName = (node) => ts.isDeclarationName(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isPropertyAccessExpression(node.parent) && node.parent.name === node || ts.isPropertyAssignment(node.parent) && node.parent.name === node || ts.isPropertyDeclaration(node.parent) && node.parent.name === node || ts.isQualifiedName(node.parent) || ts.isTypeNode(node.parent) || ts.isLabelledStatement(node.parent)
+const declarationName = (node) => ts.isDeclarationName(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isPropertyAccessExpression(node.parent) && node.parent.name === node || ts.isPropertyAssignment(node.parent) && node.parent.name === node || ts.isPropertyDeclaration(node.parent) && node.parent.name === node || ts.isQualifiedName(node.parent) || ts.isTypeNode(node.parent) || ts.isLabeledStatement(node.parent)
 const hoist = (scope, node) => {
   for (const statement of node.statements ?? []) {
     if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) { if (statement.name) bindName(scope, statement.name) }

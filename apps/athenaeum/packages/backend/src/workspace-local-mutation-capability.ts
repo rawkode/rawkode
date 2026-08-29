@@ -102,8 +102,3 @@ export const createScopedLocalMutationCapability = (
     revoke: () => { state.executing = false; state.active = false }
   })
 }
-
-/** Test-only compatibility constructor; it is inert until a kernel scope calls begin. */
-export const createLocalMutationCapabilityForTests = (raw: RawLocalState): LocalMutationCapability => createScopedLocalMutationCapability(raw).capability
-/** @deprecated test support must use a scoped capability and call begin explicitly. */
-export const createLocalMutationCapability = (readLocal: RawLocalState["readLocal"], writeLocal: RawLocalState["writeLocal"], deleteLocal: RawLocalState["deleteLocal"], stageIntent: RawLocalState["stageIntent"]): LocalMutationCapability => createLocalMutationCapabilityForTests({ readLocal, writeLocal, deleteLocal, stageIntent })

@@ -1,7 +1,8 @@
 import ts from "typescript"
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import { auditLocalHandlerFiles } from "./authority-local-source-audit.mjs"
+import { verifyAuthorityRuntimeDag } from "./authority-runtime-dag-audit.mjs"
 
 const defaultRoot = realpathSync(new URL("../src", import.meta.url).pathname)
 
@@ -61,11 +62,13 @@ export const verifyAuthorityLocalCallback = (sourceRoot = defaultRoot) => {
   const root = realpathSync(sourceRoot)
   const authorityPath = realpathSync(resolve(root, "workspace-mutation-authority.ts"))
   const internalPath = realpathSync(resolve(root, "workspace-mutation-authority-internal.ts"))
+  const kernelPath = realpathSync(resolve(root, "authority-kernel-contract.ts"))
   const testSupportCandidate = resolve(root, "../test/authority-kernel-test-support.ts")
   const testSupportPath = existsSync(testSupportCandidate) ? realpathSync(testSupportCandidate) : undefined
   const entry = resolve(root, "authority-local-commands.ts")
 
   auditLocalHandlerFiles(root, [entry], (file) => readFileSync(file, "utf8"), resolveSource)
+  verifyAuthorityRuntimeDag(root)
 
   const roots = ["index.ts", "workspace-durable-object.ts", "user-durable-object.ts"].map((name) => resolve(root, name)).filter(existsSync)
   const reachesForbidden = (start, visited = new Set()) => {
@@ -73,7 +76,7 @@ export const verifyAuthorityLocalCallback = (sourceRoot = defaultRoot) => {
     for (const specifier of moduleSpecifiers(real, readFileSync(real, "utf8"))) {
       if (!specifier.startsWith(".")) continue
       const target = resolveSource(real, specifier)
-      if (target === authorityPath || target === internalPath) return true
+      if (target === authorityPath || target === internalPath || target === kernelPath) return true
       if (reachesForbidden(target, visited)) return true
     }
     return false
@@ -86,6 +89,7 @@ export const verifyAuthorityLocalCallback = (sourceRoot = defaultRoot) => {
       const target = resolveSource(file, specifier)
       if (target === internalPath && file !== authorityPath) throw new Error(`production source may import authority core only through ${authorityPath}: ${file}`)
       if (target === authorityPath) throw new Error(`pre-bridge production source may not reach unwired authority wrapper: ${file}`)
+      if (target === kernelPath && file !== authorityPath && file !== internalPath) throw new Error(`production source may import authority kernel only through the wrapper or core: ${file}`)
       if (testSupportPath !== undefined && target === testSupportPath) throw new Error(`production source may not import test-only authority support: ${file}`)
     }
   }

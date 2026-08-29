@@ -3,76 +3,302 @@ import { digestCanonicalV2 } from "@athenaeum/domain"
 import { createAuthorityLocalCommandRegistryForTests, executeAuthorityForTests } from "./authority-kernel-test-support.js"
 import type { AuthorityLocalCommandRegistry } from "../src/authority-local-command-registry.js"
 import { decodeTrustedDataToken } from "../src/authority-trusted-data-token.js"
-import { createScopedLocalMutationCapability } from "../src/workspace-local-mutation-capability.js"
+import type { LocalMutationCapability } from "../src/workspace-local-mutation-capability.js"
 import {
-  deliveryIdempotencyKey, stableReplayAudienceId, syncDigest,
-  type ActionFence, type AuthorityAdmissionPort, type AuthorityEpoch, type AuthorityFailpoint, type AuthorityReceipt,
-  type AuthorityStore, type AuthorityTransaction, type Digest, type EventId, type ImmutableEvent,
-  type ImmutableCommandProvenance, type ImmutableOutboxIntent, type KernelIdentityPort, type LedgerSequence, type OutboxId,
-  type ReplayAdmission, type ReplayAudience, type ReplayAudienceId, type RequestId,
-  type ResolvedActorContext, type WorkspaceId
+  deliveryIdempotencyKey,
+  stableReplayAudienceId,
+  syncDigest,
+  type ActionFence,
+  type AuthorityAdmissionPort,
+  type AuthorityEpoch,
+  type AuthorityFailpoint,
+  type AuthorityReceipt,
+  type AuthorityStore,
+  type AuthorityTransaction,
+  type CommittedRequestRecord,
+  type Digest,
+  type EventId,
+  type ImmutableCommandProvenance,
+  type ImmutableEvent,
+  type ImmutableOutboxIntent,
+  type KernelIdentityPort,
+  type LedgerSequence,
+  type OutboxId,
+  type ReplayAdmission,
+  type ReplayAudience,
+  type ReplayAudienceId,
+  type RequestId,
+  type ResolvedActorContext,
+  type WorkspaceId
 } from "../src/workspace-mutation-authority.js"
 
 const workspace = "workspace-1" as WorkspaceId
 const requestId = (value: string) => value as RequestId
-const humanAudience: ReplayAudience = { kind: "human", tenantId: "tenant-1", subjectId: "human-1" }
-const audienceId = stableReplayAudienceId(humanAudience)
-const admissionFence = { membershipVersion: "member-1" }
-const baseActionFence = (): ActionFence => ({ membershipVersion: "member-1", policyVersion: "policy-1", grantVersion: "grant-1", revocationVersion: "revocation-1", expiresAt: 2_000_000 })
-const baseActor = (): ResolvedActorContext => ({ authority: "verified-human", workspaceId: workspace, principalId: "human-1", effectiveCapability: "write", policy: "policy-1", custodyMaterial: { authority: "human-1", capability: "write" } })
+const audienceId = stableReplayAudienceId({ kind: "human", tenantId: "tenant-1", subjectId: "human-1" } satisfies ReplayAudience)
+const actionFence = (): ActionFence => ({ membershipVersion: "member-1", policyVersion: "policy-1", grantVersion: "grant-1", revocationVersion: "revocation-1", expiresAt: 2_000_000 })
+const actor = (): ResolvedActorContext => ({ authority: "verified-human", workspaceId: workspace, principalId: "human-1", effectiveCapability: "write", policy: "policy-1", custodyMaterial: { human: "human-1", capability: "write" } })
+const token = (value: unknown) => {
+  const json = JSON.stringify(value)
+  if (typeof json !== "string") throw new Error("test token must encode as JSON")
+  return decodeTrustedDataToken(json)
+}
 
 type State = {
-  records: Map<string, { workspaceId: WorkspaceId; requestId: RequestId; requestDigest: Digest; evidenceDigest: Digest; replayAudienceId: ReplayAudienceId; commandFingerprint: Digest; receipt: AuthorityReceipt<unknown> }>
-  local: Map<string, unknown>; commands: ImmutableCommandProvenance[]; events: ImmutableEvent[]; outboxes: ImmutableOutboxIntent[]; deliveries: { outboxId: OutboxId; consumerId: string; idempotencyKey: Digest; state: "pending"; attempts: 0 }[]; receipts: unknown[]
-  epoch: number; sequence: number; admission: ReplayAdmission; actionFence: ActionFence; failpoint?: AuthorityFailpoint; reads: number; actionChecks: number
+  records: Map<string, CommittedRequestRecord<AuthorityReceipt<unknown>>>
+  local: Map<string, unknown>
+  commands: ImmutableCommandProvenance[]
+  events: ImmutableEvent[]
+  outboxes: ImmutableOutboxIntent[]
+  deliveries: { outboxId: OutboxId; consumerId: string; idempotencyKey: Digest; state: "pending"; attempts: 0 }[]
+  receipts: unknown[]
+  epoch: number
+  sequence: number
+  admission: ReplayAdmission
+  actionFence: ActionFence
+  failpoint?: AuthorityFailpoint
 }
-const copyState = (state: State): State => ({ records: new Map(state.records), local: new Map(state.local), commands: [...state.commands], events: [...state.events], outboxes: [...state.outboxes], deliveries: [...state.deliveries], receipts: [...state.receipts], epoch: state.epoch, sequence: state.sequence, admission: { ...state.admission, admissionFence: { ...state.admission.admissionFence } }, actionFence: { ...state.actionFence }, failpoint: state.failpoint, reads: state.reads, actionChecks: state.actionChecks })
 
-class FakeTransactionalStore implements AuthorityStore<AuthorityReceipt<unknown>> {
-  state: State = { records: new Map(), local: new Map(), commands: [], events: [], outboxes: [], deliveries: [], receipts: [], epoch: 1, sequence: 0, admission: { workspaceId: workspace, admitted: true, audienceId, admissionFence }, actionFence: baseActionFence(), reads: 0, actionChecks: 0 }
+const cloneState = (state: State): State => ({
+  records: new Map(state.records), local: new Map(state.local), commands: [...state.commands], events: [...state.events], outboxes: [...state.outboxes], deliveries: [...state.deliveries], receipts: [...state.receipts],
+  epoch: state.epoch, sequence: state.sequence, admission: { ...state.admission, admissionFence: { ...state.admission.admissionFence } }, actionFence: { ...state.actionFence }, failpoint: state.failpoint
+})
+
+class FakeStore implements AuthorityStore<AuthorityReceipt<unknown>> {
+  state: State = {
+    records: new Map(), local: new Map(), commands: [], events: [], outboxes: [], deliveries: [], receipts: [], epoch: 1, sequence: 0,
+    admission: { workspaceId: workspace, admitted: true, audienceId, admissionFence: { membershipVersion: "member-1" } }, actionFence: actionFence()
+  }
+
   transactionSync<T>(run: (transaction: AuthorityTransaction<AuthorityReceipt<unknown>>) => T): T {
-    const before = copyState(this.state)
+    const before = cloneState(this.state)
     const transaction: AuthorityTransaction<AuthorityReceipt<unknown>> = {
-      recheckReplayAdmission: (snapshot) => { if (!this.state.admission.admitted || this.state.admission.workspaceId !== snapshot.workspaceId || this.state.admission.audienceId !== snapshot.audienceId) return "denied"; const expected = snapshot.admissionFence; const actual = this.state.admission.admissionFence; if (Object.keys(expected).some((key) => expected[key as keyof typeof expected] !== actual[key as keyof typeof actual])) return "denied"; return "admitted" },
-      getCommittedRequest: (workspaceId, id) => { this.state.reads += 1; return this.state.records.get(`${workspaceId}:${id}`) },
-      recheckActionFence: ({ workspaceId, actor, fence, expectedEpoch, nowEpochMs }) => { this.state.actionChecks += 1; if (workspaceId !== this.state.admission.workspaceId || actor.workspaceId !== workspaceId || expectedEpoch !== this.state.epoch || nowEpochMs >= fence.expiresAt) return "retry"; const keys = new Set([...Object.keys(fence), ...Object.keys(this.state.actionFence)]); if ([...keys].some((key) => fence[key as keyof ActionFence] !== this.state.actionFence[key as keyof ActionFence])) return "retry"; return "current" },
+      recheckReplayAdmission: (snapshot) => this.state.admission.admitted && this.state.admission.workspaceId === snapshot.workspaceId && this.state.admission.audienceId === snapshot.audienceId && this.state.admission.admissionFence.membershipVersion === snapshot.admissionFence.membershipVersion ? "admitted" : "denied",
+      getCommittedRequest: (workspaceId, id) => this.state.records.get(`${workspaceId}:${id}`),
+      recheckActionFence: ({ workspaceId, actor: resolved, fence, expectedEpoch, nowEpochMs }) => workspaceId === workspace && resolved.workspaceId === workspace && expectedEpoch === this.state.epoch && nowEpochMs < fence.expiresAt && fence.policyVersion === this.state.actionFence.policyVersion ? "current" : "retry",
       currentEpoch: () => this.state.epoch as AuthorityEpoch,
       allocateNextSequence: () => (++this.state.sequence) as LedgerSequence,
-      localMutation: () => ({ readLocal: (key) => this.state.local.get(key), writeLocal: (key, value) => this.state.local.set(key, value), deleteLocal: (key) => this.state.local.delete(key), stageIntent: () => {} }),
+      // The kernel receives raw synchronous same-storage operations; handlers never do.
+      localMutation: () => ({
+        readLocal: (key) => this.state.local.get(key),
+        writeLocal: (key, value) => this.state.local.set(key, value),
+        deleteLocal: (key) => this.state.local.delete(key),
+        stageIntent: () => {}
+      }),
       insertCommandProvenance: (record) => this.state.commands.push(record),
-      insertCommittedRequest: (record) => { const key = `${record.workspaceId}:${record.requestId}`; if (this.state.records.has(key)) throw new Error("duplicate request"); this.state.records.set(key, record) },
-      insertEvent: (event) => { if (this.state.events.some((candidate) => candidate.eventId === event.eventId)) throw new Error("duplicate event"); this.state.events.push(event) },
-      insertOutboxIntent: (intent) => { if (this.state.outboxes.some((candidate) => candidate.outboxId === intent.outboxId)) throw new Error("duplicate outbox"); this.state.outboxes.push(intent) },
-      insertDeliverySeed: (delivery) => this.state.deliveries.push(delivery), insertReceipt: (receipt) => this.state.receipts.push(receipt), hitFailpoint: (point) => { if (this.state.failpoint === point) throw new Error(`failpoint:${point}`) }
+      insertCommittedRequest: (record) => {
+        const key = `${record.workspaceId}:${record.requestId}`
+        if (this.state.records.has(key)) throw new Error("duplicate request")
+        this.state.records.set(key, record)
+      },
+      insertEvent: (event) => this.state.events.push(event),
+      insertOutboxIntent: (intent) => this.state.outboxes.push(intent),
+      insertDeliverySeed: (delivery) => this.state.deliveries.push(delivery),
+      insertReceipt: (receipt) => this.state.receipts.push(receipt),
+      hitFailpoint: (point) => { if (this.state.failpoint === point) throw new Error(`failpoint:${point}`) }
     }
-    try { return run(transaction) } catch (error) { this.state = before; throw error }
+    try {
+      return run(transaction)
+    } catch (error) {
+      this.state = before
+      throw error
+    }
   }
+
   readEpochSnapshot = (_workspaceId: WorkspaceId) => this.state.epoch as AuthorityEpoch
 }
 
-let identityCounter = 0
-const identity = (): KernelIdentityPort => ({ nextEventId: () => `event-${++identityCounter}` as EventId, nextOutboxId: () => `outbox-${++identityCounter}` as OutboxId, nowIso: () => "2026-08-29T00:00:00.000Z", nowEpochMs: () => 1_000_000 })
-const input = (overrides: Partial<{ requestId: string; kind: string; request: unknown; evidence: unknown; payload: unknown; commitMessage: string }> = {}) => ({ workspaceId: workspace, requestId: requestId(overrides.requestId ?? "request-1"), kind: overrides.kind ?? "stage1a-test", commitMessage: overrides.commitMessage ?? "Record the requested second-brain change.", request: overrides.request ?? { z: 1, a: [true, null] }, evidence: overrides.evidence ?? { kind: "web", sourceId: "ui-1" }, payload: overrides.payload ?? { nested: { value: 1 } } })
-const admission = (store: FakeTransactionalStore, options: { resolve?: () => Promise<{ actor: ResolvedActorContext; actionFence: ActionFence; expectedEpoch: AuthorityEpoch; correlationId?: string; causationId?: string }>; audience?: ReplayAudienceId } = {}): AuthorityAdmissionPort => ({ admitReplay: async ({ workspaceId }) => ({ ...store.state.admission, workspaceId, audienceId: options.audience ?? store.state.admission.audienceId }), resolveFreshAction: options.resolve ?? (async () => ({ actor: baseActor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch })) })
-const token = (value: unknown) => decodeTrustedDataToken(JSON.stringify(value))
-const defaultRegistry = createAuthorityLocalCommandRegistryForTests([{ kind: "stage1a-test", handler: (capability, payload) => { capability.writeLocal("projection", payload); capability.stageIntent("daily-standup", payload); return capability.issueResult(token({ ok: true })) } }])
-type AuthorityInput = ReturnType<typeof input>
-const executeUnwiredMutationAuthority = <Output = unknown>(store: AuthorityStore<AuthorityReceipt<Output>>, authorityAdmission: AuthorityAdmissionPort, commandInput: AuthorityInput, kernelIdentity: KernelIdentityPort, registry: AuthorityLocalCommandRegistry = defaultRegistry) => executeAuthorityForTests(store, authorityAdmission, commandInput, kernelIdentity, registry)
+let ids = 0
+const identity = (): KernelIdentityPort => ({
+  nextEventId: () => `event-${++ids}` as EventId,
+  nextOutboxId: () => `outbox-${++ids}` as OutboxId,
+  nowIso: () => "2026-08-29T00:00:00.000Z",
+  nowEpochMs: () => 1_000_000
+})
+const input = (overrides: Partial<{ requestId: string; kind: string; payload: unknown; evidence: unknown }> = {}) => ({
+  workspaceId: workspace, requestId: requestId(overrides.requestId ?? "request-1"), kind: overrides.kind ?? "stage1a-test", commitMessage: "Record the requested second-brain change.",
+  request: { node: "daily" }, evidence: overrides.evidence ?? { kind: "web", sourceId: "ui-1" }, payload: overrides.payload ?? { nested: { value: 1 } }
+})
+type Input = ReturnType<typeof input>
+const admission = (store: FakeStore, resolve: AuthorityAdmissionPort["resolveFreshAction"] = async () => ({ actor: actor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch })): AuthorityAdmissionPort => ({
+  admitReplay: async ({ workspaceId }) => ({ ...store.state.admission, workspaceId }),
+  resolveFreshAction: resolve
+})
+const registry = (entries: Parameters<typeof createAuthorityLocalCommandRegistryForTests>[0]): AuthorityLocalCommandRegistry => createAuthorityLocalCommandRegistryForTests(entries)
+const execute = <Output = unknown>(store: AuthorityStore<AuthorityReceipt<Output>>, port: AuthorityAdmissionPort, command: Input, commands: AuthorityLocalCommandRegistry) => executeAuthorityForTests(store, port, command, identity(), commands)
+
+const tokenizedCommand = registry([{
+  kind: "stage1a-test",
+  handler: (capability, payload) => {
+    capability.writeLocal("projection", payload)
+    capability.stageIntent("daily-standup", payload)
+    return capability.issueResult(token({ ok: true }))
+  }
+}])
 
 describe("unwired workspace mutation authority", () => {
-  it("replays exact public identity without invoking the handler again", async () => { const store = new FakeTransactionalStore(); let calls = 0; const registry = createAuthorityLocalCommandRegistryForTests([{ kind: "stage1a-test", handler: (capability, payload) => { calls += 1; capability.writeLocal("projection", payload); capability.stageIntent("daily-standup", payload); return capability.issueResult(token({ ok: true })) } }]); const first = await executeUnwiredMutationAuthority(store, admission(store), input(), identity(), registry); const replay = await executeUnwiredMutationAuthority(store, admission(store), input(), identity(), registry); expect(first.kind).toBe("committed"); expect(replay).toEqual({ kind: "committed", receipt: (first as { kind: "committed"; receipt: unknown }).receipt, replay: true }); expect(calls).toBe(1); expect(store.state.commands).toHaveLength(1); expect(store.state.sequence).toBe(1); expect(store.state.events).toHaveLength(1); expect(store.state.outboxes).toHaveLength(1) })
-  it("conflicts on changed kind or payload for the same admitted request key", async () => { const store = new FakeTransactionalStore(); let calls = 0; const registry = createAuthorityLocalCommandRegistryForTests([{ kind: "stage1a-test", handler: (capability, payload) => { calls += 1; capability.writeLocal("projection", payload); return capability.issueResult(token("one")) } }, { kind: "other-command", handler: (capability) => { calls += 1; return capability.issueResult(token("two")) } }]); await expect(executeUnwiredMutationAuthority(store, admission(store), input(), identity(), registry)).resolves.toMatchObject({ kind: "committed" }); for (const changed of [input({ kind: "other-command" }), input({ payload: { nested: { value: 2 } } })]) expect(await executeUnwiredMutationAuthority(store, admission(store), changed, identity(), registry)).toMatchObject({ kind: "conflict" }); expect(calls).toBe(1) })
-  it("binds the typed actor and tool custody into command fingerprints", async () => { const store = new FakeTransactionalStore(); let actor = baseActor(); const registry = defaultRegistry; const port = admission(store, { resolve: async () => ({ actor, actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch }) }); const first = await executeUnwiredMutationAuthority(store, port, input(), identity(), registry); actor = { ...actor, principalId: "human-2" }; const second = await executeUnwiredMutationAuthority(store, port, input({ requestId: "request-2" }), identity(), registry); expect(first.kind).toBe("committed"); expect(second.kind).toBe("committed"); const fingerprints = [...store.state.records.values()].map((record) => record.commandFingerprint); expect(new Set(fingerprints).size).toBe(2) })
-  it("persists inspectable agent and tool provenance", async () => { const store = new FakeTransactionalStore(); const actor: ResolvedActorContext = { authority: "agent-job-run", workspaceId: workspace, principalId: "agent-principal", employeeId: "employee-1", sponsorHumanId: "human-1", jobId: "job-1", runId: "run-1", grantId: "grant-1", effectiveCapability: "write", policy: "policy-1", custodyMaterial: { employee: "employee-1", purpose: "enrich" }, toolExecution: { registrationId: "web-search", immutableToolVersion: "2026.08.1", invocationId: "invoke-1", grantId: "grant-1", workspaceId: workspace, expiresAt: "2030-01-01T00:00:00.000Z", revocationId: "revocation-1", effectiveCapability: "lookup", policy: "tool-policy-1" } }; const port = admission(store, { resolve: async () => ({ actor, actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch, correlationId: "correlation-1", causationId: "causation-1" }) }); const result = await executeUnwiredMutationAuthority(store, port, input({ evidence: { kind: "tool", sourceId: "invoke-1" } }), identity()); expect(result.kind).toBe("committed"); expect(store.state.commands[0]).toMatchObject({ kind: "stage1a-test", actorAuthority: "agent-job-run", principalId: "agent-principal", effectiveCapability: "write", policy: "policy-1", employeeId: "employee-1", sponsorHumanId: "human-1", jobId: "job-1", runId: "run-1", grantId: "grant-1", correlationId: "correlation-1", causationId: "causation-1", toolExecution: { registrationId: "web-search", immutableToolVersion: "2026.08.1", invocationId: "invoke-1", grantId: "grant-1" } }); expect(Object.isFrozen(store.state.commands[0]?.toolExecution)).toBe(true) })
-  it("keeps replay before action policy and sequence changes", async () => { const store = new FakeTransactionalStore(); const first = await executeUnwiredMutationAuthority(store, admission(store), input(), identity()); store.state.actionFence = { ...store.state.actionFence, policyVersion: "policy-2", grantVersion: "grant-2" }; store.state.epoch = 9; const replay = await executeUnwiredMutationAuthority(store, admission(store), input(), identity()); expect(first.kind).toBe("committed"); expect(replay.kind).toBe("committed"); expect(store.state.actionChecks).toBe(1); expect(store.state.sequence).toBe(1) })
-  it("returns a typed conflict only to the same admitted audience and preserves foreign denial", async () => { const store = new FakeTransactionalStore(); await executeUnwiredMutationAuthority(store, admission(store), input(), identity()); const changed = await executeUnwiredMutationAuthority(store, admission(store), input({ evidence: { kind: "rpc", sourceId: "ui-1" } }), identity()); store.state.admission = { ...store.state.admission, audienceId: stableReplayAudienceId({ kind: "human", tenantId: "tenant-1", subjectId: "other" }) }; const foreign = await executeUnwiredMutationAuthority(store, admission(store), input(), identity()); store.state.admission = { ...store.state.admission, admitted: false }; const denied = await executeUnwiredMutationAuthority(store, admission(store), input({ requestId: "new" }), identity()); expect(changed).toEqual({ kind: "conflict", conflict: { kind: "same-admitted-audience-changed-material", workspaceId: workspace, requestId: requestId("request-1") } }); expect(foreign).toEqual({ kind: "denied" }); expect(denied).toEqual({ kind: "denied" }) })
-  it("projects stable replay audiences and pins delivery idempotency to immutable outbox identity", async () => { const audienceWithTransientFields = { kind: "human", tenantId: "tenant-1", subjectId: "human-1", policy: "policy-2", epoch: 9, admissionFence: "membership-9" } as unknown as ReplayAudience; expect(stableReplayAudienceId(audienceWithTransientFields)).toBe(audienceId); expect(deliveryIdempotencyKey("outbox-vector" as OutboxId, "consumer-1")).toBe("3e90d7d0bf3779c425e5d99b9583c33593e104ec130f03616e8881a743ee0d0c"); const store = new FakeTransactionalStore(); await executeUnwiredMutationAuthority(store, admission(store), input(), identity()); const outbox = store.state.outboxes[0]!; const delivery = store.state.deliveries[0]!; expect(outbox).toMatchObject({ requestId: requestId("request-1"), causationId: "causation:request-1", correlationId: `correlation:${workspace}:request-1` }); expect(store.state.events[0]).toMatchObject({ eventType: "stage1a-test", requestId: requestId("request-1"), recipient: "workspace-ledger" }); expect(delivery).toEqual({ outboxId: outbox.outboxId, consumerId: outbox.recipient, idempotencyKey: deliveryIdempotencyKey(outbox.outboxId, outbox.recipient), state: "pending", attempts: 0 }) })
-  it("allows one commit when two deferred resolvers race", async () => { const store = new FakeTransactionalStore(); let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve }); let handlers = 0; const registry = createAuthorityLocalCommandRegistryForTests([{ kind: "stage1a-test", handler: (capability, payload) => { handlers += 1; capability.writeLocal("projection", payload); capability.stageIntent({ recipient: "brief", payload }); return "done" } }]); const resolver = async () => { await gate; return { actor: baseActor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch } }; const port = admission(store, { resolve: resolver }); const left = executeUnwiredMutationAuthority(store, port, input(), identity(), registry); const right = executeUnwiredMutationAuthority(store, port, input(), identity(), registry); await Promise.resolve(); release(); const [a, b] = await Promise.all([left, right]); expect(a.kind).toBe("committed"); expect(b.kind).toBe("committed"); expect(handlers).toBe(1); expect(store.state.sequence).toBe(1) })
-  it("rechecks admission after deferred resolution", async () => { const store = new FakeTransactionalStore(); let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve }); const port = admission(store, { resolve: async () => { await gate; return { actor: baseActor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch } } }); const pending = executeUnwiredMutationAuthority(store, port, input(), identity()); await Promise.resolve(); store.state.admission = { ...store.state.admission, admitted: false }; release(); expect(await pending).toEqual({ kind: "denied" }); expect(store.state.records.size).toBe(0) })
-  it("retries on an action-fence change without duplicating the handler", async () => { const store = new FakeTransactionalStore(); let resolves = 0; const port = admission(store, { resolve: async () => { resolves += 1; const fence = { ...store.state.actionFence }; if (resolves === 1) store.state.actionFence = { ...store.state.actionFence, policyVersion: "policy-2" }; return { actor: baseActor(), actionFence: fence, expectedEpoch: store.state.epoch as AuthorityEpoch } } }); const result = await executeUnwiredMutationAuthority(store, port, input(), identity()); expect(result.kind).toBe("committed"); expect(resolves).toBe(2); expect(store.state.sequence).toBe(1) })
-  it("rolls back every failpoint and handler/output failure", async () => { for (const failpoint of ["after-sequence", "after-local-write", "after-request", "after-event", "after-outbox", "after-delivery", "after-receipt"] as const) { const store = new FakeTransactionalStore(); store.state.failpoint = failpoint; await expect(executeUnwiredMutationAuthority(store, admission(store), input(), identity())).rejects.toThrow(`failpoint:${failpoint}`); expect(store.state.records.size).toBe(0); expect(store.state.commands).toHaveLength(0); expect(store.state.local.size).toBe(0); expect(store.state.events).toHaveLength(0); expect(store.state.outboxes).toHaveLength(0); expect(store.state.deliveries).toHaveLength(0); expect(store.state.receipts).toHaveLength(0); expect(store.state.sequence).toBe(0) } const store = new FakeTransactionalStore(); const registry = createAuthorityLocalCommandRegistryForTests([{ kind: "throws", handler: (capability) => { capability.writeLocal("x", 1); throw new Error("handler failure") } }]); await expect(executeUnwiredMutationAuthority(store, admission(store), input({ kind: "throws", requestId: "throws" }), identity(), registry)).rejects.toThrow("handler failure"); expect(store.state.commands).toHaveLength(0); expect(store.state.local.size).toBe(0) })
-  it("rejects Promise, plain thenable, throwing getter, and side-effect getter with rollback", async () => { const cases: [string, () => unknown][] = [["promise", () => Promise.resolve("bad")], ["plain", () => ({ then: () => {} })], ["getter", () => ({ get then() { throw new Error("getter failure") } })]]; for (const [kind, output] of cases) { const store = new FakeTransactionalStore(); const registry = createAuthorityLocalCommandRegistryForTests([{ kind, handler: (capability) => { capability.writeLocal("x", kind); return output() } }]); await expect(executeUnwiredMutationAuthority(store, admission(store), input({ kind, requestId: kind }), identity(), registry)).rejects.toThrow(); expect(store.state.local.size).toBe(0); expect(store.state.records.size).toBe(0); expect(store.state.commands).toHaveLength(0) } const store = new FakeTransactionalStore(); const registry = createAuthorityLocalCommandRegistryForTests([{ kind: "side-effect", handler: (capability) => { capability.writeLocal("x", 1); return { get then() { capability.writeLocal("getter", 1); throw new Error("side effect getter") } } } }]); await expect(executeUnwiredMutationAuthority(store, admission(store), input({ kind: "side-effect", requestId: "side-effect" }), identity(), registry)).rejects.toThrow("side effect getter"); expect(store.state.commands).toHaveLength(0); expect(store.state.local.size).toBe(0) })
-  it("fails closed for tool custody and expiry", async () => { const store = new FakeTransactionalStore(); const missingTool = admission(store, { resolve: async () => ({ actor: baseActor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch }) }); expect(await executeUnwiredMutationAuthority(store, missingTool, input({ evidence: { kind: "tool", sourceId: "tool-1" } }), identity())).toEqual({ kind: "denied" }); const expired = admission(store, { resolve: async () => ({ actor: { ...baseActor(), toolExecution: { registrationId: "tool", immutableToolVersion: "1", invocationId: "i", grantId: "g", workspaceId: workspace, expiresAt: "1970-01-01T00:00:00.000Z", revocationId: "r", effectiveCapability: "write", policy: "p" } }, actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch }) }); expect(await executeUnwiredMutationAuthority(store, expired, input({ requestId: "expired", evidence: { kind: "tool", sourceId: "tool-1" } }), identity())).toEqual({ kind: "denied" }) })
-  it("matches canonical sync and async digest vectors", async () => { const values = [{ z: { b: "é", a: "😀" }, a: [true, false, null, 0, -1.5], empty: {} }, ["x", { b: 2, a: 1 }], null, { request: { title: "café" }, evidence: { kind: "tool", id: "😀" }, custody: { actor: "human" }, command: { n: 3 } }, { "😀": 1, "e\u0301": "NFD", "é": "NFC", "𐀀": "astral" }]; for (const value of values) expect(await digestCanonicalV2(value)).toBe(syncDigest(value)) })
-  it("deep-freezes a null-prototype capability", () => { const captured: unknown[] = []; const capability = createLocalMutationCapability(() => undefined, () => {}, () => {}, (intent) => captured.push(intent)); expect(Object.getPrototypeOf(capability)).toBeNull(); expect(Object.isFrozen(capability)).toBe(true); const payload = { nested: { value: 1 } }; capability.stageIntent({ recipient: "brief", payload }); payload.nested.value = 2; expect((captured[0] as { payload: { nested: { value: number } } }).payload.nested.value).toBe(1) })
+  it("commits tokenized handler data once and replays the same receipt", async () => {
+    const store = new FakeStore()
+    let calls = 0
+    const commands = registry([{
+      kind: "stage1a-test",
+      handler: (capability, payload) => {
+        calls += 1
+        capability.writeLocal("projection", payload)
+        capability.stageIntent("daily-standup", payload)
+        return capability.issueResult(token({ ok: true }))
+      }
+    }])
+    const first = await execute(store, admission(store), input(), commands)
+    const replay = await execute(store, admission(store), input(), commands)
+    expect(first).toMatchObject({ kind: "committed", replay: false })
+    expect(replay).toEqual({ kind: "committed", receipt: (first as { receipt: unknown }).receipt, replay: true })
+    expect(calls).toBe(1)
+    expect(store.state.local.get("projection")).toEqual({ nested: { value: 1 } })
+    expect(store.state.sequence).toBe(1)
+    expect(store.state.events).toHaveLength(1)
+    expect(store.state.outboxes).toHaveLength(1)
+  })
+
+  it("conflicts changed material for the same audience and denies a foreign audience", async () => {
+    const store = new FakeStore()
+    let calls = 0
+    const commands = registry([
+      { kind: "stage1a-test", handler: (capability, payload) => { calls += 1; capability.writeLocal("projection", payload); return capability.issueResult(token("one")) } },
+      { kind: "other", handler: (capability) => capability.issueResult(token("two")) }
+    ])
+    await expect(execute(store, admission(store), input(), commands)).resolves.toMatchObject({ kind: "committed" })
+    await expect(execute(store, admission(store), input({ payload: { nested: { value: 2 } } }), commands)).resolves.toMatchObject({ kind: "conflict" })
+    await expect(execute(store, admission(store), input({ kind: "other" }), commands)).resolves.toMatchObject({ kind: "conflict" })
+    store.state.admission = { ...store.state.admission, audienceId: stableReplayAudienceId({ kind: "human", tenantId: "tenant-1", subjectId: "other" }) }
+    await expect(execute(store, admission(store), input(), commands)).resolves.toEqual({ kind: "denied" })
+    expect(calls).toBe(1)
+  })
+
+  it("permits exactly one tokenized handler when deferred resolutions race", async () => {
+    const store = new FakeStore()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const commands = registry([{
+      kind: "stage1a-test",
+      handler: (capability, payload) => { calls += 1; capability.writeLocal("projection", payload); capability.stageIntent("brief", payload); return capability.issueResult(token("done")) }
+    }])
+    const port = admission(store, async () => { await gate; return { actor: actor(), actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch } })
+    const left = execute(store, port, input(), commands)
+    const right = execute(store, port, input(), commands)
+    await Promise.resolve()
+    release()
+    const [a, b] = await Promise.all([left, right])
+    expect(a.kind).toBe("committed")
+    expect(b.kind).toBe("committed")
+    expect(calls).toBe(1)
+    expect(store.state.sequence).toBe(1)
+  })
+
+  it("rechecks admission and retries a changed action fence without duplicate writes", async () => {
+    const deniedStore = new FakeStore()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const denied = execute(deniedStore, admission(deniedStore, async () => { await gate; return { actor: actor(), actionFence: { ...deniedStore.state.actionFence }, expectedEpoch: deniedStore.state.epoch as AuthorityEpoch } }), input(), tokenizedCommand)
+    await Promise.resolve()
+    deniedStore.state.admission = { ...deniedStore.state.admission, admitted: false }
+    release()
+    await expect(denied).resolves.toEqual({ kind: "denied" })
+    expect(deniedStore.state.records.size).toBe(0)
+
+    const retryStore = new FakeStore()
+    let resolutions = 0
+    const retry = admission(retryStore, async () => {
+      resolutions += 1
+      const fence = { ...retryStore.state.actionFence }
+      if (resolutions === 1) retryStore.state.actionFence = { ...retryStore.state.actionFence, policyVersion: "policy-2" }
+      return { actor: actor(), actionFence: fence, expectedEpoch: retryStore.state.epoch as AuthorityEpoch }
+    })
+    await expect(execute(retryStore, retry, input(), tokenizedCommand)).resolves.toMatchObject({ kind: "committed" })
+    expect(resolutions).toBe(2)
+    expect(retryStore.state.sequence).toBe(1)
+  })
+
+  it("rolls back failpoints and revokes a retained capability after a throw", async () => {
+    for (const failpoint of ["after-sequence", "after-local-write", "after-request", "after-event", "after-outbox", "after-delivery", "after-receipt"] as const) {
+      const store = new FakeStore()
+      store.state.failpoint = failpoint
+      await expect(execute(store, admission(store), input(), tokenizedCommand)).rejects.toThrow(`failpoint:${failpoint}`)
+      expect(store.state.records.size).toBe(0)
+      expect(store.state.local.size).toBe(0)
+      expect(store.state.events).toHaveLength(0)
+      expect(store.state.outboxes).toHaveLength(0)
+      expect(store.state.sequence).toBe(0)
+    }
+    const store = new FakeStore()
+    let retained: LocalMutationCapability | undefined
+    const commands = registry([{
+      kind: "throws",
+      handler: (capability) => { retained = capability; capability.writeLocal("x", token(1)); throw new Error("handler failure") }
+    }])
+    await expect(execute(store, admission(store), input({ kind: "throws" }), commands)).rejects.toThrow("handler failure")
+    expect(store.state.local.size).toBe(0)
+    expect(() => retained?.writeLocal("late", token(1))).toThrow(/no longer active/)
+  })
+
+  it("rejects malformed and unissued output without inspecting thenables, accessors, proxies, or generators", async () => {
+    const malformedStore = new FakeStore()
+    const malformed = registry([{
+      kind: "malformed",
+      handler: (capability) => { capability.writeLocal("x", {} as never); return capability.issueResult(token("unused")) }
+    }])
+    await expect(execute(malformedStore, admission(malformedStore), input({ kind: "malformed" }), malformed)).rejects.toThrow(/unissued/)
+    expect(malformedStore.state.local.size).toBe(0)
+
+    const outputs: [string, () => unknown][] = [
+      ["promise", () => Promise.resolve("bad")],
+      ["thenable", () => ({ then: () => {} })],
+      ["accessor", () => ({ get then() { throw new Error("getter must not run") } })]
+    ]
+    for (const [kind, output] of outputs) {
+      const store = new FakeStore()
+      const commands = registry([{
+        kind,
+        handler: (capability) => { capability.writeLocal("x", token(kind)); return output() as never }
+      }])
+      await expect(execute(store, admission(store), input({ kind, requestId: kind }), commands)).rejects.toThrow(/capability-issued/)
+      expect(store.state.local.size).toBe(0)
+    }
+
+    let proxyTraps = 0
+    let generatorRuns = 0
+    const proxy = new Proxy({}, { get: () => { proxyTraps += 1; throw new Error("proxy trap must not run") } })
+    const generator = (function* () { generatorRuns += 1 })()
+    for (const [kind, output] of [["proxy", proxy], ["generator", generator]] as const) {
+      const store = new FakeStore()
+      const commands = registry([{
+        kind,
+        handler: (capability) => { capability.writeLocal("x", token(kind)); return output as never }
+      }])
+      await expect(execute(store, admission(store), input({ kind, requestId: kind }), commands)).rejects.toThrow(/capability-issued/)
+      expect(store.state.local.size).toBe(0)
+    }
+    expect(proxyTraps).toBe(0)
+    expect(generatorRuns).toBe(0)
+  })
+
+  it("fails closed for missing and expired tool custody", async () => {
+    const store = new FakeStore()
+    await expect(execute(store, admission(store), input({ evidence: { kind: "tool", sourceId: "tool-1" } }), tokenizedCommand)).resolves.toEqual({ kind: "denied" })
+    const expired = admission(store, async () => ({
+      actor: { ...actor(), toolExecution: { registrationId: "tool", immutableToolVersion: "1", invocationId: "i", grantId: "g", workspaceId: workspace, expiresAt: "1970-01-01T00:00:00.000Z", revocationId: "r", effectiveCapability: "write", policy: "p" } },
+      actionFence: { ...store.state.actionFence }, expectedEpoch: store.state.epoch as AuthorityEpoch
+    }))
+    await expect(execute(store, expired, input({ requestId: "expired", evidence: { kind: "tool", sourceId: "tool-1" } }), tokenizedCommand)).resolves.toEqual({ kind: "denied" })
+  })
+
+  it("preserves public digest re-exports through the pure kernel contract", async () => {
+    const vectors = [
+      { z: { b: "é", a: "😀" }, a: [true, false, null, 0, -1.5], empty: {} },
+      ["x", { b: 2, a: 1 }],
+      { "😀": 1, "e\u0301": "NFD", "é": "NFC", "𐀀": "astral" }
+    ]
+    for (const value of vectors) expect(await digestCanonicalV2(value)).toBe(syncDigest(value))
+    expect(deliveryIdempotencyKey("outbox-vector" as OutboxId, "consumer-1")).toBe("3e90d7d0bf3779c425e5d99b9583c33593e104ec130f03616e8881a743ee0d0c")
+  })
 })

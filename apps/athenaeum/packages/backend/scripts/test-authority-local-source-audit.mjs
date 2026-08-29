@@ -27,7 +27,11 @@ assert.throws(
   /require/
 )
 assert.doesNotThrow(() => auditLocalHandlerGraph({ "/entry.ts": "const text = 'Promise.resolve(1)'" }, ["/entry.ts"]))
-assert.doesNotThrow(() => auditLocalHandlerGraph({ "/entry.ts": "const x = () => { const Promise = 1; return Promise }; export { x }" }, ["/entry.ts"]), "lexical shadowing is local")
+assert.throws(
+  () => auditLocalHandlerGraph({ "/entry.ts": "const x = () => { const Promise = 1; return Promise }; export { x }" }, ["/entry.ts"]),
+  /forbidden/,
+  "reserved ambient spellings remain forbidden even when locally shadowed"
+)
 for (const source of [
   "export const x = globalThis",
   "export const x = Date.now()",

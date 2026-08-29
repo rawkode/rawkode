@@ -11,7 +11,7 @@ describe("local authority callback confinement", () => {
     const result = scope.capability.issueResult(payload)
     expect(materializeLocalMutationResult(result)).toEqual({ ok: true })
     scope.revoke()
-    expect(() => scope.capability.writeLocal("late", payload)).toThrow(/no longer executing/)
+    expect(() => scope.capability.writeLocal("late", payload)).toThrow(/no longer active/)
     expect(local.has("late")).toBe(false)
   })
 

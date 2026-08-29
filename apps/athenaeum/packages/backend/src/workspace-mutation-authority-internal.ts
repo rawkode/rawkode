@@ -1,11 +1,11 @@
 /**
- * Internal authority implementation. This module is deliberately not a production ingress: the
- * only source-side import is the static-registry wrapper in workspace-mutation-authority.ts. The
- * test harness imports it from `test/` to exercise alternate immutable registries without adding
- * a mutable production hook.
+ * Internal authority implementation. This module is deliberately not a production ingress: it
+ * depends only on the pure kernel contract and static local-command registry. The test harness
+ * imports it from `test/` to exercise alternate immutable registries without adding a mutable
+ * production hook.
  */
 import { digestCanonicalV2, normalizeMutationText } from "@athenaeum/domain"
-import { decodeTrustedDataToken, trustedDataValue } from "./authority-trusted-data-token.js"
+import { decodeTrustedDataToken } from "./authority-trusted-data-token.js"
 import { createScopedLocalMutationCapability, freezeLocalMutationInput, materializeLocalMutationResult, type StagedMutationIntent } from "./workspace-local-mutation-capability.js"
 import type { AuthorityLocalCommandRegistry } from "./authority-local-command-registry.js"
 import {
@@ -14,7 +14,7 @@ import {
   type AuthorityAdmissionPort, type AuthorityInput, type AuthorityOutcome,
   type AuthorityReceipt, type AuthorityStore, type Digest, type KernelIdentityPort, type PreparedAction, type PreparedPublicRequest,
   type ReplayAdmission
-} from "./workspace-mutation-authority.js"
+} from "./authority-kernel-contract.js"
 
 /** Execute a prepared command with the supplied immutable registry. */
 export const executeMutationAuthorityWithRegistry = async <Output = unknown>(
@@ -31,6 +31,11 @@ export const executeMutationAuthorityWithRegistry = async <Output = unknown>(
   const frozenRequest = freezeLocalMutationInput(input.request)
   const frozenEvidence = freezeLocalMutationInput(input.evidence)
   const frozenPayload = freezeLocalMutationInput(input.payload)
+  const frozenPayloadJson = JSON.stringify(frozenPayload)
+  if (typeof frozenPayloadJson !== "string") throw new Error("authority payload must encode as JSON")
+  // This token is minted before the synchronous callback boundary. Handlers never receive the
+  // caller's raw value or an object that needs reflective validation in the transaction.
+  const payloadToken = decodeTrustedDataToken(frozenPayloadJson)
   const replayAdmissionValue: unknown = freezeLocalMutationInput(await admission.admitReplay({ workspaceId: input.workspaceId, transport: input.transport, evidence: frozenEvidence }))
   if (replayAdmissionValue === null || typeof replayAdmissionValue !== "object" || Array.isArray(replayAdmissionValue)) return { kind: "denied" }
   const replayAdmission = replayAdmissionValue as ReplayAdmission
@@ -71,7 +76,6 @@ export const executeMutationAuthorityWithRegistry = async <Output = unknown>(
       scope.begin()
       let output: Output
       try {
-        const payloadToken = decodeTrustedDataToken(JSON.stringify(prepared.payload))
         const resultToken = handler(capability, payloadToken)
         output = materializeLocalMutationResult<Output>(resultToken)
       } finally {
