@@ -186,21 +186,13 @@ public struct DailyNoteView: View {
 
     private var noteHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(isToday ? "Today" : "Daily note")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(1.2)
-                    Text(noteDateLabel)
-                        .font(.system(.largeTitle, design: .serif).weight(.semibold))
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Daily note for \(noteDateLabel)")
-                formatBadge
-                Spacer(minLength: 8)
-                dayNavigation
+            // On compact screens the date and navigation cannot share one row without
+            // reducing the date to an unreadable, punctuation-breaking column. The first
+            // candidate keeps the desktop command-center rhythm; ViewThatFits selects the
+            // stacked composition when the available width is too narrow.
+            ViewThatFits(in: .horizontal) {
+                wideNoteHeaderRow
+                compactNoteHeader
             }
             Text("Capture what matters, then let the workspace connect it.")
                 .font(.callout)
@@ -208,8 +200,51 @@ public struct DailyNoteView: View {
         }
     }
 
+    private var wideNoteHeaderRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            noteTitle
+            formatBadge
+            Spacer(minLength: 8)
+            dayNavigation
+        }
+    }
+
+    private var compactNoteHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                noteTitle
+                Spacer(minLength: 0)
+                formatBadge
+            }
+            dayNavigation
+        }
+    }
+
+    private var noteTitle: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(isToday ? "Today" : "Daily note")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(1.2)
+            Text(noteDateDisplayLabel)
+                .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Daily note for \(noteDateLabel)")
+    }
+
     private var noteDateLabel: String {
         model.selectedDateLabel
+    }
+
+    /// Keep the comma attached to the day when the localized full date needs a compact wrap.
+    /// The spoken/accessibility label deliberately remains the ordinary localized string.
+    private var noteDateDisplayLabel: String {
+        noteDateLabel.replacingOccurrences(of: ", ", with: ",\u{00a0}")
     }
 
     private var isToday: Bool {
