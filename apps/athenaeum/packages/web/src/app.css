@@ -2141,6 +2141,20 @@
   line-height: 1.4;
 }
 
+.ledger-activity-disclosure {
+  margin-top: var(--space-3);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.ledger-activity-disclosure:hover,
+.ledger-activity-disclosure:focus-visible {
+  color: var(--color-accent);
+}
+
 @container notes-route (min-width: 61rem) {
   .notes-layout {
     grid-template-columns: minmax(42rem, 65ch) minmax(16rem, 1fr);

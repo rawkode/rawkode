@@ -7,6 +7,10 @@ import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { dailyStandupWindow } from "./daily-standup-window.js"
 
+/** Keep the read wide enough for a useful daily picture while the presentation stays calm. */
+export const DAILY_STANDUP_FETCH_LIMIT = 20
+const DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES = 8
+
 const actorLabel = (actor: LedgerActivityEntry["actor"]): string => {
   if (actor === "you") return "You"
   if (actor === "workspace-member") return "Workspace member"
@@ -64,6 +68,7 @@ const typeLabel = (type: LedgerActivityEntry["type"]): string => {
 export function DailyStandup() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshClaimed, setRefreshClaimed] = useState(false)
+  const [showAllEntries, setShowAllEntries] = useState(false)
   const refreshClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const dayWindow = useMemo(() => dailyStandupWindow(), [refreshKey])
   const query = useEffectQuery(
@@ -71,7 +76,7 @@ export function DailyStandup() {
       Effect.flatMap((client) =>
         client.listRecentLedgerActivity(new ListRecentLedgerActivityInput({
           workspaceId,
-          limit: 8,
+          limit: DAILY_STANDUP_FETCH_LIMIT,
           from: dayWindow.from,
           to: dayWindow.to
         }))
@@ -100,8 +105,20 @@ export function DailyStandup() {
     ? successfulEntries.current.entries
     : undefined
   const visibleEntries = currentEntries ?? cachedEntries
+  const displayedEntries = showAllEntries
+    ? visibleEntries
+    : visibleEntries?.slice(0, DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES)
+  const additionalEntryCount = visibleEntries === undefined
+    ? 0
+    : Math.max(visibleEntries.length - DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES, 0)
   const isLoadingActivity = !stateIsCurrent || query.status === "loading"
   const activityLoadFailed = stateIsCurrent && query.status === "failure"
+
+  useEffect(() => {
+    // A refresh may reveal a larger result set. Start that new generation collapsed so the
+    // daily note remains quiet and the reader can choose to expand it again.
+    setShowAllEntries(false)
+  }, [refreshKey, dayWindow.from, dayWindow.to])
 
   useEffect(() => {
     const claim = refreshClaim.current
@@ -151,7 +168,7 @@ export function DailyStandup() {
           </button>
         </div>
       </div>
-      <p className="ledger-activity-intro">Changes recorded today. Every entry has an actor and a commit reason.</p>
+      <p className="ledger-activity-intro">Recent recorded changes today (up to {DAILY_STANDUP_FETCH_LIMIT}). Every entry has an actor and a commit reason.</p>
 
       {isLoadingActivity && (
         <p className="ledger-activity-state" role="status">
@@ -169,8 +186,8 @@ export function DailyStandup() {
       {visibleEntries !== undefined && visibleEntries.length > 0 && (
         <>
           <StandupSummary summary={summarizeDailyStandup(visibleEntries)} />
-          <ol className="ledger-activity-list">
-            {visibleEntries.map((entry, index) => (
+          <ol id="daily-standup-activity-list" className="ledger-activity-list">
+            {displayedEntries?.map((entry, index) => (
               <li key={`${entry.occurredAt}-${entry.type}-${index}`} className="ledger-activity-entry">
                 <div className="ledger-activity-entry-meta">
                   <span className="ledger-activity-kind">{typeLabel(entry.type)}</span>
@@ -184,6 +201,17 @@ export function DailyStandup() {
               </li>
             ))}
           </ol>
+          {additionalEntryCount > 0 && (
+            <button
+              type="button"
+              className="ledger-activity-disclosure"
+              aria-controls="daily-standup-activity-list"
+              aria-expanded={showAllEntries}
+              onClick={() => setShowAllEntries((expanded) => !expanded)}
+            >
+              {showAllEntries ? "Show fewer recorded changes" : `Show ${additionalEntryCount} more recorded ${additionalEntryCount === 1 ? "change" : "changes"}`}
+            </button>
+          )}
         </>
       )}
     </section>

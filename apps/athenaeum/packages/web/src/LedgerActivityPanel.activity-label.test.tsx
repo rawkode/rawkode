@@ -16,7 +16,7 @@ vi.mock("./use-effect-query.js", () => ({
   })
 }))
 
-import { DailyStandup } from "./LedgerActivityPanel.js"
+import { DAILY_STANDUP_FETCH_LIMIT, DailyStandup } from "./LedgerActivityPanel.js"
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -65,5 +65,45 @@ describe("DailyStandup meeting preparation activity", () => {
     expect(host.querySelector(".ledger-activity-actor")?.textContent).toBe("Workspace member")
     expect(host.querySelector(".ledger-activity-reason p")?.textContent).toBe("Prepare the planning meeting in the daily note.")
     expect(host.textContent).not.toContain("prepareMeetingInDailyNote")
+  })
+
+  it("fetches the supported recent window but progressively discloses entries beyond the calm default", async () => {
+    expect(DAILY_STANDUP_FETCH_LIMIT).toBe(20)
+    queryStateMock.entries = Array.from({ length: 9 }, (_, index) => ({
+      occurredAt: `2026-08-28T09:${String(index).padStart(2, "0")}:00.000Z`,
+      type: "createNodeWithIntent",
+      actor: "workspace-member",
+      message: `Recorded change ${index + 1}`
+    } as LedgerActivityEntry))
+
+    const host = await mount()
+    const disclosure = () => host.querySelector<HTMLButtonElement>(".ledger-activity-disclosure")
+
+    expect(host.querySelectorAll(".ledger-activity-entry")).toHaveLength(8)
+    expect(host.querySelector(".ledger-activity-summary")?.textContent).toContain("9 changes")
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("false")
+    expect(disclosure()?.textContent).toBe("Show 1 more recorded change")
+
+    await act(async () => { disclosure()?.click(); await flush() })
+    expect(host.querySelectorAll(".ledger-activity-entry")).toHaveLength(9)
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("true")
+    expect(disclosure()?.textContent).toBe("Show fewer recorded changes")
+
+    await act(async () => { disclosure()?.click(); await flush() })
+    expect(host.querySelectorAll(".ledger-activity-entry")).toHaveLength(8)
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("false")
+  })
+
+  it("renders all retrieved changes without a disclosure control when the result fits the default", async () => {
+    queryStateMock.entries = Array.from({ length: 8 }, (_, index) => ({
+      occurredAt: `2026-08-28T10:${String(index).padStart(2, "0")}:00.000Z`,
+      type: "createNodeWithIntent",
+      actor: "workspace-member",
+      message: `Recorded change ${index + 1}`
+    } as LedgerActivityEntry))
+
+    const host = await mount()
+    expect(host.querySelectorAll(".ledger-activity-entry")).toHaveLength(8)
+    expect(host.querySelector(".ledger-activity-disclosure")).toBeNull()
   })
 })
