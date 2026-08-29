@@ -52,6 +52,19 @@ final class CapnWebValueTests: XCTestCase {
         XCTAssertEqual(domainError, .nodeNotFound(nodeId: "6258f684-ec27-4fa5-8a73-f5a5489e5bea"))
     }
 
+    func testDecodesPageFormatMismatchIntoTransportErrorMirror() throws {
+        let message = #"{"tag":"PageFormatMismatch","message":"format mismatch","data":{"nodeId":"f9ecd920-d30a-4314-9870-3cc80e2efb58","expected":"loro-v1","actual":"automerge-v1"}}"#
+        let error = AthenaeumDomainError.decode(name: "Error", message: message)
+        XCTAssertEqual(
+            error,
+            .pageFormatMismatch(
+                nodeId: "f9ecd920-d30a-4314-9870-3cc80e2efb58",
+                expected: .loroV1,
+                actual: .automergeV1
+            )
+        )
+    }
+
     func testDecodesNestedEntriesArrayFromSyncFeed() throws {
         // Captured from a real `syncFeed` response — an object nested inside the wrapped array.
         let line = #"{"epoch":"01119972-c866-4f0f-aac6-1107f03724f4","epochMismatch":false,"entries":[[{"replicaEpoch":0,"monotonicCounter":0,"entityKind":"node","entityId":"f9ecd920-d30a-4314-9870-3cc80e2efb58","operation":"put","payload":{"id":"x"},"hash":"60a03142"}]],"nextAfterCounter":2}"#

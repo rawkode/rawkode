@@ -1,5 +1,11 @@
 # Rich text editor (web) — decisions
 
+> **Historical compatibility document.** This document describes the original
+> Automerge/ProseMirror editor and remains relevant only to the explicit legacy
+> `automerge-v1` lane. The product path is now Loro-first; see
+> [`page-format-migration-status.md`](page-format-migration-status.md) for the
+> current authority matrix and removal gate.
+
 Scope for this pass, confirmed by David: full block-based rich text for **web only**
 (paragraph, h1–h3, bullet/numbered/checklist list, quote, code block, divider; inline
 bold/italic/strikethrough/code/links; markdown shortcuts; slash-command block insert;

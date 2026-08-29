@@ -6,10 +6,14 @@ import {
   AppCodeVersionNotFound,
   AppNotFound,
   GatekeeperNotConnected,
+  LoroRequestIdentityConflict,
+  LoroSemanticCommitRequired,
   MeetingNotFound,
+  NodeAlreadyExists,
   NodeNotFound,
   OAuthExchangeFailed,
   ObserverVerificationFailed,
+  PageFormatMismatch,
   TagFieldDefinitionNotFound,
   UnexpectedError,
   ValidationError,
@@ -19,7 +23,13 @@ import {
   WorkspaceAccessDenied,
   WorkspaceNotFound
 } from "./errors.js"
-import { decodeRpcError, encodeRpcError, RpcErrorEnvelope } from "./rpc-error.js"
+import {
+  decodeRpcError,
+  encodeRpcError,
+  LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE,
+  LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+  RpcErrorEnvelope
+} from "./rpc-error.js"
 
 describe("RPC error envelope", () => {
   it("round-trips NodeNotFound through encode -> JSON -> decode", async () => {
@@ -36,6 +46,21 @@ describe("RPC error envelope", () => {
     const recovered = await Effect.runPromise(decodeRpcError(JSON.parse(thrown.message)))
 
     expect(recovered).toBeInstanceOf(NodeNotFound)
+    expect(recovered).toEqual(original)
+  })
+
+  it("round-trips NodeAlreadyExists through encode -> JSON -> decode", async () => {
+    const original = new NodeAlreadyExists({ nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })
+
+    const envelope = encodeRpcError(original)
+    expect(envelope).toEqual({
+      tag: "NodeAlreadyExists",
+      message: "Node already exists: 01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      data: { nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    })
+
+    const recovered = await Effect.runPromise(decodeRpcError(JSON.parse(JSON.stringify(envelope))))
+    expect(recovered).toBeInstanceOf(NodeAlreadyExists)
     expect(recovered).toEqual(original)
   })
 
@@ -68,6 +93,100 @@ describe("RPC error envelope", () => {
 
     expect(recovered).toBeInstanceOf(UnexpectedError)
     expect(recovered).toEqual(original)
+  })
+
+  it("round-trips PageFormatMismatch with stable format fields", async () => {
+    const original = new PageFormatMismatch({
+      nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      expected: "loro-v1",
+      actual: "automerge-v1"
+    })
+
+    const envelope = encodeRpcError(original)
+    expect(envelope.tag).toBe("PageFormatMismatch")
+    expect(envelope.data).toEqual({
+      nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      expected: "loro-v1",
+      actual: "automerge-v1"
+    })
+
+    const recovered = await Effect.runPromise(decodeRpcError(JSON.parse(JSON.stringify(envelope))))
+    expect(recovered).toBeInstanceOf(PageFormatMismatch)
+    expect(recovered).toEqual(original)
+  })
+
+  it("round-trips LoroSemanticCommitRequired with its canonical envelope", async () => {
+    const original = new LoroSemanticCommitRequired({ nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })
+
+    const envelope = encodeRpcError(original)
+    expect(envelope).toEqual({
+      tag: "LoroSemanticCommitRequired",
+      message: LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+      data: { nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    })
+
+    const recovered = await Effect.runPromise(decodeRpcError(JSON.parse(JSON.stringify(envelope))))
+    expect(recovered).toEqual(original)
+  })
+
+  it("fails closed for every malformed LoroSemanticCommitRequired envelope", async () => {
+    const valid = {
+      tag: "LoroSemanticCommitRequired",
+      message: LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+      data: { nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    }
+    const invalids: ReadonlyArray<unknown> = [
+      { ...valid, message: "use the semantic command" },
+      { ...valid, data: {} },
+      { ...valid, data: { nodeId: 42 } },
+      { ...valid, data: { nodeId: "not-an-entity-id" } },
+      { ...valid, data: [] },
+      { ...valid, data: { nodeId: valid.data.nodeId, content: "forbidden" } },
+      { ...valid, content: "forbidden" },
+      { ...valid, actor: "forbidden" },
+      { ...valid, bytes: "forbidden" }
+    ]
+
+    for (const invalid of invalids) {
+      const result = await Effect.runPromise(Effect.either(decodeRpcError(invalid)))
+      expect(Either.isLeft(result)).toBe(true)
+    }
+  })
+
+  it("round-trips LoroRequestIdentityConflict with its canonical strict envelope", async () => {
+    const original = new LoroRequestIdentityConflict({
+      nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      requestId: "semantic-commit"
+    })
+    const envelope = encodeRpcError(original)
+    expect(envelope).toEqual({
+      tag: "LoroRequestIdentityConflict",
+      message: LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE,
+      data: { nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", requestId: "semantic-commit" }
+    })
+    expect(await Effect.runPromise(decodeRpcError(JSON.parse(JSON.stringify(envelope))))).toEqual(original)
+  })
+
+  it("fails closed for every malformed LoroRequestIdentityConflict envelope", async () => {
+    const valid = {
+      tag: "LoroRequestIdentityConflict",
+      message: LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE,
+      data: { nodeId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", requestId: "semantic-commit" }
+    }
+    const invalids: ReadonlyArray<unknown> = [
+      { ...valid, message: "wrong" },
+      { ...valid, data: {} },
+      { ...valid, data: { nodeId: valid.data.nodeId } },
+      { ...valid, data: { requestId: valid.data.requestId } },
+      { ...valid, data: { nodeId: "not-an-entity-id", requestId: valid.data.requestId } },
+      { ...valid, data: { nodeId: valid.data.nodeId, requestId: " \t" } },
+      { ...valid, data: { ...valid.data, content: "forbidden" } },
+      { ...valid, content: "forbidden" },
+      { ...valid, bytes: "forbidden" }
+    ]
+    for (const invalid of invalids) {
+      expect(Either.isLeft(await Effect.runPromise(Effect.either(decodeRpcError(invalid))))).toBe(true)
+    }
   })
 
   it("round-trips WorkspaceNotFound (docs/sharing.md's WORKSPACE_NOT_FOUND analog)", async () => {

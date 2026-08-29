@@ -32,9 +32,13 @@ import {
   ApplyPageEditOutput,
   AssignTagInput,
   AssignTagOutput,
+  Bookmark,
+  BookmarkUrl,
   BASE_TAGS,
   CreateEdgeInput,
   CreateEdgeOutput,
+  CreateBookmarkInput,
+  CreateBookmarkOutput,
   CreateNodeInput,
   CreateNodeOutput,
   CreatePageInput,
@@ -49,7 +53,10 @@ import {
   GetNodeOutput,
   GetPageTextInput,
   GetPageTextOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   GraphIssue,
+  HumanUiMutationAttribution,
   ListBacklinksInput,
   ListBacklinksOutput,
   ListGraphIssuesInput,
@@ -80,6 +87,9 @@ import {
   SyncFeedOutput,
   Tag,
   TagClosureEntry,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefPerson,
   ViewSpec
 } from "../../../packages/domain/dist/index.js"
 
@@ -103,6 +113,7 @@ const tagId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62"
 const factId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e63"
 const edgeId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e64"
 const relationDefinitionId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e65"
+const bookmarkId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e67"
 const graphIssueId = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e66"
 const createdAt = "2026-08-20T12:34:56.000Z"
 
@@ -232,7 +243,16 @@ write(
   encode(NodesChangedEvent, new NodesChangedEvent({ workspaceId, nodes: [sampleNode] }))
 )
 
-write("CreateTagInput", encode(CreateTagInput, new CreateTagInput({ workspaceId, name: "Project", parentIds: [] })))
+write("CreateTagInput", encode(CreateTagInput, new CreateTagInput({
+  workspaceId,
+  name: "Project",
+  parentIds: [],
+  requestId: "fixture-create-tag",
+  commitMessage: "Define the Project Supertag.",
+  attribution: new HumanUiMutationAttribution({
+    version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager"
+  })
+})))
 write(
   "CreateTagOutput",
   encode(CreateTagOutput, new CreateTagOutput({ tag: new Tag({ id: tagId, name: "Project", parentIds: [], builtin: false }) }))
@@ -241,7 +261,7 @@ write(
   "AddFactInput",
   encode(
     AddFactInput,
-    new AddFactInput({ workspaceId, nodeId, predicateId: "status", value: "todo" })
+    new AddFactInput({ workspaceId, nodeId, predicateId: "status", value: "todo", requestId: "fixture-add-fact", commitMessage: "Record status.", attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }) })
   )
 )
 write(
@@ -261,7 +281,12 @@ write(
       inverseName: "employed by",
       sourceTagId: tagId,
       targetTagId: tagId,
-      cardinality: "many-to-many"
+      cardinality: "many-to-many",
+      requestId: "fixture-create-relation-definition",
+      commitMessage: "Define the fixture relationship.",
+      attribution: new HumanUiMutationAttribution({
+        version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos"
+      })
     })
   )
 )
@@ -282,10 +307,51 @@ write(
   )
 )
 write(
+  "CreateBookmarkInput",
+  encode(
+    CreateBookmarkInput,
+    new CreateBookmarkInput({
+      workspaceId,
+      url: Schema.decodeUnknownSync(BookmarkUrl)("https://example.com/fixture?token=exact"),
+      title: "Fixture bookmark",
+      requestId: "fixture-create-bookmark",
+      commitMessage: "Capture the fixture bookmark.",
+      attribution: new HumanUiMutationAttribution({
+        version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-bookmarks"
+      })
+    })
+  )
+)
+write(
+  "CreateBookmarkOutput",
+  encode(
+    CreateBookmarkOutput,
+    new CreateBookmarkOutput({
+      bookmark: new Bookmark({
+        id: bookmarkId,
+        workspaceId,
+        url: Schema.decodeUnknownSync(BookmarkUrl)("https://example.com/fixture?token=exact"),
+        title: "Fixture bookmark",
+        capturedAt: createdAt
+      })
+    })
+  )
+)
+write(
   "CreateEdgeInput",
   encode(
     CreateEdgeInput,
-    new CreateEdgeInput({ workspaceId, relationDefinitionId, sourceNodeId: nodeId, targetNodeId: nodeId2 })
+    new CreateEdgeInput({
+      workspaceId,
+      relationDefinitionId,
+      sourceNodeId: nodeId,
+      targetNodeId: nodeId2,
+      requestId: "fixture-create-edge",
+      commitMessage: "Link the fixture nodes.",
+      attribution: new HumanUiMutationAttribution({
+        version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-backlinks"
+      })
+    })
   )
 )
 write(
@@ -350,8 +416,17 @@ write(
   "ListTagsOutput",
   encode(ListTagsOutput, new ListTagsOutput({ tags: [new Tag({ id: tagId, name: "Project", parentIds: [], builtin: false })] }))
 )
-write("AssignTagInput", encode(AssignTagInput, new AssignTagInput({ workspaceId, nodeId, tagId })))
-write("AssignTagOutput", encode(AssignTagOutput, new AssignTagOutput({ nodeId, tagId })))
+write("AssignTagInput", encode(AssignTagInput, new AssignTagInput({
+  workspaceId,
+  nodeId,
+  tagId,
+  requestId: "fixture-assign-tag",
+  commitMessage: "Assign the fixture Supertag.",
+  attribution: new HumanUiMutationAttribution({
+    version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view"
+  })
+})))
+write("AssignTagOutput", encode(AssignTagOutput, new AssignTagOutput({ nodeId, tagId, changed: true })))
 
 write(
   "SearchNodesInput",
@@ -439,6 +514,35 @@ write(
 )
 write("RotateEpochInput", encode(RotateEpochInput, new RotateEpochInput({ workspaceId })))
 write("RotateEpochOutput", encode(RotateEpochOutput, new RotateEpochOutput({ epoch: "epoch-def456" })))
+
+// --- Today Brief (privacy-safe calendar projection) -------------------------------------------
+
+write(
+  "GetTodayBriefInput",
+  encode(GetTodayBriefInput, new GetTodayBriefInput({ workspaceId, localDate: "2026-11-01", timeZone: "America/New_York" }))
+)
+write(
+  "GetTodayBriefOutput",
+  encode(
+    GetTodayBriefOutput,
+    new GetTodayBriefOutput({
+      localDate: "2026-11-01",
+      timeZone: "America/New_York",
+      from: "2026-11-01T04:00:00.000Z",
+      to: "2026-11-02T05:00:00.000Z",
+      calendarHistory: new TodayBriefCalendarHistory({ status: "found" }),
+      events: [
+        new TodayBriefEvent({
+          id: nodeId,
+          title: "Planning",
+          start: "2026-11-01T14:00:00.000Z",
+          end: "2026-11-01T14:30:00.000Z",
+          people: [new TodayBriefPerson({ displayName: "Alice" }), new TodayBriefPerson({})]
+        })
+      ]
+    })
+  )
+)
 
 // --- RpcErrorEnvelope fixtures (hand-constructed via each DomainError's real encodeRpcError) ---
 

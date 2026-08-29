@@ -1,5 +1,9 @@
 # Automerge-fork-as-chat-branch spike
 
+> Compatibility record: this mechanism remains only for legacy `automerge-v1`
+> pages. New and migrated pages are Loro-authoritative; their agent `editNote`
+> calls commit through the semantic ledger and never create an Automerge fork.
+
 Status: Phase 3 pre-work spike, complete. Resolves risk #4 from the architecture plan's "Top
 risks, explicitly flagged" section and the corresponding item in "Agent-native editing &
 gatekeeper integrations": *"a chat's pending note edits are a per-chat Automerge fork
@@ -18,12 +22,14 @@ not a bypass into service internals.
 
 ## The mechanism
 
-- `ChatForkService.fork(chatId, nodeId)` — `Automerge.clone()`s the current mainline doc into an
-  in-memory fork keyed by `"${chatId}:${nodeId}"`. Idempotent: a second `fork()` call for an
-  already-forked pair returns the current (possibly agent-edited) fork's text, not a fresh clone
-  that would discard prior edits.
-- `ChatForkService.applyForkEdit(chatId, nodeId, index, deleteCount, insertText)` — applies a
-  text-splice `Automerge.change` to the fork only.
+- `ChatForkService.fork(chatId, nodeId, rationale?)` — `Automerge.clone()`s the current mainline
+  doc into an in-memory fork keyed by `"${chatId}:${nodeId}"`. Idempotent: a second `fork()` call
+  for an already-forked pair returns the current (possibly agent-edited) fork's text, not a fresh
+  clone that would discard prior edits. Legacy agent calls carry their commit message as the
+  proposal rationale.
+- `ChatForkService.applyForkEdit(chatId, nodeId, index, deleteCount, insertText, rationale?)` —
+  applies a text-splice `Automerge.change` to the fork only and refreshes the proposal rationale
+  when the caller supplies one.
 - `ChatForkService.previewFork(chatId, nodeId)` — read-only `{forked, text}` snapshot.
 - `ChatForkService.accept(chatId, nodeId)` — reloads mainline **fresh** (not the doc the fork was
   cloned from), runs `Automerge.merge(mainline, fork)`, persists the merged doc, and discards the

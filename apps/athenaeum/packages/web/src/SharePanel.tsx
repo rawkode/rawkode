@@ -1,5 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react"
-import * as Cause from "effect/Cause"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
@@ -14,7 +13,6 @@ import {
   RevokeShareLinkInput,
   type AffectedCollaborator,
   type CollaboratorInfo,
-  type DomainError,
   type Email,
   type Role,
   type ShareKeyHash,
@@ -24,7 +22,6 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 
 // Web-stage task item 3: "A share UI: add a collaborator by email + role, create/copy a share
 // link, list current collaborators/links with remove/revoke actions, and a 'this removal will
@@ -49,6 +46,27 @@ const summarizeAffected = (affected: ReadonlyArray<AffectedCollaborator>): strin
     .map((a) => (a.newRole === null ? `${a.profileId} loses access` : `${a.profileId} → ${a.newRole}`))
     .join(", ")
 
+const addCollaboratorFailureMessage =
+  "We couldn’t confirm that this collaborator was added. The email is still here. Review the list before trying again."
+
+const shareLinkCreationFailureMessage =
+  "We couldn’t confirm that a share link was created. Review the active links before creating another."
+
+const shareKeyRedemptionFailureMessage =
+  "We couldn’t confirm whether this share key was redeemed. The key is still here. Review access before taking another action."
+
+const shareLinkPreviewFailureMessage =
+  "We couldn’t inspect this share link’s effects. Review the active links and try again."
+
+const shareLinkRevocationFailureMessage =
+  "We couldn’t confirm that this share link was revoked. Review the active links before taking another action."
+
+const collaboratorRemovalPreviewFailureMessage =
+  "We couldn’t inspect this collaborator’s access changes. Review the collaborators and try again."
+
+const collaboratorRemovalFailureMessage =
+  "We couldn’t confirm that this collaborator was removed. Review the collaborators before taking another action."
+
 function RoleSelect({ value, onChange }: { readonly value: Role; readonly onChange: (role: Role) => void }) {
   return (
     <select value={value} onChange={(event) => onChange(event.target.value as Role)}>
@@ -60,6 +78,11 @@ function RoleSelect({ value, onChange }: { readonly value: Role; readonly onChan
 
 export function SharePanel() {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [sharingDetailsRetryClaimed, setSharingDetailsRetryClaimed] = useState(false)
+  const sharingDetailsRetryClaim = useRef<{
+    sawCollaboratorsLoading: boolean
+    sawShareLinksLoading: boolean
+  } | undefined>(undefined)
 
   const collaboratorsEffect = useMemo(
     () =>
@@ -76,16 +99,46 @@ export function SharePanel() {
   )
   const shareLinksState = useEffectQuery(shareLinksEffect, [refreshKey])
 
+  useEffect(() => {
+    const claim = sharingDetailsRetryClaim.current
+    if (claim === undefined) return
+    if (collaboratorsState.status === "loading") claim.sawCollaboratorsLoading = true
+    if (shareLinksState.status === "loading") claim.sawShareLinksLoading = true
+    // A refresh-key render initially retains the preceding pair of results. Keep this
+    // presentation claim until both list reads visibly load, then release it only after both
+    // reach terminal states.
+    if (!claim.sawCollaboratorsLoading || !claim.sawShareLinksLoading) return
+    if (collaboratorsState.status === "loading" || shareLinksState.status === "loading") return
+    sharingDetailsRetryClaim.current = undefined
+    setSharingDetailsRetryClaimed(false)
+  }, [collaboratorsState.status, shareLinksState.status])
+
+  const retrySharingDetails = useCallback(() => {
+    if (
+      sharingDetailsRetryClaim.current !== undefined ||
+      collaboratorsState.status === "loading" ||
+      shareLinksState.status === "loading"
+    ) return
+    sharingDetailsRetryClaim.current = { sawCollaboratorsLoading: false, sawShareLinksLoading: false }
+    setSharingDetailsRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [collaboratorsState.status, shareLinksState.status])
+
+  const isRetryingSharingDetails =
+    sharingDetailsRetryClaimed || collaboratorsState.status === "loading" || shareLinksState.status === "loading"
+
   // --- Add collaborator ---------------------------------------------------------------------
   const [addEmail, setAddEmail] = useState("")
   const [addRole, setAddRole] = useState<Role>("use")
   const [addBusy, setAddBusy] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const isAddingCollaboratorRef = useRef(false)
 
   const handleAddCollaborator = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmed = addEmail.trim().toLowerCase()
-    if (trimmed.length === 0) return
+    if (trimmed.length === 0 || isAddingCollaboratorRef.current) return
+    isAddingCollaboratorRef.current = true
     setAddBusy(true)
     setAddError(null)
     const fiber = runtime.runFork(
@@ -96,13 +149,13 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isAddingCollaboratorRef.current = false
       setAddBusy(false)
       if (Exit.isSuccess(exit)) {
         setAddEmail("")
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setAddError(`Failed to add collaborator: ${formatDomainError(failure)}`)
+        setAddError(addCollaboratorFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -113,8 +166,11 @@ export function SharePanel() {
   const [linkBusy, setLinkBusy] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const [mintedKey, setMintedKey] = useState<string | null>(null)
+  const isCreatingShareLinkRef = useRef(false)
 
   const handleCreateShareLink = () => {
+    if (isCreatingShareLinkRef.current) return
+    isCreatingShareLinkRef.current = true
     setLinkBusy(true)
     setLinkError(null)
     setMintedKey(null)
@@ -124,13 +180,13 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isCreatingShareLinkRef.current = false
       setLinkBusy(false)
       if (Exit.isSuccess(exit)) {
         setMintedKey(exit.value.key)
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setLinkError(`Failed to create share link: ${formatDomainError(failure)}`)
+        setLinkError(shareLinkCreationFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -148,11 +204,13 @@ export function SharePanel() {
   const [redeemBusy, setRedeemBusy] = useState(false)
   const [redeemError, setRedeemError] = useState<string | null>(null)
   const [redeemSuccess, setRedeemSuccess] = useState(false)
+  const isRedeemingShareLinkRef = useRef(false)
 
   const handleRedeem = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmed = redeemKey.trim()
-    if (trimmed.length === 0) return
+    if (trimmed.length === 0 || isRedeemingShareLinkRef.current) return
+    isRedeemingShareLinkRef.current = true
     setRedeemBusy(true)
     setRedeemError(null)
     setRedeemSuccess(false)
@@ -162,13 +220,14 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isRedeemingShareLinkRef.current = false
       setRedeemBusy(false)
       if (Exit.isSuccess(exit)) {
         setRedeemKey("")
         setRedeemSuccess(true)
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        setRedeemError("Failed to redeem share key — it may be invalid, expired, or revoked")
+        setRedeemError(shareKeyRedemptionFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -181,8 +240,14 @@ export function SharePanel() {
   } | null>(null)
   const [removalBusy, setRemovalBusy] = useState(false)
   const [removalError, setRemovalError] = useState<string | null>(null)
+  const [removalPreviewingProfileId, setRemovalPreviewingProfileId] = useState<string | null>(null)
+  const isPreviewingRemovalRef = useRef(false)
+  const isRemovingCollaboratorRef = useRef(false)
 
   const startPreviewRemoval = (profileId: string) => {
+    if (isPreviewingRemovalRef.current || isRemovingCollaboratorRef.current) return
+    isPreviewingRemovalRef.current = true
+    setRemovalPreviewingProfileId(profileId)
     setRemovalError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
@@ -192,18 +257,20 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isPreviewingRemovalRef.current = false
+      setRemovalPreviewingProfileId(null)
       if (Exit.isSuccess(exit)) {
         setPendingRemoval({ profileId, affected: exit.value.affected })
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setRemovalError(`Failed to preview removal: ${formatDomainError(failure)}`)
+        setRemovalError(collaboratorRemovalPreviewFailureMessage)
         console.error(exit.cause.toString())
       }
     })
   }
 
   const confirmRemoval = () => {
-    if (pendingRemoval === null) return
+    if (pendingRemoval === null || isRemovingCollaboratorRef.current) return
+    isRemovingCollaboratorRef.current = true
     setRemovalBusy(true)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
@@ -213,13 +280,13 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isRemovingCollaboratorRef.current = false
       setRemovalBusy(false)
       setPendingRemoval(null)
       if (Exit.isSuccess(exit)) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setRemovalError(`Failed to remove collaborator: ${formatDomainError(failure)}`)
+        setRemovalError(collaboratorRemovalFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -232,8 +299,14 @@ export function SharePanel() {
   } | null>(null)
   const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeError, setRevokeError] = useState<string | null>(null)
+  const [revokePreviewingLinkId, setRevokePreviewingLinkId] = useState<string | null>(null)
+  const isPreviewingRevokeRef = useRef(false)
+  const isRevokingShareLinkRef = useRef(false)
 
   const startPreviewRevoke = (linkId: string) => {
+    if (isPreviewingRevokeRef.current || isRevokingShareLinkRef.current) return
+    isPreviewingRevokeRef.current = true
+    setRevokePreviewingLinkId(linkId)
     setRevokeError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
@@ -243,18 +316,20 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isPreviewingRevokeRef.current = false
+      setRevokePreviewingLinkId(null)
       if (Exit.isSuccess(exit)) {
         setPendingRevoke({ linkId, affected: exit.value.affected })
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setRevokeError(`Failed to preview revocation: ${formatDomainError(failure)}`)
+        setRevokeError(shareLinkPreviewFailureMessage)
         console.error(exit.cause.toString())
       }
     })
   }
 
   const confirmRevoke = () => {
-    if (pendingRevoke === null) return
+    if (pendingRevoke === null || isRevokingShareLinkRef.current) return
+    isRevokingShareLinkRef.current = true
     setRevokeBusy(true)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
@@ -264,13 +339,13 @@ export function SharePanel() {
       )
     )
     fiber.addObserver((exit) => {
+      isRevokingShareLinkRef.current = false
       setRevokeBusy(false)
       setPendingRevoke(null)
       if (Exit.isSuccess(exit)) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setRevokeError(`Failed to revoke share link: ${formatDomainError(failure)}`)
+        setRevokeError(shareLinkRevocationFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -279,10 +354,30 @@ export function SharePanel() {
   const collaborators: ReadonlyArray<CollaboratorInfo> =
     collaboratorsState.status === "success" ? collaboratorsState.value.collaborators : []
   const shareLinks: ReadonlyArray<ShareLink> = shareLinksState.status === "success" ? shareLinksState.value.shareLinks : []
+  const collaboratorsUnavailable = collaboratorsState.status === "failure"
+  const shareLinksUnavailable = shareLinksState.status === "failure"
+  const sharingDetailsUnavailable = collaboratorsUnavailable || shareLinksUnavailable
+  const sharingDetailsLabel = collaboratorsUnavailable && shareLinksUnavailable
+    ? "Collaborators and share links could not be loaded."
+    : collaboratorsUnavailable
+      ? "Collaborators could not be loaded."
+      : "Share links could not be loaded."
 
   return (
     <section className="share-panel">
       <h2>Sharing</h2>
+
+      {sharingDetailsUnavailable && (
+        <section className="share-load-state" role="alert">
+          <div>
+            <h3>Sharing details are unavailable</h3>
+            <p>{sharingDetailsLabel} Nothing has been changed. Retry to check the current details.</p>
+          </div>
+          <button type="button" onClick={retrySharingDetails} disabled={isRetryingSharingDetails}>
+            {isRetryingSharingDetails ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
 
       <div className="share-section">
         <h3>Add a collaborator</h3>
@@ -300,7 +395,7 @@ export function SharePanel() {
             {addBusy ? "Adding…" : "Add"}
           </button>
         </form>
-        {addError !== null && <p className="error">{addError}</p>}
+        {addError !== null && <p className="error" role="alert">{addError}</p>}
       </div>
 
       <div className="share-section">
@@ -311,7 +406,7 @@ export function SharePanel() {
             {linkBusy ? "Creating…" : "Create share link"}
           </button>
         </div>
-        {linkError !== null && <p className="error">{linkError}</p>}
+        {linkError !== null && <p className="error" role="alert">{linkError}</p>}
         {mintedKey !== null && (
           <div className="share-minted-key">
             <p>
@@ -341,20 +436,21 @@ export function SharePanel() {
             {redeemBusy ? "Redeeming…" : "Redeem"}
           </button>
         </form>
-        {redeemError !== null && <p className="error">{redeemError}</p>}
+        {redeemError !== null && <p className="error" role="alert">{redeemError}</p>}
         {redeemSuccess && <p className="share-redeem-success">Redeemed — you now have access to this workspace.</p>}
       </div>
 
       <div className="share-section">
         <h3>Collaborators</h3>
-        {collaboratorsState.status === "loading" && <p>Loading…</p>}
-        {collaboratorsState.status === "failure" && (
-          <p className="error">{formatDomainError(collaboratorsState.error)}</p>
+        {collaboratorsState.status === "loading" && (
+          <p role="status" aria-live="polite" aria-atomic="true">
+            Loading collaborators…
+          </p>
         )}
         {collaboratorsState.status === "success" && collaborators.length === 0 && (
           <p className="share-empty">No collaborators yet.</p>
         )}
-        {removalError !== null && <p className="error">{removalError}</p>}
+        {removalError !== null && <p className="error" role="alert">{removalError}</p>}
         <ul className="share-list">
           {collaborators.map((collaborator) => (
             <li key={collaborator.profileId} className="share-list-item">
@@ -378,8 +474,12 @@ export function SharePanel() {
                   </button>
                 </span>
               ) : (
-                <button type="button" onClick={() => startPreviewRemoval(collaborator.profileId)}>
-                  Remove
+                <button
+                  type="button"
+                  onClick={() => startPreviewRemoval(collaborator.profileId)}
+                  disabled={removalPreviewingProfileId !== null || removalBusy}
+                >
+                  {removalPreviewingProfileId === collaborator.profileId ? "Checking…" : "Remove"}
                 </button>
               )}
             </li>
@@ -389,12 +489,15 @@ export function SharePanel() {
 
       <div className="share-section">
         <h3>Share links</h3>
-        {shareLinksState.status === "loading" && <p>Loading…</p>}
-        {shareLinksState.status === "failure" && <p className="error">{formatDomainError(shareLinksState.error)}</p>}
+        {shareLinksState.status === "loading" && (
+          <p role="status" aria-live="polite" aria-atomic="true">
+            Loading share links…
+          </p>
+        )}
         {shareLinksState.status === "success" && shareLinks.length === 0 && (
           <p className="share-empty">No active share links.</p>
         )}
-        {revokeError !== null && <p className="error">{revokeError}</p>}
+        {revokeError !== null && <p className="error" role="alert">{revokeError}</p>}
         <ul className="share-list">
           {shareLinks.map((link) => (
             <li key={link.id} className="share-list-item">
@@ -419,8 +522,12 @@ export function SharePanel() {
                   </button>
                 </span>
               ) : (
-                <button type="button" onClick={() => startPreviewRevoke(link.id)}>
-                  Revoke
+                <button
+                  type="button"
+                  onClick={() => startPreviewRevoke(link.id)}
+                  disabled={revokePreviewingLinkId !== null || revokeBusy}
+                >
+                  {revokePreviewingLinkId === link.id ? "Checking…" : "Revoke"}
                 </button>
               )}
             </li>

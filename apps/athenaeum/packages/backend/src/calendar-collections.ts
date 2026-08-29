@@ -42,6 +42,11 @@ import * as Schema from "effect/Schema"
 import { TreeFormatter } from "effect/ParseResult"
 import { Bookmark, CalendarEvent, GatekeeperBinding, UnexpectedError, type EntityId } from "@athenaeum/domain"
 import {
+  type BindingConnectionRecord,
+  type ProviderConnectionId,
+  type ProviderConnectionRecord
+} from "./calendar-connection-identity.js"
+import {
   collection,
   createEffectTypedStorage,
   type Collection,
@@ -110,6 +115,25 @@ const calendarDerivedNodesCollectionSchema = collection<CalendarDerivedNodeRecor
   }
 })
 
+// MCA-B identity foundation. These are intentionally dormant until the connection lifecycle and
+// Gatekeeper token-store migration are implemented: declaring the collections now makes the
+// private mapping durable without changing how any legacy binding is read or routed.
+const providerConnectionsCollectionSchema = collection<ProviderConnectionRecord>()({
+  primaryKey: "providerConnectionId",
+  nonUniqueIndexes: {
+    byWorkspaceId: (record: ProviderConnectionRecord) => record.workspaceId
+  }
+})
+
+const bindingConnectionsCollectionSchema = collection<BindingConnectionRecord>()({
+  // A primary key on bindingId intentionally enforces one private connection map per binding.
+  primaryKey: "bindingId",
+  nonUniqueIndexes: {
+    byWorkspaceId: (record: BindingConnectionRecord) => record.workspaceId,
+    byProviderConnectionId: (record: BindingConnectionRecord) => record.providerConnectionId
+  }
+})
+
 export interface CalendarCollections {
   readonly gatekeeperBindings: Collection<GatekeeperBinding, EntityId> & {
     readonly byWorkspaceId: NonUniqueIndex<GatekeeperBinding, EntityId>
@@ -127,6 +151,13 @@ export interface CalendarCollections {
   readonly calendarDerivedNodes: Collection<CalendarDerivedNodeRecord, EntityId> & {
     readonly byWorkspaceId: NonUniqueIndex<CalendarDerivedNodeRecord, EntityId>
   }
+  readonly providerConnections: Collection<ProviderConnectionRecord, ProviderConnectionId> & {
+    readonly byWorkspaceId: NonUniqueIndex<ProviderConnectionRecord, EntityId>
+  }
+  readonly bindingConnections: Collection<BindingConnectionRecord, EntityId> & {
+    readonly byWorkspaceId: NonUniqueIndex<BindingConnectionRecord, EntityId>
+    readonly byProviderConnectionId: NonUniqueIndex<BindingConnectionRecord, ProviderConnectionId>
+  }
 }
 
 export const makeCalendarCollections = (storage: DurableObjectStorage): CalendarCollections => {
@@ -136,7 +167,9 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
       calendarEvents: calendarEventsCollectionSchema,
       bookmarks: bookmarksCollectionSchema,
       calendarObservers: calendarObserversCollectionSchema,
-      calendarDerivedNodes: calendarDerivedNodesCollectionSchema
+      calendarDerivedNodes: calendarDerivedNodesCollectionSchema,
+      providerConnections: providerConnectionsCollectionSchema,
+      bindingConnections: bindingConnectionsCollectionSchema
     }
   })
   return {
@@ -144,7 +177,9 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
     calendarEvents: typedStorage.calendarEvents,
     bookmarks: typedStorage.bookmarks,
     calendarObservers: typedStorage.calendarObservers,
-    calendarDerivedNodes: typedStorage.calendarDerivedNodes
+    calendarDerivedNodes: typedStorage.calendarDerivedNodes,
+    providerConnections: typedStorage.providerConnections,
+    bindingConnections: typedStorage.bindingConnections
   }
 }
 

@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react"
-import * as Cause from "effect/Cause"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Link } from "react-router"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
   CreateTagInput,
+  HumanUiMutationAttribution,
   ListTagFieldsInput,
   ListTagsInput,
   type DomainError,
@@ -15,7 +16,6 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient, type WorkspaceRpcClientService } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 import { AddTagFieldForm } from "./AddTagFieldForm.js"
 
 // docs/supertag-centering-decisions.md §3, "New `/supertags` route — minimal, concrete shape".
@@ -35,6 +35,19 @@ const loadFields = (
 ): Effect.Effect<ReadonlyArray<ResolvedTagField>, DomainError> =>
   client.listTagFields(new ListTagFieldsInput({ workspaceId, tagId })).pipe(Effect.map((output) => output.fields))
 
+interface SuccessfulFieldSnapshot {
+  readonly tagId: EntityId
+  readonly fields: ReadonlyArray<ResolvedTagField>
+}
+
+interface FieldQueryScope {
+  readonly key: string
+  readonly tagId: EntityId
+}
+
+const tagCreationFailureMessage =
+  "We couldn’t confirm that this Supertag was created. The name and parents are still here. Review your tags before taking another action."
+
 /** Create-tag form — name plus a multi-select of existing tags as parents (decisions doc §3:
  *  "Create tag form: name + a multi-select of existing tags as parents → `createTag`"). Editing
  *  parents after creation is the doc's own named, explicitly-deferred gap (no `updateTagParents`
@@ -50,6 +63,7 @@ function CreateTagForm({
   const [parentIds, setParentIds] = useState<ReadonlySet<EntityId>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isCreatingRef = useRef(false)
 
   const toggleParent = (id: EntityId) => {
     setParentIds((prev) => {
@@ -63,24 +77,38 @@ function CreateTagForm({
   const handleCreate = () => {
     const trimmed = name.trim()
     if (trimmed.length === 0) return
+    if (isCreatingRef.current) return
+    isCreatingRef.current = true
+    const requestId = crypto.randomUUID()
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) =>
-          client.createTag(new CreateTagInput({ workspaceId, name: trimmed, parentIds: [...parentIds] }))
+          client.createTag(new CreateTagInput({
+            workspaceId,
+            name: trimmed,
+            parentIds: [...parentIds],
+            requestId,
+            commitMessage: `Define the ${trimmed} Supertag and its inherited schema.`,
+            attribution: new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "web-supertags-manager"
+            })
+          }))
         )
       )
     )
     fiber.addObserver((exit) => {
+      isCreatingRef.current = false
       setBusy(false)
       if (Exit.isSuccess(exit)) {
         setName("")
         setParentIds(new Set())
         onCreated(exit.value.tag.id)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setError(formatDomainError(failure))
+        setError(tagCreationFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -118,53 +146,135 @@ function CreateTagForm({
           </div>
         </fieldset>
       )}
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && <p className="error" role="alert">{error}</p>}
     </div>
   )
 }
 
 const trimmedEmpty = (value: string) => value.trim().length === 0
 
+/**
+ * The schema browser should never open as an empty second column when tags already exist.
+ * A valid explicit choice (whether from a row click or a freshly-created tag) wins; a missing
+ * choice and a stale one both deterministically fall back to the first visible tag.
+ */
+export const resolveVisibleTag = (
+  selectedTagId: EntityId | null,
+  sortedTags: ReadonlyArray<Tag>,
+  tagsById: ReadonlyMap<string, Tag>
+): Tag | undefined => selectedTagId === null ? sortedTags[0] : tagsById.get(selectedTagId) ?? sortedTags[0]
+
 function TagFieldsList({ tagId, tagsById }: { readonly tagId: EntityId; readonly tagsById: ReadonlyMap<string, Tag> }) {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ tagId: EntityId; sawLoading: boolean } | undefined>(undefined)
   const effect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => loadFields(client, tagId))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tagId, refreshKey]
   )
   const state = useEffectQuery(effect, [tagId, refreshKey])
+  // `useEffectQuery` keeps its preceding result for the render in which a new tag or refresh
+  // generation begins. It is useful as a same-tag cache, but must never be treated as a result
+  // for a different tag's schema.
+  const queryScopeKey = `${tagId}:${refreshKey}`
+  const [activeQueryScope, setActiveQueryScope] = useState<FieldQueryScope>({ key: queryScopeKey, tagId })
+  useEffect(() => {
+    setActiveQueryScope((previous) => previous.key === queryScopeKey ? previous : { key: queryScopeKey, tagId })
+  }, [queryScopeKey, tagId])
+  const stateIsCurrent = activeQueryScope.key === queryScopeKey
+  const stateCouldBelongToPreviousTag = !stateIsCurrent && activeQueryScope.tagId !== tagId
+  const currentFields = stateIsCurrent && state.status === "success" ? state.value : undefined
+  const [successfulSnapshot, setSuccessfulSnapshot] = useState<SuccessfulFieldSnapshot | undefined>(() =>
+    currentFields === undefined ? undefined : { tagId, fields: currentFields }
+  )
+  useEffect(() => {
+    if (stateIsCurrent && state.status === "success") {
+      setSuccessfulSnapshot((previous) =>
+        previous?.tagId === tagId && previous.fields === state.value
+          ? previous
+          : { tagId, fields: state.value }
+      )
+    }
+  }, [tagId, refreshKey, state.status, stateIsCurrent])
+  const cachedFields = successfulSnapshot?.tagId === tagId ? successfulSnapshot.fields : undefined
+  const visibleFields = currentFields ?? cachedFields
+  const isLoadingFields = !stateIsCurrent || state.status === "loading"
+  const isFailureFields = state.status === "failure" && !stateCouldBelongToPreviousTag
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (claim.tagId !== tagId) {
+      retryClaim.current = undefined
+      setRetryClaimed(false)
+      return
+    }
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // The refresh-key render still contains the prior field-read failure. Keep the presentation
+    // claim until this tag's retry visibly loads and then reaches its terminal state.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [tagId, state.status])
+  const retryFields = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { tagId, sawLoading: false }
+    setRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [tagId, state.status])
+  const isRetryingFields = retryClaimed || state.status === "loading"
 
   return (
     <div className="supertags-fields">
       <h4>Fields</h4>
-      {state.status === "loading" && <p className="supertags-fields-loading">Loading fields…</p>}
-      {state.status === "failure" && <p className="error">{formatDomainError(state.error)}</p>}
-      {state.status === "success" && (
+      {isLoadingFields && (
+        <p className="supertags-fields-loading" role="status" aria-live="polite" aria-atomic="true">
+          {cachedFields === undefined ? "Loading fields…" : "Refreshing fields…"}
+        </p>
+      )}
+      {isFailureFields && (
+        <section className="supertags-fields-load-state" role="alert" aria-label="Supertag fields are unavailable">
+          <p>
+            {cachedFields === undefined
+              ? "We couldn’t load this Supertag’s fields. Try again before making schema changes."
+              : "We couldn’t refresh this Supertag’s fields. Your previously loaded fields remain available. Retry before making schema changes."}
+          </p>
+          <button type="button" onClick={retryFields} disabled={isRetryingFields}>
+            {isRetryingFields ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
+      {currentFields !== undefined && currentFields.length === 0 && (
+        <p className="supertags-fields-empty">No fields yet — every node tagged #{tagsById.get(tagId)?.name} is a bare label for now.</p>
+      )}
+      {visibleFields !== undefined && visibleFields.length > 0 && (
+        <ul className="supertags-fields-list">
+          {visibleFields.map((resolved) => {
+            const declaringTag = tagsById.get(resolved.field.tagId)
+            return (
+              <li key={resolved.field.id} className="supertags-field-row">
+                <span className="supertags-field-name">{resolved.field.name}</span>
+                <span className="supertags-field-kind tabular-nums">{resolved.field.valueKind}</span>
+                {resolved.inherited && declaringTag !== undefined && (
+                  <span className="supertag-field-inherited">
+                    · inherited from #{declaringTag.name}
+                  </span>
+                )}
+                {resolved.field.builtin && <span className="supertags-field-builtin">built-in</span>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {currentFields !== undefined && (
         <>
-          {state.value.length === 0 ? (
-            <p className="supertags-fields-empty">No fields yet — every node tagged #{tagsById.get(tagId)?.name} is a bare label for now.</p>
-          ) : (
-            <ul className="supertags-fields-list">
-              {state.value.map((resolved) => {
-                const declaringTag = tagsById.get(resolved.field.tagId)
-                return (
-                  <li key={resolved.field.id} className="supertags-field-row">
-                    <span className="supertags-field-name">{resolved.field.name}</span>
-                    <span className="supertags-field-kind tabular-nums">{resolved.field.valueKind}</span>
-                    {resolved.inherited && declaringTag !== undefined && (
-                      <span className="supertag-field-inherited">
-                        · inherited from #{declaringTag.name}
-                      </span>
-                    )}
-                    {resolved.field.builtin && <span className="supertags-field-builtin">built-in</span>}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
           <AddTagFieldForm
             tagId={tagId}
-            nextSortOrder={state.value.filter((f) => !f.inherited).length}
+            nextSortOrder={currentFields.filter((f) => !f.inherited).length}
+            surface="web-supertags-manager"
             onAdded={() => setRefreshKey((k) => k + 1)}
           />
         </>
@@ -219,6 +329,8 @@ function TagDetail({
 
 export function SupertagsManager() {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const [selectedTagId, setSelectedTagId] = useState<EntityId | null>(null)
 
   const effect = useMemo(
@@ -227,6 +339,26 @@ export function SupertagsManager() {
     [refreshKey]
   )
   const state = useEffectQuery(effect, [refreshKey])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A refresh-key render still has the preceding failure. Keep the presentation claim until
+    // the requested catalog read visibly loads and then reaches its terminal result.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [state.status])
+  const retryCatalog = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { sawLoading: false }
+    setRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [state.status])
+  const isRetryingCatalog = retryClaimed || state.status === "loading"
 
   const tags = state.status === "success" ? state.value : []
   const sortedTags = useMemo(
@@ -234,21 +366,35 @@ export function SupertagsManager() {
     [tags]
   )
   const tagsById = useMemo(() => new Map(tags.map((tag) => [tag.id as string, tag])), [tags])
-  const selectedTag = selectedTagId === null ? undefined : tagsById.get(selectedTagId)
+  const selectedTag = resolveVisibleTag(selectedTagId, sortedTags, tagsById)
 
   return (
     <section className="supertags-panel">
       <div className="supertags-list-column">
-        <CreateTagForm
-          tags={tags}
-          onCreated={(tagId) => {
-            setRefreshKey((k) => k + 1)
-            setSelectedTagId(tagId)
-          }}
-        />
+        <details className="supertags-create-disclosure">
+          <summary>+ New Supertag</summary>
+          <CreateTagForm
+            tags={tags}
+            onCreated={(tagId) => {
+              setRefreshKey((k) => k + 1)
+              setSelectedTagId(tagId)
+            }}
+          />
+        </details>
 
-        {state.status === "loading" && <p>Loading tags…</p>}
-        {state.status === "failure" && <p className="error">{formatDomainError(state.error)}</p>}
+        {state.status === "loading" && (
+          <p role="status" aria-live="polite" aria-atomic="true">
+            Loading tags…
+          </p>
+        )}
+        {state.status === "failure" && (
+          <section className="supertags-catalog-load-state" role="alert" aria-label="Supertags are unavailable">
+            <p>Supertags couldn’t be loaded. You can still create a new root tag.</p>
+            <button type="button" onClick={retryCatalog} disabled={isRetryingCatalog}>
+              {isRetryingCatalog ? "Retrying…" : "Retry"}
+            </button>
+          </section>
+        )}
 
         {state.status === "success" && (
           <ul className="supertags-list">
@@ -262,8 +408,9 @@ export function SupertagsManager() {
                   <button
                     type="button"
                     className={`supertags-list-item-button${
-                      selectedTagId === tag.id ? " supertags-list-item-button-selected" : ""
+                      selectedTag?.id === tag.id ? " supertags-list-item-button-selected" : ""
                     }`}
+                    aria-current={selectedTag?.id === tag.id ? "true" : undefined}
                     onClick={() => setSelectedTagId(tag.id)}
                   >
                     <span className="supertags-list-item-name">#{tag.name}</span>
@@ -275,7 +422,11 @@ export function SupertagsManager() {
                 </li>
               )
             })}
-            {sortedTags.length === 0 && <li className="supertags-empty">No Supertags yet.</li>}
+            {sortedTags.length === 0 && (
+              <li className="supertags-empty">
+                No Supertags yet. <Link to="/notes">Open today’s note</Link> to apply or create one inline with <code>#</code>.
+              </li>
+            )}
           </ul>
         )}
       </div>

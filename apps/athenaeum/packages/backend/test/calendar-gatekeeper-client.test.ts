@@ -14,7 +14,10 @@
 import { describe, expect, it } from "vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { makeCalendarGatekeeperClientServiceBindingLive, CalendarGatekeeperClient } from "../src/calendar-gatekeeper-client.js"
+import * as Schema from "effect/Schema"
+import { Email } from "@athenaeum/domain"
+import { makeCalendarGatekeeperClientServiceBindingLive, CalendarGatekeeperClient, gatekeeperAccountPathForLocator } from "../src/calendar-gatekeeper-client.js"
+import { ProviderConnectionId } from "../src/calendar-connection-identity.js"
 
 const SECRET = "test-gatekeeper-caller-hmac-secret"
 const CREDENTIAL_VERSION = "athenaeum-gatekeeper-caller-v1"
@@ -72,6 +75,23 @@ const mockFetcher = (
 }
 
 describe("calendar-gatekeeper-client.ts: real service-binding client signs every request (adversarial-review fix)", () => {
+  it("routes legacy locators to the existing email account path and rejects opaque locators without an account-address fallback", async () => {
+    const email = Schema.decodeUnknownSync(Email)("alice@example.com")
+    const legacyPath = await Effect.runPromise(gatekeeperAccountPathForLocator({ kind: "legacy-email", email }, "events-page"))
+    expect(legacyPath).toBe("/gatekeeper/google-calendar/account/alice%40example.com/events-page")
+
+    const opaqueId = Schema.decodeUnknownSync(ProviderConnectionId)("gpc_3fa85f64-5717-4562-b3fc-2c963f66afa9")
+    const opaqueExit = await Effect.runPromiseExit(
+      gatekeeperAccountPathForLocator({ kind: "provider-connection", providerConnectionId: opaqueId }, "events-page")
+    )
+    expect(Exit.isFailure(opaqueExit)).toBe(true)
+    if (Exit.isFailure(opaqueExit)) {
+      const rendered = String(opaqueExit.cause)
+      expect(rendered).not.toContain("alice@example.com")
+      expect(rendered).not.toContain("/account/")
+    }
+  })
+
   it("attaches an Authorization: Bearer credential that independently verifies against the SAME secret the caller was configured with", async () => {
     const { fetcher, requests } = mockFetcher(() => Response.json({ url: "https://accounts.google.test/o/oauth2/auth?..." }))
     const layer = makeCalendarGatekeeperClientServiceBindingLive(fetcher, SECRET)

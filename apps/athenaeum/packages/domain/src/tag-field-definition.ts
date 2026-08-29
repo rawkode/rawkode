@@ -21,6 +21,15 @@ export const TagFieldValueKind = Schema.Literal("text", "number", "date", "check
 export type TagFieldValueKind = typeof TagFieldValueKind.Type
 
 /**
+ * Canonical public-route normalization for a field name. Field definitions are schema, so the
+ * same human spelling must produce the same persisted value and ledger fingerprint regardless of
+ * whether it arrived from a browser retry, a native client, or an RPC caller. Internal seed data
+ * and GraphService callers retain their existing exact values; the public `defineTagField` route
+ * applies this once before it invokes either the ledger or GraphService.
+ */
+export const normalizeTagFieldName = (name: string): string => name.trim().replace(/\s+/g, " ")
+
+/**
  * A single field ("predicate slot") a Supertag declares — e.g. `#Person` declaring a `role: text`
  * field. `tagId` is the tag that **declares** this field, not every tag that inherits it; a node
  * tagged with a *descendant* of `tagId` (per `tagClosure`, tag-closure.ts) also gets this field,

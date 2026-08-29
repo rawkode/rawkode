@@ -4,5 +4,12 @@
   "inverseName": "employed by",
   "sourceTagId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62",
   "targetTagId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62",
-  "cardinality": "many-to-many"
+  "cardinality": "many-to-many",
+  "requestId": "fixture-create-relation-definition",
+  "commitMessage": "Define the fixture relationship.",
+  "attribution": {
+    "version": "athenaeum.mutation-attribution.v1",
+    "kind": "humanUi",
+    "surface": "macos"
+  }
 }

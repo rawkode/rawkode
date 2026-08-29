@@ -19,4 +19,13 @@ final class QuickCaptureClientTests: XCTestCase {
         let exact = String(repeating: "b", count: QuickCaptureClient.titleCharacterLimit)
         XCTAssertEqual(QuickCaptureClient.truncatedTitle(exact), exact)
     }
+
+    func testCaptureRequiresAuthenticationBeforeAnyRemoteWrites() async throws {
+        do {
+            _ = try await QuickCaptureClient().capture(text: "A note that must not be written anonymously")
+            XCTFail("expected authenticationRequired")
+        } catch QuickCaptureError.authenticationRequired {
+            // Expected: the guard runs before createNode/assignTag/addFact.
+        }
+    }
 }

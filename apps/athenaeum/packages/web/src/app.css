@@ -1,13 +1,9 @@
 /* Panel-level styling — layered on `design-system/tokens.css` + `base.css` + `AppShell.css`
-   (all loaded before this file, see main.tsx). Retains every class name the existing panel
-   components already render (`ChatPanel.tsx`, `SharePanel.tsx`, `CalendarPanel.tsx`, etc. are
-   unchanged markup/logic this pass, per the hard constraint) — this file re-skins them onto the
-   token system instead of the old hardcoded hex/px "Phase 0 spike" values. */
+   (all loaded before this file, see main.tsx). Secondary panel components share this token system
+   instead of accumulating one-off hardcoded colors and spacing. */
 
 /* Screen-reader-only utility — visually removes an element while keeping it in the accessibility
-   tree (the standard clip-rect recipe). Used for `NotesRoute`'s document-outline `h1` (the daily
-   note's own visible header carries the on-screen identity) and by `GraphView`'s existing
-   `sr-only` table-header span, which referenced this class without any definition existing. */
+   tree (the standard clip-rect recipe). Used by `GraphView`'s existing table-header span. */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -26,63 +22,31 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  max-width: 56rem;
+  width: 100%;
+  max-width: var(--shell-content-max);
 }
 
-/* Route-content entrance — the app's ONE orchestrated moment (motion pass). Each route's root
-   remounts on navigation (react-router swaps the <Outlet/> element), so a mount-time animation on
-   the route view's direct children replays exactly once per navigation: a short fade + 8px rise,
-   staggered ~45ms across the first few sections, capped so late children never trail behind.
-   Transform/opacity only (composited — no layout/paint work); `backwards` fill keeps delayed
-   children invisible until their turn. Transient transform note: sticky headers / fixed popovers
-   inside a section are unaffected once the animation ends (no forwards fill — computed transform
-   returns to none). */
-.route-view > * {
-  animation: route-rise var(--motion-enter) var(--ease-out-quart) backwards;
-}
+/* --- Structured workspace surfaces --------------------------------------------------------------
+   Graph, sharing, and Supertags use one restrained panel primitive. Today is intentionally a
+   borderless document surface; secondary routes add the same panel treatment to their content. */
 
-.route-view > *:nth-child(2) {
-  animation-delay: 45ms;
-}
-
-.route-view > *:nth-child(3) {
-  animation-delay: 90ms;
-}
-
-.route-view > *:nth-child(n + 4) {
-  animation-delay: 120ms;
-}
-
-@keyframes route-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-
-/* --- Shared "panel" box treatment — every section card in a route view --------------------------
-   (daily note, graph view, chat, share, calendar, bookmarks, meetings, workouts, backlinks) ------ */
-
-.daily-note,
 .graph-view,
-.chat-panel,
 .share-panel,
 .supertags-panel {
-  background: var(--color-surface);
+  background: var(--color-panel);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--space-5);
+  box-shadow: none;
 }
 
 /* --- Secondary content views (Calendar / Bookmarks / Meetings / Workouts) ----------------------
-   Deliberately lighter/less clinical than the bordered "panel" surfaces above: a route-level
-   header (below) now carries page identity, so these views drop the filled-surface card treatment
-   entirely — open background, dividers instead of boxes, generous top-level rhythm. Notes/Graph/
-   Chat/Sharing are untouched (still the bordered-panel look, per the hard constraint on other
-   route files). */
+   These use the same panel primitive as the structured workspaces, but their route-level header
+   carries the page identity so the panels remain quiet and secondary. */
 
 .route-view--light {
-  gap: var(--space-7);
+  gap: var(--space-6);
+  max-width: 72rem;
 }
 
 .route-heading {
@@ -95,10 +59,11 @@
 
 .route-heading-kicker {
   font-family: var(--font-data);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-muted);
 }
 
 .route-heading h1 {
@@ -113,22 +78,56 @@
   font-size: var(--text-sm);
 }
 
-/* Each secondary panel's own in-component `<h2>` (unchanged markup) drops to the same quiet
-   "section label" treatment `.chat-panel > h2` already uses elsewhere in this file — reusing an
-   established pattern rather than inventing a new one for these four views. */
+/* Shared quiet empty state: explain the user's next move without turning a blank surface into
+   another dashboard card. */
+.empty-state {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) 0 var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.empty-state-icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-size: var(--text-xl);
+}
+
+.empty-state h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-base);
+}
+
+.empty-state p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+/* Each secondary panel's own in-component `<h2>` stays a quiet section label. */
 .calendar-panel,
-.calendar-day-view,
 .bookmarks-panel,
 .meetings-panel,
 .workouts-panel {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
 }
 
 .calendar-panel > h2,
-.calendar-day-view > h2,
 .bookmarks-panel > h2,
 .meetings-panel > h2,
 .workouts-panel > h2 {
@@ -150,13 +149,252 @@
   border-top: 1px dashed var(--color-border);
 }
 
+.calendar-events-panel {
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
+}
+
+.calendar-events-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.calendar-events-heading h2 {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.calendar-events-heading-actions,
+.calendar-events-day-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.calendar-events-heading-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.calendar-events-day-nav-step {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.calendar-events-day-nav-step:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.calendar-events-day-nav-date {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+}
+
+.calendar-events-day-nav-today,
+.calendar-events-open-note {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+.calendar-events-refresh {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.calendar-events-refresh:hover:not(:disabled),
+.calendar-events-refresh:focus-visible {
+  color: var(--color-accent);
+}
+
+.calendar-events-refresh:disabled {
+  color: var(--color-text-faint);
+}
+
+.calendar-events-state {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+/* A failed schedule read is distinct from an empty day. Its retry reuses the current day and
+   refresh mechanism, so the daily-note handoff and date navigation retain their exact state. */
+.calendar-events-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.calendar-events-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.calendar-events-load-state .calendar-events-load-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.calendar-events-load-state button {
+  flex: 0 0 auto;
+}
+
+.calendar-events-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+}
+
+.calendar-event-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-left: 2px solid var(--color-border-strong, var(--color-border));
+  background: var(--color-inset);
+}
+
+.calendar-event-row-tentative {
+  border-left-color: var(--color-warning);
+}
+
+.calendar-event-row-cancelled {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.calendar-event-time {
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-event-content {
+  min-width: 0;
+}
+
+.calendar-event-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.calendar-event-title-row h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.calendar-event-status,
+.calendar-event-unlinked {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.calendar-event-status {
+  color: var(--color-warning);
+  text-transform: capitalize;
+}
+
+.calendar-event-attendees {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event-link {
+  padding: 0;
+  margin-top: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 38rem) {
+  .calendar-events-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .calendar-events-heading-actions {
+    justify-content: flex-start;
+  }
+
+  .calendar-event-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
 /* Secondary content within the daily note, not its own card — a top-border-only divider,
    matching Calendar/Meetings/Workouts' existing secondary-content treatment above rather than
    its own boxed-card treatment (was a nested card inside the already-bordered .daily-note panel). */
 .backlinks {
+  width: min(100%, var(--shell-document-max));
+  margin-inline: auto;
   margin-top: var(--space-5);
   padding-top: var(--space-4);
   border-top: 1px solid var(--color-border);
+}
+
+.backlinks-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-muted);
+}
+
+.backlinks-load-state h4,
+.backlinks-load-state p {
+  margin: 0;
+}
+
+.backlinks-load-state h4 {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.backlinks-load-state p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.backlinks-load-state button {
+  flex: 0 0 auto;
 }
 
 /* Supertag-centering pass (docs/supertag-centering-decisions.md §3, "Daily note gets its tags
@@ -175,6 +413,21 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.note-tags-item {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Field values are a quiet read-only preview; the chip remains the obvious control for editing. */
+.note-tags-summary {
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  line-height: 1.4;
 }
 
 /* Tag add/remove feedback (motion pass): a newly-applied tag's chip mounts here, so a quick
@@ -198,9 +451,36 @@
   margin: 0;
 }
 
+/* A failed tag read is not an empty note. Keep the recovery action beside the metadata it
+   retries, without exposing transport or access-control details inside the writing surface. */
+.note-tags-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.note-tags-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.note-tags-load-state .note-tags-load-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.note-tags-load-state button {
+  flex: 0 0 auto;
+}
+
 /* --- Supertag field-editing popover (decisions doc §2) ---------------------------------------
    `.impeccable.md`'s "sidebar-adjacent chrome, not a competing visual system" — a fixed, quiet
-   panel rather than a full-screen modal, so it never blocks the note itself. */
+   panel rather than a full-screen modal, so it never blocks the note itself. When a chip/caret
+   rectangle is available the component supplies `top`/`left` inline and flips around that
+   invocation point; the bottom-right position below is the deliberate fallback for callers that
+   do not have a live DOM anchor (for example a future deep-link entry point). */
 .supertag-popover {
   position: fixed;
   right: var(--space-6);
@@ -214,12 +494,20 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
   padding: var(--space-4);
-  z-index: 40;
+  z-index: var(--z-floating);
   /* Open feedback (motion pass): mounts on open, so a mount-time fade + 6px rise reads as the
      panel arriving from the note rather than blinking into existence. Close stays instant
      (exit > entrance speed; unmount needs no choreography). Transform on a fixed element is
      safe — it has no fixed/sticky descendants of its own. */
   animation: pop-rise var(--motion-base) var(--ease-out-quart) backwards;
+}
+
+/* The inline placement owns both axes once the popover has an interaction anchor. Keeping this
+   selector here also prevents the responsive sheet's `bottom` from competing with the computed
+   position during a viewport resize. */
+.supertag-popover[data-placement] {
+  right: auto;
+  bottom: auto;
 }
 
 @keyframes pop-rise {
@@ -236,7 +524,7 @@
    Below that width the popover becomes a near-full-width sheet anchored well above the toggle row
    (toggle height ~2.75rem + its own var(--space-5) offset from the edge; space-8 clears it with
    room to spare) rather than a floating card sized for desktop's empty bottom-right corner. */
-@container shell (max-width: 920px) {
+@media (max-width: 58rem) {
   .supertag-popover {
     left: var(--space-4);
     right: var(--space-4);
@@ -306,6 +594,30 @@
   font-size: var(--text-sm);
 }
 
+/* A schema/fact reload is distinct from an empty tag. Keep its one recovery action compact
+   inside the anchored editor, without displacing any already-loaded field drafts below it. */
+.supertag-popover-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.supertag-popover-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.supertag-popover-load-state button {
+  flex: 0 0 auto;
+}
+
 .supertag-field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) auto;
@@ -354,66 +666,169 @@
   min-width: 0;
 }
 
-/* --- Daily note: the one prose surface — generous spacing, the reading typeface --------------
-   `.notes-route` is the container-query context (its `.daily-note` child rewrites its own grid
-   at width, matching AppShell.css's own ancestor-container pattern for the chat rail) — direction:
-   "the daily note gets room to breathe" vs. the tight data-dense treatment graph view gets below. */
+/* --- Daily note: writing owns the route -------------------------------------------------------
+   The route is a named container because the agent drawer changes available width without
+   changing the viewport. The context rail only appears when the document's minimum readable
+   column, the rail, and their gap all fit together: 42rem + 16rem + 3rem = 61rem. */
 
 .notes-route {
-  container-type: inline-size;
-  container-name: notes;
+  container: notes-route / inline-size;
+  max-width: var(--shell-content-max);
+}
+
+.notes-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-7);
+}
+
+.notes-context-column {
+  min-width: 0;
 }
 
 .daily-note {
-  padding: var(--space-7);
-  display: grid;
-  gap: var(--space-6);
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-7);
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .daily-note-editor {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  width: min(100%, 65ch);
+  margin-inline: auto;
+  padding-top: var(--space-5);
 }
 
 .daily-note-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   margin: 0 0 var(--space-5);
 }
 
-.daily-note-eyebrow {
-  display: block;
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-  margin-bottom: var(--space-2);
-}
-
-.daily-note-header h2 {
+.daily-note-header h1 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   margin: 0;
-  font-size: var(--text-2xl);
-  font-weight: 400;
+  font-size: var(--text-xl);
+  font-weight: 500;
 }
 
-.daily-note-date {
-  margin: var(--space-1) 0 0;
+.daily-note-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.daily-note-header h1 time {
+  color: var(--color-text-muted);
   font-family: var(--font-data);
   font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.daily-note-format {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.2rem var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-faint);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.daily-note-format-dot {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: var(--color-text-faint);
+}
+
+.daily-note-format-authoritative .daily-note-format-dot {
+  background: var(--color-success);
+}
+
+.daily-note-format-legacy .daily-note-format-dot {
+  background: var(--color-warning);
+}
+
+.daily-note-canvas {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  /* Keep the first writing action visible without reserving a dashboard-sized void. The editor
+     still grows with its content, so this is only the empty/short-note floor. */
+  min-height: clamp(10rem, 28dvh, 20rem);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.daily-note-canvas-loading,
+.daily-note-canvas-failure {
+  padding-top: var(--space-3);
+}
+
+.daily-note-loading,
+.daily-note-canvas .error {
+  max-width: 65ch;
   color: var(--color-text-muted);
 }
 
-.daily-note-loading {
-  color: var(--color-text-faint);
+.daily-note-resolution-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  max-width: 65ch;
+  padding: var(--space-4);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-muted);
 }
 
-/* Refinement pass (live-screenshot finding): this used to be its own sunken, bordered inner box —
-   a card nested inside the already-bordered `.daily-note` card, with an 18rem void when the note
-   was empty. The prose now sits directly on the card surface (no inner background/border; the
-   card's own `--space-7` padding is the breathing room) and the empty-note floor lives on the
-   `.ProseMirror` element in `rich-text.css`, reduced to a few lines rather than a screenful. */
+.daily-note-resolution-error h2,
+.daily-note-resolution-error p {
+  margin: 0;
+}
+
+.daily-note-resolution-error h2 {
+  color: var(--color-text);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  font-weight: 500;
+}
+
+.daily-note-resolution-error p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.daily-note-resolution-error button {
+  flex: 0 0 auto;
+}
+
+/* The prose sits directly on the canvas rather than inside a nested card. The empty-note floor
+   lives on the `.ProseMirror` element in `rich-text.css`, so an empty note stays inviting. */
 .daily-note-body {
   width: 100%;
   box-sizing: border-box;
@@ -421,6 +836,15 @@
   font-size: var(--text-md);
   line-height: 1.75;
   color: inherit;
+}
+
+.daily-note-body,
+.rich-note-editor .ProseMirror {
+  color: var(--color-text-prose);
+}
+
+.rich-note-editor .ProseMirror {
+  min-height: clamp(12rem, 42dvh, 28rem);
 }
 
 .sync-status {
@@ -431,6 +855,10 @@
   color: var(--color-text-faint);
   min-height: 1.2em;
   margin: var(--space-3) 0 0;
+}
+
+.sync-status-synced {
+  visibility: hidden;
 }
 
 .sync-status-dot {
@@ -465,31 +893,48 @@
   background: var(--color-danger);
 }
 
-.link-form {
+.sync-status-retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger-text-strong, var(--color-danger));
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.sync-status-retry:hover,
+.sync-status-retry:focus-visible {
+  color: var(--color-accent);
+}
+
+.backlinks-create-disclosure {
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.backlinks-create-disclosure summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--color-text-faint);
+}
+
+.backlinks-create-disclosure summary:hover {
+  color: var(--color-text);
+}
+
+.backlinks-create-disclosure[open] summary {
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.backlinks-create-form {
   display: flex;
   gap: var(--space-2);
-  margin-top: var(--space-3);
 }
 
-.link-form input {
+.backlinks-create-form input {
   flex: 1;
-}
-
-/* Wide-enough shell: the note keeps its generous prose measure in the left column while
-   Backlinks — a tight, data-dense list, not prose — sits beside it rather than beneath. */
-@container notes (min-width: 46rem) {
-  .daily-note {
-    grid-template-columns: minmax(0, 1fr) 20rem;
-  }
-}
-
-/* Narrow shell (mobile, sidebar collapsed to its off-canvas drawer by the shell-responsive pass):
-   the note's own internal padding is too generous once the available column is this tight —
-   drop to the standard "dense" spacing step rather than the prose-reading luxury above. */
-@container notes (max-width: 640px) {
-  .daily-note {
-    padding: var(--space-4);
-  }
 }
 
 /* --- Graph view: tight, data-dense table (direction: "tight spacing in data-dense views," the
@@ -536,6 +981,34 @@
   display: flex;
   align-items: center;
   margin: var(--space-3) 0 var(--space-4);
+}
+
+/* A failed browse query is neither an empty knowledge base nor an assignment error. Keep its
+   retry local to the existing view refresh so filtering and any other page state stay intact. */
+.graph-view-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.graph-view-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.graph-view-load-state .graph-view-load-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.graph-view-load-state button {
+  flex: 0 0 auto;
 }
 
 .graph-view-filter {
@@ -669,13 +1142,25 @@
 }
 
 .chat-panel > h2 {
-  padding: var(--space-4) var(--space-4) 0;
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  padding: var(--space-5) var(--space-4) 0;
+  font-size: var(--text-md);
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--color-text-muted);
   font-family: var(--font-data);
   font-weight: 600;
+}
+
+.chat-panel-loading {
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.chat-panel-loading p {
+  margin: 0;
+  font-size: var(--text-sm);
 }
 
 .chat-panel-body {
@@ -726,7 +1211,7 @@
 /* Touch-target sizing at narrow shell widths — same "shell" container query AppShell.css already
    establishes for the chat-rail/sidebar collapse; declared here since it's a `.chat-list-item`-only
    concern, not shared shell layout. */
-@container shell (max-width: 920px) {
+@media (max-width: 58rem) {
   .chat-list-item {
     min-height: 44px;
   }
@@ -738,11 +1223,52 @@
   padding: var(--space-2) 0;
 }
 
+/* A failed chat fetch is neither an empty workspace nor a failed composition. Keep recovery on
+   the affected surface, leaving the other chat controls available. */
+.chat-list-load-state,
+.chat-active-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.chat-list-load-state p,
+.chat-active-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.chat-list-load-state button,
+.chat-active-load-state button {
+  flex: 0 0 auto;
+}
+
 .chat-create-form {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+.chat-create-disclosure {
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.chat-create-disclosure summary {
+  cursor: pointer;
+  color: var(--color-text-faint);
+}
+
+.chat-create-disclosure summary:hover {
+  color: var(--color-text);
 }
 
 .chat-active,
@@ -752,6 +1278,71 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.chat-active-empty {
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+.chat-first-message {
+  width: min(100%, 28rem);
+  margin: 0 auto;
+}
+
+.chat-first-message-eyebrow {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-first-message h3 {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xl);
+}
+
+.chat-first-message > p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.chat-first-message-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.chat-first-message-form textarea {
+  width: 100%;
+  min-height: 5.5rem;
+  resize: vertical;
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.45;
+}
+
+.chat-first-message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chat-first-message-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.chat-start-error {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--space-4);
 }
 
 .chat-model-unavailable {
@@ -855,6 +1446,14 @@
 
 .chat-send-form input {
   flex: 1;
+}
+
+/* Keep a failed send in normal flow below its composer: the scrollable message list may shrink,
+   but the status itself must retain its height and its own clear rhythm rather than crowding the
+   last message bubble. */
+.chat-send-error {
+  flex: none;
+  margin: 0 0 var(--space-3);
 }
 
 .chat-pending {
@@ -1009,6 +1608,26 @@
   color: var(--color-text-faint);
 }
 
+/* The catalog can fail independently of the active workspace. Keep the management disclosure
+   usable, but never present a stale list as if it were a confirmed catalog. */
+.workspace-switcher-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.workspace-switcher-load-state button {
+  flex: 0 0 auto;
+  font-size: inherit;
+}
+
 .workspace-switcher-create {
   /* The sidebar column is permanently narrow (15.5rem): side-by-side, the button's intrinsic
      "+ New workspace" width crushes the flexed input to a sliver (observed live as a tiny black
@@ -1037,6 +1656,39 @@
 .share-section h3 {
   margin: 0 0 var(--space-3);
   color: var(--color-text-muted);
+}
+
+.share-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-muted);
+}
+
+.share-load-state h3,
+.share-load-state p {
+  margin: 0;
+}
+
+.share-load-state h3 {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.share-load-state p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.share-load-state button {
+  flex: 0 0 auto;
 }
 
 .share-form {
@@ -1123,19 +1775,65 @@
 
 /* --- Google Calendar + Bookmarks --------------------------------------------------------------- */
 
-.calendar-not-configured {
-  color: var(--color-warning);
-  font-size: var(--text-sm);
-  margin-top: var(--space-2);
-}
-
 .calendar-connected {
   font-size: var(--text-sm);
+}
+
+.calendar-connected-status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.calendar-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 14%, transparent);
 }
 
 .calendar-connected-hint {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
+  margin: var(--space-1) 0 0;
+}
+
+.calendar-connect-copy {
+  margin-bottom: var(--space-3);
+}
+
+.calendar-connect-copy p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 0;
+}
+
+.calendar-connect-unavailable,
+.calendar-disconnect-unavailable {
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning-border, var(--color-border));
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}
+
+.calendar-connect-unavailable {
+  margin-top: var(--space-3);
+}
+
+.calendar-disconnect-unavailable {
+  margin-bottom: var(--space-3);
+}
+
+.calendar-connect-unavailable p,
+.calendar-disconnect-unavailable p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
 }
 
 .calendar-redirect-ready {
@@ -1152,62 +1850,335 @@
   margin: var(--space-2) 0;
 }
 
-.calendar-redirect-debug {
+.today-brief {
+  min-width: 0;
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.today-brief-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.today-brief-heading h2 {
+  margin: 0 0 var(--space-2);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.today-brief-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.today-brief-refresh {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.today-brief-refresh:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.today-brief-refresh:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.today-brief .section-kicker {
+  display: none;
+}
+
+.today-brief-date,
+.today-brief-history {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-brief-history,
+.today-brief-state {
+  margin: var(--space-2) 0;
+  color: var(--color-text-faint);
+}
+
+.today-brief-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.today-brief-stale .today-brief-state {
+  margin-block: var(--space-2);
+}
+
+.today-brief section {
+  margin-top: var(--space-4);
+}
+
+.today-brief section h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.today-brief-history summary {
+  cursor: pointer;
+}
+
+.today-brief-history p {
+  margin: var(--space-2) 0 0;
+}
+
+.daily-note-standup {
+  min-width: 0;
+  width: min(100%, 65ch);
+  margin-inline: auto;
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+@container notes-route (min-width: 61rem) {
+  .daily-note-standup {
+    width: 100%;
+    margin-inline: 0;
+  }
+}
+
+.ledger-activity-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ledger-activity-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ledger-activity-heading h2 {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ledger-activity-badge {
+  color: var(--color-text-faint);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ledger-activity-refresh {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.ledger-activity-refresh:hover:not(:disabled),
+.ledger-activity-refresh:focus-visible {
+  color: var(--color-accent);
+}
+
+.ledger-activity-refresh:disabled {
+  color: var(--color-text-faint);
+}
+
+.ledger-activity-intro,
+.ledger-activity-state,
+.ledger-activity-summary {
+  margin: var(--space-2) 0;
   color: var(--color-text-faint);
   font-size: var(--text-xs);
 }
 
-.calendar-day-view-controls {
+.ledger-activity-summary {
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-activity-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+}
+
+.ledger-activity-entry {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-border-strong, var(--color-border));
+  background: var(--color-inset);
+}
+
+.ledger-activity-entry-meta {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-faint);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
 }
 
-.calendar-day-view-synced {
-  color: var(--color-success);
+.ledger-activity-entry-meta time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-activity-kind {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.ledger-activity-actor {
+  padding: 0.1rem var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
+.ledger-activity-actor-you {
+  color: var(--color-accent);
+}
+
+.ledger-activity-actor-anonymous {
+  color: var(--color-text-faint);
+}
+
+.ledger-activity-reason {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.ledger-activity-reason > span {
+  color: var(--color-text-faint);
+  font-family: var(--font-data);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ledger-activity-entry p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text);
   font-size: var(--text-sm);
+  line-height: 1.4;
 }
 
-.calendar-day-view-empty {
+@container notes-route (min-width: 61rem) {
+  .notes-layout {
+    grid-template-columns: minmax(42rem, 65ch) minmax(16rem, 1fr);
+    gap: var(--space-7);
+  }
+
+  .daily-note-editor {
+    width: 100%;
+    margin-inline: 0;
+  }
+
+  .notes-context-column {
+    position: sticky;
+    top: var(--space-5);
+    max-height: calc(100vh - var(--space-7));
+    overflow-y: auto;
+  }
+
+  .notes-context-column > .today-brief {
+    padding: var(--space-2) 0 var(--space-5);
+    border-top: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+.today-brief-events {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.today-brief-event {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+}
+
+.today-brief-event time {
+  min-width: 5rem;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.calendar-event-list {
+.today-brief-event div {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.calendar-event {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--text-sm);
-}
-
-.calendar-event-cancelled {
-  opacity: 0.5;
-  text-decoration: line-through;
-}
-
-.calendar-event-time {
-  color: var(--color-text-faint);
-  font-variant-numeric: tabular-nums;
-  min-width: 9rem;
-}
-
-.calendar-event-title {
-  flex: 1;
-}
-
-.calendar-event-attendees {
+.today-brief-event span {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
+}
+
+.today-brief-event-action {
+  align-items: flex-start;
+  margin-top: var(--space-1);
+}
+
+.today-brief-prepare {
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: 0.25rem 0.5rem;
+}
+
+.today-brief-prepare:hover:not(:disabled),
+.today-brief-prepare:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.today-brief-prepare:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.today-brief-event-error {
+  color: var(--color-danger, #b42318);
 }
 
 .bookmarks-form {
@@ -1220,6 +2191,30 @@
 .bookmarks-form input {
   flex: 1;
   min-width: 10rem;
+}
+
+/* A failed archive refresh must not masquerade as an empty list or hide the capture form. The
+   retry only advances BookmarksPanel's existing read refresh key; it never touches a pending
+   capture intent or its request identity. */
+.bookmarks-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.bookmarks-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.bookmarks-load-state button {
+  flex: 0 0 auto;
 }
 
 .bookmarks-empty {
@@ -1258,8 +2253,8 @@
 /* --- Meetings ------------------------------------------------------------------------------- */
 
 /* List + detail side-by-side on wide viewports — a more open, app-like read for a read-only view
-   than the single stacked column every other route uses. `MeetingsPanel.tsx`'s DOM (unchanged)
-   is: h2, hint, refresh button, optional error/empty message, the list, then the optional
+   than the single stacked column every other route uses. `MeetingsPanel.tsx`'s DOM is: h2, hint,
+   refresh button, optional recovery/empty message, the list, then the optional
    transcript — each mapped to a grid column below by its own selector, no markup changes needed. */
 .meetings-panel {
   display: grid;
@@ -1271,7 +2266,9 @@
 .meetings-panel > h2,
 .meetings-panel > .meetings-panel-hint,
 .meetings-panel > .error,
-.meetings-empty {
+.meetings-panel > .meetings-load-state,
+.meetings-empty,
+.meetings-panel > .empty-state {
   grid-column: 1 / -1;
 }
 
@@ -1315,6 +2312,29 @@
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   margin-top: var(--space-2);
+}
+
+/* A failed history refresh is not an empty archive. Preserve the current read-only layout and
+   provide one quiet, local retry without surfacing backend/domain details. */
+.meetings-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.meetings-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.meetings-load-state button {
+  flex: 0 0 auto;
 }
 
 .meetings-list {
@@ -1432,8 +2452,7 @@
 
 /* --- Workouts ------------------------------------------------------------------------------- */
 
-/* List + detail side-by-side on wide viewports, matching Meetings' treatment above — same
-   rationale, same unchanged-DOM-mapping approach (`WorkoutsPanel.tsx`'s markup is untouched). */
+/* List + detail side-by-side on wide viewports, matching Meetings' treatment above. */
 .workouts-panel {
   display: grid;
   grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
@@ -1444,7 +2463,9 @@
 .workouts-panel > h2,
 .workouts-panel > .workouts-panel-hint,
 .workouts-panel > .error,
-.workouts-empty {
+.workouts-panel > .workouts-load-state,
+.workouts-empty,
+.workouts-panel > .empty-state {
   grid-column: 1 / -1;
 }
 
@@ -1482,6 +2503,29 @@
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   margin: 0 0 var(--space-3);
+}
+
+/* A failed history refresh is neither an empty HealthKit import nor a failed selected-workout
+   detail read. Keep recovery local to the list query and leave the existing detail state alone. */
+.workouts-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.workouts-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.workouts-load-state button {
+  flex: 0 0 auto;
 }
 
 .workouts-empty {
@@ -1662,9 +2706,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: oklch(10% 0.015 var(--hue-neutral) / 0.85);
+  background: var(--color-scrim-strong);
   backdrop-filter: blur(2px);
-  z-index: 100;
+  z-index: var(--z-modal);
 }
 
 .oauth-callback-card {
@@ -1697,12 +2741,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-}
-
-.app-library-hint {
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  margin: 0;
 }
 
 .app-library-create-form {
@@ -1820,6 +2858,32 @@
   width: fit-content;
 }
 
+/* A failed source read is not an empty App. Keep any known code visible but read-only, and never
+   offer a blank editor that could overwrite code the browser did not successfully load. */
+.app-code-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger-border, var(--color-border));
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+
+.app-code-load-state p {
+  margin: 0;
+}
+
+.app-code-load-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.app-code-load-state button {
+  flex: 0 0 auto;
+}
+
 .app-library-code-textarea {
   width: 100%;
   min-height: 12rem;
@@ -1847,12 +2911,72 @@
   background: var(--color-surface);
 }
 
+/* A sandbox credential is separate from an App's saved code. Keep a transient mint failure in
+   the preview/launch surface, with one local retry, rather than replacing the App with an opaque
+   domain error or implying that its code changed. */
+.app-run-frame-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 8rem;
+  padding: var(--space-4);
+  border: 1px solid var(--color-danger-border, var(--color-border));
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+
+.app-run-frame-state p {
+  margin: 0;
+}
+
+.app-run-frame-state-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.app-run-frame-state button {
+  flex: 0 0 auto;
+}
+
 /* --- App Launcher (icon grid, "like on iPhone") ----------------------------------------------- */
 
 .app-launcher {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+}
+
+.app-launcher-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-muted);
+}
+
+.app-launcher-load-state h2,
+.app-launcher-load-state p {
+  margin: 0;
+}
+
+.app-launcher-load-state h2 {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.app-launcher-load-state p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.app-launcher-load-state button {
+  flex: 0 0 auto;
 }
 
 .app-grid {
@@ -2019,6 +3143,32 @@
   color: var(--color-text-muted);
 }
 
+/* A failed App metadata read is neither a deleted App nor a sandbox failure. Leave the route's
+   Back action available and make the only safe local recovery explicit without leaking RPC text. */
+.app-launch-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--color-danger-border, var(--color-border));
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+}
+
+.app-launch-load-state p {
+  margin: 0;
+}
+
+.app-launch-load-title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.app-launch-load-state button {
+  flex: 0 0 auto;
+}
+
 .app-launch-frame {
   width: 100%;
   min-height: 32rem;
@@ -2048,10 +3198,56 @@
   min-width: 0;
 }
 
+/* A missing catalog or field schema is not an empty schema. Keep the relevant successful context
+   visible and offer a local retry rather than fabricating empty fields or parent choices. */
+.supertags-catalog-load-state,
+.supertags-fields-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.supertags-catalog-load-state p,
+.supertags-fields-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.supertags-catalog-load-state button,
+.supertags-fields-load-state button {
+  flex: 0 0 auto;
+}
+
 .supertags-create-form {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.supertags-create-disclosure {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.supertags-create-disclosure summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--color-text-faint);
+}
+
+.supertags-create-disclosure summary:hover {
+  color: var(--color-text);
+}
+
+.supertags-create-disclosure[open] summary {
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
 }
 
 .supertags-create-form-row {
@@ -2168,7 +3364,7 @@
    viewport and by instrumenting computed styles directly. Verify any future edit here by checking
    `getComputedStyle(.supertags-panel).gridTemplateColumns` resolves to a single track below 720px
    container width, not two. */
-@container shell (max-width: 720px) {
+@media (max-width: 45rem) {
   .supertags-panel {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2292,7 +3488,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin: 0 0 0 auto;
 }
 
 .daily-note-day-nav-step {
@@ -2357,8 +3553,71 @@
   font-size: var(--text-sm);
 }
 
+.node-view-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.node-view-page h2 {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.node-view-page-empty {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.node-view-page-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text-prose);
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.65;
+}
+
 .node-view-loading {
   color: var(--color-text-faint);
+}
+
+/* Generic node retrieval stays separate from the Loro daily-note route. A failed read is never
+   presented as an empty page, and each retry only refreshes the query that failed. */
+.node-view-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.node-view-load-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.node-view-load-state .node-view-load-title,
+.node-view-load-state h2 {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.node-view-load-state button {
+  flex: 0 0 auto;
 }
 
 /* Backlink entries + graph-row titles: real links now (were inert <strong>/StaticText — the
@@ -2376,4 +3635,108 @@
 
 .graph-view-title-link:hover {
   color: var(--color-accent);
+}
+
+/* The surface grammar is defined alongside each feature's first implementation above. Keep the
+   rules single-owned: Today is a document, structured routes are panels, and the assistant is
+   shell-owned drawer content. */
+
+/* Workspace disclosure keeps the sidebar about location, not administration. */
+
+.workspace-switcher-manage {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.workspace-switcher-manage summary {
+  padding: var(--space-1) 0;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.workspace-switcher-manage summary::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-switcher-manage summary::after {
+  content: "+";
+  float: right;
+}
+
+.workspace-switcher-manage[open] summary::after {
+  content: "−";
+}
+
+.workspace-switcher-create {
+  margin-top: var(--space-2);
+}
+
+/* The agent is a working tool, not a permanent empty-state panel. */
+
+.chat-pending:has(.chat-pending-empty) {
+  display: none;
+}
+
+.employee-updates {
+  margin-top: var(--space-6);
+}
+
+.employee-updates-heading,
+.employee-update-labels {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.employee-updates-heading {
+  justify-content: space-between;
+}
+
+.employee-updates-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+}
+
+.employee-update-labels {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  flex-wrap: wrap;
+}
+
+.employee-update-text {
+  white-space: pre-wrap;
+  margin: var(--space-1) 0;
+}
+
+.employee-update-status {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 36rem) {
+  .daily-note-editor {
+    padding-top: var(--space-3);
+  }
+
+  .daily-note-header {
+    align-items: flex-start;
+  }
+
+  .daily-note-day-nav {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .daily-note-header h1 {
+    width: 100%;
+  }
+
+  .today-brief-events {
+    display: flex;
+    flex-direction: column;
+  }
 }

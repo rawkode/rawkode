@@ -14,6 +14,7 @@ import {
 } from "./meeting-rpc.js"
 import { Meeting, Speaker, TranscriptSegmentRecord } from "./meeting.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
+import { HumanUiMutationAttribution } from "./ledger.js"
 
 const roundTrip = <A, I>(schema: Schema.Schema<A, I>, value: A) => {
   const encoded = Schema.encodeSync(schema)(value)
@@ -26,6 +27,9 @@ const speakerId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa8")
 const segmentId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa9")
 const startedAt = Schema.decodeUnknownSync(IsoDateTimeString)(new Date(0).toISOString())
 const endedAt = Schema.decodeUnknownSync(IsoDateTimeString)(new Date(1_000).toISOString())
+const attribution = new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos"
+})
 
 const meeting = new Meeting({ id: meetingId, workspaceId, title: "Standup", startedAt })
 const endedMeeting = new Meeting({ id: meetingId, workspaceId, title: "Standup", startedAt, endedAt })
@@ -42,7 +46,13 @@ const segment = new TranscriptSegmentRecord({
 
 describe("startMeeting/endMeeting RPC schemas", () => {
   it("round-trips StartMeetingInput/Output", () => {
-    roundTrip(StartMeetingInput, new StartMeetingInput({ workspaceId, title: "Standup" }))
+    roundTrip(StartMeetingInput, new StartMeetingInput({
+      workspaceId,
+      title: "  Standup  ",
+      requestId: "meeting-start-1",
+      commitMessage: "Start the daily standup meeting.",
+      attribution
+    }))
     roundTrip(StartMeetingOutput, new StartMeetingOutput({ meeting }))
   })
 
@@ -59,6 +69,9 @@ describe("appendTranscriptSegment RPC schema", () => {
       new AppendTranscriptSegmentInput({
         workspaceId,
         meetingId,
+        requestId: "meeting-segment-present",
+        commitMessage: "Capture a speaker-attributed segment.",
+        attribution,
         speakerId,
         text: "Morning.",
         startOffsetMs: 0,
@@ -75,6 +88,9 @@ describe("appendTranscriptSegment RPC schema", () => {
       new AppendTranscriptSegmentInput({
         workspaceId,
         meetingId,
+        requestId: "meeting-segment-absent",
+        commitMessage: "Capture an unattributed segment.",
+        attribution,
         text: "Unattributed.",
         startOffsetMs: 500,
         endOffsetMs: 900,

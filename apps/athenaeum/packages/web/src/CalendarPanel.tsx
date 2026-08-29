@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
   ConnectGoogleCalendarInput,
   DisconnectGoogleCalendarInput,
-  type DomainError,
   type EntityId
 } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
@@ -16,7 +14,6 @@ import {
   loadCalendarBindingId,
   clearCalendarBindingId
 } from "./calendar-binding-storage.js"
-import { formatDomainError } from "./format-domain-error.js"
 
 // Web-stage task item 1: "A 'Connect Google Calendar' button/flow... since no real OAuth app
 // exists, this must correctly show a real 'not configured' or a genuine OAuth-redirect attempt...
@@ -35,9 +32,9 @@ import { formatDomainError } from "./format-domain-error.js"
 //      Worker to do anything useful with even if bound"). `env.GATEKEEPER_GOOGLE_CALENDAR` is
 //      therefore `undefined`, so `CalendarService#connect` runs against
 //      `CalendarGatekeeperClientUnconfigured` (`calendar-gatekeeper-client.ts`), which fails
-//      every call with a clear `UnexpectedError`. This component shows that REAL error message
-//      verbatim (via `formatDomainError`) in a labeled "not connected" state — not a generic
-//      "coming soon" placeholder.
+//      every call with a clear `UnexpectedError`. This component exposes that honest unavailable
+//      state with a generic retryable message while retaining the diagnostic in the console: an
+//      upstream provider or gatekeeper cause is not safe to put into the DOM.
 //   2. **A genuine OAuth-redirect attempt (what a real, fully-configured deployment's user sees,
 //      and what THIS environment's own `/__dev__/enable-scripted-calendar` dev route — see
 //      `dev-scripted-calendar-client.ts` — makes reachable for verification purposes only)** —
@@ -65,11 +62,13 @@ import { formatDomainError } from "./format-domain-error.js"
 type ConnectState =
   | { readonly status: "idle" }
   | { readonly status: "busy" }
-  | { readonly status: "ready"; readonly authorizationUrl: string; readonly oauthState: string }
-  | { readonly status: "failure"; readonly message: string }
+  | { readonly status: "ready"; readonly authorizationUrl: string }
+  | { readonly status: "failure" }
 
-const isDomainError = (value: unknown): value is DomainError =>
-  typeof value === "object" && value !== null && typeof (value as { _tag?: unknown })._tag === "string"
+const calendarConnectFailureMessage =
+  "Calendar connection couldn’t be started. Check the calendar integration, then try again."
+const calendarDisconnectFailureMessage =
+  "We couldn’t confirm that your calendar was disconnected. It may still be connected. Review the connection before trying again."
 
 export function CalendarPanel() {
   const [connect, setConnect] = useState<ConnectState>({ status: "idle" })
@@ -103,13 +102,9 @@ export function CalendarPanel() {
       if (!Exit.isSuccess(outer)) return
       const inner = outer.value
       if (Exit.isSuccess(inner)) {
-        setConnect({ status: "ready", authorizationUrl: inner.value.authorizationUrl, oauthState: inner.value.state })
+        setConnect({ status: "ready", authorizationUrl: inner.value.authorizationUrl })
       } else if (!Exit.isInterrupted(inner)) {
-        const squashed: unknown = Cause.squash(inner.cause)
-        setConnect({
-          status: "failure",
-          message: isDomainError(squashed) ? formatDomainError(squashed) : `Unexpected error: ${String(squashed)}`
-        })
+        setConnect({ status: "failure" })
         console.error(inner.cause.toString())
       }
     })
@@ -131,7 +126,7 @@ export function CalendarPanel() {
         setBindingId(undefined)
         setConnect({ status: "idle" })
       } else if (!Exit.isInterrupted(exit)) {
-        setDisconnectError("Failed to disconnect — check the console for details")
+        setDisconnectError(calendarDisconnectFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -143,36 +138,49 @@ export function CalendarPanel() {
 
       {bindingId !== undefined ? (
         <div className="calendar-connected">
-          <p>
-            Connected in this browser — binding <code>{bindingId}</code>.{" "}
-            <span className="calendar-connected-hint">
-              (Client-side record only — no server-side "list bindings" RPC exists yet; see
-              `calendar-binding-storage.ts`.)
-            </span>
-          </p>
-          {disconnectError !== null && <p className="error">{disconnectError}</p>}
+          <div className="calendar-connected-status" role="status">
+            <span className="calendar-status-dot" aria-hidden="true" />
+            <div>
+              <strong>Google Calendar connected</strong>
+              <p className="calendar-connected-hint">
+                This connection is ready for the workspace in this browser.
+              </p>
+            </div>
+          </div>
+          {disconnectError !== null && (
+            <section
+              className="calendar-disconnect-unavailable"
+              role="alert"
+              aria-label="Calendar disconnection is unconfirmed"
+            >
+              <p>{disconnectError}</p>
+            </section>
+          )}
           <button type="button" onClick={handleDisconnect} disabled={disconnectBusy}>
             {disconnectBusy ? "Disconnecting…" : "Disconnect"}
           </button>
         </div>
       ) : (
         <div className="calendar-connect">
+          <div className="calendar-connect-copy">
+            <strong>Bring your schedule into Today</strong>
+            <p>Connect Google Calendar to keep meetings and the daily note in one place.</p>
+          </div>
           {connect.status !== "ready" && (
             <button type="button" onClick={handleConnect} disabled={connect.status === "busy"}>
               {connect.status === "busy" ? "Connecting…" : "Connect Google Calendar"}
             </button>
           )}
           {connect.status === "failure" && (
-            <p className="calendar-not-configured">
-              Not connected: {connect.message}
-            </p>
+            <div className="calendar-connect-unavailable" role="alert">
+              <strong>Calendar connection unavailable</strong>
+              <p>{calendarConnectFailureMessage}</p>
+            </div>
           )}
           {connect.status === "ready" && (
             <div className="calendar-redirect-ready">
-              <p>
-                Ready to continue to Google. This is a real OAuth authorization URL — clicking it
-                sends you to Google for real.
-              </p>
+              <p><strong>Continue in Google</strong></p>
+              <p>Review Athenaeum’s access request, then return here to finish connecting.</p>
               <a
                 className="calendar-redirect-link"
                 href={connect.authorizationUrl}
@@ -181,9 +189,6 @@ export function CalendarPanel() {
               >
                 Continue to Google →
               </a>
-              <p className="calendar-redirect-debug">
-                state=<code>{connect.oauthState.slice(0, 16)}…</code>
-              </p>
               <button type="button" onClick={() => setConnect({ status: "idle" })}>
                 Cancel
               </button>

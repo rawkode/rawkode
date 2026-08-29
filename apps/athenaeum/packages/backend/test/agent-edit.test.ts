@@ -11,11 +11,13 @@
 import { afterEach, describe, expect, it } from "vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { LoroDoc, LoroList, LoroMap, LoroText } from "loro-crdt/bundler"
 import {
   AcceptChatForkInput,
   AcceptChatForkOutput,
   AddFactInput,
   AddFactOutput,
+  ApplyPageEditInput,
   BaseTagFieldIds,
   BaseTagIds,
   ChatForkPreviewInput,
@@ -23,16 +25,23 @@ import {
   ChatToolResultBlock,
   CreateChatInput,
   CreateChatOutput,
+  CreateLoroPageInput,
+  CreateLoroPageOutput,
   CreatePageInput,
   CreatePageOutput,
   CreateRelationDefinitionInput,
   CreateRelationDefinitionOutput,
   CreateTagInput,
   CreateTagOutput,
+  CreationIntent,
   GetChatInput,
   GetChatOutput,
+  GetPageDocumentDescriptorInput,
+  GetPageDocumentDescriptorOutput,
   GetPageTextInput,
   GetPageTextOutput,
+  HumanUiMutationAttribution,
+  LedgerCommand,
   ListChatChangesInput,
   ListChatChangesOutput,
   ListNodesInput,
@@ -41,8 +50,11 @@ import {
   ListPendingChangesOutput,
   ListTagFieldsInput,
   ListTagFieldsOutput,
+  LoroMutationIntentV1,
   MergeChangesInput,
   MergeChangesOutput,
+  MigrateLegacyPageInput,
+  MigrateLegacyPageOutput,
   ModelClient,
   ModelTurnFinalText,
   ModelTurnToolCalls,
@@ -53,6 +65,10 @@ import {
   RunViewOutput,
   SendChatMessageInput,
   SendChatMessageOutput,
+  StartLoroPageSyncInput,
+  StartLoroPageSyncOutput,
+  SyncFeedInput,
+  SyncFeedOutput,
   ToolCallRequest,
   ViewSpec,
   type EntityId
@@ -60,7 +76,47 @@ import {
 import { agentEditTestHooks, deriveFallbackBindingName } from "../src/agent-edit-service-live.js"
 import { agentEditModelClientTestHook } from "../src/workspace-durable-object.js"
 import { makeModelClientScripted } from "../src/model-client-scripted.js"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspace, connectToWorkspaceAsTestUser, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
+
+const readLoroText = (snapshot: Uint8Array): string => {
+  const doc = new LoroDoc()
+  doc.import(snapshot)
+  const root = doc.getMap("athenaeum-prosemirror-v1")
+  const leaves: Array<LoroText> = []
+  const visit = (value: unknown): void => {
+    if (value instanceof LoroText) {
+      leaves.push(value)
+      return
+    }
+    if (value instanceof LoroList) {
+      for (let index = 0; index < value.length; index++) visit(value.get(index))
+      return
+    }
+    if (value instanceof LoroMap) {
+      const children = value.get("children")
+      if (children !== undefined) visit(children)
+    }
+  }
+  visit(root)
+  return leaves.map((leaf) => leaf.toString()).join("")
+}
+
+const relationDefinitionInput = (args: {
+  readonly workspaceId: EntityId
+  readonly forwardName: string
+  readonly inverseName: string
+  readonly requestId: string
+}) => new CreateRelationDefinitionInput({
+  workspaceId: args.workspaceId,
+  forwardName: args.forwardName,
+  inverseName: args.inverseName,
+  sourceTagId: BaseTagIds.Person,
+  targetTagId: BaseTagIds.Person,
+  cardinality: "many-to-many",
+  requestId: args.requestId,
+  commitMessage: `Define ${args.forwardName} for this agent test.`,
+  attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view" })
+})
 
 /** Programs a fresh `ModelClientScripted` double and installs its `converse` implementation as
  *  `agentEditModelClientTestHook.converse` — read LIVE by every `sendChatMessage` call (see that
@@ -73,6 +129,161 @@ const installScriptedModel = (script: ReadonlyArray<ModelTurnToolCalls | ModelTu
   const service = Effect.runSync(ModelClient.pipe(Effect.provide(scripted.layer)))
   agentEditModelClientTestHook.converse = service.converse
   return scripted
+}
+
+const readPageDescriptor = async (
+  workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>,
+  workspaceId: EntityId,
+  nodeId: EntityId
+) => Schema.decodeUnknownSync(GetPageDocumentDescriptorOutput)(
+  await workspaceStub.getPageDocumentDescriptor(
+    Schema.encodeSync(GetPageDocumentDescriptorInput)(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
+  )
+).descriptor
+
+const readSyncFeed = async (
+  workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>,
+  workspaceId: EntityId
+) => Schema.decodeUnknownSync(SyncFeedOutput)(
+  await workspaceStub.syncFeed(Schema.encodeSync(SyncFeedInput)(new SyncFeedInput({ workspaceId, limit: 100 })))
+).entries
+
+const readChatChanges = async (
+  workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>,
+  chatId: EntityId
+) => Schema.decodeUnknownSync(ListChatChangesOutput)(
+  await workspaceStub.listChatChanges(Schema.encodeSync(ListChatChangesInput)(new ListChatChangesInput({ chatId })))
+).changes
+
+const runAgentReadNote = async (args: {
+  readonly workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>
+  readonly chatId: EntityId
+  readonly binding: string
+  readonly toolCallId: string
+}): Promise<{ readonly text: string; readonly turn: SendChatMessageOutput }> => {
+  const scripted = installScriptedModel([
+    new ModelTurnToolCalls({
+      kind: "tool_calls",
+      calls: [new ToolCallRequest({
+        id: args.toolCallId,
+        name: "readNote",
+        input: { binding: args.binding }
+      })]
+    }),
+    new ModelTurnFinalText({ kind: "final_text", text: "Read the note." })
+  ])
+  const turn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+    await args.workspaceStub.sendChatMessage(
+      Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+        chatId: args.chatId,
+        text: `Read ${args.binding}.`
+      }))
+    )
+  )
+  expect(scripted.remaining()).toBe(0)
+  const chat = Schema.decodeUnknownSync(GetChatOutput)(
+    await args.workspaceStub.getChat(Schema.encodeSync(GetChatInput)(new GetChatInput({ chatId: args.chatId })))
+  )
+  const toolMessage = [...chat.messages].reverse().find(
+    (message) => message.role === "tool" && message.content.includes(`\"${args.toolCallId}\"`)
+  )
+  if (toolMessage === undefined) throw new Error(`missing ${args.toolCallId} tool result`)
+  const result = JSON.parse(toolMessage.content) as { readonly result: string; readonly isError: boolean }
+  expect(result.isError).toBe(false)
+  const output = JSON.parse(result.result) as { readonly text: unknown }
+  if (typeof output.text !== "string") throw new Error("readNote result did not contain text")
+  return { text: output.text, turn }
+}
+
+const migrateLegacyPage = async (args: {
+  readonly workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>
+  readonly workspaceId: EntityId
+  readonly nodeId: EntityId
+  readonly requestId: string
+}) => {
+  const legacy = await readPageDescriptor(args.workspaceStub, args.workspaceId, args.nodeId)
+  if (legacy.activeFormat !== "automerge-v1" || legacy.automerge === undefined) {
+    throw new Error("expected a legacy Automerge descriptor before migration")
+  }
+  const intent = new LoroMutationIntentV1({
+    requestId: args.requestId,
+    commitMessage: "Migrate this agent read fixture to Loro.",
+    attribution: new HumanUiMutationAttribution({
+      version: "athenaeum.mutation-attribution.v1",
+      kind: "humanUi",
+      surface: "rich-text-editor"
+    })
+  })
+  const migrated = Schema.decodeUnknownSync(MigrateLegacyPageOutput)(
+    await args.workspaceStub.migrateLegacyPage(
+      Schema.encodeSync(MigrateLegacyPageInput)(new MigrateLegacyPageInput({
+        workspaceId: args.workspaceId,
+        nodeId: args.nodeId,
+        expectedStorageVersion: legacy.storageVersion,
+        expectedAutomerge: legacy.automerge,
+        intent
+      }))
+    )
+  )
+  return { legacy, migrated }
+}
+
+const createChatWithBoundNotes = async (args: {
+  readonly workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>
+  readonly workspaceId: EntityId
+  readonly notes: ReadonlyArray<{ readonly title: string; readonly binding: string }>
+}) => {
+  const chat = Schema.decodeUnknownSync(CreateChatOutput)(
+    await args.workspaceStub.createChat(
+      Schema.encodeSync(CreateChatInput)(new CreateChatInput({
+        workspaceId: args.workspaceId,
+        title: "Agent page-format read routing"
+      }))
+    )
+  ).chat
+  const scripted = installScriptedModel([
+    new ModelTurnToolCalls({
+      kind: "tool_calls",
+      calls: args.notes.map((note, index) => new ToolCallRequest({
+        id: `create-bound-note-${index}`,
+        name: "createNode",
+        input: { title: note.title, binding: note.binding }
+      }))
+    }),
+    new ModelTurnFinalText({ kind: "final_text", text: "Created the notes." })
+  ])
+  await args.workspaceStub.sendChatMessage(
+    Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+      chatId: chat.id,
+      text: "Create the notes."
+    }))
+  )
+  expect(scripted.remaining()).toBe(0)
+  const pending = Schema.decodeUnknownSync(ListPendingChangesOutput)(
+    await args.workspaceStub.listPendingChanges(
+      Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id }))
+    )
+  )
+  const nodeIdByBinding = new Map<string, EntityId>()
+  for (const note of args.notes) {
+    const node = pending.nodes.find((candidate) => candidate.title === note.title)
+    if (node === undefined) throw new Error(`missing bound ${note.title} note`)
+    nodeIdByBinding.set(note.binding, node.id)
+  }
+  return { chat, nodeIdByBinding }
+}
+
+/** Deliberately invalid Loro page used to prove that an agent read surfaces the typed validation
+ * error instead of falling through to the legacy Automerge reader. */
+const invalidLoroPageSnapshot = (): Uint8Array => {
+  const doc = new LoroDoc()
+  doc.getMap("athenaeum-page-meta-v1").set("schemaVersion", 1)
+  const root = doc.getMap("athenaeum-prosemirror-v1")
+  root.set("nodeName", "doc")
+  root.getOrCreateContainer("attributes", new LoroMap())
+  root.getOrCreateContainer("children", new LoroList())
+  doc.commit()
+  return doc.export({ mode: "snapshot" })
 }
 
 describe("AgentEditService: fallback binding naming (deriveFallbackBindingName)", () => {
@@ -105,21 +316,14 @@ describe("AgentEditService: smoke test — create two nodes and link them, then 
 
   it("pending records exist, invisible to normal reads, visible after mergeChanges, gone after revertChanges", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     // Person → Person "knows" relation, needed for the scripted addEdge call — a real, immediate
     // (non-agent) RPC call, made before the script (which needs this id) is constructed.
     const relationDefinition = Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(
       await workspaceStub.createRelationDefinition(
         Schema.encodeSync(CreateRelationDefinitionInput)(
-          new CreateRelationDefinitionInput({
-            workspaceId,
-            forwardName: "knows",
-            inverseName: "isKnownBy",
-            sourceTagId: BaseTagIds.Person,
-            targetTagId: BaseTagIds.Person,
-            cardinality: "many-to-many"
-          })
+          relationDefinitionInput({ workspaceId, forwardName: "knows", inverseName: "isKnownBy", requestId: "agent-knows-1" })
         )
       )
     ).relationDefinition
@@ -208,7 +412,7 @@ describe("AgentEditService: smoke test — create two nodes and link them, then 
 
   it("revertChanges deletes pending records for a chat that was never merged — fully gone, not just hidden", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -287,19 +491,12 @@ describe("AgentEditService: exit-criterion scenario — create two nodes, add a 
 
   it("produces exactly the expected pending nodes/fact/edge, invisible to mainline reads, complete and correct — then fully promotable", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     const relationDefinition = Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(
       await workspaceStub.createRelationDefinition(
         Schema.encodeSync(CreateRelationDefinitionInput)(
-          new CreateRelationDefinitionInput({
-            workspaceId,
-            forwardName: "collaboratesWith",
-            inverseName: "isCollaboratedWithBy",
-            sourceTagId: BaseTagIds.Person,
-            targetTagId: BaseTagIds.Person,
-            cardinality: "many-to-many"
-          })
+          relationDefinitionInput({ workspaceId, forwardName: "collaboratesWith", inverseName: "isCollaboratedWithBy", requestId: "agent-collaborates-1" })
         )
       )
     ).relationDefinition
@@ -437,7 +634,8 @@ describe("AgentEditService: addFact tool produces a pending fact invisible until
 
   it("addFact via the agent tool is real, pending, and mainline-invisible until mergeChanges", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`agent-add-fact-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -473,7 +671,7 @@ describe("AgentEditService: addFact tool produces a pending fact invisible until
     // proof the promoted node is fully usable via the standard RPC surface.
     const directFact = Schema.decodeUnknownSync(AddFactOutput)(
       await workspaceStub.addFact(
-        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: node!.id, predicateId: "owner", value: "david" }))
+        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: node!.id, predicateId: "owner", value: "david", requestId: "agent-test-owner", commitMessage: "Set owner.", attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertag-field-editor" }) }))
       )
     )
     expect(directFact.fact.predicateId).toBe("owner")
@@ -490,11 +688,23 @@ describe("AgentEditService: defineSupertag tool — mainline schema mutation, no
 
   it("defineSupertag adds a field to a tag immediately (visible via listTagFields, no ChangesMessage produced)", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`agent-tag-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const tag = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Reviewer", parentIds: [] }))
+        Schema.encodeSync(CreateTagInput)(new CreateTagInput({
+          workspaceId,
+          name: "Reviewer",
+          parentIds: [],
+          requestId: `agent-create-tag-${crypto.randomUUID()}`,
+          commitMessage: "Define the Reviewer Supertag for the agent test.",
+          attribution: new HumanUiMutationAttribution({
+            version: "athenaeum.mutation-attribution.v1",
+            kind: "humanUi",
+            surface: "web-supertags-manager"
+          })
+        }))
       )
     ).tag
 
@@ -542,7 +752,7 @@ describe("AgentEditService: applySupertag tool produces pending facts invisible 
 
   it("applySupertag tags the bound node and seeds pending field values, real and mainline-invisible until mergeChanges", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -653,7 +863,7 @@ describe("AgentEditService: applySupertag tool crash-safety — reconcilePending
 
   it("orphan case: a pending applySupertag fact with no logged tool call is reaped, not re-adopted", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const chat = await createChatWithBoundNode(workspaceStub, workspaceId, "PERSON")
 
     // Baseline: the setup turn above already produced one `ChangesMessage` (the bound node's own
@@ -718,7 +928,7 @@ describe("AgentEditService: applySupertag tool crash-safety — reconcilePending
 
   it("re-adopt case: a pending applySupertag fact whose tool call WAS logged, but never flushed, is re-adopted on reconcile", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const chat = await createChatWithBoundNode(workspaceStub, workspaceId, "PERSON")
 
     // Baseline: the setup turn above already produced one `ChangesMessage` (the bound node's own
@@ -804,7 +1014,7 @@ describe("AgentEditService: ModelClientScripted drives multi-turn tool-error rec
     //      error on the previous turn's `tool_result`, recovering with a different tool entirely.
     //   3. final_text — the turn concludes normally.
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     const scripted = installScriptedModel([
       new ModelTurnToolCalls({
@@ -891,7 +1101,7 @@ describe("AgentEditService: crash-safety — reconcilePendingChanges", () => {
 
   it("orphan case: a pending record with no logged tool call is reaped, not re-adopted", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -949,7 +1159,7 @@ describe("AgentEditService: crash-safety — reconcilePendingChanges", () => {
 
   it("re-adopt case: a pending record whose tool call WAS logged, but never flushed, is re-adopted (stamped) on reconcile", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -1014,7 +1224,7 @@ describe("AgentEditService: errors surface as typed DomainErrors, not opaque fai
 
   it("getChat on an unknown chatId fails with a typed ChatNotFound", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const bogusChatId = freshWorkspaceId() as unknown as EntityId
     const error = await rejectionToDomainError(
       workspaceStub.getChat(Schema.encodeSync(GetChatInput)(new GetChatInput({ chatId: bogusChatId })))
@@ -1029,7 +1239,7 @@ describe("AgentEditService: errors surface as typed DomainErrors, not opaque fai
     // is mapped to `UnexpectedError` by `sendChatMessage` (see agent-edit-service-live.ts's own
     // doc comment on why, rather than growing `DomainError` further for this stage).
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const chat = Schema.decodeUnknownSync(CreateChatOutput)(
       await workspaceStub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "No model" })))
     ).chat
@@ -1058,7 +1268,7 @@ describe("subscribeToNodes: pending records stay invisible until mergeChanges (w
 
   it("a pending createNode is not pushed to a live subscriber until the chat's changes are merged", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -1126,19 +1336,12 @@ describe("AgentEditService: a single turn mixing editNote with createNode/addFac
 
   it("structured pending records promote via mergeChanges while the note fork stays open, reviewable, and independently acceptable", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     const relationDefinition = Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(
       await workspaceStub.createRelationDefinition(
         Schema.encodeSync(CreateRelationDefinitionInput)(
-          new CreateRelationDefinitionInput({
-            workspaceId,
-            forwardName: "collaboratesWith",
-            inverseName: "isCollaboratedWithBy",
-            sourceTagId: BaseTagIds.Person,
-            targetTagId: BaseTagIds.Person,
-            cardinality: "many-to-many"
-          })
+          relationDefinitionInput({ workspaceId, forwardName: "collaboratesWith", inverseName: "isCollaboratedWithBy", requestId: "agent-collaborates-2" })
         )
       )
     ).relationDefinition
@@ -1192,7 +1395,10 @@ describe("AgentEditService: a single turn mixing editNote with createNode/addFac
           new ToolCallRequest({
             id: "call_5",
             name: "editNote",
-            input: { binding: "NOTE", index: 0, deleteCount: 0, insertText: "Agent-added context. " }
+            input: {
+              binding: "NOTE", index: 0, deleteCount: 0, insertText: "Agent-added context. ",
+              commitMessage: "Add meeting context"
+            }
           })
         ]
       }),
@@ -1295,5 +1501,490 @@ describe("AgentEditService: a single turn mixing editNote with createNode/addFac
       )
     )
     expect(previewAfterAccept).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+  })
+})
+
+describe("AgentEditService: Loro note edits use the semantic ledger", () => {
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+
+  afterEach(() => {
+    workspaceStub?.[Symbol.dispose]()
+    workspaceStub = undefined
+    agentEditModelClientTestHook.converse = undefined
+  })
+
+  it("commits a Loro edit with job provenance, no chat fork, and an idempotent retry", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const chat = Schema.decodeUnknownSync(CreateChatOutput)(
+      await workspaceStub.createChat(
+        Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Loro agent edit" }))
+      )
+    ).chat
+
+    // The agent's binding map is intentionally chat-local. Create the target through the real
+    // agent tool first, then promote its page into the canonical Loro format before the edit turn.
+    installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({ id: "agent-create-note", name: "createNode", input: { title: "Loro note", binding: "NOTE" } })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Created the note." })
+    ])
+    await workspaceStub.sendChatMessage(
+      Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Create a note for me." }))
+    )
+    const pending = Schema.decodeUnknownSync(ListPendingChangesOutput)(
+      await workspaceStub.listPendingChanges(
+        Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id }))
+      )
+    )
+    const note = pending.nodes.find((node) => node.title === "Loro note")
+    expect(note).toBeDefined()
+    const noteNodeId = note!.id
+
+    const created = Schema.decodeUnknownSync(CreateLoroPageOutput)(
+      await workspaceStub.createLoroPage(
+        Schema.encodeSync(CreateLoroPageInput)(new CreateLoroPageInput({
+          workspaceId,
+          nodeId: noteNodeId,
+          creationIntent: new CreationIntent({
+            requestId: "agent-loro-page",
+            commitMessage: "Create the Loro note page",
+            attribution: new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "rich-text-editor"
+            })
+          })
+        }))
+      )
+    )
+    expect(created.descriptor.activeFormat).toBe("loro-v1")
+
+    const editScript = () => installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({
+          id: "agent-edit-note",
+          name: "editNote",
+          input: {
+            binding: "NOTE",
+            index: 0,
+            deleteCount: 0,
+            insertText: "Enriched by the Loro employee. ",
+            commitMessage: "Enrich the meeting note from the agent job"
+          }
+        })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Enriched the Loro note." })
+    ])
+
+    const firstScript = editScript()
+    const firstTurn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+      await workspaceStub.sendChatMessage(
+        Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Enrich this note." }))
+      )
+    )
+    expect(firstScript.remaining()).toBe(0)
+    expect(firstTurn.changesSequences).toEqual([])
+
+    const sync = Schema.decodeUnknownSync(StartLoroPageSyncOutput)(
+      await workspaceStub.startLoroPageSync(
+        Schema.encodeSync(StartLoroPageSyncInput)(new StartLoroPageSyncInput({
+          workspaceId,
+          nodeId: noteNodeId,
+          sessionId: "agent-loro-read"
+        }))
+      )
+    )
+    expect(readLoroText(sync.message)).toBe("Enriched by the Loro employee. ")
+
+    const preview = Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({
+          workspaceId,
+          chatId: chat.id,
+          nodeId: noteNodeId
+        }))
+      )
+    )
+    expect(preview).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+
+    const requestIdentity = `agent-edit:${chat.id}:agent-edit-note`
+    const native = workspaceDurableObjectStub(workspaceId)
+    const command = Schema.decodeUnknownSync(LedgerCommand)(await native.debugGetLedgerCommand(requestIdentity))
+    expect(command).toMatchObject({
+      type: "commitLoroPageContent",
+      principal: expect.stringContaining("@example.com"),
+      capability: "build",
+      payload: {
+        nodeId: noteNodeId,
+        commitMessage: "Enrich the meeting note from the agent job",
+        attribution: {
+          kind: "agentJob",
+          jobId: chat.id,
+          runId: "agent-edit-note"
+        }
+      }
+    })
+    const artifactsBeforeRetry = await native.debugGetLedgerArtifactCounts()
+    const artifacts = JSON.stringify({
+      command,
+      receipt: await native.debugGetLedgerReceipt(requestIdentity),
+      event: await native.debugGetLedgerEvent(requestIdentity),
+      outbox: await native.debugGetLedgerOutboxIntent(requestIdentity)
+    })
+    expect(artifacts).not.toContain("Enriched by the Loro employee.")
+
+    const retryScript = editScript()
+    await workspaceStub.sendChatMessage(
+      Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Retry the enrichment." }))
+    )
+    expect(retryScript.remaining()).toBe(0)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeRetry)
+
+    const retriedSync = Schema.decodeUnknownSync(StartLoroPageSyncOutput)(
+      await workspaceStub.startLoroPageSync(
+        Schema.encodeSync(StartLoroPageSyncInput)(new StartLoroPageSyncInput({
+          workspaceId,
+          nodeId: noteNodeId,
+          sessionId: "agent-loro-read-retry"
+        }))
+      )
+    )
+    expect(readLoroText(retriedSync.message)).toBe("Enriched by the Loro employee. ")
+  })
+})
+
+describe("AgentEditService: readNote follows the active page format", () => {
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+
+  afterEach(() => {
+    workspaceStub?.[Symbol.dispose]()
+    workspaceStub = undefined
+    agentEditModelClientTestHook.converse = undefined
+  })
+
+  it("reads a native Loro note before and after an agent edit without mutating page, ledger, proposal, sync, or ChangesMessage state", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const { chat, nodeIdByBinding } = await createChatWithBoundNotes({
+      workspaceStub,
+      workspaceId,
+      notes: [{ title: "Native Loro note", binding: "NATIVE" }]
+    })
+    const nodeId = nodeIdByBinding.get("NATIVE")
+    if (nodeId === undefined) throw new Error("missing native Loro note")
+
+    const created = Schema.decodeUnknownSync(CreateLoroPageOutput)(
+      await workspaceStub.createLoroPage(
+        Schema.encodeSync(CreateLoroPageInput)(new CreateLoroPageInput({
+          workspaceId,
+          nodeId,
+          creationIntent: new CreationIntent({
+            requestId: "agent-read-native-loro-page",
+            commitMessage: "Create the native Loro agent read fixture.",
+            attribution: new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "rich-text-editor"
+            })
+          })
+        }))
+      )
+    )
+    expect(created.descriptor.activeFormat).toBe("loro-v1")
+
+    const native = workspaceDurableObjectStub(workspaceId)
+    const descriptorBeforeFirstRead = await readPageDescriptor(workspaceStub, workspaceId, nodeId)
+    const artifactsBeforeFirstRead = await native.debugGetLedgerArtifactCounts()
+    const feedBeforeFirstRead = await readSyncFeed(workspaceStub, workspaceId)
+    const changesBeforeFirstRead = await readChatChanges(workspaceStub, chat.id)
+
+    const firstRead = await runAgentReadNote({
+      workspaceStub,
+      chatId: chat.id,
+      binding: "NATIVE",
+      toolCallId: "read-native-before-edit"
+    })
+    expect(firstRead.text).toBe("")
+    expect(firstRead.turn.changesSequences).toEqual([])
+    expect(await readPageDescriptor(workspaceStub, workspaceId, nodeId)).toEqual(descriptorBeforeFirstRead)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeFirstRead)
+    expect(await readSyncFeed(workspaceStub, workspaceId)).toEqual(feedBeforeFirstRead)
+    expect(await readChatChanges(workspaceStub, chat.id)).toEqual(changesBeforeFirstRead)
+    expect(Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+
+    const editScript = installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({
+          id: "edit-native-loro",
+          name: "editNote",
+          input: {
+            binding: "NATIVE",
+            index: 0,
+            deleteCount: 0,
+            insertText: "Loro agent text.",
+            commitMessage: "Add the native Loro agent fixture text."
+          }
+        })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Updated the Loro note." })
+    ])
+    const editTurn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+      await workspaceStub.sendChatMessage(
+        Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+          chatId: chat.id,
+          text: "Add the Loro fixture text."
+        }))
+      )
+    )
+    expect(editScript.remaining()).toBe(0)
+    expect(editTurn.changesSequences).toEqual([])
+    expect(Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+
+    const descriptorBeforeSecondRead = await readPageDescriptor(workspaceStub, workspaceId, nodeId)
+    const artifactsBeforeSecondRead = await native.debugGetLedgerArtifactCounts()
+    const feedBeforeSecondRead = await readSyncFeed(workspaceStub, workspaceId)
+    const changesBeforeSecondRead = await readChatChanges(workspaceStub, chat.id)
+
+    const secondRead = await runAgentReadNote({
+      workspaceStub,
+      chatId: chat.id,
+      binding: "NATIVE",
+      toolCallId: "read-native-after-edit"
+    })
+    expect(secondRead.text).toBe("Loro agent text.")
+    expect(secondRead.turn.changesSequences).toEqual([])
+    expect(await readPageDescriptor(workspaceStub, workspaceId, nodeId)).toEqual(descriptorBeforeSecondRead)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeSecondRead)
+    expect(await readSyncFeed(workspaceStub, workspaceId)).toEqual(feedBeforeSecondRead)
+    expect(await readChatChanges(workspaceStub, chat.id)).toEqual(changesBeforeSecondRead)
+  })
+
+  it("reads a migrated Loro note by activeFormat even when its immutable Automerge witness remains", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const { chat, nodeIdByBinding } = await createChatWithBoundNotes({
+      workspaceStub,
+      workspaceId,
+      notes: [{ title: "Migrated Loro note", binding: "MIGRATED" }]
+    })
+    const nodeId = nodeIdByBinding.get("MIGRATED")
+    if (nodeId === undefined) throw new Error("missing migrated Loro note")
+
+    await workspaceStub.createPage(
+      Schema.encodeSync(CreatePageInput)(new CreatePageInput({ workspaceId, nodeId }))
+    )
+    await workspaceStub.applyPageEdit(
+      Schema.encodeSync(ApplyPageEditInput)(new ApplyPageEditInput({
+        workspaceId,
+        nodeId,
+        index: 0,
+        deleteCount: 0,
+        insertText: "Migrated Loro text."
+      }))
+    )
+    const { legacy, migrated } = await migrateLegacyPage({
+      workspaceStub,
+      workspaceId,
+      nodeId,
+      requestId: "agent-read-migrate-fixture"
+    })
+    expect(legacy.activeFormat).toBe("automerge-v1")
+    expect(migrated.descriptor).toMatchObject({
+      activeFormat: "loro-v1",
+      automerge: legacy.automerge
+    })
+
+    const native = workspaceDurableObjectStub(workspaceId)
+    const descriptorBeforeRead = await readPageDescriptor(workspaceStub, workspaceId, nodeId)
+    expect(descriptorBeforeRead.activeFormat).toBe("loro-v1")
+    expect(descriptorBeforeRead.automerge).toEqual(legacy.automerge)
+    const artifactsBeforeRead = await native.debugGetLedgerArtifactCounts()
+    const feedBeforeRead = await readSyncFeed(workspaceStub, workspaceId)
+    const changesBeforeRead = await readChatChanges(workspaceStub, chat.id)
+
+    const read = await runAgentReadNote({
+      workspaceStub,
+      chatId: chat.id,
+      binding: "MIGRATED",
+      toolCallId: "read-migrated-loro"
+    })
+    expect(read.text).toBe("Migrated Loro text.")
+    expect(read.turn.changesSequences).toEqual([])
+    expect(await readPageDescriptor(workspaceStub, workspaceId, nodeId)).toEqual(descriptorBeforeRead)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeRead)
+    expect(await readSyncFeed(workspaceStub, workspaceId)).toEqual(feedBeforeRead)
+    expect(await readChatChanges(workspaceStub, chat.id)).toEqual(changesBeforeRead)
+    expect(Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+  })
+
+  it("surfaces a typed Loro validation error without falling back to Automerge", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const { chat, nodeIdByBinding } = await createChatWithBoundNotes({
+      workspaceStub,
+      workspaceId,
+      notes: [{ title: "Corrupt Loro note", binding: "CORRUPT" }]
+    })
+    const nodeId = nodeIdByBinding.get("CORRUPT")
+    if (nodeId === undefined) throw new Error("missing corrupt Loro note")
+
+    await workspaceStub.createLoroPage(
+      Schema.encodeSync(CreateLoroPageInput)(new CreateLoroPageInput({
+        workspaceId,
+        nodeId,
+        creationIntent: new CreationIntent({
+          requestId: "agent-read-invalid-loro-page",
+          commitMessage: "Create the invalid Loro agent read fixture.",
+          attribution: new HumanUiMutationAttribution({
+            version: "athenaeum.mutation-attribution.v1",
+            kind: "humanUi",
+            surface: "rich-text-editor"
+          })
+        })
+      }))
+    )
+
+    const native = workspaceDurableObjectStub(workspaceId)
+    await native.debugReplaceLoroPageSnapshot(nodeId, invalidLoroPageSnapshot())
+    const artifactsBeforeRead = await native.debugGetLedgerArtifactCounts()
+    const feedBeforeRead = await readSyncFeed(workspaceStub, workspaceId)
+    const changesBeforeRead = await readChatChanges(workspaceStub, chat.id)
+
+    const scripted = installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({
+          id: "read-invalid-loro",
+          name: "readNote",
+          input: { binding: "CORRUPT" }
+        })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "The read failed validation." })
+    ])
+    const turn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+      await workspaceStub.sendChatMessage(
+        Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+          chatId: chat.id,
+          text: "Read the corrupt note."
+        }))
+      )
+    )
+    expect(scripted.remaining()).toBe(0)
+    const toolMessage = turn.messages.find((message) => message.role === "tool")
+    expect(toolMessage).toBeDefined()
+    const result = JSON.parse(toolMessage!.content) as { readonly result: string; readonly isError: boolean }
+    expect(result.isError).toBe(true)
+    expect(result.result).toContain("Loro ProseMirror v1 root must contain at least one block")
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeRead)
+    expect(await readSyncFeed(workspaceStub, workspaceId)).toEqual(feedBeforeRead)
+    expect(await readChatChanges(workspaceStub, chat.id)).toEqual(changesBeforeRead)
+    expect(Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )).toEqual(new ChatForkPreviewOutput({ forked: false, text: "" }))
+  })
+
+  it("keeps explicit legacy fallback and pending-chat-fork reads intact", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const { chat, nodeIdByBinding } = await createChatWithBoundNotes({
+      workspaceStub,
+      workspaceId,
+      notes: [{ title: "Legacy Automerge note", binding: "LEGACY" }]
+    })
+    const nodeId = nodeIdByBinding.get("LEGACY")
+    if (nodeId === undefined) throw new Error("missing legacy Automerge note")
+
+    await workspaceStub.createPage(
+      Schema.encodeSync(CreatePageInput)(new CreatePageInput({ workspaceId, nodeId }))
+    )
+    await workspaceStub.applyPageEdit(
+      Schema.encodeSync(ApplyPageEditInput)(new ApplyPageEditInput({
+        workspaceId,
+        nodeId,
+        index: 0,
+        deleteCount: 0,
+        insertText: "Legacy mainline text."
+      }))
+    )
+    expect((await readPageDescriptor(workspaceStub, workspaceId, nodeId)).activeFormat).toBe("automerge-v1")
+
+    const mainlineRead = await runAgentReadNote({
+      workspaceStub,
+      chatId: chat.id,
+      binding: "LEGACY",
+      toolCallId: "read-legacy-mainline"
+    })
+    expect(mainlineRead.text).toBe("Legacy mainline text.")
+    expect(mainlineRead.turn.changesSequences).toEqual([])
+
+    const forkScript = installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({
+          id: "edit-legacy-pending-fork",
+          name: "editNote",
+          input: {
+            binding: "LEGACY",
+            index: 0,
+            deleteCount: 0,
+            insertText: "Draft: ",
+            commitMessage: "Prepare the legacy review draft."
+          }
+        })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Prepared a legacy draft." })
+    ])
+    const forkTurn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+      await workspaceStub.sendChatMessage(
+        Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+          chatId: chat.id,
+          text: "Prepare a review draft."
+        }))
+      )
+    )
+    expect(forkScript.remaining()).toBe(0)
+    expect(forkTurn.changesSequences).toEqual([])
+    const pendingFork = Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )
+    expect(pendingFork).toEqual(new ChatForkPreviewOutput({
+      forked: true,
+      text: "Draft: Legacy mainline text."
+    }))
+
+    const pendingRead = await runAgentReadNote({
+      workspaceStub,
+      chatId: chat.id,
+      binding: "LEGACY",
+      toolCallId: "read-legacy-pending-fork"
+    })
+    expect(pendingRead.text).toBe("Draft: Legacy mainline text.")
+    expect(pendingRead.turn.changesSequences).toEqual([])
+    expect(Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(
+        Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: chat.id, nodeId }))
+      )
+    )).toEqual(pendingFork)
   })
 })

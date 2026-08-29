@@ -1,48 +1,299 @@
+import Foundation
 import SwiftUI
 import AthenaeumDomain
+import AthenaeumCore
+
+/// The native reader intentionally has no entity/tag/link interaction surface.  This small,
+/// value-free policy is testable without exposing projection attributes to the UI layer.
+public struct LoroProjectionTextPresentation: Equatable, Sendable {
+    public let allowsTextSelection: Bool
+    public let accessibilityLabel: String?
+    public let visibleSuffix: String?
+
+    public init(marks: [LoroPageProjectionMark]) {
+        let unsupported = marks.contains(.unsupported)
+        self.allowsTextSelection = !unsupported
+        self.accessibilityLabel = unsupported ? "Text with unsupported formatting" : nil
+        self.visibleSuffix = unsupported ? " · unsupported formatting" : nil
+    }
+}
+
+/// Route, edit, and sync catches retain their raw diagnostic in the view model, but that text can
+/// contain transport or credential-adjacent detail. The canvas presents one safe recovery message.
+enum DailyNoteFailurePresentation {
+    static func message(for _: String) -> String {
+        "We couldn’t resolve this daily note. Retry to continue loading this date safely."
+    }
+}
+
+/// Recorded work is scoped to the current calendar day. Historical Daily Notes retain their own
+/// document and backlinks, but must not embed the current day's standup activity.
+enum DailyNoteStandupPresentation {
+    static func shouldShow(isToday: Bool, hasConfiguration: Bool) -> Bool {
+        isToday && hasConfiguration
+    }
+}
+
+/// Navigation already waits at the view-model's durable-before-navigation boundary. This is only
+/// a contextual presentation of that existing state, so disabled date controls never feel inert.
+enum DailyNoteNavigationProgressPresentation {
+    static func message(
+        isNavigating: Bool,
+        status: AthenaeumViewModel.SyncStatus
+    ) -> String? {
+        guard isNavigating else { return nil }
+        switch status {
+        case .syncing, .pending(_):
+            return "Saving this note before changing days…"
+        default:
+            return "Opening the selected daily note…"
+        }
+    }
+}
 
 /// Native mirror of `web/src/DailyNote.tsx`: resolves/creates today's note (via
-/// `AthenaeumViewModel.start()`), a real text editor bound to the local Automerge `Text` CRDT
-/// (`AthenaeumCore.PageDocumentStore`, through `AthenaeumViewModel.handleTextChange`), a sync
-/// status line, and its own nested `BacklinksView` — same composition `DailyNote.tsx` uses.
+/// `AthenaeumViewModel.start()`), then routes active Loro pages to the native plain-text editor
+/// and explicit legacy descriptors to a server-owned, read-only projection. It also owns the sync
+/// status line and nested `BacklinksView`, matching the composition used by `DailyNote.tsx`.
 public struct DailyNoteView: View {
     @ObservedObject var model: AthenaeumViewModel
+    private let standupConfiguration: StandupConfiguration?
+    @State private var hasAutofocused = false
+    /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
+    /// representable honor one request after its NSTextView has actually joined a window.
+    @State private var richEditorFocusGeneration = 0
+    @FocusState private var editorFocused: Bool
 
     public init(model: AthenaeumViewModel) {
         self.model = model
+        self.standupConfiguration = nil
+    }
+
+    /// Keeps secondary daily-note documents inside the note's own composition. The command
+    /// center uses this for the standup so it cannot drift into a competing dashboard panel.
+    public init(
+        model: AthenaeumViewModel,
+        standupBackendURL: URL,
+        standupWorkspaceId: EntityId,
+        standupBearerCredential: String?
+    ) {
+        self.model = model
+        self.standupConfiguration = StandupConfiguration(
+            backendURL: standupBackendURL,
+            workspaceId: standupWorkspaceId,
+            bearerCredential: standupBearerCredential
+        )
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Daily note — \(localDateStamp(Date()))")
-                .font(.title2.bold())
+            noteHeader
 
             switch model.status {
             case .loading:
-                ProgressView("Resolving today's note…")
+                ProgressView("Resolving \(isToday ? "today’s note" : "the daily note")…")
             case .error(let message):
-                Text(message)
-                    .foregroundStyle(.red)
-            default:
-                if model.isRichTextReadOnly {
-                    richTextBanner
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(DailyNoteFailurePresentation.message(for: message))
+                        .foregroundStyle(.red)
+                    Button("Retry loading this note") {
+                        editorFocused = false
+                        hasAutofocused = false
+                        model.retryCurrentNote()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isLoroRecoveryInProgress)
                 }
-                editor
+            default:
+                switch model.pagePresentation {
+                case .loroProjectedReadOnly(let state):
+                    loroProjection(state.projection.root)
+                    loroRecoveryControls
+                case .loroReadOnly(let projection):
+                    loroReadOnlyCard(projection)
+                    loroRecoveryControls
+                case .loroPlainEditable:
+                    loroPlainEditor
+                    loroRecoveryControls
+                case .loroRichEditable:
+                    loroRichEditor
+                    loroRecoveryControls
+                case .retainedLocalChangeConflict(let message):
+                    conflictCard(message)
+                    loroRecoveryControls
+                case .automergeRichTextReadOnly:
+                    richTextBanner
+                    editor
+                case .legacyMigrationRequired(let content):
+                    legacyMigrationRequiredCard(content)
+                case .automergeEditable:
+                    editor
+                case .unavailable:
+                    ProgressView("Preparing daily note…")
+                }
                 statusLine
+                if DailyNoteStandupPresentation.shouldShow(
+                    isToday: isToday,
+                    hasConfiguration: standupConfiguration != nil
+                ), let standupConfiguration {
+                    DailyStandupView(
+                        backendURL: standupConfiguration.backendURL,
+                        workspaceId: standupConfiguration.workspaceId,
+                        bearerCredential: standupConfiguration.bearerCredential
+                    )
+                }
                 BacklinksView(model: model)
             }
         }
         .padding()
+        .task {
+            focusEditorIfNeeded()
+        }
+        .onChange(of: model.status) { status in
+            guard case .synced = status else { return }
+            focusEditorIfNeeded()
+        }
+        .onChange(of: model.pagePresentation) { presentation in
+            if presentation != .automergeEditable && presentation != .loroPlainEditable && presentation != .loroRichEditable {
+                editorFocused = false
+                hasAutofocused = false
+            } else {
+                // A format transition replaces the underlying editing control. Let that control
+                // receive its own first-focus request instead of retaining the prior editor's.
+                hasAutofocused = false
+                focusEditorIfNeeded()
+            }
+        }
+        .onChange(of: model.selectedDate) { _ in
+            editorFocused = false
+            hasAutofocused = false
+        }
     }
 
-    /// **Native safety pass** (`docs/rich-text-editor-decisions.md` item 6): shown whenever
-    /// `AthenaeumViewModel.isRichTextReadOnly` is set — this note uses the web rich-text editor's
-    /// block/mark-shaped document, which native's flat-Text editor must never locally edit (a
-    /// proven corruption risk, not a hypothetical one — see `RichTextCompatTests.swift`).
+    private func focusEditorIfNeeded() {
+        guard !hasAutofocused,
+              (model.pagePresentation == .automergeEditable || model.pagePresentation == .loroPlainEditable || model.pagePresentation == .loroRichEditable)
+        else { return }
+        guard case .synced = model.status else { return }
+        hasAutofocused = true
+        if model.pagePresentation == .loroRichEditable {
+            editorFocused = false
+            richEditorFocusGeneration += 1
+        } else {
+            editorFocused = true
+        }
+    }
+
+    private var noteHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isToday ? "Today" : "Daily note")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(1.2)
+                    Text(noteDateLabel)
+                        .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Daily note for \(noteDateLabel)")
+                formatBadge
+                Spacer(minLength: 8)
+                dayNavigation
+            }
+            Text("Capture what matters, then let the workspace connect it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var noteDateLabel: String {
+        model.selectedDateLabel
+    }
+
+    private var isToday: Bool {
+        model.isSelectedDateToday
+    }
+
+    @ViewBuilder
+    private var formatBadge: some View {
+        switch model.pagePresentation {
+        case .loroReadOnly, .loroProjectedReadOnly, .loroPlainEditable, .loroRichEditable, .retainedLocalChangeConflict:
+            Label("Loro", systemImage: "checkmark.seal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+                .help("Loro is authoritative for this page.")
+                .accessibilityLabel("Loro. Loro is authoritative for this page.")
+        case .automergeEditable, .automergeRichTextReadOnly, .legacyMigrationRequired:
+            Label("Legacy Automerge", systemImage: "archivebox")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .help("This page is still using the legacy Automerge compatibility lane.")
+                .accessibilityLabel("Legacy Automerge. This page is still using the legacy Automerge compatibility lane.")
+        case .unavailable:
+            EmptyView()
+        }
+    }
+
+    private var dayNavigation: some View {
+        HStack(spacing: 4) {
+            Button {
+                editorFocused = false
+                model.showPreviousDay()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+            .accessibilityLabel("Previous day")
+            .help("Previous day")
+
+            DatePicker(
+                "Jump to date",
+                selection: Binding(
+                    get: { model.selectedDate },
+                    set: { newDate in
+                        editorFocused = false
+                        model.showDate(newDate)
+                    }
+                ),
+                displayedComponents: .date
+            )
+            .labelsHidden()
+            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+            .accessibilityLabel("Selected daily note date")
+
+            Button {
+                editorFocused = false
+                model.showNextDay()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+            .accessibilityLabel("Next day")
+            .help("Next day")
+
+            if !isToday {
+                Button("Today") {
+                    editorFocused = false
+                    model.showToday()
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+                .accessibilityHint("Return to today’s daily note")
+            }
+        }
+    }
+
+    /// Legacy pages are displayed through the server-owned projection boundary. The native app
+    /// deliberately does not decode or mutate the Automerge snapshot; migration must happen on
+    /// the server before the page can return to the Loro editor.
     private var richTextBanner: some View {
         HStack(spacing: 6) {
             Image(systemName: "text.badge.xmark").foregroundStyle(.orange)
-            Text("This note has rich formatting — edit it on the web app for now.")
+            Text("Legacy page — read-only until it is migrated to Loro.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -51,38 +302,296 @@ public struct DailyNoteView: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.12)))
     }
 
-    private var editor: some View {
-        TextEditor(text: Binding(
-            get: { model.text },
-            set: { model.handleTextChange($0) }
-        ))
-        .font(.body.monospaced())
-        .frame(minHeight: 220)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.3)))
-        // Belt-and-braces alongside `AthenaeumViewModel.handleTextChange`'s own guard: a rich
-        // note's `TextEditor` is never interactable at all, not just rejected on commit — no
-        // garbled U+FFFC glyphs are ever exposed to a real editing cursor.
-        .disabled(model.isRichTextReadOnly)
-        .opacity(model.isRichTextReadOnly ? 0.6 : 1)
+    /// This is deliberately a card rather than a disabled text editor. A rich or oversized
+    /// Automerge page has no lossless native projection, so displaying a replacement character
+    /// or truncated text here would falsely claim the content is safe to read.
+    private func legacyMigrationRequiredCard(_ content: LegacyPageProjectionContent) -> some View {
+        let detail: String
+        switch content {
+        case .plainText:
+            detail = "This legacy page needs migration before native editing is available."
+        case .richTextUnsupported:
+            detail = "This legacy page contains rich formatting that native cannot represent safely. Migrate it on the server or open it in the web app."
+        case .tooLarge:
+            detail = "This legacy page is too large for a safe native projection. Migrate it on the server or open it in the web app."
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Migration required", systemImage: "arrow.triangle.2.circlepath")
+                .font(.headline)
+                .foregroundStyle(.orange)
+            Text(detail)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.orange.opacity(0.12)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Legacy page migration required. \(detail)")
     }
 
-    private var statusLine: some View {
-        HStack(spacing: 6) {
-            switch model.status {
-            case .syncing:
-                ProgressView().controlSize(.small)
-                Text("Syncing…")
-            case .synced:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Synced")
-            case .error(let message):
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text("Sync failed: \(message)")
-            default:
-                EmptyView()
+    private func loroReadOnlyCard(_ projection: DailyNoteLoroReadOnlyState) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Native Loro page")
+                    .font(.headline)
+                Text("This page is synchronized, but native rich-text viewing and editing are not available yet.")
+                    .foregroundStyle(.secondary)
+                Text("Schema \(projection.schemaVersion)\(projection.isDirty ? " · local changes pending" : "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.secondary.opacity(0.10)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Native Loro page. Read-only. Native rich-text viewing and editing are not available yet.")
     }
+
+    private func loroProjection(_ node: LoroPageProjectionNode) -> AnyView {
+        switch node {
+        case .document(let children):
+            return AnyView(VStack(alignment: .leading, spacing: 10) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) } }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Read-only Loro page"))
+        case .paragraph(let children):
+            return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) } })
+        case .heading(_, let children):
+            return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) } }
+                .font(.title3.weight(.semibold)))
+        case .text(let value, let marks):
+            return loroText(value, marks: marks)
+        case .unsupported:
+            return AnyView(Text("Unsupported content")
+                .foregroundStyle(.secondary)
+                .italic()
+                .accessibilityLabel("Unsupported read-only content"))
+        }
+    }
+
+    /// Projection marks intentionally carry only safe presentation semantics. This is text, not
+    /// a `Link`: no URL, entity identifier, or action escapes Core or becomes interactive here.
+    private func loroText(_ value: String, marks: [LoroPageProjectionMark]) -> AnyView {
+        var rendered = Text(value)
+        if marks.contains(.strong) { rendered = rendered.bold() }
+        if marks.contains(.emphasis) { rendered = rendered.italic() }
+        if marks.contains(.code) { rendered = rendered.font(.system(.body, design: .monospaced)) }
+        if marks.contains(.link) { rendered = rendered.foregroundColor(.accentColor).underline() }
+        let presentation = LoroProjectionTextPresentation(marks: marks)
+        return AnyView(HStack(spacing: 0) {
+            loroSelectableText(rendered, enabled: presentation.allowsTextSelection)
+            if let suffix = presentation.visibleSuffix { Text(suffix).foregroundStyle(.secondary) }
+        }.accessibilityLabel(presentation.accessibilityLabel ?? value))
+    }
+
+    @ViewBuilder
+    private func loroSelectableText(_ text: Text, enabled: Bool) -> some View {
+        if enabled { text.textSelection(.enabled) }
+        else { text.textSelection(.disabled) }
+    }
+
+    private func conflictCard(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Local changes need resolution").font(.headline)
+            Text(message).foregroundStyle(.secondary)
+            Button("Retry loading this note") { model.retryCurrentNote() }
+                .buttonStyle(.bordered)
+                .disabled(model.isLoroRecoveryInProgress)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.orange.opacity(0.12)))
+    }
+
+    @ViewBuilder
+    private var loroRecoveryControls: some View {
+        if let notice = model.loroNotice { Text(notice).font(.caption).foregroundStyle(.secondary) }
+        if let action = model.loroRecoveryAction {
+            Button(loroActionTitle(action)) { model.performLoroRecoveryAction() }
+                .buttonStyle(.bordered)
+                .disabled(model.isLoroRecoveryInProgress)
+            if model.isLoroRecoveryInProgress {
+                ProgressView("Recovering saved change…")
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func loroActionTitle(_ action: AthenaeumViewModel.LoroRecoveryAction) -> String {
+        switch action {
+        case .continueRecovery: return "Continue recovery"
+        case .retrySavedChange: return "Retry saved change"
+        case .recoverSavedEditableVersion: return "Try to recover a saved editable version"
+        case .recoverSavedRichEditableVersion: return "Try to recover a saved editable rich-text version"
+        case .reloadEditor: return "Reload editor"
+        case .discardRichDraftAndReload: return "Discard rich draft and reload"
+        }
+    }
+
+    private var editor: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: Binding(
+                get: { model.text },
+                set: { model.handleTextChange($0) }
+            ))
+            .font(.system(.body, design: .serif))
+            .lineSpacing(6)
+            .scrollContentBackground(.hidden)
+            .focused($editorFocused)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            // Belt-and-braces alongside `AthenaeumViewModel.handleTextChange`'s own guard: a
+            // rich note's `TextEditor` is never interactable at all, not just rejected on commit
+            // — no garbled U+FFFC glyphs are ever exposed to a real editing cursor.
+            .disabled(model.isEditorInputDisabled)
+            .opacity(model.isEditorInputDisabled ? 0.6 : 1)
+            .accessibilityLabel("Daily note")
+            .accessibilityHint(
+                model.isRichTextReadOnly
+                    ? "Read-only. Edit this note on the web app."
+                    : "Write what is worth remembering today."
+            )
+
+            if model.text.isEmpty && !model.isRichTextReadOnly {
+                Text("What is worth remembering today?")
+                    .font(.system(.body, design: .serif).italic())
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 19)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.secondary.opacity(editorFocused ? 0.45 : 0.2), lineWidth: editorFocused ? 1.5 : 1)
+        )
+        .animation(.easeOut(duration: 0.18), value: editorFocused)
+    }
+
+    private var loroPlainEditor: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: Binding(
+                get: { model.loroPlainDraft },
+                set: { model.handleLoroPlainTextChange($0) }
+            ))
+            .font(.system(.body, design: .serif))
+            .lineSpacing(6)
+            .scrollContentBackground(.hidden)
+            .focused($editorFocused)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .disabled(model.isEditorInputDisabled)
+            .opacity(model.isEditorInputDisabled ? 0.6 : 1)
+            .accessibilityLabel("Native Loro plain-text daily note")
+            .accessibilityHint("Plain-text editing is available only while the saved Loro state remains current.")
+
+            if model.loroPlainDraft.isEmpty {
+                Text("What is worth remembering today?")
+                    .font(.system(.body, design: .serif).italic())
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 19)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.secondary.opacity(editorFocused ? 0.45 : 0.2), lineWidth: editorFocused ? 1.5 : 1)
+        )
+        .animation(.easeOut(duration: 0.18), value: editorFocused)
+    }
+
+    @ViewBuilder
+    private var loroRichEditor: some View {
+        #if os(macOS)
+        if let state = model.loroRichEditorState {
+            ZStack(alignment: .topLeading) {
+                LoroNativeRichTextEditor(
+                    state: state,
+                    isEditable: !model.isEditorInputDisabled,
+                    focusRequestGeneration: richEditorFocusGeneration,
+                    onDocumentChange: { model.handleLoroRichDocumentChange($0) },
+                    onSelectionChange: { model.handleLoroRichSelectionChange($0) },
+                    onRejectedInput: { model.handleLoroRichRejectedInput($0) }
+                )
+                if let prompt = LoroNativeRichEmptyStatePresentation(
+                    baseDocument: state.document,
+                    liveDraft: model.loroRichDraft
+                ).prompt {
+                    Text(prompt)
+                        .font(.system(.body, design: .serif).italic())
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 19)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(minHeight: 360)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityLabel("Native Loro rich-text daily note")
+        } else {
+            Text("Rich-text state is unavailable. Reload this page.")
+                .foregroundStyle(.secondary)
+        }
+        #else
+        Text("Native rich-text editing is available on macOS. This platform shows safe read-only Loro content.")
+            .foregroundStyle(.secondary)
+        #endif
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        if let navigationMessage = DailyNoteNavigationProgressPresentation.message(
+            isNavigating: model.isNavigating,
+            status: model.status
+        ) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(navigationMessage)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(navigationMessage)
+            .accessibilityAddTraits(.updatesFrequently)
+        } else {
+            HStack(spacing: 6) {
+                switch model.status {
+                case .syncing:
+                    ProgressView().controlSize(.small)
+                    Text("Syncing…")
+                case .pending(let message):
+                    Label(message, systemImage: "clock.arrow.circlepath")
+                        .foregroundStyle(.orange)
+                case .synced:
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("Synced")
+                case .conflict:
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Local changes need resolution")
+                case .error(let message):
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(DailyNoteFailurePresentation.message(for: message))
+                default:
+                    EmptyView()
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct StandupConfiguration {
+    let backendURL: URL
+    let workspaceId: EntityId
+    let bearerCredential: String?
 }

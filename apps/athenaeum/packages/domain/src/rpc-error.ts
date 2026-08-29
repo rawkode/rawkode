@@ -14,9 +14,14 @@ import {
   GraphIssueDetected,
   GraphIssueNotFound,
   MeetingNotFound,
+  NodeAlreadyExists,
   NodeNotFound,
   OAuthExchangeFailed,
   ObserverVerificationFailed,
+  PageFormatMismatch,
+  LoroContentConflict,
+  LoroRequestIdentityConflict,
+  LoroSemanticCommitRequired,
   PageNotFound,
   PendingNameConflict,
   RelationDefinitionNotFound,
@@ -33,6 +38,14 @@ import {
   WorkspaceNotFound,
   type DomainError
 } from "./errors.js"
+import { EntityId } from "./node.js"
+import { LoroMutationRequestId } from "./page-document-rpc.js"
+
+export const LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE =
+  "Loro page content updates must use commitLoroPageContent."
+
+export const LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE =
+  "Loro request identity was already used for a different command."
 
 // Risk #3 mitigation, verbatim from the plan (§"Top risks, explicitly flagged"): "a `{tag,
 // message, data}` thrown-error envelope convention to preserve typed-error info across the
@@ -63,9 +76,14 @@ import {
 
 const knownTags = [
   "NodeNotFound",
+  "NodeAlreadyExists",
   "ValidationError",
   "UnexpectedError",
   "PageNotFound",
+  "PageFormatMismatch",
+  "LoroContentConflict",
+  "LoroSemanticCommitRequired",
+  "LoroRequestIdentityConflict",
   "TagNotFound",
   "FactNotFound",
   "EdgeNotFound",
@@ -100,6 +118,99 @@ export class RpcErrorEnvelope extends Schema.Class<RpcErrorEnvelope>("RpcErrorEn
   data: Schema.Record({ key: Schema.String, value: Schema.Unknown })
 }) {}
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype
+
+const isCanonicalLoroRequestId = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value === value.trim() &&
+  value.length > 0 &&
+  value.length <= 200
+
+const hasStrictLoroSemanticCommitRequiredShape = (input: unknown): boolean => {
+  if (
+    !isPlainRecord(input) ||
+    Object.keys(input).length !== 3 ||
+    !Object.hasOwn(input, "tag") ||
+    !Object.hasOwn(input, "message") ||
+    !Object.hasOwn(input, "data") ||
+    input.message !== LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE
+  ) {
+    return false
+  }
+  const data = input.data
+  return (
+    isPlainRecord(data) &&
+    Object.keys(data).length === 1 &&
+    Object.hasOwn(data, "nodeId")
+  )
+}
+
+const StrictLoroSemanticCommitRequiredShape = Schema.Unknown.pipe(
+  Schema.filter(hasStrictLoroSemanticCommitRequiredShape, {
+    message: () => "Malformed LoroSemanticCommitRequired RPC error envelope"
+  })
+)
+
+const LoroSemanticCommitRequiredEnvelope = Schema.Struct({
+  tag: Schema.Literal("LoroSemanticCommitRequired"),
+  message: Schema.Literal(LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE),
+  data: Schema.Struct({ nodeId: EntityId })
+})
+
+const hasStrictLoroRequestIdentityConflictShape = (input: unknown): boolean => {
+  if (
+    !isPlainRecord(input) ||
+    Object.keys(input).length !== 3 ||
+    !Object.hasOwn(input, "tag") ||
+    !Object.hasOwn(input, "message") ||
+    !Object.hasOwn(input, "data") ||
+    input.message !== LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE
+  ) {
+    return false
+  }
+  const data = input.data
+  return (
+    isPlainRecord(data) &&
+    Object.keys(data).length === 2 &&
+    Object.hasOwn(data, "nodeId") &&
+    Object.hasOwn(data, "requestId") &&
+    isCanonicalLoroRequestId(data.requestId)
+  )
+}
+
+const StrictLoroRequestIdentityConflictShape = Schema.Unknown.pipe(
+  Schema.filter(hasStrictLoroRequestIdentityConflictShape, {
+    message: () => "Malformed LoroRequestIdentityConflict RPC error envelope"
+  })
+)
+
+const LoroRequestIdentityConflictEnvelope = Schema.Struct({
+  tag: Schema.Literal("LoroRequestIdentityConflict"),
+  message: Schema.Literal(LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE),
+  data: Schema.Struct({ nodeId: EntityId, requestId: LoroMutationRequestId })
+})
+
+const isLoroSemanticCommitRequiredEnvelope = (input: unknown): boolean =>
+  typeof input === "object" &&
+  input !== null &&
+  "tag" in input &&
+  (input as { readonly tag?: unknown }).tag === "LoroSemanticCommitRequired"
+
+const isLoroRequestIdentityConflictEnvelope = (input: unknown): boolean =>
+  typeof input === "object" &&
+  input !== null &&
+  "tag" in input &&
+  (input as { readonly tag?: unknown }).tag === "LoroRequestIdentityConflict"
+
+const unreachableLoroSemanticCommitRequiredFallback = (): never => {
+  throw new Error("LoroSemanticCommitRequired must be decoded by its strict decoder")
+}
+
+const unreachableLoroRequestIdentityConflictFallback = (): never => {
+  throw new Error("LoroRequestIdentityConflict must be decoded by its strict decoder")
+}
+
 /** Flatten a `DomainError` into the wire envelope. Pure — no I/O, no throwing. */
 export const encodeRpcError = (error: DomainError): RpcErrorEnvelope => {
   switch (error._tag) {
@@ -107,6 +218,12 @@ export const encodeRpcError = (error: DomainError): RpcErrorEnvelope => {
       return new RpcErrorEnvelope({
         tag: "NodeNotFound",
         message: `Node not found: ${error.nodeId}`,
+        data: { nodeId: error.nodeId }
+      })
+    case "NodeAlreadyExists":
+      return new RpcErrorEnvelope({
+        tag: "NodeAlreadyExists",
+        message: `Node already exists: ${error.nodeId}`,
         data: { nodeId: error.nodeId }
       })
     case "ValidationError":
@@ -126,6 +243,30 @@ export const encodeRpcError = (error: DomainError): RpcErrorEnvelope => {
         tag: "PageNotFound",
         message: `Page not found: ${error.nodeId}`,
         data: { nodeId: error.nodeId }
+      })
+    case "PageFormatMismatch":
+      return new RpcErrorEnvelope({
+        tag: "PageFormatMismatch",
+        message: `Page ${error.nodeId} uses ${error.actual}, but this operation requires ${error.expected}`,
+        data: {
+          nodeId: error.nodeId,
+          expected: error.expected,
+          actual: error.actual
+        }
+      })
+    case "LoroContentConflict":
+      return new RpcErrorEnvelope({ tag: "LoroContentConflict", message: error.message, data: { nodeId: error.nodeId, expectedStorageVersion: error.expectedStorageVersion, currentStorageVersion: error.currentStorageVersion, expectedSnapshotSha256: error.expectedSnapshotSha256, currentSnapshotSha256: error.currentSnapshotSha256, expectedVersionVectorSha256: error.expectedVersionVectorSha256, currentVersionVectorSha256: error.currentVersionVectorSha256 } })
+    case "LoroSemanticCommitRequired":
+      return new RpcErrorEnvelope({
+        tag: "LoroSemanticCommitRequired",
+        message: LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+        data: { nodeId: error.nodeId }
+      })
+    case "LoroRequestIdentityConflict":
+      return new RpcErrorEnvelope({
+        tag: "LoroRequestIdentityConflict",
+        message: LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE,
+        data: { nodeId: error.nodeId, requestId: error.requestId }
       })
     case "TagNotFound":
       return new RpcErrorEnvelope({
@@ -296,6 +437,11 @@ export const encodeRpcError = (error: DomainError): RpcErrorEnvelope => {
 const stringField = (data: Record<string, unknown>, key: string): string =>
   typeof data[key] === "string" ? data[key] : ""
 
+const pageDocumentFormatField = (
+  data: Record<string, unknown>,
+  key: string
+): "automerge-v1" | "loro-v1" => (data[key] === "loro-v1" ? "loro-v1" : "automerge-v1")
+
 const stringArrayField = (data: Record<string, unknown>, key: string): ReadonlyArray<string> =>
   Array.isArray(data[key]) ? data[key].filter((v): v is string => typeof v === "string") : []
 
@@ -311,11 +457,36 @@ const numberField = (data: Record<string, unknown>, key: string): number =>
 export const decodeRpcError = (
   input: unknown
 ): Effect.Effect<DomainError, ParseResult.ParseError> =>
-  Schema.decodeUnknown(RpcErrorEnvelope)(input).pipe(
+  isLoroSemanticCommitRequiredEnvelope(input)
+    ? Schema.decodeUnknown(StrictLoroSemanticCommitRequiredShape)(input).pipe(
+        Effect.flatMap(() =>
+          Schema.decodeUnknown(LoroSemanticCommitRequiredEnvelope)(input).pipe(
+            Effect.map(
+              (envelope) => new LoroSemanticCommitRequired({ nodeId: envelope.data.nodeId })
+            )
+          )
+        )
+      )
+    : isLoroRequestIdentityConflictEnvelope(input)
+      ? Schema.decodeUnknown(StrictLoroRequestIdentityConflictShape)(input).pipe(
+          Effect.flatMap(() =>
+            Schema.decodeUnknown(LoroRequestIdentityConflictEnvelope)(input).pipe(
+              Effect.map(
+                (envelope) => new LoroRequestIdentityConflict({
+                  nodeId: envelope.data.nodeId,
+                  requestId: envelope.data.requestId
+                })
+              )
+            )
+          )
+        )
+      : Schema.decodeUnknown(RpcErrorEnvelope)(input).pipe(
     Effect.map((envelope): DomainError => {
       switch (envelope.tag) {
         case "NodeNotFound":
           return new NodeNotFound({ nodeId: stringField(envelope.data, "nodeId") })
+        case "NodeAlreadyExists":
+          return new NodeAlreadyExists({ nodeId: stringField(envelope.data, "nodeId") })
         case "ValidationError":
           return new ValidationError({
             message: envelope.message,
@@ -325,6 +496,29 @@ export const decodeRpcError = (
           return new UnexpectedError({ message: envelope.message })
         case "PageNotFound":
           return new PageNotFound({ nodeId: stringField(envelope.data, "nodeId") })
+        case "PageFormatMismatch":
+          return new PageFormatMismatch({
+            nodeId: stringField(envelope.data, "nodeId"),
+            expected: pageDocumentFormatField(envelope.data, "expected"),
+            actual: pageDocumentFormatField(envelope.data, "actual")
+          })
+        case "LoroContentConflict":
+          return new LoroContentConflict({
+            nodeId: stringField(envelope.data, "nodeId"),
+            expectedStorageVersion: Number(envelope.data["expectedStorageVersion"]),
+            currentStorageVersion: Number(envelope.data["currentStorageVersion"]),
+            expectedSnapshotSha256: stringField(envelope.data, "expectedSnapshotSha256"),
+            currentSnapshotSha256: stringField(envelope.data, "currentSnapshotSha256"),
+            expectedVersionVectorSha256: stringField(envelope.data, "expectedVersionVectorSha256"),
+            currentVersionVectorSha256: stringField(envelope.data, "currentVersionVectorSha256"),
+            message: envelope.message
+          })
+        case "LoroSemanticCommitRequired":
+          // This tag is always routed through LoroSemanticCommitRequiredEnvelope above.
+          return unreachableLoroSemanticCommitRequiredFallback()
+        case "LoroRequestIdentityConflict":
+          // This tag is always routed through LoroRequestIdentityConflictEnvelope above.
+          return unreachableLoroRequestIdentityConflictFallback()
         case "TagNotFound":
           return new TagNotFound({ tagId: stringField(envelope.data, "tagId") })
         case "FactNotFound":

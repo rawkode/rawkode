@@ -1,15 +1,9 @@
 // swift-tools-version:5.9
-// AthenaeumCore — plan §"Repo/package layout": "native/AthenaeumCore/ — Swift actors: local
-// SQLite authority, Automerge integration, sync client".
+// AthenaeumCore — native SQLite authority, Loro replica/durability, and structured sync.
 //
-// Platforms: macOS/iOS only, deliberately NOT watchOS — this package links `automerge-swift`
-// (see below), and the Decisions stage's `automerge-swift-spike` proved for real (not assumed —
-// inspected the shipped `automergeFFI.xcframework`'s `Info.plist`, then confirmed with
-// `xcodebuild -destination 'generic/platform=watchOS'`, which fails with "no library for this
-// platform was found") that automerge-swift 0.7.2 ships no watchOS slice. Per the plan's
-// load-bearing consequence callout, watchOS Phase 2 support therefore uses `AthenaeumRPC`'s
-// structured-record RPC methods directly (plain-text quick-capture, no Automerge doc) — it does
-// not, and structurally cannot, depend on `AthenaeumCore`.
+// This shipped package is deliberately Loro-only. Legacy Automerge pages remain readable through
+// the server-owned projection RPC, but their historical local sync engine is not linked into the
+// same process as `loro-swift`; see `LEGACY_AUTOMERGE_VERIFIER.md` for the retired verifier lane.
 import PackageDescription
 
 let package = Package(
@@ -17,27 +11,19 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
         .library(name: "AthenaeumCore", targets: ["AthenaeumCore"]),
-        // Phase 2 exit-criterion driver (see `Sources/Phase2ExitCriterionCLI/Phase2Driver.swift`'s
-        // top doc comment): a small subcommand CLI that lets an external orchestrator (a shell
-        // script driving both this CLI *and* a real browser via chrome-devtools MCP, run process
-        // by process so a real-time concurrent web+native edit scenario can be staged step by
-        // step) exercise `WorkspaceSyncClient`'s real Automerge sync and structured-feed/epoch-recovery
-        // paths against a live backend, without needing a full app UI to automate. Not part of the
-        // shipped app — a verification tool, kept in this package because it exercises
-        // `AthenaeumCore` directly and needs no dependencies beyond what this package already has.
-        .executable(name: "phase2-driver", targets: ["Phase2ExitCriterionCLI"]),
+        .executable(name: "loro-interoperability-probe", targets: ["LoroInteroperabilityProbeCLI"]),
         // Phase 3 exit-criterion driver (see `Sources/Phase3ExitCriterionCLI/Phase3Driver.swift`'s
-        // top doc comment): same "small subcommand CLI an external orchestrator drives" shape as
-        // `phase2-driver` above, scoped to `AgentEditService`'s chat/pending-changes RPC surface
+        // top doc comment): a small subcommand CLI an external orchestrator drives, scoped to
+        // `AgentEditService`'s chat/pending-changes RPC surface
         // (`WorkspaceRPCClient+AgentEdit.swift`) instead of Automerge/structured sync. No
         // `AthenaeumCore`/local-SQLite dependency needed — a chat has no local-authority
         // counterpart the way a page/node does — so this target depends only on `AthenaeumDomain`/
         // `AthenaeumRPC`, not `AthenaeumCore` itself; kept in this package anyway to sit next to
-        // its Phase 2 sibling rather than a third top-level package for one small CLI.
+        // its neighboring phase drivers rather than a third top-level package for one small CLI.
         .executable(name: "phase3-driver", targets: ["Phase3ExitCriterionCLI"]),
         // Phase 4 exit-criterion driver (see `Sources/Phase4ExitCriterionCLI/Phase4Driver.swift`'s
-        // top doc comment): same "small subcommand CLI an external orchestrator drives" shape as
-        // `phase2-driver`/`phase3-driver` above, scoped to the dev-auth + multi-workspace-catalog +
+        // top doc comment): the same small subcommand CLI shape as the neighboring phase drivers,
+        // scoped to the dev-auth + multi-workspace-catalog +
         // sharing RPC surface (`DevAuthClient`, `UserRPCClient`, `WorkspaceRPCClient+Sharing.swift`).
         // No `AthenaeumCore`/local-SQLite dependency needed — sign-in and workspace-catalog operations
         // have no local-authority counterpart — so, like `phase3-driver`, this target depends only
@@ -72,10 +58,9 @@ let package = Package(
     dependencies: [
         .package(name: "AthenaeumDomain", path: "../AthenaeumDomain"),
         .package(name: "AthenaeumRPC", path: "../AthenaeumRPC"),
-        // Exact-pinned, matching the Decisions stage's verified spike (`automerge-swift-spike/
-        // Package.swift`) and new-notes' own vendoring discipline (plan risk #1: "carry that same
-        // vendoring discipline forward, don't assume it's matured").
-        .package(url: "https://github.com/automerge/automerge-swift.git", exact: "0.7.2")
+        // Loro is the authoritative format for newly created pages. The Core package owns the
+        // actor-confined replica/durability boundary; routing remains in the sync-client layer.
+        .package(url: "https://github.com/loro-dev/loro-swift.git", exact: "1.13.3")
     ],
     targets: [
         .target(
@@ -83,13 +68,22 @@ let package = Package(
             dependencies: [
                 .product(name: "AthenaeumDomain", package: "AthenaeumDomain"),
                 .product(name: "AthenaeumRPC", package: "AthenaeumRPC"),
-                .product(name: "Automerge", package: "automerge-swift")
+                .product(name: "Loro", package: "loro-swift")
             ],
             // new-notes' own precedent (`apps/new-notes/apps/native/Package.swift`,
             // `Sources/DailyNotesCore`'s `linkerSettings`) links `sqlite3` directly rather than a
             // package dependency — SQLite ships as a system library on Apple platforms, so this
             // needs a link flag, not a Swift package.
             linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        // Verification-only Loro wire-format mechanics. This target deliberately has no
+        // library product: application code can depend only on AthenaeumCore's semantic API.
+        .target(
+            name: "LoroInteroperabilityProbeSupport",
+            dependencies: [
+                "AthenaeumCore",
+                .product(name: "Loro", package: "loro-swift")
+            ]
         ),
         .testTarget(
             name: "AthenaeumCoreTests",
@@ -103,13 +97,16 @@ let package = Package(
             // scratchpad directory.
             resources: [.copy("Fixtures")]
         ),
-        .executableTarget(
-            name: "Phase2ExitCriterionCLI",
+        .testTarget(
+            name: "LoroInteroperabilityProbeSupportTests",
             dependencies: [
-                "AthenaeumCore",
-                .product(name: "AthenaeumDomain", package: "AthenaeumDomain"),
-                .product(name: "AthenaeumRPC", package: "AthenaeumRPC")
+                "LoroInteroperabilityProbeSupport",
+                .product(name: "Loro", package: "loro-swift")
             ]
+        ),
+        .executableTarget(
+            name: "LoroInteroperabilityProbeCLI",
+            dependencies: ["LoroInteroperabilityProbeSupport"]
         ),
         .executableTarget(
             name: "Phase3ExitCriterionCLI",

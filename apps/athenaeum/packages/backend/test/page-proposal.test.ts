@@ -64,7 +64,10 @@ describe("durable page proposals", () => {
     )
     const acceptInput = Schema.encodeSync(AcceptPageProposalInput)(new AcceptPageProposalInput({ workspaceId, proposalId: proposed.proposal.proposalId }))
 
+    const native = workspaceDurableObjectStub(workspaceId)
+    const artifactsBefore = await native.debugGetLedgerArtifactCounts()
     const first = Schema.decodeUnknownSync(AcceptPageProposalOutput)(await workspaceStub.acceptPageProposal(acceptInput))
+    const artifactsAfterFirst = await native.debugGetLedgerArtifactCounts()
     const replay = Schema.decodeUnknownSync(AcceptPageProposalOutput)(await workspaceStub.acceptPageProposal(acceptInput))
 
     expect(first.text).toBe("Mainline + proposal")
@@ -74,14 +77,20 @@ describe("durable page proposals", () => {
     expect(replay.commit.committedHeadsHash).toBe(replay.page.headsHash)
 
     const requestIdentity = `page-proposal:${proposed.proposal.proposalId}`
-    const command = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(requestIdentity)
+    const command = await native.debugGetLedgerCommand(requestIdentity)
     expect(Schema.decodeUnknownSync(LedgerCommand)(command)).toMatchObject({
       type: "acceptPageProposal",
       message: "Record the agent's proposed context for review.",
       payload: { provenance: { toolCallId: "proposal-test-tool" } }
     })
-    const receipt = await workspaceDurableObjectStub(workspaceId).debugGetLedgerReceipt(requestIdentity)
+    const receipt = await native.debugGetLedgerReceipt(requestIdentity)
     expect(receipt).toMatchObject({ output: { headsHash: first.commit.committedHeadsHash } })
+    const sideEffect = { proposalId: proposed.proposal.proposalId, nodeId }
+    expect(await native.debugGetLedgerEvent(requestIdentity)).toEqual({ kind: "accept-page-proposal", payload: sideEffect })
+    expect(await native.debugGetLedgerOutboxIntent(requestIdentity)).toEqual({ kind: "accept-page-proposal", payload: sideEffect })
+    expect(artifactsAfterFirst.events).toBe(artifactsBefore.events + 1)
+    expect(artifactsAfterFirst.outboxIntents).toBe(artifactsBefore.outboxIntents + 1)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsAfterFirst)
   })
 
   it("repairs the stale doc cache from committed bytes after a post-transaction crash", async () => {

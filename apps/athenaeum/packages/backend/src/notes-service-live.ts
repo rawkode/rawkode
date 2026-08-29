@@ -25,9 +25,20 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Automerge from "@automerge/automerge"
-import { canonicalAutomergeHeadsHash, NodeNotFound, NodesRepository, Page, PageNotFound, PagesRepository, UnexpectedError, type EntityId } from "@athenaeum/domain"
+import {
+  canonicalAutomergeHeadsHash,
+  NodeNotFound,
+  NodesRepository,
+  Page,
+  PageFormatMismatch,
+  PageNotFound,
+  PagesRepository,
+  UnexpectedError,
+  type EntityId
+} from "@athenaeum/domain"
 import type { PagesCollections, PageDocRow } from "./pages-repository-live.js"
 import { revivePage, toUnexpectedError } from "./pages-repository-live.js"
+import { requireAutomergePage } from "./loro-page-service-live.js"
 import { SyncFeedService } from "./sync-feed-service-live.js"
 import { indexNodeText } from "./read-model.js"
 
@@ -58,6 +69,22 @@ export interface PageSyncResult {
   readonly reset: boolean
 }
 
+/** Durable page work prepared inside the caller's transaction. The in-memory publication is kept
+ * behind one synchronous commit closure so a cache update and its sync-session transition can
+ * never be observed separately after a successful commit. */
+export interface PreparedPageMutation {
+  readonly page: Page
+  readonly text: string
+  readonly commit: () => void
+}
+
+/** A prepared Automerge sync response. Its protocol result is safe to return only after the
+ * enclosing transaction commits; `commit` publishes the candidate document and session state. */
+export interface PreparedPageSync {
+  readonly result: PageSyncResult
+  readonly commit: () => void
+}
+
 /** A durable page write that is deliberately not visible through the in-memory document cache
  * until its caller's enclosing SQLite transaction has committed. */
 export interface PreparedMergedDoc {
@@ -69,26 +96,41 @@ export interface PreparedMergedDoc {
 export class NotesService extends Context.Tag("@athenaeum/backend/NotesService")<
   NotesService,
   {
+    readonly prepareCreatePage: (
+      nodeId: EntityId
+    ) => Effect.Effect<PreparedPageMutation, NodeNotFound | PageFormatMismatch | PageNotFound | UnexpectedError>
     readonly createPage: (
       nodeId: EntityId
-    ) => Effect.Effect<{ page: Page; text: string }, NodeNotFound | PageNotFound | UnexpectedError>
-    readonly getPageText: (nodeId: EntityId) => Effect.Effect<{ page: Page; text: string }, PageNotFound | UnexpectedError>
+    ) => Effect.Effect<{ page: Page; text: string }, NodeNotFound | PageFormatMismatch | PageNotFound | UnexpectedError>
+    readonly getPageText: (nodeId: EntityId) => Effect.Effect<{ page: Page; text: string }, PageFormatMismatch | PageNotFound | UnexpectedError>
     readonly applyLocalEdit: (
       nodeId: EntityId,
       index: number,
       deleteCount: number,
       insertText: string
-    ) => Effect.Effect<{ page: Page; text: string }, PageNotFound | UnexpectedError>
+    ) => Effect.Effect<{ page: Page; text: string }, PageFormatMismatch | PageNotFound | UnexpectedError>
+    readonly prepareApplyLocalEdit: (
+      nodeId: EntityId,
+      index: number,
+      deleteCount: number,
+      insertText: string
+    ) => Effect.Effect<PreparedPageMutation, PageFormatMismatch | PageNotFound | UnexpectedError>
     readonly startSync: (
       nodeId: EntityId,
       sessionId: string
-    ) => Effect.Effect<Uint8Array | null, PageNotFound | UnexpectedError>
+    ) => Effect.Effect<Uint8Array | null, PageFormatMismatch | PageNotFound | UnexpectedError>
     readonly receiveSyncMessage: (
       nodeId: EntityId,
       sessionId: string,
       ordinal: number,
       message: Uint8Array
-    ) => Effect.Effect<PageSyncResult, PageNotFound | UnexpectedError>
+    ) => Effect.Effect<PageSyncResult, PageFormatMismatch | PageNotFound | UnexpectedError>
+    readonly prepareReceiveSyncMessage: (
+      nodeId: EntityId,
+      sessionId: string,
+      ordinal: number,
+      message: Uint8Array
+    ) => Effect.Effect<PreparedPageSync, PageFormatMismatch | PageNotFound | UnexpectedError>
     /**
      * `ChatForkService`'s hook into NotesService's single authoritative doc cache + storage pair
      * (Phase 3 spike, plan risk #4 — see chat-fork-service-live.ts's header comment for the full
@@ -96,7 +138,7 @@ export class NotesService extends Context.Tag("@athenaeum/backend/NotesService")
      * method here — so a fork always clones (and, at accept time, merges against) truly current
      * state, never a copy that's gone stale relative to NotesService's own cache.
      */
-    readonly loadDocForMerge: (nodeId: EntityId) => Effect.Effect<Automerge.Doc<PageDoc>, PageNotFound | UnexpectedError>
+    readonly loadDocForMerge: (nodeId: EntityId) => Effect.Effect<Automerge.Doc<PageDoc>, PageFormatMismatch | PageNotFound | UnexpectedError>
     /**
      * Persists an externally-produced doc (a `ChatForkService.accept()` merge result) through the
      * exact same `saveDoc`/reindex/`syncFeed.append` path `applyLocalEdit` uses — the load-bearing
@@ -110,20 +152,20 @@ export class NotesService extends Context.Tag("@athenaeum/backend/NotesService")
     readonly applyMergedDoc: (
       nodeId: EntityId,
       mergedDoc: Automerge.Doc<PageDoc>
-    ) => Effect.Effect<{ page: Page; text: string }, UnexpectedError>
+    ) => Effect.Effect<{ page: Page; text: string }, PageFormatMismatch | UnexpectedError>
     /** Transaction fanout seam for ledgered mutations. Persists page bytes, page metadata,
      * search projection, and sync-feed record, but leaves cache publication to `publish()` after
      * the outer Durable Object transaction succeeds. */
     readonly prepareMergedDoc: (
       nodeId: EntityId,
       mergedDoc: Automerge.Doc<PageDoc>
-    ) => Effect.Effect<PreparedMergedDoc, UnexpectedError>
+    ) => Effect.Effect<PreparedMergedDoc, PageFormatMismatch | UnexpectedError>
     /** Restores a committed doc to the instance-local cache during an accepted-proposal replay. */
     readonly restoreCommittedDoc: (
       nodeId: EntityId,
       committedBytes: Uint8Array,
       committedHeadsHash: string
-    ) => Effect.Effect<{ page: Page; text: string }, PageNotFound | UnexpectedError>
+    ) => Effect.Effect<{ page: Page; text: string }, PageFormatMismatch | PageNotFound | UnexpectedError>
   }
 >() {}
 
@@ -174,8 +216,9 @@ export const makeNotesServiceLive = (
         }
       }
 
-      const loadDoc = (nodeId: EntityId): Effect.Effect<Automerge.Doc<PageDoc>, PageNotFound | UnexpectedError> =>
+      const loadDoc = (nodeId: EntityId): Effect.Effect<Automerge.Doc<PageDoc>, PageFormatMismatch | PageNotFound | UnexpectedError> =>
         Effect.gen(function* () {
+          yield* requireAutomergePage(collections, nodeId)
           const cached = docCache.get(nodeId)
           if (cached) return cached
 
@@ -193,15 +236,13 @@ export const makeNotesServiceLive = (
           return doc
         })
 
-      /** Persists `doc` as this node's new authoritative state: updates the in-memory cache, the
-       *  raw binary blob, and the `Page` reference row's `headsHash` together, so they never drift
-       *  out of sync with each other. */
+      /** Persists `doc` as this node's new authoritative state. Cache publication is returned as a
+       *  post-commit closure, so a transaction failure cannot expose an uncommitted Automerge doc. */
       const saveDoc = (
         nodeId: EntityId,
         doc: Automerge.Doc<PageDoc>
-      ): Effect.Effect<Page, UnexpectedError> =>
+      ): Effect.Effect<{ readonly page: Page; readonly commit: () => void }, UnexpectedError> =>
         Effect.gen(function* () {
-          docCache.set(nodeId, doc)
           const bytes = Automerge.save(doc)
           yield* collections.pageDocs.put({ nodeId, bytes }).pipe(Effect.mapError(toUnexpectedError))
 
@@ -209,14 +250,15 @@ export const makeNotesServiceLive = (
           const automergeDocId = existingPage?.automergeDocId ?? nodeId
           const page = new Page({ nodeId, automergeDocId, headsHash: headsHashOf(doc) })
           yield* collections.pages.put(page).pipe(Effect.mapError(toUnexpectedError))
-          return page
+          return { page, commit: () => docCache.set(nodeId, doc) }
         })
 
       const prepareMergedDoc = (
         nodeId: EntityId,
         mergedDoc: Automerge.Doc<PageDoc>
-      ): Effect.Effect<PreparedMergedDoc, UnexpectedError> =>
+      ): Effect.Effect<PreparedMergedDoc, PageFormatMismatch | UnexpectedError> =>
         Effect.gen(function* () {
+          yield* requireAutomergePage(collections, nodeId)
           // Do not publish `mergedDoc` to docCache yet. A ledger caller may still roll back its
           // enclosing `transactionSync`; cache publication happens only through the returned
           // closure after that transaction has committed.
@@ -257,23 +299,96 @@ export const makeNotesServiceLive = (
           )
         )
 
+      const prepareCreatePage = (nodeId: EntityId): Effect.Effect<PreparedPageMutation, NodeNotFound | PageFormatMismatch | PageNotFound | UnexpectedError> =>
+        Effect.gen(function* () {
+          yield* nodesRepository.get(nodeId)
+          // This is the explicit legacy compatibility path. A native or migrated Loro page must
+          // never acquire a hidden Automerge blob if an older caller retries `createPage`.
+          yield* requireAutomergePage(collections, nodeId)
+
+          const existingRaw = yield* collections.pages.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
+          if (existingRaw !== undefined) {
+            const existing = yield* revivePage(existingRaw)
+            const doc = yield* loadDoc(nodeId)
+            return { page: existing, text: doc.text, commit: () => undefined }
+          }
+
+          const doc = Automerge.from<PageDoc>({ text: "" })
+          const saved = yield* saveDoc(nodeId, doc)
+          yield* reindex(nodeId, doc.text)
+          yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: saved.page.headsHash })
+          return { page: saved.page, text: doc.text, commit: saved.commit }
+        })
+
+      const prepareApplyLocalEdit = (
+        nodeId: EntityId,
+        index: number,
+        deleteCount: number,
+        insertText: string
+      ): Effect.Effect<PreparedPageMutation, PageFormatMismatch | PageNotFound | UnexpectedError> =>
+        Effect.gen(function* () {
+          const doc = yield* loadDoc(nodeId)
+          // `Automerge.change` advances and invalidates its input document. Work from a clone so
+          // a later transaction failpoint cannot leave the committed cache pointing at an
+          // outdated document that a retry can no longer read or edit.
+          const nextDoc = Automerge.change(Automerge.clone(doc), (draft) => {
+            Automerge.splice(draft, ["text"], index, deleteCount, insertText)
+          })
+          const saved = yield* saveDoc(nodeId, nextDoc)
+          yield* reindex(nodeId, nextDoc.text)
+          yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: saved.page.headsHash })
+          return { page: saved.page, text: nextDoc.text, commit: saved.commit }
+        })
+
+      const prepareReceiveSyncMessage = (
+        nodeId: EntityId,
+        sessionId: string,
+        ordinal: number,
+        message: Uint8Array
+      ): Effect.Effect<PreparedPageSync, PageFormatMismatch | PageNotFound | UnexpectedError> =>
+        Effect.gen(function* () {
+          // Confirms the page (and thus the doc) exists before touching session state — a
+          // `pageSyncMessage` call against a node with no page fails the same way `startSync`
+          // would have.
+          const doc = yield* loadDoc(nodeId)
+          const key = sessionKey(nodeId, sessionId)
+          const session = sessions.get(key)
+          if (session === undefined || ordinal !== session.expectedOrdinal) {
+            // Prepare the reclaim without mutating the live session map. A transaction failpoint
+            // must leave the previous session usable for a retry.
+            return {
+              result: { message: null, converged: false, reset: true },
+              commit: () => { sessions.delete(key) }
+            }
+          }
+
+          // The sync primitive also advances its input document. Keep the committed cache intact
+          // until the durable writes succeed, then publish the cloned candidate in `commit`.
+          const [nextDoc, receivedState] = Automerge.receiveSyncMessage(Automerge.clone(doc), session.syncState, message)
+          const [outState, outMessage] = Automerge.generateSyncMessage(nextDoc, receivedState)
+          const saved = yield* saveDoc(nodeId, nextDoc)
+          yield* reindex(nodeId, nextDoc.text)
+          yield* syncFeed.append("page", nodeId, "put", {
+            nodeId,
+            headsHash: headsHashOf(nextDoc)
+          })
+
+          return {
+            result: { message: outMessage, converged: outMessage === null, reset: false },
+            commit: () => {
+              saved.commit()
+              touchSession(key, { syncState: outState, expectedOrdinal: ordinal + 1 })
+            }
+          }
+        })
+
       return {
+        prepareCreatePage,
         createPage: (nodeId) =>
           Effect.gen(function* () {
-            yield* nodesRepository.get(nodeId)
-
-            const existingRaw = yield* collections.pages.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
-            if (existingRaw !== undefined) {
-              const existing = yield* revivePage(existingRaw)
-              const doc = yield* loadDoc(nodeId)
-              return { page: existing, text: doc.text }
-            }
-
-            const doc = Automerge.from<PageDoc>({ text: "" })
-            const page = yield* saveDoc(nodeId, doc)
-            yield* reindex(nodeId, doc.text)
-            yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: page.headsHash })
-            return { page, text: doc.text }
+            const prepared = yield* prepareCreatePage(nodeId)
+            prepared.commit()
+            return { page: prepared.page, text: prepared.text }
           }),
 
         getPageText: (nodeId) =>
@@ -283,16 +398,12 @@ export const makeNotesServiceLive = (
             return { page, text: doc.text }
           }),
 
+        prepareApplyLocalEdit,
         applyLocalEdit: (nodeId, index, deleteCount, insertText) =>
           Effect.gen(function* () {
-            const doc = yield* loadDoc(nodeId)
-            const nextDoc = Automerge.change(doc, (draft) => {
-              Automerge.splice(draft, ["text"], index, deleteCount, insertText)
-            })
-            const page = yield* saveDoc(nodeId, nextDoc)
-            yield* reindex(nodeId, nextDoc.text)
-            yield* syncFeed.append("page", nodeId, "put", { nodeId, headsHash: page.headsHash })
-            return { page, text: nextDoc.text }
+            const prepared = yield* prepareApplyLocalEdit(nodeId, index, deleteCount, insertText)
+            prepared.commit()
+            return { page: prepared.page, text: prepared.text }
           }),
 
         startSync: (nodeId, sessionId) =>
@@ -303,36 +414,12 @@ export const makeNotesServiceLive = (
             return message
           }),
 
+        prepareReceiveSyncMessage,
         receiveSyncMessage: (nodeId, sessionId, ordinal, message) =>
           Effect.gen(function* () {
-            // Confirms the page (and thus the doc) exists before touching session state — a
-            // `pageSyncMessage` call against a node with no page fails the same way `startSync`
-            // would have.
-            const doc = yield* loadDoc(nodeId)
-
-            const key = sessionKey(nodeId, sessionId)
-            const session = sessions.get(key)
-            if (session === undefined || ordinal !== session.expectedOrdinal) {
-              // The plan's "reset: true reclaim on ambiguous timeout" path: no session memory (it
-              // was never started, or was reaped) or an out-of-order ordinal — either way this
-              // server has no safe way to continue the exchange, so it discards any partial state
-              // for this id and tells the caller to restart via `startSync`.
-              sessions.delete(key)
-              return { message: null, converged: false, reset: true }
-            }
-
-            const [nextDoc, receivedState] = Automerge.receiveSyncMessage(doc, session.syncState, message)
-            const [outState, outMessage] = Automerge.generateSyncMessage(nextDoc, receivedState)
-
-            touchSession(key, { syncState: outState, expectedOrdinal: ordinal + 1 })
-            yield* saveDoc(nodeId, nextDoc)
-            yield* reindex(nodeId, nextDoc.text)
-            yield* syncFeed.append("page", nodeId, "put", {
-              nodeId,
-              headsHash: headsHashOf(nextDoc)
-            })
-
-            return { message: outMessage, converged: outMessage === null, reset: false }
+            const prepared = yield* prepareReceiveSyncMessage(nodeId, sessionId, ordinal, message)
+            prepared.commit()
+            return prepared.result
           }),
 
         loadDocForMerge: (nodeId) => loadDoc(nodeId),
@@ -347,6 +434,7 @@ export const makeNotesServiceLive = (
         prepareMergedDoc,
         restoreCommittedDoc: (nodeId, committedBytes, committedHeadsHash) =>
           Effect.gen(function* () {
+            yield* requireAutomergePage(collections, nodeId)
             const page = yield* pagesRepository.get(nodeId)
             if (page.headsHash === committedHeadsHash) {
               const committedDoc = Automerge.load<PageDoc>(committedBytes)

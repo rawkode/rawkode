@@ -25,15 +25,25 @@ export interface WorkspaceApi {
   whoami(): Promise<unknown>
 
   createNode(input: unknown): Promise<unknown>
+  createNodeWithIntent(input: unknown): Promise<unknown>
   listNodes(input: unknown): Promise<unknown>
   getNode(input: unknown): Promise<unknown>
   subscribeToNodes(input: unknown): Promise<NodesSubscriptionApi>
 
   createPage(input: unknown): Promise<unknown>
+  createLoroPage(input: unknown): Promise<unknown>
   getPageText(input: unknown): Promise<unknown>
   applyPageEdit(input: unknown): Promise<unknown>
   startPageSync(input: unknown): Promise<unknown>
   pageSyncMessage(input: unknown): Promise<unknown>
+  getPageDocumentDescriptor(input: unknown): Promise<unknown>
+  getLegacyPageProjection(input: unknown): Promise<unknown>
+  activateLoroPage(input: unknown): Promise<unknown>
+  migrateLegacyPage(input: unknown): Promise<unknown>
+  commitLoroPageContent(input: unknown): Promise<unknown>
+  prepareMeetingInDailyNote(input: unknown): Promise<unknown>
+  startLoroPageSync(input: unknown): Promise<unknown>
+  loroPageSyncMessage(input: unknown): Promise<unknown>
 
   proposePageEdit(input: unknown): Promise<unknown>
   previewPageProposal(input: unknown): Promise<unknown>
@@ -64,6 +74,7 @@ export interface WorkspaceApi {
   searchNodes(input: unknown): Promise<unknown>
 
   syncFeed(input: unknown): Promise<unknown>
+  listRecentLedgerActivity(input: unknown): Promise<unknown>
   rotateEpoch(input: unknown): Promise<unknown>
 
   createChat(input: unknown): Promise<unknown>
@@ -72,6 +83,7 @@ export interface WorkspaceApi {
   sendChatMessage(input: unknown): Promise<unknown>
   mergeChanges(input: unknown): Promise<unknown>
   revertChanges(input: unknown): Promise<unknown>
+  decideAgentChangeProposal(input: unknown): Promise<unknown>
   listChatChanges(input: unknown): Promise<unknown>
   listPendingChanges(input: unknown): Promise<unknown>
 
@@ -98,6 +110,7 @@ export interface WorkspaceApi {
   disconnectGoogleCalendar(input: unknown): Promise<unknown>
   syncGoogleCalendar(input: unknown): Promise<unknown>
   listCalendarEvents(input: unknown): Promise<unknown>
+  getTodayBrief(input: unknown): Promise<unknown>
   linkCalendarEventToNode(input: unknown): Promise<unknown>
   createBookmark(input: unknown): Promise<unknown>
   listBookmarks(input: unknown): Promise<unknown>
@@ -232,6 +245,13 @@ export const connectToWorkspaceWithSocketAs = async (
   if (!socket) throw new TypeError("Expected a WebSocket response.")
   socket.accept()
   return { stub: newWebSocketRpcSession<WorkspaceApi>(socket), socket }
+}
+
+/** Authenticated convenience connection for tests of routes that require a real actor. Keep the
+ * existing `connectToWorkspace` helper anonymous because several suites explicitly test denial. */
+export const connectToWorkspaceAsTestUser = async (workspaceId: EntityId): Promise<RpcStub<WorkspaceApi>> => {
+  const { credential } = await devSignIn(`workspace-test-${crypto.randomUUID()}@example.com`)
+  return (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 }
 
 /**

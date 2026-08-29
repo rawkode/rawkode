@@ -3,7 +3,6 @@
 // `listBacklinks` and the plain (non-concurrent) `CardinalityViolation` rejection path.
 
 import { afterEach, describe, expect, it } from "vitest"
-import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import {
   ApplySupertagFieldValue,
@@ -25,6 +24,7 @@ import {
   CreateTagOutput,
   DefineTagFieldInput,
   DefineTagFieldOutput,
+  HumanUiMutationAttribution,
   ListBacklinksInput,
   ListBacklinksOutput,
   ListGraphIssuesInput,
@@ -41,7 +41,78 @@ import {
   type EntityId
 } from "@athenaeum/domain"
 import { createEdgeTestHook } from "../src/graph-service-live.js"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspace, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+
+const edgeAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-backlinks"
+})
+
+const edgeInput = (workspaceId: EntityId, relationDefinitionId: EntityId, sourceNodeId: EntityId, targetNodeId: EntityId, requestId: string) =>
+  new CreateEdgeInput({
+    workspaceId,
+    relationDefinitionId,
+    sourceNodeId,
+    targetNodeId,
+    requestId,
+    commitMessage: "Link the related workspace nodes.",
+    attribution: edgeAttribution()
+  })
+
+const relationInput = (args: { readonly workspaceId: EntityId; readonly forwardName: string; readonly inverseName: string; readonly sourceTagId: EntityId; readonly targetTagId: EntityId; readonly cardinality: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; readonly requestId: string }) =>
+  new CreateRelationDefinitionInput({
+    ...args,
+    commitMessage: `Define ${args.forwardName} for this graph test.`,
+    attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view" })
+  })
+
+const tagAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager"
+})
+
+const tagInput = (workspaceId: EntityId, name: string, parentIds: ReadonlyArray<EntityId>, requestId: string) =>
+  new CreateTagInput({
+    workspaceId,
+    name,
+    parentIds,
+    requestId,
+    commitMessage: `Define the ${name} Supertag for this test.`,
+    attribution: tagAttribution()
+  })
+
+const fieldAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager"
+})
+
+const fieldInput = (workspaceId: EntityId, tagId: EntityId, name: string, requestId: string) =>
+  new DefineTagFieldInput({
+    workspaceId,
+    tagId,
+    name,
+    valueKind: "text",
+    sortOrder: 0,
+    requestId,
+    commitMessage: `Define the ${name} field for this test.`,
+    attribution: fieldAttribution()
+  })
+
+const membershipAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view"
+})
+
+const assignInput = (workspaceId: EntityId, nodeId: EntityId, tagId: EntityId, requestId: string) => new AssignTagInput({
+  workspaceId, nodeId, tagId, requestId,
+  commitMessage: "Assign the Supertag for this graph test.", attribution: membershipAttribution()
+})
+
+const unassignInput = (workspaceId: EntityId, nodeId: EntityId, tagId: EntityId, requestId: string) => new UnassignTagInput({
+  workspaceId, nodeId, tagId, requestId,
+  commitMessage: "Remove the Supertag for this graph test.", attribution: membershipAttribution()
+})
+
+const authenticatedWorkspace = async (workspaceId: EntityId, label: string) => {
+  const { credential } = await devSignIn(`graph-${label}-${crypto.randomUUID()}@example.com`)
+  return (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
+}
 
 describe("Base Tag seeding", () => {
   let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
@@ -86,17 +157,17 @@ describe("tag closure: correct for a 3-level inheritance chain", () => {
 
   it("Grandchild -> Child -> Parent(=Person base tag): closure includes every level, transitively", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "closure")
 
     const child = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Employee", parentIds: [BaseTagIds.Person] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Employee", [BaseTagIds.Person], "graph-closure-employee"))
       )
     ).tag
 
     const grandchild = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Engineer", parentIds: [child.id] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Engineer", [child.id], "graph-closure-engineer"))
       )
     ).tag
 
@@ -127,12 +198,12 @@ describe("tag closure: correct for a 3-level inheritance chain", () => {
 
   it("createTag with an unknown parentId fails closed as TagNotFound", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "unknown-parent")
     const bogusParent = "00000000-0000-0000-0000-0000000000ff"
 
     const error = await rejectionToDomainError(
       workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Orphan", parentIds: [bogusParent as any] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Orphan", [bogusParent as any], "graph-unknown-parent"))
       )
     )
     expect(error._tag).toBe("TagNotFound")
@@ -155,14 +226,7 @@ describe("createEdge: cardinality enforcement and concurrent-conflict GraphIssue
     const relationDefinition = Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(
       await stub.createRelationDefinition(
         Schema.encodeSync(CreateRelationDefinitionInput)(
-          new CreateRelationDefinitionInput({
-            workspaceId,
-            forwardName: "manages",
-            inverseName: "managed by",
-            sourceTagId: BaseTagIds.Person,
-            targetTagId: BaseTagIds.Person,
-            cardinality
-          })
+          relationInput({ workspaceId, forwardName: "manages", inverseName: "managed by", sourceTagId: BaseTagIds.Person, targetTagId: BaseTagIds.Person, cardinality, requestId: `graph-manages-${cardinality}` })
         )
       )
     ).relationDefinition
@@ -182,19 +246,20 @@ describe("createEdge: cardinality enforcement and concurrent-conflict GraphIssue
 
   it("a plain sequential second edge under a max-one relation is rejected as CardinalityViolation, not silently allowed", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`graph-edge-sequential-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
     const { relationDefinition, source, targetA, targetB } = await setupRelation(workspaceId, workspaceStub, "one-to-one")
 
     await workspaceStub.createEdge(
       Schema.encodeSync(CreateEdgeInput)(
-        new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetA.id })
+        edgeInput(workspaceId, relationDefinition.id, source.id, targetA.id, "graph-edge-sequential-first")
       )
     )
 
     const error = await rejectionToDomainError(
       workspaceStub.createEdge(
         Schema.encodeSync(CreateEdgeInput)(
-          new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetB.id })
+          edgeInput(workspaceId, relationDefinition.id, source.id, targetB.id, "graph-edge-sequential-second")
         )
       )
     )
@@ -209,52 +274,29 @@ describe("createEdge: cardinality enforcement and concurrent-conflict GraphIssue
   })
 
   it(
-    "two genuinely concurrent createEdge calls under a max-one relation both succeed, preserve both edges, " +
-      "and record exactly one GraphIssue",
+    "a persisted max-one conflict after the pre-check preserves both edges and records exactly one GraphIssue",
     async () => {
       const workspaceId = freshWorkspaceId()
-      workspaceStub = await connectToWorkspace(workspaceId)
+      const { credential } = await devSignIn(`graph-edge-conflict-${crypto.randomUUID()}@example.com`)
+      workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
       const { relationDefinition, source, targetA, targetB } = await setupRelation(workspaceId, workspaceStub, "many-to-one")
 
-      // Real concurrency window: park the first createEdge call's fiber after it has already
-      // passed the pre-write cardinality pre-check (finding zero existing edges), before it
-      // writes — exactly the same `beforeWrite` hook shape `nodes-repository-live.ts`'s
-      // `putTestHook` already established for the DO-recovery suite's mid-fiber-kill scenario.
-      let releaseFirstCall: (() => void) | undefined
-      const gate = new Promise<void>((resolve) => {
-        releaseFirstCall = resolve
-      })
-      let hookEngaged = false
-      createEdgeTestHook.beforeWrite = () => {
-        if (hookEngaged) return Effect.void
-        hookEngaged = true
-        return Effect.promise(() => gate)
+      let injectedEdgeId: string | undefined
+      createEdgeTestHook.beforeWrite = ({ insertConflictingEdge }) => {
+        injectedEdgeId = insertConflictingEdge(targetB.id).id
       }
 
       const firstCall = workspaceStub.createEdge(
         Schema.encodeSync(CreateEdgeInput)(
-          new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetA.id })
+          edgeInput(workspaceId, relationDefinition.id, source.id, targetA.id, "graph-edge-conflict-candidate")
         )
       )
-
-      // Give the first call a tick to actually reach and engage the hook before firing the
-      // second — otherwise the second could race ahead of the first even reaching its pre-check.
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
-      const secondCall = workspaceStub.createEdge(
-        Schema.encodeSync(CreateEdgeInput)(
-          new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetB.id })
-        )
-      )
-      const secondResult = Schema.decodeUnknownSync(CreateEdgeOutput)(await secondCall)
-
-      releaseFirstCall!()
       const firstResult = Schema.decodeUnknownSync(CreateEdgeOutput)(await firstCall)
 
-      // Both edges were created — neither call was rejected, per Evolution Rule #4 ("preserve
-      // conflicting graph assertions through merge").
+      // Both edges were persisted — neither conflicting assertion was silently dropped, per
+      // Evolution Rule #4 ("preserve conflicting graph assertions through merge").
       expect(firstResult.edge.targetNodeId).toBe(targetA.id)
-      expect(secondResult.edge.targetNodeId).toBe(targetB.id)
+      expect(injectedEdgeId).toBeDefined()
 
       const issues = Schema.decodeUnknownSync(ListGraphIssuesOutput)(
         await workspaceStub.listGraphIssues(Schema.encodeSync(ListGraphIssuesInput)(new ListGraphIssuesInput({ workspaceId })))
@@ -263,23 +305,24 @@ describe("createEdge: cardinality enforcement and concurrent-conflict GraphIssue
       expect(issues[0]!.kind).toBe("concurrent-max-one-edge-conflict")
       expect(issues[0]!.relationDefinitionId).toBe(relationDefinition.id)
       expect(issues[0]!.nodeId).toBe(source.id)
-      expect(new Set(issues[0]!.conflictingEdgeIds)).toEqual(new Set([firstResult.edge.id, secondResult.edge.id]))
+      expect(new Set(issues[0]!.conflictingEdgeIds)).toEqual(new Set([firstResult.edge.id, injectedEdgeId]))
     }
   )
 
   it("many-to-many relations never trigger a cardinality conflict for multiple edges from the same source", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`graph-edge-many-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
     const { relationDefinition, source, targetA, targetB } = await setupRelation(workspaceId, workspaceStub, "many-to-many")
 
     await workspaceStub.createEdge(
       Schema.encodeSync(CreateEdgeInput)(
-        new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetA.id })
+        edgeInput(workspaceId, relationDefinition.id, source.id, targetA.id, "graph-edge-many-a")
       )
     )
     await workspaceStub.createEdge(
       Schema.encodeSync(CreateEdgeInput)(
-        new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: source.id, targetNodeId: targetB.id })
+        edgeInput(workspaceId, relationDefinition.id, source.id, targetB.id, "graph-edge-many-b")
       )
     )
 
@@ -299,19 +342,13 @@ describe("listBacklinks: via the edges-by-target index", () => {
 
   it("returns every edge pointing at a node, and only those", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`graph-edge-backlinks-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const relationDefinition = Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(
       await workspaceStub.createRelationDefinition(
         Schema.encodeSync(CreateRelationDefinitionInput)(
-          new CreateRelationDefinitionInput({
-            workspaceId,
-            forwardName: "cites",
-            inverseName: "cited by",
-            sourceTagId: BaseTagIds.Task,
-            targetTagId: BaseTagIds.Task,
-            cardinality: "many-to-many"
-          })
+          relationInput({ workspaceId, forwardName: "cites", inverseName: "cited by", sourceTagId: BaseTagIds.Task, targetTagId: BaseTagIds.Task, cardinality: "many-to-many", requestId: "graph-cites-1" })
         )
       )
     ).relationDefinition
@@ -332,20 +369,20 @@ describe("listBacklinks: via the edges-by-target index", () => {
     const edgeOne = Schema.decodeUnknownSync(CreateEdgeOutput)(
       await workspaceStub.createEdge(
         Schema.encodeSync(CreateEdgeInput)(
-          new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: sourceOne.id, targetNodeId: target.id })
+          edgeInput(workspaceId, relationDefinition.id, sourceOne.id, target.id, "graph-edge-backlink-one")
         )
       )
     ).edge
     const edgeTwo = Schema.decodeUnknownSync(CreateEdgeOutput)(
       await workspaceStub.createEdge(
         Schema.encodeSync(CreateEdgeInput)(
-          new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: sourceTwo.id, targetNodeId: target.id })
+          edgeInput(workspaceId, relationDefinition.id, sourceTwo.id, target.id, "graph-edge-backlink-two")
         )
       )
     ).edge
     await workspaceStub.createEdge(
       Schema.encodeSync(CreateEdgeInput)(
-        new CreateEdgeInput({ workspaceId, relationDefinitionId: relationDefinition.id, sourceNodeId: sourceOne.id, targetNodeId: unrelated.id })
+        edgeInput(workspaceId, relationDefinition.id, sourceOne.id, unrelated.id, "graph-edge-backlink-unrelated")
       )
     )
 
@@ -428,18 +465,18 @@ describe("defineTagField", () => {
 
   it("adds a new, non-builtin field to an existing tag", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "define-field")
 
     const tag = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Reviewer", parentIds: [] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Reviewer", [], "graph-define-field-reviewer"))
       )
     ).tag
 
     const output = Schema.decodeUnknownSync(DefineTagFieldOutput)(
       await workspaceStub.defineTagField(
         Schema.encodeSync(DefineTagFieldInput)(
-          new DefineTagFieldInput({ workspaceId, tagId: tag.id, name: "level", valueKind: "text", sortOrder: 0 })
+          fieldInput(workspaceId, tag.id, "level", "graph-fields-level")
         )
       )
     ).fieldDefinition
@@ -457,13 +494,13 @@ describe("defineTagField", () => {
 
   it("against an unknown tagId fails closed as TagNotFound", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "unknown-field")
     const bogusTagId = "00000000-0000-0000-0000-0000000000ff"
 
     const error = await rejectionToDomainError(
       workspaceStub.defineTagField(
         Schema.encodeSync(DefineTagFieldInput)(
-          new DefineTagFieldInput({ workspaceId, tagId: bogusTagId as any, name: "level", valueKind: "text", sortOrder: 0 })
+          fieldInput(workspaceId, bogusTagId as any, "level", "graph-fields-unknown")
         )
       )
     )
@@ -480,30 +517,30 @@ describe("listTagFields: closure-based inheritance", () => {
 
   it("multi-level: Grandchild -> Child -> Person sees its own field plus every ancestor's, correctly flagged", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "list-fields")
 
     const child = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Employee", parentIds: [BaseTagIds.Person] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Employee", [BaseTagIds.Person], "graph-fields-employee"))
       )
     ).tag
     const grandchild = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Engineer", parentIds: [child.id] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "Engineer", [child.id], "graph-fields-engineer"))
       )
     ).tag
 
     const childField = Schema.decodeUnknownSync(DefineTagFieldOutput)(
       await workspaceStub.defineTagField(
         Schema.encodeSync(DefineTagFieldInput)(
-          new DefineTagFieldInput({ workspaceId, tagId: child.id, name: "team", valueKind: "text", sortOrder: 0 })
+          fieldInput(workspaceId, child.id, "team", "graph-fields-team")
         )
       )
     ).fieldDefinition
     const grandchildField = Schema.decodeUnknownSync(DefineTagFieldOutput)(
       await workspaceStub.defineTagField(
         Schema.encodeSync(DefineTagFieldInput)(
-          new DefineTagFieldInput({ workspaceId, tagId: grandchild.id, name: "level", valueKind: "text", sortOrder: 0 })
+          fieldInput(workspaceId, grandchild.id, "level", "graph-fields-level-grandchild")
         )
       )
     ).fieldDefinition
@@ -529,28 +566,28 @@ describe("listTagFields: closure-based inheritance", () => {
 
   it("diamond: a common grandparent's field is inherited exactly once, not once per path", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "diamond")
 
     // D (root) <- B, D <- C, and A <- B, A <- C (A reaches D via two independent paths).
     const tagD = Schema.decodeUnknownSync(CreateTagOutput)(
-      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "D", parentIds: [] })))
+      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "D", [], "graph-diamond-d")))
     ).tag
     const tagB = Schema.decodeUnknownSync(CreateTagOutput)(
-      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "B", parentIds: [tagD.id] })))
+      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "B", [tagD.id], "graph-diamond-b")))
     ).tag
     const tagC = Schema.decodeUnknownSync(CreateTagOutput)(
-      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "C", parentIds: [tagD.id] })))
+      await workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "C", [tagD.id], "graph-diamond-c")))
     ).tag
     const tagA = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "A", parentIds: [tagB.id, tagC.id] }))
+        Schema.encodeSync(CreateTagInput)(tagInput(workspaceId, "A", [tagB.id, tagC.id], "graph-diamond-a"))
       )
     ).tag
 
     const sharedField = Schema.decodeUnknownSync(DefineTagFieldOutput)(
       await workspaceStub.defineTagField(
         Schema.encodeSync(DefineTagFieldInput)(
-          new DefineTagFieldInput({ workspaceId, tagId: tagD.id, name: "shared", valueKind: "text", sortOrder: 0 })
+          fieldInput(workspaceId, tagD.id, "shared", "graph-fields-shared")
         )
       )
     ).fieldDefinition
@@ -588,6 +625,13 @@ describe("applySupertag: tags a node and seeds field values in one call", () => 
             workspaceId,
             nodeId: node.id,
             tagId: BaseTagIds.Person,
+            requestId: "apply-supertag-person-1",
+            commitMessage: "Record the person details from the note.",
+            attribution: new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "rich-text-editor"
+            }),
             fieldValues: [
               new ApplySupertagFieldValue({ fieldId: BaseTagFieldIds.PersonRole, value: "Mathematician" }),
               new ApplySupertagFieldValue({ fieldId: BaseTagFieldIds.PersonEmail, value: "ada@example.com" })
@@ -623,7 +667,7 @@ describe("applySupertag: tags a node and seeds field values in one call", () => 
 
   it("with no fieldValues just tags the node — an equally valid, empty-facts application", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "apply-empty")
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Untitled" })))
@@ -631,7 +675,18 @@ describe("applySupertag: tags a node and seeds field values in one call", () => 
 
     const output = Schema.decodeUnknownSync(ApplySupertagOutput)(
       await workspaceStub.applySupertag(
-        Schema.encodeSync(ApplySupertagInput)(new ApplySupertagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Task }))
+        Schema.encodeSync(ApplySupertagInput)(new ApplySupertagInput({
+          workspaceId,
+          nodeId: node.id,
+          tagId: BaseTagIds.Task,
+          requestId: "apply-supertag-task-1",
+          commitMessage: "Record the task context from the note.",
+          attribution: new HumanUiMutationAttribution({
+            version: "athenaeum.mutation-attribution.v1",
+            kind: "humanUi",
+            surface: "rich-text-editor"
+          })
+        }))
       )
     )
 
@@ -642,7 +697,7 @@ describe("applySupertag: tags a node and seeds field values in one call", () => 
     // call used the same real mutation path, not a shortcut.
     Schema.decodeUnknownSync(AssignTagOutput)(
       await workspaceStub.assignTag(
-        Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Task }))
+        Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, node.id, BaseTagIds.Task, "graph-apply-empty-reassign"))
       )
     )
   })
@@ -680,14 +735,14 @@ describe("unassignTag: assignTag's delete counterpart", () => {
 
   it("removes the node's tag membership — provable via a hasTag runView filter, not just the echoed output", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "unassign")
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Untagged-to-be" })))
     ).node
 
     await workspaceStub.assignTag(
-      Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Person }))
+      Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, node.id, BaseTagIds.Person, "graph-unassign-assign"))
     )
     expect((await hasTagRows(workspaceStub, workspaceId, BaseTagIds.Person)).some((row) => (row as { id: string }).id === node.id)).toBe(
       true
@@ -695,11 +750,12 @@ describe("unassignTag: assignTag's delete counterpart", () => {
 
     const output = Schema.decodeUnknownSync(UnassignTagOutput)(
       await workspaceStub.unassignTag(
-        Schema.encodeSync(UnassignTagInput)(new UnassignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Person }))
+        Schema.encodeSync(UnassignTagInput)(unassignInput(workspaceId, node.id, BaseTagIds.Person, "graph-unassign-remove"))
       )
     )
     expect(output.nodeId).toBe(node.id)
     expect(output.tagId).toBe(BaseTagIds.Person)
+    expect(output.changed).toBe(true)
 
     expect((await hasTagRows(workspaceStub, workspaceId, BaseTagIds.Person)).some((row) => (row as { id: string }).id === node.id)).toBe(
       false
@@ -708,7 +764,7 @@ describe("unassignTag: assignTag's delete counterpart", () => {
 
   it("is idempotent — unassigning a tag the node never carried is a no-op, not an error", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await authenticatedWorkspace(workspaceId, "unassign-noop")
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Never tagged" })))
@@ -716,10 +772,11 @@ describe("unassignTag: assignTag's delete counterpart", () => {
 
     const output = Schema.decodeUnknownSync(UnassignTagOutput)(
       await workspaceStub.unassignTag(
-        Schema.encodeSync(UnassignTagInput)(new UnassignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Person }))
+        Schema.encodeSync(UnassignTagInput)(unassignInput(workspaceId, node.id, BaseTagIds.Person, "graph-unassign-noop"))
       )
     )
     expect(output.nodeId).toBe(node.id)
     expect(output.tagId).toBe(BaseTagIds.Person)
+    expect(output.changed).toBe(false)
   })
 })

@@ -82,3 +82,27 @@ public struct GatekeeperBinding: Codable, Hashable, Sendable {
         self.createdAt = createdAt
     }
 }
+
+/// Sanitized management projection of `GatekeeperBinding`; account, credential, and provider
+/// calendar identity are intentionally not present on this wire shape.
+public struct GatekeeperBindingSummary: Codable, Hashable, Sendable {
+    public let id: EntityId
+    public let workspaceId: EntityId
+    public let gatekeeperKind: GatekeeperKind
+    public let mode: String
+    public let createdAt: IsoDateTimeString
+
+    public init(
+        id: EntityId,
+        workspaceId: EntityId,
+        gatekeeperKind: GatekeeperKind,
+        mode: String,
+        createdAt: IsoDateTimeString
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.gatekeeperKind = gatekeeperKind
+        self.mode = mode
+        self.createdAt = createdAt
+    }
+}

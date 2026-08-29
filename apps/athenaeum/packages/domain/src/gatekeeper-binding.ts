@@ -83,3 +83,18 @@ export class GatekeeperBinding extends Schema.Class<GatekeeperBinding>("Gatekeep
   config: GatekeeperBindingConfig,
   createdAt: IsoDateTimeString
 }) {}
+
+/**
+ * Sanitized management projection of a gatekeeper binding. Deliberately omits `boundBy` and the
+ * provider-owned calendar id/config so listing connections cannot disclose account or credential
+ * identity (or a private calendar address).
+ */
+export class GatekeeperBindingSummary extends Schema.Class<GatekeeperBindingSummary>(
+  "GatekeeperBindingSummary"
+)({
+  id: EntityId,
+  workspaceId: EntityId,
+  gatekeeperKind: GatekeeperKind,
+  mode: Schema.Literal("selected", "allVisible"),
+  createdAt: IsoDateTimeString
+}) {}

@@ -2,6 +2,7 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import type { EditorView } from "prosemirror-view"
 import type { Node as PMNode, Schema } from "prosemirror-model"
 import { placeFloatingMenu } from "./menu-position.js"
+import type { FloatingAnchorRect, FloatingAnchorRectSource } from "../floating-popover-position.js"
 
 // Inline `#`-Supertag references (docs/supertag-centering-decisions.md §2: "typing `#` opens a
 // picker... listing existing tags... plus a 'Create new' row"). Direct copy-and-adapt of
@@ -9,10 +10,11 @@ import { placeFloatingMenu } from "./menu-position.js"
 // trigger-char detection (`computeState`'s regex against `textBefore`), same plugin-state shape
 // (active/from/to/query), same hand-managed floating DOM menu, same keyboard nav wired through
 // `handleKeyDown`. The one real difference: selecting a candidate here doesn't just insert a mark
-// (as `@`-mention does) — it also fires `source.onApplied`, the hook `RichNoteEditor.tsx` uses to
-// call the real `applySupertag` RPC and open the field-editing popover in the same motion
+// (as `@`-mention does) — it also awaits `source.onApplied`, the hook `RichNoteEditor.tsx` uses to
+// complete the ledgered `applySupertag` RPC and open the field-editing popover in the same motion
 // (decisions doc §2: "typing the tag and filling its fields is one motion, not two separate
-// screens").
+// screens"). The mark is committed only after that operation succeeds, so a failed ledger write
+// cannot schedule a direct `assignTag` reconciliation from a document change.
 
 export interface SupertagCandidate {
   readonly tagId: string
@@ -30,13 +32,17 @@ export interface SupertagSource {
    *  action, not an inline one, per the decisions doc's "keep the inline picker as fast as `@`'s"
    *  framing. */
   readonly createTag: (name: string) => Promise<SupertagCandidate>
-  /** Fired once, immediately after the mark is inserted (whether the tag was pre-existing or just
-   *  created) — the caller's cue to apply the tag to the note's node (via `applySupertag`) and
-   *  open the field-editing popover for it. Deliberately not awaited by this plugin: applying the
-   *  tag and rendering a popover are UI/RPC concerns the plugin itself has no business owning
-   *  (same narrow "plugin only ever sees a plain candidate list" boundary `MentionSource`
-   *  establishes). */
-  readonly onApplied: (candidate: SupertagCandidate) => void
+  /** Applies the candidate to the second brain and may update the surrounding UI. The plugin
+   *  awaits this promise before inserting the mark, making the ledgered RPC the authority for the
+   *  document projection rather than allowing a failed request to leak a direct tag mutation.
+   *  The second argument is the caret rectangle that opened the picker, so the follow-up field
+   *  editor can stay visually attached to this exact interaction. The optional source lets the
+   *  popover re-read the caret after scrolling or resizing. */
+  readonly onApplied: (
+    candidate: SupertagCandidate,
+    anchorRect: FloatingAnchorRect,
+    anchorRectSource?: FloatingAnchorRectSource
+  ) => Promise<void> | void
 }
 
 interface SupertagState {
@@ -133,6 +139,26 @@ export const supertagPlugin = (schema: Schema, source: SupertagSource): Plugin<S
         const { from, to } = currentState
         const candidate: SupertagCandidate =
           item.kind === "existing" ? item.candidate : await source.createTag(item.title)
+        const anchorRectSource: FloatingAnchorRectSource = () => {
+          const currentCoords = editorView.coordsAtPos(Math.min(to, editorView.state.doc.content.size))
+          return {
+            top: currentCoords.top,
+            right: currentCoords.right,
+            bottom: currentCoords.bottom,
+            left: currentCoords.left,
+            width: Math.max(currentCoords.right - currentCoords.left, 1),
+            height: Math.max(currentCoords.bottom - currentCoords.top, 1)
+          }
+        }
+        const anchorRect = anchorRectSource()
+        if (anchorRect === undefined) return
+        try {
+          await source.onApplied(candidate, anchorRect, anchorRectSource)
+        } catch (error) {
+          console.error("applySupertag failed; the note was left unchanged:", error)
+          return
+        }
+        if (editorView.state.doc.content.size < to) return
         const mark = schema.marks.supertagRef.create({ tagId: candidate.tagId, label: candidate.name })
         const tr = editorView.state.tr
           .delete(from, to)
@@ -146,7 +172,6 @@ export const supertagPlugin = (schema: Schema, source: SupertagSource): Plugin<S
         tr.setSelection(TextSelection.create(tr.doc, afterInsert + 1))
         editorView.dispatch(tr)
         editorView.focus()
-        source.onApplied(candidate)
       }
 
       const render = () => {

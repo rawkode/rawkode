@@ -26,9 +26,10 @@ import {
 describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMeeting/listMeetings", () => {
   it("round-trips a full meeting lifecycle on an ungoverned workspace", async () => {
     const workspaceId = freshWorkspaceId()
-    const stub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`meetings-${crypto.randomUUID()}@rawkode.academy`)
+    const { stub, socket } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
     try {
-      const started = (await stub.startMeeting({ workspaceId, title: "Weekly sync" })) as {
+      const started = (await stub.startMeeting({ workspaceId, title: "Weekly sync", requestId: "meeting-lifecycle-start", commitMessage: "Start the weekly sync meeting.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" } })) as {
         meeting: { id: string; title: string; endedAt?: string }
       }
       expect(started.meeting.title).toBe("Weekly sync")
@@ -40,6 +41,9 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
       const second = (await stub.appendTranscriptSegment({
         workspaceId,
         meetingId,
+        requestId: "meeting-segment-2",
+        commitMessage: "Capture the second transcript segment.",
+        attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" },
         text: "...so let's ship it Friday.",
         startOffsetMs: 5_000,
         endOffsetMs: 7_200,
@@ -50,6 +54,9 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
       const first = (await stub.appendTranscriptSegment({
         workspaceId,
         meetingId,
+        requestId: "meeting-segment-1",
+        commitMessage: "Capture the first transcript segment.",
+        attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" },
         text: "Let's get started.",
         startOffsetMs: 0,
         endOffsetMs: 1_500,
@@ -75,12 +82,14 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
       expect(listed.meetings.map((m) => m.id)).toContain(meetingId)
     } finally {
       stub[Symbol.dispose]()
+      socket.close()
     }
   })
 
   it("fails with MeetingNotFound for a meetingId that was never created", async () => {
     const workspaceId = freshWorkspaceId()
-    const stub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`meetings-missing-${crypto.randomUUID()}@rawkode.academy`)
+    const { stub, socket } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
     try {
       const bogusMeetingId = freshWorkspaceId() // any well-formed EntityId that was never startMeeting'd
 
@@ -93,6 +102,9 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
         stub.appendTranscriptSegment({
           workspaceId,
           meetingId: bogusMeetingId,
+          requestId: "missing-meeting-segment",
+          commitMessage: "Check the missing meeting before appending.",
+          attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" },
           text: "unreachable",
           startOffsetMs: 0,
           endOffsetMs: 1,
@@ -105,6 +117,7 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
       expect(getError._tag).toBe("MeetingNotFound")
     } finally {
       stub[Symbol.dispose]()
+      socket.close()
     }
   })
 
@@ -125,7 +138,7 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
 
     const anonymousStub = await connectToWorkspace(workspaceId)
     try {
-      const startError = await rejectionToDomainError(anonymousStub.startMeeting({ workspaceId, title: "Should be rejected" }))
+      const startError = await rejectionToDomainError(anonymousStub.startMeeting({ workspaceId, title: "Should be rejected", requestId: "meeting-anonymous-start", commitMessage: "Attempt an unauthorized meeting.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" } }))
       expect(startError._tag).toBe("Unauthorized")
 
       const listError = await rejectionToDomainError(anonymousStub.listMeetings({ workspaceId }))
@@ -137,7 +150,7 @@ describe("MeetingsService: startMeeting/endMeeting/appendTranscriptSegment/getMe
     // The owner's own credentialed connection works exactly as the ungoverned-workspace case above.
     const { stub: ownerWorkspaceStub, socket: ownerSocket } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
     try {
-      const started = (await ownerWorkspaceStub.startMeeting({ workspaceId, title: "Owner-started meeting" })) as {
+      const started = (await ownerWorkspaceStub.startMeeting({ workspaceId, title: "Owner-started meeting", requestId: "meeting-owner-start", commitMessage: "Start the owner meeting.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" } })) as {
         meeting: { id: string }
       }
       expect(typeof started.meeting.id).toBe("string")
@@ -157,13 +170,15 @@ describe("MeetingsService: R2 storage-tier split (real, locally-simulated MEETIN
 
   it("round-trips a real audio chunk through R2, addressed by (workspaceId, meetingId, chunkIndex)", async () => {
     const workspaceId = freshWorkspaceId()
-    const stub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`meeting-audio-${crypto.randomUUID()}@rawkode.academy`)
+    const { stub, socket } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
     let meetingId: string
     try {
-      const started = (await stub.startMeeting({ workspaceId, title: "Audio-bearing meeting" })) as { meeting: { id: string } }
+      const started = (await stub.startMeeting({ workspaceId, title: "Audio-bearing meeting", requestId: "meeting-audio-start", commitMessage: "Start the audio-bearing meeting.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" } })) as { meeting: { id: string } }
       meetingId = started.meeting.id
     } finally {
       stub[Symbol.dispose]()
+      socket.close()
     }
 
     const doStub = workspaceDurableObjectStub(workspaceId)

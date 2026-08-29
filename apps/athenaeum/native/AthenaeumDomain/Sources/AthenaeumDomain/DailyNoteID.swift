@@ -51,6 +51,31 @@ public func dailyNoteIdForDate(_ date: Date, calendar: Calendar = .current) -> E
     return try! EntityId(validating: "00000000-0000-4000-8000-\(suffix)")
 }
 
+/// Returns the deterministic daily-note identity for an already validated civil date. This avoids
+/// reinterpreting a server-resolved local day through UTC or the device's current time zone.
+public func dailyNoteIdForLocalDate(_ localDate: LocalDate) -> EntityId {
+    let yyyymmdd = localDate.rawValue.replacingOccurrences(of: "-", with: "")
+    let suffix = String(repeating: "0", count: max(0, 12 - yyyymmdd.count)) + yyyymmdd
+    // Safe by LocalDate validation plus the fixed UUID prefix.
+    // swiftlint:disable:next force_try
+    return try! EntityId(validating: "00000000-0000-4000-8000-\(suffix)")
+}
+
+/// The inverse of `dailyNoteIdForLocalDate`: returns the encoded civil date only when `id` is a
+/// canonical daily-note id whose embedded digits form a real calendar date. This deliberately
+/// mirrors the web client's `dateStampFromDailyNoteId` so retrieval surfaces can route a daily
+/// note to its typed editor rather than treating it as a legacy page-text preview.
+public func localDateFromDailyNoteId(_ id: String) -> LocalDate? {
+    let prefix = "00000000-0000-4000-8000-0000"
+    guard id.hasPrefix(prefix), id.count == prefix.count + 8 else { return nil }
+
+    let dateDigits = String(id.dropFirst(prefix.count))
+    guard dateDigits.allSatisfy(\.isNumber) else { return nil }
+
+    let localDate = "\(dateDigits.prefix(4))-\(dateDigits.dropFirst(4).prefix(2))-\(dateDigits.suffix(2))"
+    return try? LocalDate(validating: localDate)
+}
+
 /// Mirrors `daily-note-id.ts`'s `dailyNoteTitleForDate`.
 public func dailyNoteTitleForDate(_ date: Date, calendar: Calendar = .current) -> String {
     "Daily Note — \(localDateStamp(date, calendar: calendar))"

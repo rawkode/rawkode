@@ -6,6 +6,8 @@ import { Fact } from "./fact.js"
 import {
   AddFactInput,
   AddFactOutput,
+  AssignTagInput,
+  AssignTagOutput,
   ApplySupertagFieldValue,
   ApplySupertagInput,
   ApplySupertagOutput,
@@ -23,10 +25,13 @@ import {
   RunViewInput,
   RunViewOutput,
   SyncNoteReferencesInput,
-  SyncNoteReferencesOutput
+  SyncNoteReferencesOutput,
+  UnassignTagInput,
+  UnassignTagOutput
 } from "./graph-rpc.js"
 import { MentionRelationId } from "./mention.js"
 import { EntityId } from "./node.js"
+import { HumanUiMutationAttribution } from "./ledger.js"
 import { RelationDefinition } from "./relation-definition.js"
 import { Tag } from "./tag.js"
 import { TagFieldDefinition } from "./tag-field-definition.js"
@@ -36,6 +41,12 @@ const workspaceId = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 const id1 = "3fa85f64-5717-4562-b3fc-2c963f66afa7"
 const id2 = "3fa85f64-5717-4562-b3fc-2c963f66afa8"
 const id3 = "3fa85f64-5717-4562-b3fc-2c963f66afa9"
+
+const fieldAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-supertag-field-editor"
+})
 
 const roundTrip = <A, I>(schema: Schema.Schema<A, I>, value: A) => {
   const encoded = Schema.encodeSync(schema)(value)
@@ -49,7 +60,12 @@ describe("graph RPC wire schemas", () => {
       new CreateTagInput({
         workspaceId: EntityId.make(workspaceId),
         name: "Colleague",
-        parentIds: [EntityId.make(id1)]
+        parentIds: [EntityId.make(id1)],
+        requestId: "graph-rpc-create-tag",
+        commitMessage: "Define the Colleague Supertag.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager"
+        })
       })
     )
     roundTrip(
@@ -67,7 +83,10 @@ describe("graph RPC wire schemas", () => {
         workspaceId: EntityId.make(workspaceId),
         nodeId: EntityId.make(id1),
         predicateId: "status",
-        value: "done"
+        value: "done",
+        requestId: "graph-rpc-test",
+        commitMessage: "Record status.",
+        attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertag-field-editor" })
       })
     )
     roundTrip(
@@ -92,7 +111,10 @@ describe("graph RPC wire schemas", () => {
         inverseName: "employed by",
         sourceTagId: EntityId.make(id1),
         targetTagId: EntityId.make(id2),
-        cardinality: "one-to-many"
+        cardinality: "one-to-many",
+        requestId: "relation-definition-round-trip",
+        commitMessage: "Define the relation for the graph test.",
+        attribution: fieldAttribution()
       })
     )
     roundTrip(
@@ -117,7 +139,12 @@ describe("graph RPC wire schemas", () => {
         workspaceId: EntityId.make(workspaceId),
         relationDefinitionId: EntityId.make(id1),
         sourceNodeId: EntityId.make(id2),
-        targetNodeId: EntityId.make(id3)
+        targetNodeId: EntityId.make(id3),
+        requestId: "create-edge-graph-rpc",
+        commitMessage: "Link the related nodes.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-backlinks"
+        })
       })
     )
     roundTrip(
@@ -131,6 +158,36 @@ describe("graph RPC wire schemas", () => {
         })
       })
     )
+  })
+
+  it("round-trips authenticated, attributed tag-membership mutations", () => {
+    const attribution = new HumanUiMutationAttribution({
+      version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view"
+    })
+    const assign = new AssignTagInput({
+      workspaceId: EntityId.make(workspaceId),
+      nodeId: EntityId.make(id1),
+      tagId: EntityId.make(id2),
+      requestId: "assign-tag-graph-rpc",
+      commitMessage: "Keep the person membership for relationship context.",
+      attribution
+    })
+    roundTrip(AssignTagInput, assign)
+    roundTrip(AssignTagOutput, new AssignTagOutput({
+      nodeId: EntityId.make(id1), tagId: EntityId.make(id2), changed: true
+    }))
+    const unassign = new UnassignTagInput({
+      workspaceId: EntityId.make(workspaceId),
+      nodeId: EntityId.make(id1),
+      tagId: EntityId.make(id2),
+      requestId: "unassign-tag-graph-rpc",
+      commitMessage: "Remove the person membership after the relationship ends.",
+      attribution
+    })
+    roundTrip(UnassignTagInput, unassign)
+    roundTrip(UnassignTagOutput, new UnassignTagOutput({
+      nodeId: EntityId.make(id1), tagId: EntityId.make(id2), changed: false
+    }))
   })
 
   it("round-trips RunViewInput with a viewName + full ViewSpec", () => {
@@ -159,7 +216,10 @@ describe("graph RPC wire schemas", () => {
       new SyncNoteReferencesInput({
         workspaceId: EntityId.make(workspaceId),
         nodeId: EntityId.make(id1),
-        referencedNodeIds: [EntityId.make(id2), EntityId.make(id3)]
+        referencedNodeIds: [EntityId.make(id2), EntityId.make(id3)],
+        requestId: "sync-note-references-round-trip",
+        commitMessage: "Keep note mentions current.",
+        attribution: fieldAttribution()
       })
     )
     roundTrip(
@@ -183,7 +243,10 @@ describe("graph RPC wire schemas", () => {
       new SyncNoteReferencesInput({
         workspaceId: EntityId.make(workspaceId),
         nodeId: EntityId.make(id1),
-        referencedNodeIds: []
+        referencedNodeIds: [],
+        requestId: "sync-note-references-empty",
+        commitMessage: "Clear stale note mentions.",
+        attribution: fieldAttribution()
       })
     )
   })
@@ -196,7 +259,10 @@ describe("graph RPC wire schemas", () => {
         tagId: EntityId.make(id1),
         name: "role",
         valueKind: "text",
-        sortOrder: 0
+        sortOrder: 0,
+        requestId: "graph-field-round-trip",
+        commitMessage: "Define the role field.",
+        attribution: fieldAttribution()
       })
     )
     roundTrip(
@@ -220,7 +286,10 @@ describe("graph RPC wire schemas", () => {
       tagId: id1,
       name: "role",
       valueKind: "text",
-      sortOrder: -1
+      sortOrder: -1,
+      requestId: "graph-field-negative",
+      commitMessage: "Define the role field.",
+      attribution: fieldAttribution()
     })
     expect(Either.isLeft(result)).toBe(true)
   })
@@ -272,6 +341,13 @@ describe("graph RPC wire schemas", () => {
         workspaceId: EntityId.make(workspaceId),
         nodeId: EntityId.make(id1),
         tagId: EntityId.make(id2),
+        requestId: "apply-supertag-test-1",
+        commitMessage: "Record the person context from this note.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "humanUi",
+          surface: "rich-text-editor"
+        }),
         fieldValues: [new ApplySupertagFieldValue({ fieldId: EntityId.make(id3), value: "Engineer" })]
       })
     )
@@ -298,7 +374,14 @@ describe("graph RPC wire schemas", () => {
       new ApplySupertagInput({
         workspaceId: EntityId.make(workspaceId),
         nodeId: EntityId.make(id1),
-        tagId: EntityId.make(id2)
+        tagId: EntityId.make(id2),
+        requestId: "apply-supertag-test-2",
+        commitMessage: "Record the tag on this note.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "humanUi",
+          surface: "rich-text-editor"
+        })
       })
     )
   })

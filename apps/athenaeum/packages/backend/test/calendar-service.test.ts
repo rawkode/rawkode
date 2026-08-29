@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { CreateWorkspaceInput, CreateWorkspaceOutput, Email, EntityId, UnexpectedError } from "@athenaeum/domain"
+import { CreateLoroPageInput, CreateWorkspaceInput, CreateWorkspaceOutput, CreationIntent, Email, EntityId, HumanUiMutationAttribution, LocalDate, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, PrepareMeetingInDailyNoteOutput, UnexpectedError } from "@athenaeum/domain"
 import {
   addObserverStrategyC,
   CalendarAttendee as ScriptedCalendarAttendee,
@@ -40,6 +40,16 @@ import {
   rejectionToDomainError,
   workspaceDurableObjectStub
 } from "./support.js"
+
+let bookmarkRequestSequence = 0
+const bookmarkInput = (workspaceId: string, url: string, title?: string) => ({
+  workspaceId,
+  url,
+  ...(title !== undefined ? { title } : {}),
+  requestId: `calendar-bookmark-test-${++bookmarkRequestSequence}`,
+  commitMessage: "Capture this bookmark for the calendar test.",
+  attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
+})
 
 /** Wraps `GoogleCalendarClientScripted` (the Decisions stage's own realistic fixture double) into
  *  this stage's `CalendarGatekeeperClientApi` shape. `email` (this wrapper's `listCalendars`/
@@ -351,6 +361,78 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     expect(nodesResult.nodes.filter((n) => n.title === "Alice")).toHaveLength(1)
     expect(nodesResult.nodes.filter((n) => n.title === "Bob")).toHaveLength(1)
   })
+
+  it("prepares the deterministic daily note through the ledger and rejects stale page/date claims", async () => {
+    const { workspaceId, bindingId, stub } = await setUpConnectedWorkspace()
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const localDate = Schema.decodeUnknownSync(LocalDate)(new Date().toISOString().slice(0, 10))
+    const brief = (await stub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
+      events: ReadonlyArray<{ title: string; occurrenceKey: string }>
+    }
+    const meeting = brief.events.find((event) => event.title === "Daily Standup")
+    expect(meeting).toBeDefined()
+    const dailyNoteId = Schema.decodeUnknownSync(EntityId)(`00000000-0000-4000-8000-0000${localDate.replaceAll("-", "")}`)
+    await stub.createNode({ workspaceId, id: dailyNoteId, title: `Daily Note — ${localDate}` })
+    await stub.createLoroPage(Schema.encodeSync(CreateLoroPageInput)(new CreateLoroPageInput({
+      workspaceId,
+      nodeId: dailyNoteId,
+      creationIntent: new CreationIntent({
+        requestId: `prepare-page-${crypto.randomUUID()}`,
+        commitMessage: "Create the daily note for meeting preparation.",
+        attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "rich-text-editor" })
+      })
+    })))
+    const makeInput = (
+      requestId: string,
+      dailyNoteIdOverride: typeof dailyNoteId = dailyNoteId,
+      localDateOverride: typeof localDate = localDate,
+      commitMessage = "Prepare the meeting in the daily note.",
+      surface: "rich-text-editor" | "macos" = "rich-text-editor"
+    ) => Schema.encodeSync(PrepareMeetingInDailyNoteInput)(new PrepareMeetingInDailyNoteInput({
+      workspaceId,
+      dailyNoteId: dailyNoteIdOverride,
+      localDate: localDateOverride,
+      timeZone: "UTC",
+      occurrenceKey: meeting!.occurrenceKey,
+      intent: new LoroMutationIntentV1({
+        requestId,
+        commitMessage,
+        attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface })
+      })
+    }))
+    const first = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteOutput)(await stub.prepareMeetingInDailyNote(makeInput("prepare-meeting-first")))
+    expect(first.status).toBe("created")
+    // A new transport request id replays the stable event/date/page operation rather than adding
+    // a second preparation block.
+    const replay = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteOutput)(await stub.prepareMeetingInDailyNote(makeInput("prepare-meeting-retry")))
+    expect(replay).toEqual(first)
+    const identity = `prepare-meeting-in-daily-note:${workspaceId}:${dailyNoteId}:${localDate}:UTC:${meeting!.occurrenceKey}`
+    const command = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(identity)
+    expect(command).toMatchObject({ type: "prepareMeetingInDailyNote", payload: { nodeId: dailyNoteId, localDate, timeZone: "UTC", occurrenceKey: meeting!.occurrenceKey } })
+
+    // Native and web use different copy/surfaces, but the server-owned operation is still the
+    // same event/date/page/time-zone mutation and must replay instead of conflicting.
+    const crossClientReplay = await stub.prepareMeetingInDailyNote(makeInput(
+      "prepare-meeting-native-retry",
+      dailyNoteId,
+      localDate,
+      "Prepare meeting context in daily note.",
+      "macos"
+    ))
+    expect(crossClientReplay).toEqual(first)
+
+    const wrongPage = await rejectionToDomainError(stub.prepareMeetingInDailyNote(makeInput(
+      "prepare-meeting-wrong-page",
+      Schema.decodeUnknownSync(EntityId)("00000000-0000-4000-8000-000000000099")
+    )))
+    expect(wrongPage._tag).toBe("ValidationError")
+    const wrongDate = await rejectionToDomainError(stub.prepareMeetingInDailyNote(makeInput(
+      "prepare-meeting-wrong-date",
+      dailyNoteId,
+      Schema.decodeUnknownSync(LocalDate)("2026-01-01")
+    )))
+    expect(wrongDate._tag).toBe("ValidationError")
+  })
 })
 
 describe("CalendarService — bookmarks", () => {
@@ -359,11 +441,9 @@ describe("CalendarService — bookmarks", () => {
     const workspaceId = freshWorkspaceId()
     const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
 
-    const created = (await stub.createBookmark({
-      workspaceId,
-      url: "https://example.test/article",
-      title: "An article"
-    })) as { bookmark: { id: string; url: string; title?: string } }
+    const created = (await stub.createBookmark(bookmarkInput(
+      workspaceId, "https://example.test/article", "An article"
+    ))) as { bookmark: { id: string; url: string; title?: string } }
     expect(created.bookmark.url).toBe("https://example.test/article")
     expect(created.bookmark.title).toBe("An article")
 
@@ -446,6 +526,14 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
       events: ReadonlyArray<{ title: string }>
     }
     expect(grantedEvents.events.map((e) => e.title)).toContain("1:1 with Alice")
+    const localDate = new Date().toISOString().slice(0, 10)
+    const ownerBrief = (await ownerStub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
+      calendarHistory: { status: string }
+      events: ReadonlyArray<{ title: string; people: ReadonlyArray<{ displayName?: string }> }>
+    }
+    expect(ownerBrief.calendarHistory.status).toBe("found")
+    expect(ownerBrief.events).toEqual(expect.arrayContaining([expect.objectContaining({ title: "1:1 with Alice" })]))
+    expect(JSON.stringify(ownerBrief)).not.toContain("alice@example.test")
     const grantedNodes = (await grantedStub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     expect(grantedNodes.nodes.some((n) => n.title === "Alice")).toBe(true)
     expect(grantedNodes.nodes.some((n) => n.title === "Plain workspace note")).toBe(true)
@@ -454,6 +542,13 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
     const { stub: deniedStub } = await connectToWorkspaceWithSocketAs(workspaceId, deniedCred)
     const deniedEvents = (await deniedStub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<unknown> }
     expect(deniedEvents.events).toHaveLength(0)
+    const deniedBrief = (await deniedStub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
+      calendarHistory: { status: string }
+      events: ReadonlyArray<unknown>
+    }
+    // A calendar-policy denial is intentionally identical to a workspace with no matching
+    // Athenaeum-retained events: neither the binding nor observer state is exposed.
+    expect(deniedBrief).toMatchObject({ calendarHistory: { status: "noneInRetainedData" }, events: [] })
     const deniedNodes = (await deniedStub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     // Excluded specifically: the attendee-imported Person node is gone...
     expect(deniedNodes.nodes.some((n) => n.title === "Alice")).toBe(false)
@@ -610,7 +705,7 @@ describe("CalendarService — governed-workspace role gating (hard constraint)",
     const workspaceId = await createGovernedWorkspace("bookmark-owner@example.test")
     const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
 
-    const created = (await stub.createBookmark({ workspaceId, url: "https://example.test/x" })) as {
+    const created = (await stub.createBookmark(bookmarkInput(workspaceId, "https://example.test/x"))) as {
       bookmark: { id: string }
     }
     expect(typeof created.bookmark.id).toBe("string")
@@ -629,11 +724,9 @@ describe("CalendarService — governed-workspace role gating (hard constraint)",
     const workspaceId = await createGovernedWorkspace(ownerEmail)
     const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)
 
-    const ownerBookmark = (await ownerStub.createBookmark({
-      workspaceId,
-      url: "https://example.test/owner-added",
-      title: "Owner's bookmark"
-    })) as { bookmark: { id: string } }
+    const ownerBookmark = (await ownerStub.createBookmark(bookmarkInput(
+      workspaceId, "https://example.test/owner-added", "Owner's bookmark"
+    ))) as { bookmark: { id: string } }
 
     await ownerStub.addCollaborator({ workspaceId, profileId: readerEmail, role: "use" })
 
@@ -649,7 +742,7 @@ describe("CalendarService — governed-workspace role gating (hard constraint)",
     // must be rejected the same way every other under-privileged mutation is (Unauthorized), not
     // silently allowed and not a different error shape.
     const createError = await rejectionToDomainError(
-      readerStub.createBookmark({ workspaceId, url: "https://example.test/reader-attempt" })
+      readerStub.createBookmark(bookmarkInput(workspaceId, "https://example.test/reader-attempt"))
     )
     expect(createError._tag).toBe("Unauthorized")
 
@@ -725,14 +818,13 @@ describe("CalendarService/MeetingsService — Meeting/Bookmark.linkedNodeId obse
     expect(attendeeNode).toBeDefined() // sanity check: a real calendar-derived node exists to hide
     const hiddenNodeId = attendeeNode!.id as unknown as EntityId
 
-    const started = (await ownerStub.startMeeting({ workspaceId, title: "Roadmap sync notes" })) as {
+    const started = (await ownerStub.startMeeting({ workspaceId, title: "Roadmap sync notes", requestId: "calendar-visibility-meeting", commitMessage: "Start the roadmap sync meeting.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" } })) as {
       meeting: { id: string }
     }
     const meetingId = started.meeting.id as unknown as EntityId
-    const bookmarkResult = (await ownerStub.createBookmark({
-      workspaceId,
-      url: "https://example.test/roadmap-notes"
-    })) as { bookmark: { id: string } }
+    const bookmarkResult = (await ownerStub.createBookmark(bookmarkInput(
+      workspaceId, "https://example.test/roadmap-notes"
+    ))) as { bookmark: { id: string } }
     const bookmarkId = bookmarkResult.bookmark.id as unknown as EntityId
 
     const doStub = workspaceDurableObjectStub(workspaceId)

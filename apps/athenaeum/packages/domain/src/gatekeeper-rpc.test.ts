@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { Email } from "./auth.js"
 import { Bookmark, BookmarkUrl } from "./bookmark.js"
 import { CalendarEvent, CalendarEventTime } from "./calendar-event.js"
-import { GatekeeperBinding, GoogleCalendarBindingConfig } from "./gatekeeper-binding.js"
+import { GatekeeperBinding, GatekeeperBindingSummary, GoogleCalendarBindingConfig } from "./gatekeeper-binding.js"
 import {
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,
@@ -19,10 +19,13 @@ import {
   ListBookmarksOutput,
   ListCalendarEventsInput,
   ListCalendarEventsOutput,
+  ListGatekeeperBindingsInput,
+  ListGatekeeperBindingsOutput,
   SyncGoogleCalendarInput,
   SyncGoogleCalendarOutput
 } from "./gatekeeper-rpc.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
+import { HumanUiMutationAttribution } from "./ledger.js"
 
 const roundTrip = <A, I>(schema: Schema.Schema<A, I>, value: A) => {
   const encoded = Schema.encodeSync(schema)(value)
@@ -142,11 +145,32 @@ describe("Calendar event read/link RPC schemas", () => {
   })
 })
 
+describe("Gatekeeper binding catalog RPC schemas", () => {
+  it("round-trips the workspace input and sanitized binding summaries", () => {
+    roundTrip(ListGatekeeperBindingsInput, new ListGatekeeperBindingsInput({ workspaceId }))
+    roundTrip(
+      ListGatekeeperBindingsOutput,
+      new ListGatekeeperBindingsOutput({
+        bindings: [new GatekeeperBindingSummary({
+          id: bindingId,
+          workspaceId,
+          gatekeeperKind: "google-calendar",
+          mode: "selected",
+          createdAt: iso(0)
+        })]
+      })
+    )
+  })
+})
+
 describe("Bookmark RPC schemas", () => {
   it("round-trips CreateBookmarkInput/Output with and without title", () => {
     const url = Schema.decodeUnknownSync(BookmarkUrl)("https://example.com/article")
-    roundTrip(CreateBookmarkInput, new CreateBookmarkInput({ workspaceId, url, title: "An article" }))
-    roundTrip(CreateBookmarkInput, new CreateBookmarkInput({ workspaceId, url }))
+    const attribution = new HumanUiMutationAttribution({
+      version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-bookmarks"
+    })
+    roundTrip(CreateBookmarkInput, new CreateBookmarkInput({ workspaceId, url, title: "An article", requestId: "bookmark-fixture-with-title", commitMessage: "Capture the article.", attribution }))
+    roundTrip(CreateBookmarkInput, new CreateBookmarkInput({ workspaceId, url, requestId: "bookmark-fixture-without-title", commitMessage: "Capture the URL.", attribution }))
 
     const bookmark = new Bookmark({ id: bookmarkId, workspaceId, url, capturedAt: iso(0) })
     roundTrip(CreateBookmarkOutput, new CreateBookmarkOutput({ bookmark }))

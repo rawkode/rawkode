@@ -40,11 +40,17 @@ catalog:
   # (`dist/mjs/entrypoints/fullfat_workerd.js`) — real, official Cloudflare Workers/workerd
   # support, not a bundler workaround — confirmed live against npm on 2026-08-20.
   '@automerge/automerge': ^3.4.1
+  # Loro compatibility spike: keep the CRDT and official ProseMirror binding pinned until the
+  # workerd and rich-text integration gates establish a supported production baseline.
+  loro-crdt: 1.14.1
+  loro-prosemirror: 0.4.4
 
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260820.1'
   - '@vitejs/plugin-react@6.1.0'
   - '@automerge/automerge@3.4.1'
+  - loro-crdt@1.14.1
+  - loro-prosemirror@0.4.4
   - prosemirror-changeset@2.4.2
   - '@alchemy.run/cloudflare-runtime@2.0.0-beta.74'
   - '@alchemy.run/floci@2.0.0-beta.74'

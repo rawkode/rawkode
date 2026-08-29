@@ -58,7 +58,13 @@ export const buildCommands = (schema: Schema): RichTextCommands => ({
   }
 })
 
-export const buildKeymapPlugins = (schema: Schema) => {
+export interface KeymapHistoryOptions {
+  readonly includeHistory?: boolean
+  readonly undo?: Command
+  readonly redo?: Command
+}
+
+export const buildKeymapPlugins = (schema: Schema, options: KeymapHistoryOptions = {}) => {
   const listEnter = chainCommands(
     splitListItem(schema.nodes.list_item),
     splitListItem(schema.nodes.task_item)
@@ -69,12 +75,15 @@ export const buildKeymapPlugins = (schema: Schema) => {
     liftListItem(schema.nodes.task_item)
   )
 
+  const undoCommand = options.undo ?? undo
+  const redoCommand = options.redo ?? redo
+
   return [
-    history(),
+    ...(options.includeHistory === false ? [] : [history()]),
     keymap({
-      "Mod-z": undo,
-      "Mod-y": redo,
-      "Mod-Shift-z": redo,
+      "Mod-z": undoCommand,
+      "Mod-y": redoCommand,
+      "Mod-Shift-z": redoCommand,
       "Mod-b": toggleMark(schema.marks.strong),
       "Mod-i": toggleMark(schema.marks.em),
       "Mod-Shift-x": toggleMark(schema.marks.strike),

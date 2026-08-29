@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react"
 import { useNavigate } from "react-router"
-import * as Automerge from "@automerge/automerge"
 import * as Effect from "effect/Effect"
 import {
-  CreateNodeInput,
-  CreatePageInput,
+  CreateLoroPageInput,
+  CreationIntent,
+  HumanUiMutationAttribution,
+  CreateNodeWithIntentInput,
+  GetPageDocumentDescriptorInput,
   GetNodeInput,
-  GetPageTextInput,
+  UnexpectedError,
   type DomainError,
   type EntityId
 } from "@athenaeum/domain"
@@ -21,69 +23,150 @@ import {
   shiftDateStamp
 } from "./daily-note-id.js"
 import {
-  emptyPageDoc,
-  newSyncSessionHandle,
-  syncPageWithServer,
-  type PageDoc,
-  type SyncSessionHandle
-} from "./automerge-page.js"
-import { ensureRichTextSchema } from "./rich-text/migration.js"
-import { RichNoteEditor } from "./RichNoteEditor.js"
+  inspectLoroPage,
+  convergeLoroPageFromServer,
+  type LoroPageDocument
+} from "./loro-page.js"
+import type { LegacyDailyNoteCell, LegacyDailyNoteResolved, LegacyDailyNoteModule } from "./legacy-daily-note.js"
+import { LoroRichNoteEditor, type PrepareMeetingHandler } from "./LoroRichNoteEditor.js"
 import { Backlinks } from "./Backlinks.js"
 import { NoteTags } from "./NoteTags.js"
 import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "./SupertagFieldPopover.js"
+import { DailyStandup } from "./LedgerActivityPanel.js"
 
-// Task item 1 ("Daily notes: a view that resolves/creates 'today's' note... and lets the user
-// type into it; edits apply as real local Automerge changes and sync to the backend via the real
-// Automerge sync-session protocol"). `resolveDailyNote` is the "resolve or create" half
+// `resolveDailyNote` is the "resolve or create" half
 // (deterministic id from `daily-note-id.ts`, so a reload resolves the *same* node/page rather than
-// minting a new one every time). The rich-text-editor pass replaced the plain-textarea editing
-// surface with `RichNoteEditor` (`docs/rich-text-editor-decisions.md`) — this component keeps
-// owning resolve/migrate + the header/sync-status chrome around it, per that stage's own scope
-// ("keep the existing header/sync-status UI... only replace the actual editing surface").
+// minting a new one every time). New pages are created directly in Loro; only legacy pages use
+// the compatibility Automerge editor and migration path.
 
-interface DailyNoteResolved {
-  readonly nodeId: EntityId
-  readonly doc: Automerge.Doc<PageDoc>
+type DailyNoteResolved =
+  | (LegacyDailyNoteResolved & { readonly RichNoteEditor: LegacyDailyNoteModule["RichNoteEditor"] })
+  | {
+      readonly nodeId: EntityId
+      readonly format: "loro-v1"
+      readonly page: LoroPageDocument
+      readonly descriptor: Extract<import("@athenaeum/domain").PageDocumentDescriptor, { activeFormat: "loro-v1" }>
+    }
+
+export type DailyNotePageFormat = DailyNoteResolved["format"]
+
+export type DailyNotePageFormatPresentation = {
+  readonly label: string
+  readonly description: string
+  readonly tone: "authoritative" | "legacy"
 }
 
-const resolveDailyNote = (
+/**
+ * Keep the migration boundary legible at the point where a person is writing. Loro is the
+ * product path; Automerge is shown only when the resolved descriptor explicitly selects the
+ * compatibility lane. This is a presentation contract, not a routing decision.
+ */
+export const dailyNotePageFormatPresentation = (
+  format: DailyNotePageFormat
+): DailyNotePageFormatPresentation => format === "loro-v1"
+  ? {
+      label: "Loro",
+      description: "Loro is authoritative for this page.",
+      tone: "authoritative"
+    }
+  : {
+      label: "Legacy Automerge",
+      description: "This page is still using the legacy Automerge compatibility lane.",
+      tone: "legacy"
+    }
+
+type LegacyRichNoteEditorProps = ComponentProps<LegacyDailyNoteModule["RichNoteEditor"]>
+
+function LegacyRichNoteEditor({
+  RichNoteEditor,
+  ...props
+}: LegacyRichNoteEditorProps & { readonly RichNoteEditor: LegacyDailyNoteModule["RichNoteEditor"] }) {
+  return <RichNoteEditor {...props} />
+}
+
+export const loadLegacyDailyNote = (
+  loadModule: () => Promise<LegacyDailyNoteModule> = () => import("./legacy-daily-note.js")
+): Effect.Effect<LegacyDailyNoteModule, UnexpectedError> =>
+  // Keep the dynamic import's failure boundary deliberately tiny. The adapter itself is invoked
+  // separately below, so ordinary legacy sync/domain failures retain their original error tags.
+  Effect.tryPromise({
+    try: loadModule,
+    catch: (cause) => new UnexpectedError({ message: `Unable to load legacy Automerge notes: ${String(cause)}` })
+  })
+
+export const resolveDailyNote = (
   client: WorkspaceRpcClientService,
-  session: SyncSessionHandle,
-  date: Date
+  legacyCell: LegacyDailyNoteCell,
+  creationIntent: CreationIntent,
+  date: Date,
+  loadLegacyModule: () => Effect.Effect<LegacyDailyNoteModule, UnexpectedError> = loadLegacyDailyNote,
+  nodeCreationIntent: CreationIntent = new CreationIntent({
+    requestId: crypto.randomUUID(),
+    commitMessage: "Create the daily note entity.",
+    attribution: new HumanUiMutationAttribution({
+      version: "athenaeum.mutation-attribution.v1",
+      kind: "humanUi",
+      surface: "rich-text-editor"
+    })
+  })
 ): Effect.Effect<DailyNoteResolved, DomainError> =>
   Effect.gen(function* () {
     const nodeId = dailyNoteIdForDate(date)
 
     // "Resolve or create": a `NodeNotFound` here means today's note has never been touched on
-    // this workspace — create it with the deterministic id (see `CreateNodeInput.id`'s doc comment in
-    // domain's rpc.ts for why the server accepts a caller-supplied id at all). Any other failure
+    // this workspace — create it with the deterministic id through the strict provenance route.
+    // Any other failure
     // (e.g. a network error) propagates as-is, without masking it as "must not exist yet".
     yield* client.getNode(new GetNodeInput({ workspaceId, nodeId })).pipe(
       Effect.catchTag("NodeNotFound", () =>
-        client.createNode(new CreateNodeInput({ workspaceId, id: nodeId, title: dailyNoteTitleForDate(date) }))
+        client.createNodeWithIntent(new CreateNodeWithIntentInput({
+          workspaceId,
+          id: nodeId,
+          title: dailyNoteTitleForDate(date),
+          requestId: nodeCreationIntent.requestId,
+          commitMessage: nodeCreationIntent.commitMessage,
+          attribution: nodeCreationIntent.attribution
+        })).pipe(
+          // Another tab may win the deterministic daily-note identity between get and create.
+          // Accept that race only when the existing node is the intended note; never overwrite or
+          // silently attach a page to an unrelated node.
+          Effect.catchTag("NodeAlreadyExists", () =>
+            client.getNode(new GetNodeInput({ workspaceId, nodeId })).pipe(
+              Effect.flatMap((existing) => existing.node.title === dailyNoteTitleForDate(date)
+                ? Effect.succeed(existing)
+                : Effect.fail(new UnexpectedError({ message: `daily note id ${nodeId} already belongs to a different node` })))
+            )
+          )
+        )
       )
     )
 
-    // Same resolve-or-create shape for the page: a brand-new node has no page yet.
-    yield* client.getPageText(new GetPageTextInput({ workspaceId, nodeId })).pipe(
-      Effect.catchTag("PageNotFound", () => client.createPage(new CreatePageInput({ workspaceId, nodeId })))
+    // Resolve the document descriptor first. Unlike the legacy text RPC, this is valid for both
+    // formats and lets an already-Loro page bypass the Automerge endpoint entirely.
+    const descriptor = yield* client.getPageDocumentDescriptor(
+      new GetPageDocumentDescriptorInput({ workspaceId, nodeId })
+    ).pipe(
+      Effect.catchTag("PageNotFound", () =>
+        Effect.gen(function* () {
+          const created = yield* client.createLoroPage(new CreateLoroPageInput({ workspaceId, nodeId, creationIntent }))
+          return created
+        })
+      )
     )
 
-    // Pull the page's current content into a fresh local Automerge replica via the real sync
-    // protocol (not a bytes-fetching RPC — there isn't one, by design; see `automerge-page.ts`).
-    const synced = yield* syncPageWithServer(client, workspaceId, nodeId, emptyPageDoc(), session)
+    // The entire Automerge path is behind this exact compatibility descriptor. `tryPromise`
+    // performs *only* the import; `flatMap` invokes the loaded adapter so sync failures remain
+    // ordinary domain failures rather than being misreported as loader failures.
+    if (descriptor.descriptor.activeFormat === "automerge-v1") {
+      return yield* loadLegacyModule().pipe(
+        Effect.flatMap((legacy) => legacy.resolveLegacyDailyNote(client, workspaceId, nodeId, legacyCell).pipe(
+          Effect.map((resolved) => ({ ...resolved, RichNoteEditor: legacy.RichNoteEditor }))
+        ))
+      )
+    }
 
-    // Migration (task item 3 / decisions doc §4): if this note predates the rich-text schema (flat
-    // text, no block markers), wrap it in one paragraph block — a real Automerge change on the
-    // *same* just-synced doc, never a fresh genesis (see `migration.ts`'s doc comment). `doc ===
-    // synced` (reference equality) when no migration was needed, so the extra sync round trip below
-    // is skipped for every already-rich or brand-new-empty note — only a genuine pre-rich-text note
-    // pays for a second round trip, and only once, ever, for that note.
-    const migrated = ensureRichTextSchema(synced)
-    const doc = migrated === synced ? synced : yield* syncPageWithServer(client, workspaceId, nodeId, migrated, session)
-
-    return { nodeId, doc }
+    const doc = yield* convergeLoroPageFromServer(client, workspaceId, nodeId)
+    return { nodeId, format: "loro-v1", page: inspectLoroPage(doc), descriptor: descriptor.descriptor }
   })
 
 // Retrieval pass (design-review 2026-08-22 finding #1, "Day navigation"): this component is now
@@ -93,36 +176,120 @@ const resolveDailyNote = (
 // own contract is "one per resolved note per component lifetime", which the remount preserves
 // without touching the sync protocol). Past days open in the SAME editor read-write: the daily
 // note id scheme is deterministic per date, so this is literally the same resolve-or-create +
-// Automerge-sync mechanism, pointed at another day's node.
+// format-aware sync mechanism, pointed at another day's node.
 export function DailyNote({
   date,
-  onNavigateDate
+  onNavigateDate,
+  onPrepareMeetingReady
 }: {
   readonly date: Date
   readonly onNavigateDate: (stamp: string) => void
+  readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
 }) {
   const navigate = useNavigate()
-  // One stable session id for this component's whole mounted lifetime (adversarial-review fix —
-  // see `SyncSessionHandle`'s doc comment): created once via the lazy-ref-init pattern (not
-  // `useRef(newSyncSessionHandle())`, which would call `crypto.randomUUID()` on every render even
-  // though only the first call's result is ever used), then reused by both the initial resolve
-  // below and every subsequent debounced edit-sync in `scheduleSync`.
-  const sessionRef = useRef<SyncSessionHandle | null>(null)
-  if (sessionRef.current === null) sessionRef.current = newSyncSessionHandle()
-  const session = sessionRef.current
+  // This intentionally plain cell is stable for the component/date lifetime, but it does not
+  // create an Automerge session on its own. The dynamically loaded legacy adapter fills it before
+  // its first RPC and reuses it for retries and the editor handoff. A Loro descriptor never loads
+  // that adapter, so it leaves this cell untouched.
+  const legacyCellRef = useRef<LegacyDailyNoteCell | null>(null)
+  if (legacyCellRef.current === null) legacyCellRef.current = { session: null }
+  const legacyCell = legacyCellRef.current
+  // This is deliberately a ref, not a render-time value: an uncertain PageNotFound/create
+  // response must be retried with identical provenance and fingerprint.
+  const creationIntentRef = useRef<CreationIntent | null>(null)
+  if (creationIntentRef.current === null) {
+    creationIntentRef.current = new CreationIntent({
+      requestId: crypto.randomUUID(), commitMessage: "Create daily note",
+      attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "rich-text-editor" })
+    })
+  }
+  const creationIntent = creationIntentRef.current
+  // Node identity and Loro-page identity are separate ledger operations. Keep the node intent
+  // stable for the whole resolve flow so a network-uncertain create can be replayed exactly.
+  const nodeCreationIntentRef = useRef<CreationIntent | null>(null)
+  if (nodeCreationIntentRef.current === null) {
+    nodeCreationIntentRef.current = new CreationIntent({
+      requestId: crypto.randomUUID(),
+      commitMessage: "Create the daily note entity.",
+      attribution: new HumanUiMutationAttribution({
+        version: "athenaeum.mutation-attribution.v1",
+        kind: "humanUi",
+        surface: "rich-text-editor"
+      })
+    })
+  }
+  const nodeCreationIntent = nodeCreationIntentRef.current
 
   const dateStamp = localDateStamp(date)
+  // A resolver retry deliberately retains the two intent refs above, so an uncertain create
+  // resumes with its original provenance instead of minting a second daily note operation.
+  const [resolveRetryKey, setResolveRetryKey] = useState(0)
+  const [resolveRetryClaimed, setResolveRetryClaimed] = useState(false)
+  const resolveRetryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const resolveEffect = useMemo(
-    () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => resolveDailyNote(client, session, date))),
+    () => WorkspaceRpcClient.pipe(
+      Effect.flatMap((client) => resolveDailyNote(client, legacyCell, creationIntent, date, loadLegacyDailyNote, nodeCreationIntent))
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateStamp]
+    [dateStamp, resolveRetryKey]
   )
-  const state = useEffectQuery(resolveEffect, [dateStamp])
-
+  const state = useEffectQuery(resolveEffect, [dateStamp, resolveRetryKey])
+  useEffect(() => {
+    const claim = resolveRetryClaim.current
+    if (claim === undefined) return
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // The retry-key render still has the preceding failure state. Release only after the claimed
+    // generation enters loading and reaches a terminal resolver result.
+    if (!claim.sawLoading) return
+    resolveRetryClaim.current = undefined
+    setResolveRetryClaimed(false)
+  }, [state.status])
+  const retryResolve = useCallback(() => {
+    if (resolveRetryClaim.current !== undefined || state.status === "loading") return
+    resolveRetryClaim.current = { sawLoading: false }
+    setResolveRetryClaimed(true)
+    setResolveRetryKey((key) => key + 1)
+  }, [state.status])
+  const isRetryingResolution = resolveRetryClaimed || state.status === "loading"
   // Sync status now originates inside `RichNoteEditor` (its own debounced `syncPageWithServer`
-  // calls) — this component just renders whatever status it's told, exactly the same
-  // `sync-status-*` markup/classes as before the rich-text-editor pass, unchanged.
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle")
+  // calls). A calm editor intentionally has no status row: notices are reserved for active work
+  // or an action a person may need to take.
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error" | "conflict">("idle")
+  const [retrySync, setRetrySync] = useState<(() => void) | undefined>(undefined)
+  const [syncRetryClaimed, setSyncRetryClaimed] = useState(false)
+  const syncRetryClaim = useRef<{ sawSyncing: boolean } | undefined>(undefined)
+  const registerSyncRetry = useCallback((retry: (() => void) | undefined) => {
+    setRetrySync(() => retry)
+  }, [])
+  useEffect(() => {
+    const claim = syncRetryClaim.current
+    if (claim === undefined) return
+    if (syncStatus === "syncing") {
+      claim.sawSyncing = true
+      return
+    }
+    if (!claim.sawSyncing) {
+      // Both editor lanes synchronously report `syncing` when a retry starts. If a stale callback
+      // declines to start work, release this presentation-only claim rather than stranding Retry.
+      syncRetryClaim.current = undefined
+      setSyncRetryClaimed(false)
+      return
+    }
+    // A retry that entered syncing has now settled, so a later explicit Retry may begin a new
+    // attempt without changing either editor's transport contract.
+    syncRetryClaim.current = undefined
+    setSyncRetryClaimed(false)
+  }, [syncStatus])
+  const retryFailedSync = useCallback(() => {
+    if (retrySync === undefined || syncRetryClaim.current !== undefined || syncStatus === "syncing") return
+    syncRetryClaim.current = { sawSyncing: false }
+    setSyncRetryClaimed(true)
+    retrySync()
+  }, [retrySync, syncStatus])
+  const isRetryingSync = syncRetryClaimed || syncStatus === "syncing"
 
   // Supertag-centering pass (docs/supertag-centering-decisions.md §2/§3): "one data model, two
   // entry points" — `activeTag` drives the field-editing popover whether it was opened by typing
@@ -137,21 +304,42 @@ export function DailyNote({
     if (state.status === "success") setSyncStatus("synced")
   }, [state.status === "success" ? state.value.nodeId : undefined])
 
-  const weekdayLabel = date.toLocaleDateString(undefined, { weekday: "long" })
+  const fullDateLabel = date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  })
   const todayStamp = localDateStamp(new Date())
   const isToday = dateStamp === todayStamp
+  const pageFormat = state.status === "success"
+    ? dailyNotePageFormatPresentation(state.value.format)
+    : undefined
+  const showSyncStatus = syncStatus === "syncing" || syncStatus === "error" || syncStatus === "conflict"
 
   return (
     <section className="daily-note">
       <div className="daily-note-editor">
         <header className="daily-note-header">
-          <span className="daily-note-eyebrow">Daily note</span>
-          <h2>{weekdayLabel}</h2>
-          <p className="daily-note-date">{dateStamp}</p>
+          <h1 aria-label={`Daily note for ${fullDateLabel}`}>
+            <span className="daily-note-title">Daily note</span>
+            <time dateTime={dateStamp}>{fullDateLabel}</time>
+          </h1>
+          {pageFormat !== undefined && (
+            <span
+              className={`daily-note-format daily-note-format-${pageFormat.tone}`}
+              title={pageFormat.description}
+              aria-label={pageFormat.description}
+              data-page-format={pageFormat.tone === "authoritative" ? "loro-v1" : "automerge-v1"}
+            >
+              <span className="daily-note-format-dot" aria-hidden="true" />
+              {pageFormat.label}
+            </span>
+          )}
 
           {/* Retrieval pass (finding #1, "Day navigation"): prev/next-day chevrons + a real date
               input, driving `NotesRoute`'s `?date=` param via `onNavigateDate`. The header above
-              stays honest for free — weekday + stamp render the SELECTED day, not `new Date()`. */}
+              stays honest for free — the full date renders the SELECTED day, not `new Date()`. */}
           <nav className="daily-note-day-nav" aria-label="Daily note day">
             <button
               type="button"
@@ -194,43 +382,113 @@ export function DailyNote({
           </nav>
         </header>
 
-        {state.status === "loading" && (
-          <p className="daily-note-loading">
-            {isToday ? "Resolving today’s note…" : `Resolving ${dateStamp}…`}
-          </p>
-        )}
-        {state.status === "failure" && <p className="error">{state.error.message}</p>}
-        {state.status === "success" && (
-          <>
-            <RichNoteEditor
-              workspaceId={workspaceId}
-              nodeId={state.value.nodeId}
-              initialDoc={state.value.doc}
-              session={session}
-              onSyncStatusChange={setSyncStatus}
-              autoFocus
-              onSupertagApplied={(candidate) => {
-                setActiveTag({ tagId: candidate.tagId as EntityId, name: candidate.name })
-                setTagsRefreshKey((k) => k + 1)
-              }}
-              onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
-            />
-            <p className={`sync-status sync-status-${syncStatus}`}>
-              <span className="sync-status-dot" aria-hidden="true" />
-              {syncStatus === "idle" && "Ready"}
-              {syncStatus === "syncing" && "Syncing…"}
-              {syncStatus === "synced" && "Synced"}
-              {syncStatus === "error" && "Sync failed — check the console"}
+        <div
+          className={`daily-note-canvas daily-note-canvas-${state.status}`}
+          aria-busy={state.status === "loading"}
+          aria-live={state.status === "failure" ? "assertive" : state.status === "loading" ? "polite" : undefined}
+          role={state.status === "failure" ? "alert" : undefined}
+        >
+          {state.status === "loading" && (
+            <p className="daily-note-loading">
+              {isToday ? "Resolving today’s note…" : `Resolving ${dateStamp}…`}
             </p>
-            <NoteTags nodeId={state.value.nodeId} refreshKey={tagsRefreshKey} onSelectTag={setActiveTag} />
-          </>
-        )}
+          )}
+          {state.status === "failure" && (
+            <section className="daily-note-resolution-error">
+              <div>
+                <h2>Daily note is unavailable</h2>
+                <p>We couldn&rsquo;t resolve this daily note. Retry to continue loading this date safely.</p>
+              </div>
+              <button type="button" onClick={retryResolve} disabled={isRetryingResolution}>
+                {isRetryingResolution ? "Retrying…" : "Retry"}
+              </button>
+            </section>
+          )}
+          {state.status === "success" && (
+            <>
+              {state.value.format === "loro-v1" ? (
+                <LoroRichNoteEditor
+                  workspaceId={workspaceId}
+                  nodeId={state.value.nodeId}
+                  initialPage={state.value.page}
+                  initialDescriptor={state.value.descriptor}
+                  onSyncStatusChange={setSyncStatus}
+                  onSyncRetryReady={registerSyncRetry}
+                  autoFocus
+                  onSupertagApplied={(candidate, anchorRect, anchorRectSource) => {
+                    setActiveTag({ tagId: candidate.tagId as EntityId, name: candidate.name, anchorRect, anchorRectSource })
+                    setTagsRefreshKey((k) => k + 1)
+                  }}
+                  onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
+                  onPrepareMeetingReady={onPrepareMeetingReady}
+                />
+              ) : (
+                <LegacyRichNoteEditor
+                  RichNoteEditor={state.value.RichNoteEditor}
+                  workspaceId={workspaceId}
+                  nodeId={state.value.nodeId}
+                  initialDoc={state.value.doc}
+                  session={state.value.session}
+                  onSyncStatusChange={setSyncStatus}
+                  onSyncRetryReady={registerSyncRetry}
+                  autoFocus
+                  onSupertagApplied={(candidate, anchorRect, anchorRectSource) => {
+                    setActiveTag({ tagId: candidate.tagId as EntityId, name: candidate.name, anchorRect, anchorRectSource })
+                    setTagsRefreshKey((k) => k + 1)
+                  }}
+                  onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
+                />
+              )}
+              {showSyncStatus && (
+                <p
+                  className={`sync-status sync-status-${syncStatus}`}
+                  role={
+                    syncStatus === "syncing"
+                      ? "status"
+                      : syncStatus === "error" || syncStatus === "conflict"
+                        ? "alert"
+                        : undefined
+                  }
+                  aria-live={syncStatus === "syncing" ? "polite" : undefined}
+                  aria-atomic={syncStatus === "syncing" ? true : undefined}
+                >
+                  <span className="sync-status-dot" aria-hidden="true" />
+                  {syncStatus === "syncing" && (
+                    <>
+                      <span>Syncing…</span>
+                      {syncRetryClaimed && <button type="button" className="sync-status-retry" disabled>Retrying…</button>}
+                    </>
+                  )}
+                  {syncStatus === "error" && (
+                    <>
+                      <span>Sync failed — your local changes are still here.</span>
+                      {retrySync !== undefined && (
+                        <button type="button" className="sync-status-retry" onClick={retryFailedSync} disabled={isRetryingSync}>
+                          {isRetryingSync ? "Retrying…" : "Retry"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {syncStatus === "conflict" && "Conflict — your local draft is preserved."}
+                </p>
+              )}
+              <NoteTags
+                nodeId={state.value.nodeId}
+                refreshKey={tagsRefreshKey}
+                onSelectTag={(chip, anchorRect, anchorRectSource) => setActiveTag({ ...chip, anchorRect, anchorRectSource })}
+              />
+            </>
+          )}
+        </div>
       </div>
+
+      {isToday && <DailyStandup />}
 
       {state.status === "success" && <Backlinks nodeId={state.value.nodeId} />}
 
       {state.status === "success" && activeTag !== null && (
         <SupertagFieldPopover
+          key={state.value.nodeId + ":" + activeTag.tagId}
           nodeId={state.value.nodeId}
           tag={activeTag}
           onClose={() => setActiveTag(null)}

@@ -1,4 +1,5 @@
 import * as Data from "effect/Data"
+import type { PageDocumentFormat } from "./page-document-format.js"
 
 // Phase 0 scope (see plan §"Effect-TS integration", `domain/` package): the full error set
 // (`NodeNotFound`, `UniqueIndexConflict`, `PendingNameConflict`, `EpochMismatch`, `Unauthorized`,
@@ -7,6 +8,11 @@ import * as Data from "effect/Data"
 
 /** The referenced node does not exist (or is not visible) in the workspace. */
 export class NodeNotFound extends Data.TaggedError("NodeNotFound")<{
+  readonly nodeId: string
+}> {}
+
+/** A strict create request attempted to claim an explicit node identity that already exists. */
+export class NodeAlreadyExists extends Data.TaggedError("NodeAlreadyExists")<{
   readonly nodeId: string
 }> {}
 
@@ -34,7 +40,12 @@ export type Phase0DomainError = NodeNotFound | ValidationError | UnexpectedError
  */
 export type DomainError =
   | Phase0DomainError
+  | NodeAlreadyExists
   | PageNotFound
+  | PageFormatMismatch
+  | LoroContentConflict
+  | LoroSemanticCommitRequired
+  | LoroRequestIdentityConflict
   | TagNotFound
   | FactNotFound
   | EdgeNotFound
@@ -79,6 +90,36 @@ export type DomainError =
 /** The referenced page (a node's Automerge doc reference) does not exist in the workspace. */
 export class PageNotFound extends Data.TaggedError("PageNotFound")<{
   readonly nodeId: string
+}> {}
+
+/** A caller attempted to use a page-document protocol incompatible with the active format. */
+export class PageFormatMismatch extends Data.TaggedError("PageFormatMismatch")<{
+  readonly nodeId: string
+  readonly expected: PageDocumentFormat
+  readonly actual: PageDocumentFormat
+}> {}
+
+/** Safe optimistic-concurrency witnesses for a semantic Loro page command. */
+export class LoroContentConflict extends Data.TaggedError("LoroContentConflict")<{
+  readonly nodeId: string
+  readonly expectedStorageVersion: number
+  readonly currentStorageVersion: number
+  readonly expectedSnapshotSha256: string
+  readonly currentSnapshotSha256: string
+  readonly expectedVersionVectorSha256: string
+  readonly currentVersionVectorSha256: string
+  readonly message: string
+}> {}
+
+/** Direct Loro page-content writes are forbidden; use the semantic commit command instead. */
+export class LoroSemanticCommitRequired extends Data.TaggedError("LoroSemanticCommitRequired")<{
+  readonly nodeId: string
+}> {}
+
+/** A semantic Loro request identity was retained for a different command. */
+export class LoroRequestIdentityConflict extends Data.TaggedError("LoroRequestIdentityConflict")<{
+  readonly nodeId: string
+  readonly requestId: string
 }> {}
 
 /** The referenced tag does not exist in the workspace. */

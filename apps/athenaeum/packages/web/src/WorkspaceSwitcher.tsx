@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import * as Schema from "effect/Schema"
 import { EntityId, type WorkspaceCatalogEntry } from "@athenaeum/domain"
 import { closeUserSession, createWorkspace, listWorkspaces, openUserSession } from "./user-rpc-client.js"
@@ -29,6 +29,9 @@ import type { DevSession } from "./dev-session.js"
 
 const SHARED_LINK_WORKSPACE_ID = "__shared_link__"
 
+const workspaceCreationFailureMessage =
+  "We couldn’t confirm that this workspace was created. The title is still here. Review your workspaces before taking another action."
+
 export function WorkspaceSwitcher({
   session,
   activeWorkspaceId,
@@ -39,22 +42,42 @@ export function WorkspaceSwitcher({
   readonly onSwitch: (workspaceId: EntityId, title: string) => void
 }) {
   const [workspaces, setWorkspaces] = useState<ReadonlyArray<WorkspaceCatalogEntry> | undefined>(undefined)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [newTitle, setNewTitle] = useState("")
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [catalogRetryClaimed, setCatalogRetryClaimed] = useState(false)
+  const isCreatingWorkspaceRef = useRef(false)
+  const catalogRetryClaim = useRef<symbol | undefined>(undefined)
 
   useEffect(() => {
     let cancelled = false
-    setLoadError(null)
+    // The effect that starts a manual retry owns its release; a cancelled older read must never
+    // clear the claim for a newer catalog request.
+    const retryClaim = catalogRetryClaim.current
+    const releaseRetryClaim = () => {
+      if (retryClaim === undefined || catalogRetryClaim.current !== retryClaim) return
+      catalogRetryClaim.current = undefined
+      setCatalogRetryClaimed(false)
+    }
+    setLoadError(false)
     const stub = openUserSession(session.credential)
     listWorkspaces(stub).then(
       (result) => {
-        if (!cancelled) setWorkspaces(result)
+        if (!cancelled) {
+          setWorkspaces(result)
+          releaseRetryClaim()
+        }
       },
-      (thrown: unknown) => {
-        if (!cancelled) setLoadError(thrown instanceof Error ? thrown.message : String(thrown))
+      () => {
+        if (!cancelled) {
+          // A catalog failure is not an empty catalog. Hide any stale selection until a real
+          // response replaces it, while leaving workspace management available below.
+          setWorkspaces(undefined)
+          setLoadError(true)
+          releaseRetryClaim()
+        }
       }
     )
     return () => {
@@ -63,18 +86,27 @@ export function WorkspaceSwitcher({
     }
   }, [session.credential, refreshKey])
 
+  const retryCatalog = () => {
+    if (catalogRetryClaim.current !== undefined) return
+    catalogRetryClaim.current = Symbol("workspace-catalog-retry")
+    setCatalogRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }
+
   const activeInCatalog = workspaces?.some((workspace) => workspace.workspaceId === activeWorkspaceId) ?? true
 
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmed = newTitle.trim()
-    if (trimmed.length === 0) return
+    if (trimmed.length === 0 || isCreatingWorkspaceRef.current) return
+    isCreatingWorkspaceRef.current = true
     setCreating(true)
     setCreateError(null)
     const stub = openUserSession(session.credential)
     createWorkspace(stub, trimmed).then(
       (workspace) => {
         closeUserSession(stub)
+        isCreatingWorkspaceRef.current = false
         setCreating(false)
         setNewTitle("")
         setRefreshKey((k) => k + 1)
@@ -82,8 +114,10 @@ export function WorkspaceSwitcher({
       },
       (thrown: unknown) => {
         closeUserSession(stub)
+        isCreatingWorkspaceRef.current = false
         setCreating(false)
-        setCreateError(thrown instanceof Error ? thrown.message : String(thrown))
+        setCreateError(workspaceCreationFailureMessage)
+        console.error(thrown)
       }
     )
   }
@@ -97,11 +131,23 @@ export function WorkspaceSwitcher({
   return (
     <div className="workspace-switcher">
       <label htmlFor="workspace-switcher-select">Workspace</label>
-      {workspaces === undefined && loadError === null && <span className="workspace-switcher-loading">loading…</span>}
-      {loadError !== null && <span className="error">{loadError}</span>}
+      {workspaces === undefined && !loadError && (
+        <span className="workspace-switcher-loading" role="status" aria-live="polite">
+          loading…
+        </span>
+      )}
+      {loadError && (
+        <div className="workspace-switcher-load-state" role="alert">
+          <span>Workspaces couldn&rsquo;t be loaded. Retry to restore the switcher.</span>
+          <button type="button" onClick={retryCatalog} disabled={catalogRetryClaimed}>
+            {catalogRetryClaimed ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      )}
       {workspaces !== undefined && (
         <select
           id="workspace-switcher-select"
+          className="ds-field"
           value={activeInCatalog ? activeWorkspaceId : SHARED_LINK_WORKSPACE_ID}
           onChange={(event) => handleSelect(event.target.value)}
           title={
@@ -116,7 +162,12 @@ export function WorkspaceSwitcher({
           }
         >
           {!activeInCatalog && (
-            <option value={SHARED_LINK_WORKSPACE_ID}>Shared workspace (opened via link) — {activeWorkspaceId}</option>
+            <option
+              value={SHARED_LINK_WORKSPACE_ID}
+              title={`Shared workspace (opened via link) — ${activeWorkspaceId}`}
+            >
+              Shared workspace
+            </option>
           )}
           {workspaces.map((workspace) => (
             <option
@@ -125,23 +176,34 @@ export function WorkspaceSwitcher({
               title={`${workspace.title}${workspace.isDefault ? " (default)" : ""} — ${workspace.role}`}
             >
               {workspace.title}
-              {workspace.isDefault ? " (default)" : ""} — {workspace.role}
             </option>
           ))}
         </select>
       )}
-      <form onSubmit={handleCreate} className="workspace-switcher-create">
-        <input
-          value={newTitle}
-          onChange={(event) => setNewTitle(event.target.value)}
-          placeholder="New workspace title"
-          disabled={creating}
-        />
-        <button type="submit" disabled={creating || newTitle.trim().length === 0}>
-          {creating ? "Creating…" : "+ New workspace"}
-        </button>
-      </form>
-      {createError !== null && <p className="error">{createError}</p>}
+      <details className="ds-disclosure workspace-switcher-manage">
+        <summary>Manage workspaces</summary>
+        <form onSubmit={handleCreate} className="workspace-switcher-create">
+          <label htmlFor="workspace-switcher-new-title" className="sr-only">
+            New workspace title
+          </label>
+          <input
+            id="workspace-switcher-new-title"
+            className="ds-field"
+            value={newTitle}
+            onChange={(event) => setNewTitle(event.target.value)}
+            placeholder="New workspace title"
+            disabled={creating}
+          />
+          <button className="ds-button" type="submit" disabled={creating || newTitle.trim().length === 0}>
+            {creating ? "Creating…" : "+ New workspace"}
+          </button>
+        </form>
+        {createError !== null && (
+          <p className="error" role="alert">
+            {createError}
+          </p>
+        )}
+      </details>
     </div>
   )
 }

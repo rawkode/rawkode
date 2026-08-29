@@ -36,6 +36,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { GatekeeperNotConnected, OAuthExchangeFailed, UnexpectedError, type DomainError } from "@athenaeum/domain"
 import { signGatekeeperCallerCredential } from "./gatekeeper-service-credential.js"
+import type { GatekeeperConnectionLocator } from "./calendar-connection-identity.js"
 
 export type RemoteCalendarTime =
   | { readonly kind: "date"; readonly date: string }
@@ -178,6 +179,19 @@ const parseEnvelope = (value: unknown): { readonly tag: string; readonly message
   }
   return { tag: "UnexpectedError", message: JSON.stringify(value) }
 }
+
+/**
+ * Connection-aware routing seam for MCA-B. The deployed gatekeeper still stores credentials in
+ * email-keyed Durable Objects, so only the migration adapter's legacy locator can route today.
+ * An opaque locator fails before a request is made; it must never be translated back to an email.
+ */
+export const gatekeeperAccountPathForLocator = (
+  locator: GatekeeperConnectionLocator,
+  operation: string
+): Effect.Effect<string, UnexpectedError> =>
+  locator.kind === "legacy-email"
+    ? Effect.succeed(`/gatekeeper/google-calendar/account/${encodeURIComponent(locator.email)}/${operation}`)
+    : Effect.fail(new UnexpectedError({ message: "Opaque calendar provider connections are not supported by this gatekeeper." }))
 
 /**
  * `POST`s `body` to `path` on `fetcher`, signing the request with a fresh, short-lived

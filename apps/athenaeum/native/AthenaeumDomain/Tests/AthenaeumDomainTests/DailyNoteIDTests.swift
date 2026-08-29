@@ -9,6 +9,29 @@ import XCTest
 /// intent — the UTC calendar here is purely a fixed, reproducible stand-in for "some local
 /// timezone" in a test environment).
 final class DailyNoteIDTests: XCTestCase {
+
+    func testDailyNoteIdForLocalDateNeverReinterpretsTheCivilDayThroughUTC() throws {
+        XCTAssertEqual(
+            dailyNoteIdForLocalDate(try LocalDate(validating: "2026-08-27")).rawValue,
+            "00000000-0000-4000-8000-000020260827"
+        )
+    }
+
+    func testLocalDateFromDailyNoteIdRoundTripsTheCanonicalDailyIdentity() throws {
+        let localDate = try LocalDate(validating: "2026-08-27")
+
+        XCTAssertEqual(
+            localDateFromDailyNoteId(dailyNoteIdForLocalDate(localDate).rawValue),
+            localDate
+        )
+    }
+
+    func testLocalDateFromDailyNoteIdRejectsNonDailyAndImpossibleDates() {
+        XCTAssertNil(localDateFromDailyNoteId("018f6a5e-0000-7000-8000-000000000000"))
+        XCTAssertNil(localDateFromDailyNoteId("00000000-0000-0000-0000-000000000001"))
+        XCTAssertNil(localDateFromDailyNoteId("00000000-0000-4000-8000-000099999999"))
+    }
+
     private var utc: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!

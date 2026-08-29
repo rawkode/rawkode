@@ -1,12 +1,12 @@
 {
   "pins" : [
     {
-      "identity" : "automerge-swift",
+      "identity" : "loro-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/automerge/automerge-swift.git",
+      "location" : "https://github.com/loro-dev/loro-swift.git",
       "state" : {
-        "revision" : "aa45d17ac92cef2b8ded63b47e65a28dc85e3418",
-        "version" : "0.7.2"
+        "revision" : "625f3e696fca4be3ae77de8b3404fa6753554f21",
+        "version" : "1.13.3"
       }
     }
   ],

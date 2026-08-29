@@ -83,7 +83,7 @@ struct Phase5Driver {
         let credential = optionValue(allArgs, "--credential") ?? ProcessInfo.processInfo.environment["ATHENAEUM_CREDENTIAL"]
 
         let flagsWithValues: Set<String> = [
-            "--backend", "--workspace", "--credential", "--calendar-id", "--mode", "--code", "--title", "--from", "--to"
+            "--backend", "--workspace", "--credential", "--calendar-id", "--mode", "--code", "--title", "--from", "--to", "--request-id"
         ]
         var positional: [String] = []
         var i = 0
@@ -190,7 +190,15 @@ struct Phase5Driver {
         case "create-bookmark":
             let url = requireArg(positional, 0, "url")
             let title = optionValue(allArgs, "--title")
-            let bookmark = try await client.createBookmark(url: url, title: title)
+            let bookmark = try await client.createBookmark(
+                url: url,
+                title: title,
+                // Supplying --request-id lets a diagnostic rerun replay the same capture after an
+                // uncertain response; absent the flag, each intentional CLI invocation is new.
+                requestId: optionValue(allArgs, "--request-id") ?? UUID().uuidString.lowercased(),
+                commitMessage: "Capture this bookmark from the Phase 5 driver.",
+                attribution: MutationAttribution(version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos")
+            )
             print("BOOKMARK_ID: \(bookmark.id)")
             print("BOOKMARK_URL: \(bookmark.url)")
             print("BOOKMARK_TITLE: \(bookmark.title ?? "<none>")")

@@ -1,0 +1,298 @@
+#if os(macOS)
+import AppKit
+import XCTest
+@testable import AthenaeumAppUI
+@testable import AthenaeumCore
+
+final class LoroNativeRichTextEditorTests: XCTestCase {
+    private let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+    private let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
+
+    func testRenderedStorageContainsOnlyCodecMarkersAndRoundTripsRichDocument() throws {
+        let document = richDocument()
+        let editor = LoroNativeRichTextEditorController(document: document, isEditable: true)
+        let storage = editor.testingStorage()
+        storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
+            XCTAssertTrue(Set(attributes.keys).isSubset(of: [marks, block, .init("dev.athenaeum.rich.separator-before.v1"), .init("dev.athenaeum.rich.separator-after.v1")]))
+            XCTAssertNil(attributes[.font]); XCTAssertNil(attributes[.paragraphStyle]); XCTAssertNil(attributes[.foregroundColor])
+        }
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(storage), document)
+    }
+
+    func testFormattingCommandChangesOnlyMarkerAndCanonicallyRoundTrips() throws {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(document: paragraph("hello"), isEditable: true, onDocumentChange: { published.append($0) })
+        editor.testingSelect(NSRange(location: 0, length: 5))
+        editor.toggle(mark: .strong)
+        XCTAssertEqual(published.count, 1)
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), editor.testingDocument())
+        XCTAssertEqual(editor.testingDocument().semantic.blocks, [.paragraph([.init(text: "hello", marks: [.strong])])])
+    }
+
+    func testRichFormattingShortcutsApplyOnlySupportedCanonicalMarks() throws {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("hello"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        editor.testingSelect(NSRange(location: 0, length: 5))
+
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: .command))
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "i", modifierFlags: .command))
+        XCTAssertEqual(published.count, 2)
+        XCTAssertEqual(editor.testingDocument().semantic.blocks, [
+            .paragraph([.init(text: "hello", marks: [.emphasis, .strong])])
+        ])
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), editor.testingDocument())
+    }
+
+    func testRichFormattingShortcutsLeaveUnsupportedAndEmptySelectionEventsToAppKit() {
+        var published = 0
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("hello"),
+            isEditable: true,
+            onDocumentChange: { _ in published += 1 }
+        )
+        editor.testingSelect(NSRange(location: 0, length: 0))
+        XCTAssertFalse(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: .command))
+        editor.testingSelect(NSRange(location: 0, length: 5))
+        XCTAssertFalse(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "u", modifierFlags: .command))
+        XCTAssertFalse(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: [.command, .option]))
+        XCTAssertEqual(editor.testingDocument(), paragraph("hello"))
+        XCTAssertEqual(published, 0)
+    }
+
+    func testDisabledRichFormattingShortcutIsConsumedWithoutMutation() {
+        var rejected: [LoroNativeRichTextEditorController.Rejection] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("hello"),
+            isEditable: false,
+            onRejectedInput: { rejected.append($0) }
+        )
+        editor.testingSelect(NSRange(location: 0, length: 5))
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: .command))
+        XCTAssertEqual(editor.testingDocument(), paragraph("hello"))
+        XCTAssertEqual(rejected, [.disabled])
+    }
+
+    func testRichFormattingShortcutDoesNotDisturbMarkedTextComposition() {
+        var published = 0
+        let source = paragraph("hello")
+        let editor = LoroNativeRichTextEditorController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { _ in published += 1 }
+        )
+        editor.testingSetMarkedText("intermediate", selectedRange: NSRange(location: 12, length: 0), replacementRange: NSRange(location: 2, length: 0))
+
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: .command))
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(editor.testingCompositionReplacement(), "intermediate")
+        XCTAssertEqual(published, 0)
+    }
+
+    func testPlainPasteIntoEmptyDocumentProducesDeterministicParagraphBlocks() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(document: paragraph(""), isEditable: true, onDocumentChange: { published.append($0) })
+        editor.testingReplace(NSRange(location: 0, length: 0), with: "\nfirst\n\nlast\n")
+        XCTAssertEqual(editor.testingDocument().semantic.blocks, [
+            .paragraph([]), .paragraph([.init(text: "first")]), .paragraph([]), .paragraph([.init(text: "last")]), .paragraph([])
+        ])
+        XCTAssertEqual(published.count, 1)
+    }
+
+    func testDisabledDelegateVetoIsSynchronousAndDoesNotPublish() {
+        var rejected: [LoroNativeRichTextEditorController.Rejection] = []
+        var published = 0
+        let editor = LoroNativeRichTextEditorController(document: paragraph("x"), isEditable: false, onDocumentChange: { _ in published += 1 }, onRejectedInput: { rejected.append($0) })
+        let allowed = editor.textView(NSTextView(), shouldChangeTextIn: NSRange(location: 0, length: 0), replacementString: "y")
+        XCTAssertFalse(allowed); XCTAssertEqual(editor.testingDocument(), paragraph("x")); XCTAssertEqual(published, 0); XCTAssertEqual(rejected, [.disabled])
+    }
+
+    func testDisabledMarkedTextIsRejectedBeforeDisplayOrSemanticMutation() {
+        var rejected: [LoroNativeRichTextEditorController.Rejection] = []
+        var published = 0
+        let editor = LoroNativeRichTextEditorController(document: paragraph("x"), isEditable: false, onDocumentChange: { _ in published += 1 }, onRejectedInput: { rejected.append($0) })
+        let displayed = editor.testingDisplayedString()
+        editor.testingSetMarkedText("y", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 1, length: 0))
+        XCTAssertEqual(editor.testingDisplayedString(), displayed)
+        XCTAssertEqual(editor.testingDocument(), paragraph("x"))
+        XCTAssertEqual(published, 0)
+        XCTAssertEqual(rejected, [.disabled])
+    }
+
+    func testEqualParentRenderDoesNotResetScalarSelectionAndExternalReplacementPreservesIt() {
+        let editor = LoroNativeRichTextEditorController(document: paragraph("A😀B"), isEditable: true)
+        let selection = NSRange(location: 1, length: 2)
+        editor.testingSelect(selection)
+        editor.update(document: paragraph("A😀B"), isEditable: true)
+        XCTAssertEqual(editor.testingStorage().string, "A😀B")
+        editor.update(document: paragraph("A😀C"), isEditable: true)
+        XCTAssertEqual(editor.testingStorage().string, "A😀C")
+        XCTAssertEqual(try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: selection, in: editor.testingStorage()), .init(location: 1, length: 1))
+    }
+
+    func testUnacknowledgedLocalProposalDefersDifferentParentDocument() {
+        let editor = LoroNativeRichTextEditorController(document: paragraph("base"), isEditable: true)
+        editor.testingReplace(NSRange(location: 4, length: 0), with: " local")
+        editor.update(document: paragraph("remote"), isEditable: true)
+        XCTAssertEqual(editor.testingDocument(), paragraph("base local"))
+        editor.update(document: paragraph("base local"), isEditable: true)
+        editor.update(document: paragraph("remote"), isEditable: true)
+        XCTAssertEqual(editor.testingDocument(), paragraph("remote"))
+    }
+
+    func testMarkedTextHooksFlushOnceFromMarkerOnlySnapshotAndDefersParentUpdate() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let source = richDocument()
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { published.append($0) })
+        // Exercise GuardedRichTextView's real marked-text overrides rather than the controller
+        // composition seam: an IME may put arbitrary display attributes in this transient text.
+        let hostileMarkedText = NSAttributedString(string: "!", attributes: [
+            .font: NSFont.boldSystemFont(ofSize: 31),
+            .link: URL(string: "https://example.invalid")!,
+            .init("untrusted.composition.attribute"): "must-not-persist"
+        ])
+        editor.testingSetMarkedText(hostileMarkedText, selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 4, length: 0))
+        XCTAssertEqual(editor.testingCompositionReplacement(), "!")
+        editor.update(document: paragraph("remote"), isEditable: true)
+        XCTAssertEqual(editor.testingDocument(), source)
+        editor.testingUnmarkText()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(published.count, 1)
+        XCTAssertEqual(editor.testingDocument().semantic.blocks[0], .heading(level: 1, runs: [.init(text: "titl!e", marks: [.code, .strong])]))
+        XCTAssertNoThrow(try LoroNativeRichTextCodec.decode(editor.testingStorage()))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(published.count, 1, "programmatic render after composition must not republish")
+    }
+
+    func testInsertTextFinalizesMarkedTextWithFinalPlainStringExactlyOnce() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(document: richDocument(), isEditable: true, onDocumentChange: { published.append($0) })
+        editor.testingSetMarkedText("intermediate", selectedRange: NSRange(location: 12, length: 0), replacementRange: NSRange(location: 4, length: 0))
+        let final = NSAttributedString(string: "final", attributes: [.font: NSFont.boldSystemFont(ofSize: 31), .init("untrusted.final.attribute"): "must-not-persist"])
+        editor.testingInsertText(final, replacementRange: NSRange(location: 4, length: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(published.count, 1)
+        XCTAssertEqual(editor.testingDocument().semantic.blocks[0], .heading(level: 1, runs: [.init(text: "titlfinale", marks: [.code, .strong])]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(published.count, 1)
+    }
+
+    func testSupersededCompositionFlushCannotCommitANewComposition() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let source = richDocument()
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { published.append($0) })
+        editor.testingSetMarkedText("intermediate-A", selectedRange: NSRange(location: 14, length: 0), replacementRange: NSRange(location: 4, length: 0))
+        editor.testingInsertText("A", replacementRange: NSRange(location: 4, length: 0))
+        editor.testingUnmarkText()
+        editor.testingSetMarkedText("intermediate-B", selectedRange: NSRange(location: 14, length: 0), replacementRange: NSRange(location: 4, length: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(published.count, 0, "A's queued flush must not commit B's active composition")
+        editor.testingInsertText("B", replacementRange: NSRange(location: 4, length: 0))
+        editor.testingUnmarkText()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.testingDocument().semantic.blocks[0], .heading(level: 1, runs: [.init(text: "titlBe", marks: [.code, .strong])]))
+        XCTAssertEqual(published.count, 1)
+    }
+
+    func testDisablingDuringMarkedCompositionCancelsPendingCommitAndRestoresAdmittedDisplay() {
+        var published = 0
+        let source = richDocument()
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { _ in published += 1 })
+        editor.testingSetMarkedText("intermediate", selectedRange: NSRange(location: 12, length: 0), replacementRange: NSRange(location: 4, length: 0))
+        editor.update(document: source, isEditable: false)
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(editor.testingDisplayedString(), "title\nbody")
+        editor.testingUnmarkText()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(editor.testingDisplayedString(), "title\nbody")
+        XCTAssertEqual(published, 0)
+    }
+
+    func testMultilineInsertionSplitsExistingMarkedHeadingWithoutMarkerOnSeparator() throws {
+        let editor = LoroNativeRichTextEditorController(document: richDocument(), isEditable: true)
+        editor.testingReplace(NSRange(location: 4, length: 0), with: "\nnext")
+        let document = editor.testingDocument()
+        XCTAssertEqual(document.semantic.blocks[0], .heading(level: 1, runs: [.init(text: "titl", marks: [.code, .strong])]))
+        XCTAssertEqual(document.semantic.blocks[1], .paragraph([.init(text: "nexte", marks: [.code, .strong])]))
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), document)
+    }
+
+    func testEmojiSurrogateInteriorIsRejectedWithoutMutation() {
+        var published = 0
+        let source = paragraph("A😀B")
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { _ in published += 1 })
+        editor.testingReplace(NSRange(location: 2, length: 0), with: "x")
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(published, 0)
+    }
+
+    func testCrossBlockRangeIsRejectedAtomicallyWithoutMutation() {
+        var published = 0
+        let source = richDocument()
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { _ in published += 1 })
+        // The range includes the canonical separator between the heading and paragraph.
+        editor.testingReplace(NSRange(location: 4, length: 2), with: "x")
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(published, 0)
+    }
+
+    func testInsertionIntoTerminalEncodedEmptyHeadingPreservesHeadingKind() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [.heading(level: 2, runs: [])]))
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true)
+        editor.testingReplace(NSRange(location: 0, length: 0), with: "title")
+        XCTAssertEqual(editor.testingDocument().semantic.blocks, [.heading(level: 2, runs: [.init(text: "title")])])
+        XCTAssertNoThrow(try LoroNativeRichTextCodec.decode(editor.testingStorage()))
+    }
+
+    func testEditableFocusRequestWaitsForItsNativeAttachmentSignalAndConsumesOnlyOnce() {
+        let editor = LoroNativeRichTextEditorController(document: paragraph("focus"), isEditable: true)
+        editor.testingRequestFocus(generation: 1)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 0)
+        var responderAttempts = 0
+        editor.testingSetFocusAttempt {
+            responderAttempts += 1
+            return true
+        }
+        // This is the same controller entry point GuardedRichTextView calls from
+        // `viewDidMoveToWindow`; XCTest does not create a foreground AppKit window.
+        editor.testingNotifyViewDidMoveToWindow()
+        XCTAssertEqual(responderAttempts, 1)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 1)
+        editor.testingRequestFocus(generation: 1)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 1)
+        XCTAssertEqual(responderAttempts, 1)
+    }
+
+    func testDisabledFocusRequestIsDeferredUntilTheEditorBecomesEditable() {
+        let editor = LoroNativeRichTextEditorController(document: paragraph("focus"), isEditable: false)
+        editor.testingRequestFocus(generation: 1)
+        var responderAttempts = 0
+        editor.testingSetFocusAttempt {
+            responderAttempts += 1
+            return true
+        }
+        editor.testingNotifyViewDidMoveToWindow()
+        XCTAssertEqual(responderAttempts, 0)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 0)
+        editor.update(document: paragraph("focus"), isEditable: true)
+        XCTAssertEqual(responderAttempts, 1)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 1)
+    }
+
+    private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.paragraph(text.isEmpty ? [] : [.init(text: text)])]))
+    }
+
+    private func richDocument() -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "title", marks: [.code, .strong])]),
+            .paragraph([.init(text: "body", marks: [.emphasis])])
+        ]))
+    }
+}
+#endif

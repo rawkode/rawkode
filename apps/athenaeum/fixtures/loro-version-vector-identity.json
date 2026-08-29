@@ -1,0 +1,20 @@
+{
+  "format": "athenaeum.loro-version-vector-identity.v1",
+  "generator": {
+    "package": "loro-crdt/bundler",
+    "operations": "peer 2 inserts abc; peer 10 imports snapshot then inserts defg"
+  },
+  "encodedVersionVectorBase64": "AgIGCgg=",
+  "entries": [
+    {
+      "peer": "2",
+      "counter": 3
+    },
+    {
+      "peer": "10",
+      "counter": 4
+    }
+  ],
+  "canonicalPreimage": "[{\"counter\":3,\"peer\":\"2\"},{\"counter\":4,\"peer\":\"10\"}]",
+  "sha256": "72671e55e7e7acecf237955d91f3cf671e99855f298a033872b5ea90951ef78a"
+}

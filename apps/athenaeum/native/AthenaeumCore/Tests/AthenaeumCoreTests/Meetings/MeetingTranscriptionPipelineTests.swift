@@ -38,6 +38,7 @@ private final class EmptyTranscriber: OnDeviceTranscriber, @unchecked Sendable {
 /// live backend.
 private final class RecordingSink: TranscriptSegmentSink, @unchecked Sendable {
     struct Call: Equatable {
+        let requestId: String
         let meetingId: String
         let speakerId: String?
         let text: String
@@ -48,32 +49,52 @@ private final class RecordingSink: TranscriptSegmentSink, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _calls: [Call] = []
+    private var _applied: [String: RPCTranscriptSegmentRecord] = [:]
+    private var _failAfterApplyOnce: Bool
+
+    init(failAfterApplyOnce: Bool = false) {
+        self._failAfterApplyOnce = failAfterApplyOnce
+    }
+
     var calls: [Call] { lock.withLock { _calls } }
 
-    func appendTranscriptSegment(
-        meetingId: String,
-        speakerId: String?,
-        text: String,
-        startOffsetMs: Int,
-        endOffsetMs: Int,
-        source: String
-    ) async throws -> RPCTranscriptSegmentRecord {
-        let call = Call(
-            meetingId: meetingId, speakerId: speakerId, text: text,
-            startOffsetMs: startOffsetMs, endOffsetMs: endOffsetMs, source: source
-        )
-        lock.withLock { _calls.append(call) }
-        return RPCTranscriptSegmentRecord(
-            id: "seg-\(lock.withLock { _calls.count })",
-            meetingId: meetingId,
-            speakerId: speakerId,
-            text: text,
-            startOffsetMs: startOffsetMs,
-            endOffsetMs: endOffsetMs,
-            source: source
-        )
+    func appendTranscriptSegment(intent: TranscriptSegmentAppendIntent) async throws -> RPCTranscriptSegmentRecord {
+        let (segment, shouldFailAfterApply) = lock.withLock { () -> (RPCTranscriptSegmentRecord, Bool) in
+            let call = Call(
+                requestId: intent.requestId,
+                meetingId: intent.meetingId,
+                speakerId: intent.speakerId,
+                text: intent.text,
+                startOffsetMs: intent.startOffsetMs,
+                endOffsetMs: intent.endOffsetMs,
+                source: intent.source
+            )
+            _calls.append(call)
+            if let existing = _applied[intent.requestId] {
+                return (existing, false)
+            }
+            let segment = RPCTranscriptSegmentRecord(
+                id: "seg-\(_applied.count + 1)",
+                meetingId: intent.meetingId,
+                speakerId: intent.speakerId,
+                text: intent.text,
+                startOffsetMs: intent.startOffsetMs,
+                endOffsetMs: intent.endOffsetMs,
+                source: intent.source
+            )
+            _applied[intent.requestId] = segment
+            let shouldFail = _failAfterApplyOnce
+            _failAfterApplyOnce = false
+            return (segment, shouldFail)
+        }
+        if shouldFailAfterApply {
+            throw SimulatedResponseLost()
+        }
+        return segment
     }
 }
+
+private struct SimulatedResponseLost: Error {}
 
 private extension NSLock {
     func withLock<T>(_ body: () -> T) -> T {
@@ -179,5 +200,59 @@ final class MeetingTranscriptionPipelineTests: XCTestCase {
         )
 
         XCTAssertTrue(appended.isEmpty, "a near-silent fixture should never reach the transcriber/sink when skipSilentChunks is true")
+    }
+
+    func testAppliedButUnacknowledgedChunkRetriesTheSameIntentBeforeAdvancing() async throws {
+        let blocks = try loadSamanthaBlocks()
+        let sink = RecordingSink(failAfterApplyOnce: true)
+        let pipeline = MeetingTranscriptionPipeline(transcriber: FakeTranscriber())
+
+        let appended = try await pipeline.transcribeAndAppend(
+            blocks: blocks,
+            chunkerConfig: AudioChunkerConfig(minChunkDurationSeconds: 0.5, maxChunkDurationSeconds: 1),
+            sink: sink,
+            meetingId: "meeting-1",
+            skipSilentChunks: false,
+            captureId: "capture-retry-1"
+        )
+
+        XCTAssertGreaterThanOrEqual(sink.calls.count, 3)
+        XCTAssertEqual(sink.calls.count, appended.count + 1)
+        XCTAssertEqual(sink.calls[0].requestId, sink.calls[1].requestId)
+        XCTAssertNotEqual(sink.calls[1].requestId, sink.calls[2].requestId)
+        XCTAssertTrue(sink.calls[0].requestId.hasPrefix("transcript-segment:capture-retry-1:"))
+    }
+
+    func testCaptureIdAndRetryPolicyAreValidatedBeforeTranscription() async throws {
+        let blocks = try loadSamanthaBlocks()
+        let pipeline = MeetingTranscriptionPipeline(transcriber: FakeTranscriber())
+        let sink = RecordingSink()
+
+        do {
+            _ = try await pipeline.transcribeAndAppend(blocks: blocks, sink: sink, meetingId: "meeting-1", captureId: "")
+            XCTFail("expected invalid capture id")
+        } catch let error as MeetingTranscriptionPipelineError {
+            XCTAssertEqual(error, .invalidCaptureId)
+        }
+        XCTAssertTrue(sink.calls.isEmpty)
+
+        for invalidCaptureId in ["é", String(repeating: "a", count: 129)] {
+            do {
+                _ = try await pipeline.transcribeAndAppend(blocks: blocks, sink: sink, meetingId: "meeting-1", captureId: invalidCaptureId)
+                XCTFail("expected invalid capture id: \(invalidCaptureId)")
+            } catch let error as MeetingTranscriptionPipelineError {
+                XCTAssertEqual(error, .invalidCaptureId)
+            }
+        }
+
+        for invalidRetryCount in [0, 6] {
+            do {
+                _ = try await pipeline.transcribeAndAppend(blocks: blocks, sink: sink, meetingId: "meeting-1", maxAppendAttempts: invalidRetryCount)
+                XCTFail("expected invalid retry policy: \(invalidRetryCount)")
+            } catch let error as MeetingTranscriptionPipelineError {
+                XCTAssertEqual(error, .invalidRetryPolicy)
+            }
+        }
+        XCTAssertTrue(sink.calls.isEmpty)
     }
 }

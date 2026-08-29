@@ -15,9 +15,9 @@ import SQLite3
 // GRDB — this file follows the actually-validated precedent, cited by inspecting new-notes' real
 // source rather than trusting the brief's premise. This also keeps `AthenaeumCore` consistent
 // with `AthenaeumRPC`/`AthenaeumDomain`'s own stated discipline of minimizing external
-// dependencies (their Package.swift doc comments cite watchOS-buildability; this package already
-// isn't watchOS-buildable because of `automerge-swift`, but a dependency-light SQLite layer still
-// keeps the actual Automerge dependency the *only* non-Apple-provided one in this package).
+// dependencies (their Package.swift doc comments cite watchOS-buildability; the shipped Core
+// target is Loro-only, and this dependency-light SQLite layer keeps the native storage boundary
+// independent from either CRDT implementation).
 //
 // Deliberately much smaller than new-notes' `SQLiteConnection`: this stage's `LocalWorkspaceStore`
 // only needs open/exec/prepare/bind/step/column/transaction, not new-notes' full
@@ -141,6 +141,14 @@ final class SQLite3Connection {
         }
     }
 
+    /// The row count for the immediately preceding write.  Callers use this for durable compare-
+    /// and-swap transitions rather than treating an otherwise-successful `UPDATE` as proof that a
+    /// particular lifecycle row actually changed.
+    func changes() -> Int {
+        guard let db else { return 0 }
+        return Int(sqlite3_changes(db))
+    }
+
     /// Executes `sql` once with `params` bound in order, calling `map` once per result row in
     /// row order.
     @discardableResult
@@ -204,8 +212,34 @@ func columnOptionalText(_ statement: OpaquePointer, _ index: Int32) -> String? {
     sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : columnText(statement, index)
 }
 
+func columnIsNull(_ statement: OpaquePointer, _ index: Int32) -> Bool {
+    sqlite3_column_type(statement, index) == SQLITE_NULL
+}
+
 func columnInt(_ statement: OpaquePointer, _ index: Int32) -> Int {
     Int(sqlite3_column_int64(statement, index))
+}
+
+/// Reads only a value SQLite stored as an INTEGER.  Unlike `columnInt`, this never coerces a
+/// TEXT/REAL/BLOB value through SQLite's permissive conversion rules.
+func columnStrictInteger(_ statement: OpaquePointer, _ index: Int32) -> Int64? {
+    guard sqlite3_column_type(statement, index) == SQLITE_INTEGER else { return nil }
+    return sqlite3_column_int64(statement, index)
+}
+
+/// Reads only a value SQLite stored as TEXT.  Durable hashes must not be accepted via coercion.
+func columnStrictText(_ statement: OpaquePointer, _ index: Int32) -> String? {
+    guard sqlite3_column_type(statement, index) == SQLITE_TEXT,
+          let pointer = sqlite3_column_text(statement, index) else { return nil }
+    let count = Int(sqlite3_column_bytes(statement, index))
+    return String(data: Data(bytes: pointer, count: count), encoding: .utf8)
+}
+
+/// Reads only a value SQLite stored as a BLOB.  This distinguishes an empty/corrupt durable
+/// snapshot from another SQLite scalar which `sqlite3_column_blob` would otherwise coerce.
+func columnStrictBlob(_ statement: OpaquePointer, _ index: Int32) -> Data? {
+    guard sqlite3_column_type(statement, index) == SQLITE_BLOB else { return nil }
+    return columnBlob(statement, index)
 }
 
 func columnBool(_ statement: OpaquePointer, _ index: Int32) -> Bool {

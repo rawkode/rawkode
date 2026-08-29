@@ -1,11 +1,11 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import * as Effect from "effect/Effect"
 import { MintAppRunCredentialInput, type EntityId } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 import { buildAppSandboxBootstrapScript } from "./app-sandbox-bootstrap.js"
+import { buildAppSandboxDocument } from "./app-sandbox-document.js"
 
 // Extracted from `AppLibraryPanel.tsx`'s original `useAppRunCredential`/`AppPreview` pair so the
 // launcher's full-view `AppLaunchView.tsx` and the code editor's inline preview can share the
@@ -25,11 +25,12 @@ import { buildAppSandboxBootstrapScript } from "./app-sandbox-bootstrap.js"
 // itself — nothing this parent component does reaches into the iframe after it's created.
 
 /**
- * Mints (or re-mints, whenever `appId` changes) the App-run credential the sandboxed iframe needs.
+ * Mints (or re-mints, whenever `appId` or an explicit retry changes) the App-run credential the
+ * sandboxed iframe needs.
  * Deliberately NOT re-minted on every `clientCodeVersion` bump — see this file's header comment on
  * `AppRunFrame`'s `key` for why one still-valid mint keeps authorizing across code edits.
  */
-export function useAppRunCredential(appId: EntityId) {
+export function useAppRunCredential(appId: EntityId, retryGeneration = 0) {
   const credentialEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
@@ -37,14 +38,31 @@ export function useAppRunCredential(appId: EntityId) {
       ),
     [appId]
   )
-  return useEffectQuery(credentialEffect, [appId])
+  return useEffectQuery(credentialEffect, [appId, retryGeneration])
 }
+
+const subscribeToHostTheme = (onChange: () => void): (() => void) => {
+  if (typeof document === "undefined" || typeof MutationObserver === "undefined") return () => undefined
+  const root = document.documentElement
+  if (!root) return () => undefined
+  const observer = new MutationObserver(onChange)
+  observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] })
+  return () => observer.disconnect()
+}
+
+const readHostTheme = (): "dark" | "paper" =>
+  typeof document !== "undefined" && document.documentElement?.dataset.theme === "paper" ? "paper" : "dark"
+
+/** Re-render running Apps when the shell's persisted Paper/Dark choice changes. */
+const useHostTheme = (): "dark" | "paper" => useSyncExternalStore(subscribeToHostTheme, readHostTheme, () => "dark")
 
 /**
  * The sandboxed iframe itself. `clientCodeVersion === 0` (no client code written yet) renders a
  * placeholder rather than an iframe with nothing to load — mirrors the original `AppPreview`'s
  * behavior exactly. `className` lets callers style the frame differently (a small preview pane in
- * the code editor vs. a full-bleed launch surface) without duplicating the sandbox wiring.
+ * the code editor vs. a full-bleed launch surface) without duplicating the sandbox wiring. The
+ * document shell is rebuilt when the host theme changes, so an already-running App follows the
+ * workspace's Paper/Dark choice without receiving access to the parent document.
  */
 export function AppRunFrame({
   appId,
@@ -55,16 +73,62 @@ export function AppRunFrame({
   readonly clientCodeVersion: number
   readonly className: string
 }) {
-  const credentialState = useAppRunCredential(appId)
+  const [credentialRetryGeneration, setCredentialRetryGeneration] = useState(0)
+  const credentialState = useAppRunCredential(appId, credentialRetryGeneration)
+  const credentialRetryClaim = useRef<{ readonly appId: EntityId; sawLoading: boolean } | undefined>(undefined)
+  const [credentialRetryClaimed, setCredentialRetryClaimed] = useState(false)
+  const theme = useHostTheme()
+
+  useEffect(() => {
+    const claim = credentialRetryClaim.current
+    if (claim === undefined) return
+    if (claim.appId !== appId) {
+      credentialRetryClaim.current = undefined
+      setCredentialRetryClaimed(false)
+      return
+    }
+    if (credentialState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A dependency change first renders the previous settled query result. Release only after
+    // this claimed generation has published loading and then reached its next terminal state.
+    if (!claim.sawLoading) return
+    credentialRetryClaim.current = undefined
+    setCredentialRetryClaimed(false)
+  }, [appId, credentialState.status])
+
+  const retryCredential = useCallback(() => {
+    if (credentialRetryClaim.current !== undefined || credentialState.status === "loading") return
+    credentialRetryClaim.current = { appId, sawLoading: false }
+    setCredentialRetryClaimed(true)
+    setCredentialRetryGeneration((generation) => generation + 1)
+  }, [appId, credentialState.status])
+
+  const isRetryingCredential = credentialRetryClaimed || credentialState.status === "loading"
 
   if (clientCodeVersion === 0) {
     return <p className="app-library-empty">No client code yet — write and save some to run it here.</p>
   }
   if (credentialState.status === "loading") {
-    return <p className="app-library-empty">Preparing sandbox…</p>
+    return (
+      <p className="app-library-empty" role="status" aria-live="polite" aria-atomic="true">
+        Preparing sandbox…
+      </p>
+    )
   }
   if (credentialState.status === "failure") {
-    return <p className="error">Could not prepare a sandboxed run: {formatDomainError(credentialState.error)}</p>
+    return (
+      <section className="app-run-frame-state app-run-frame-failure" role="alert">
+        <div>
+          <p className="app-run-frame-state-title">This app couldn&rsquo;t start.</p>
+          <p>Its code and workspace are unchanged.</p>
+        </div>
+        <button type="button" onClick={retryCredential} disabled={isRetryingCredential}>
+          {isRetryingCredential ? "Retrying…" : "Retry"}
+        </button>
+      </section>
+    )
   }
 
   const token = credentialState.value.credential
@@ -74,12 +138,13 @@ export function AppRunFrame({
   // credential (see this file's header comment).
   const clientJsUrl = `/api/workspace/${workspaceId}/apps/${appId}/client.js?v=${clientCodeVersion}&token=${encodeURIComponent(token)}`
   const bootstrapScript = buildAppSandboxBootstrapScript(runBaseUrl, token)
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app-root"></div><script>${bootstrapScript}</script><script src="${clientJsUrl}"></script></body></html>`
+  const srcDoc = buildAppSandboxDocument({ clientJsUrl, bootstrapScript, theme })
   return (
     <iframe
-      // Remounts on every code-version/credential change so the PREVIEWED CODE is always current
-      // even though the credential underneath it isn't re-minted every render.
-      key={`${clientCodeVersion}:${token}`}
+      // Remounts on every code-version/credential/theme change so the PREVIEWED CODE and its
+      // document contract are always current even though the credential underneath it isn't
+      // re-minted every render.
+      key={`${clientCodeVersion}:${theme}:${token}`}
       className={className}
       title="App"
       sandbox="allow-scripts"

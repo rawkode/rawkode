@@ -21,11 +21,22 @@ final class QuickCaptureClientLiveTests: XCTestCase {
             XCTFail("invalid ATHENAEUM_TEST_BACKEND_URL: \(urlString)")
             throw CapnWebError.malformedMessage("invalid base URL")
         }
-        return WorkspaceRPCClient(baseURL: baseURL, workspaceId: workspaceId)
+        return WorkspaceRPCClient(
+            baseURL: baseURL,
+            workspaceId: workspaceId,
+            bearerCredential: ProcessInfo.processInfo.environment["ATHENAEUM_TEST_BEARER_CREDENTIAL"]
+        )
     }
 
     private func freshWorkspaceId() -> String {
         UUID().uuidString.lowercased()
+    }
+
+    private func requireBearerCredential() throws -> String {
+        guard let credential = ProcessInfo.processInfo.environment["ATHENAEUM_TEST_BEARER_CREDENTIAL"], !credential.isEmpty else {
+            throw XCTSkip("ATHENAEUM_TEST_BEARER_CREDENTIAL not set — authenticated addFact live test skipped")
+        }
+        return credential
     }
 
     /// The watchOS-flow analog of `WorkspaceSyncClientLiveTests`'s smoke test: capture a piece of
@@ -35,8 +46,9 @@ final class QuickCaptureClientLiveTests: XCTestCase {
     func testCaptureCreatesTaskTaggedNodeWithFullTextFactServerSide() async throws {
         let workspaceId = freshWorkspaceId()
         let workspaceIdTyped = try EntityId(validating: workspaceId)
+        let credential = try requireBearerCredential()
         let writeClient = try makeRPCClient(workspaceId: workspaceId)
-        let quickCapture = QuickCaptureClient(rpcClient: writeClient, workspaceId: workspaceIdTyped)
+        let quickCapture = QuickCaptureClient(rpcClient: writeClient, workspaceId: workspaceIdTyped, bearerCredential: credential)
 
         let longText = "Call the vet about \(String(repeating: "the dog's ", count: 20))follow-up appointment  \n"
         let result = try await quickCapture.capture(text: longText)
@@ -59,8 +71,9 @@ final class QuickCaptureClientLiveTests: XCTestCase {
     func testCaptureOfShortTextLeavesTitleUntruncated() async throws {
         let workspaceId = freshWorkspaceId()
         let workspaceIdTyped = try EntityId(validating: workspaceId)
+        let credential = try requireBearerCredential()
         let writeClient = try makeRPCClient(workspaceId: workspaceId)
-        let quickCapture = QuickCaptureClient(rpcClient: writeClient, workspaceId: workspaceIdTyped)
+        let quickCapture = QuickCaptureClient(rpcClient: writeClient, workspaceId: workspaceIdTyped, bearerCredential: credential)
 
         let result = try await quickCapture.capture(text: "Buy milk")
         XCTAssertEqual(result.node.title, "Buy milk")

@@ -4,6 +4,20 @@ import XCTest
 /// Same pattern as `EntityDecodingTests`: every RPC input/output schema decoded against a
 /// TS-encoder-produced fixture, plus a round-trip through this package's own `Codable`.
 final class RPCDecodingTests: XCTestCase {
+    func testCalendarEventAttendeePersonNodeIdRoundTripsAndIsOptional() throws {
+        let nodeId = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e60")
+        let attendee = CalendarEventAttendee(email: "person@example.com", personNodeId: nodeId)
+        let encoded = try JSONEncoder().encode(attendee)
+        let decoded = try JSONDecoder().decode(CalendarEventAttendee.self, from: encoded)
+        XCTAssertEqual(decoded.personNodeId, nodeId)
+
+        let withoutPerson = try JSONDecoder().decode(
+            CalendarEventAttendee.self,
+            from: Data(#"{"email":"person@example.com"}"#.utf8)
+        )
+        XCTAssertNil(withoutPerson.personNodeId)
+    }
+
     // MARK: - rpc.ts (nodes)
 
     func testCreateNodeInputWithoutId() throws {
@@ -65,6 +79,18 @@ final class RPCDecodingTests: XCTestCase {
         XCTAssertEqual(input.cardinality, .manyToMany)
         try assertRoundTrips(input)
         try assertRoundTrips(try decodeFixture(CreateRelationDefinitionOutput.self, "CreateRelationDefinitionOutput"))
+    }
+
+    func testCreateBookmarkInputOutput() throws {
+        let input = try decodeFixture(CreateBookmarkInput.self, "CreateBookmarkInput")
+        XCTAssertEqual(input.requestId, "fixture-create-bookmark")
+        XCTAssertEqual(input.attribution.surface, "web-bookmarks")
+        XCTAssertEqual(input.url.rawValue, "https://example.com/fixture?token=exact")
+        try assertRoundTrips(input)
+
+        let output = try decodeFixture(CreateBookmarkOutput.self, "CreateBookmarkOutput")
+        XCTAssertEqual(output.bookmark.title, "Fixture bookmark")
+        try assertRoundTrips(output)
     }
 
     func testCreateEdgeInputOutput() throws {
@@ -204,6 +230,22 @@ final class RPCDecodingTests: XCTestCase {
         let output = try decodeFixture(PageSyncMessageOutput.self, "PageSyncMessageOutputConverged")
         XCTAssertTrue(output.converged)
         XCTAssertNil(output.message)
+        try assertRoundTrips(output)
+    }
+
+    // MARK: - today-brief-rpc.ts (privacy-safe calendar projection)
+
+    func testGetTodayBriefInputOutput() throws {
+        let input = try decodeFixture(GetTodayBriefInput.self, "GetTodayBriefInput")
+        XCTAssertEqual(input.localDate.rawValue, "2026-11-01")
+        XCTAssertEqual(input.timeZone.rawValue, "America/New_York")
+        try assertRoundTrips(input)
+
+        let output = try decodeFixture(GetTodayBriefOutput.self, "GetTodayBriefOutput")
+        XCTAssertEqual(output.from.rawValue, "2026-11-01T04:00:00.000Z")
+        XCTAssertEqual(output.to.rawValue, "2026-11-02T05:00:00.000Z")
+        XCTAssertEqual(output.calendarHistory.status, .found)
+        XCTAssertEqual(output.events.first?.people.map(\.displayName), ["Alice", nil])
         try assertRoundTrips(output)
     }
 }

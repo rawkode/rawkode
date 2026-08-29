@@ -8,10 +8,16 @@ public struct CreateTagInput: Codable, Hashable, Sendable {
     public let workspaceId: EntityId
     public let name: String
     public let parentIds: [EntityId]
-    public init(workspaceId: EntityId, name: String, parentIds: [EntityId]) {
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public init(workspaceId: EntityId, name: String, parentIds: [EntityId], requestId: String, commitMessage: String, attribution: MutationAttribution) {
         self.workspaceId = workspaceId
         self.name = name
         self.parentIds = parentIds
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 
@@ -25,16 +31,34 @@ public struct AddFactInput: Codable, Hashable, Sendable {
     public let nodeId: EntityId
     public let predicateId: String
     public let value: JSONValue
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
     /// Optional caller-supplied id — same idempotent-retry convention as `NodeRPC.swift`'s
     /// `CreateNodeInput.id` (see `graph-rpc.ts`'s doc comment).
     public let id: EntityId?
 
-    public init(workspaceId: EntityId, nodeId: EntityId, predicateId: String, value: JSONValue, id: EntityId? = nil) {
+    public init(workspaceId: EntityId, nodeId: EntityId, predicateId: String, value: JSONValue, requestId: String, commitMessage: String, attribution: MutationAttribution, id: EntityId? = nil) {
         self.workspaceId = workspaceId
         self.nodeId = nodeId
         self.predicateId = predicateId
         self.value = value
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
         self.id = id
+    }
+}
+
+public struct MutationAttribution: Codable, Hashable, Sendable {
+    public let version: String
+    public let kind: String
+    public let surface: String?
+    public let jobId: String?
+    public let runId: String?
+    public let source: String?
+    public init(version: String = "athenaeum.mutation-attribution.v1", kind: String, surface: String? = nil, jobId: String? = nil, runId: String? = nil, source: String? = nil) {
+        self.version = version; self.kind = kind; self.surface = surface; self.jobId = jobId; self.runId = runId; self.source = source
     }
 }
 
@@ -50,6 +74,9 @@ public struct CreateRelationDefinitionInput: Codable, Hashable, Sendable {
     public let sourceTagId: EntityId
     public let targetTagId: EntityId
     public let cardinality: RelationCardinality
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
 
     public init(
         workspaceId: EntityId,
@@ -57,7 +84,10 @@ public struct CreateRelationDefinitionInput: Codable, Hashable, Sendable {
         inverseName: String,
         sourceTagId: EntityId,
         targetTagId: EntityId,
-        cardinality: RelationCardinality
+        cardinality: RelationCardinality,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
     ) {
         self.workspaceId = workspaceId
         self.forwardName = forwardName
@@ -65,6 +95,9 @@ public struct CreateRelationDefinitionInput: Codable, Hashable, Sendable {
         self.sourceTagId = sourceTagId
         self.targetTagId = targetTagId
         self.cardinality = cardinality
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 
@@ -78,12 +111,18 @@ public struct CreateEdgeInput: Codable, Hashable, Sendable {
     public let relationDefinitionId: EntityId
     public let sourceNodeId: EntityId
     public let targetNodeId: EntityId
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
 
-    public init(workspaceId: EntityId, relationDefinitionId: EntityId, sourceNodeId: EntityId, targetNodeId: EntityId) {
+    public init(workspaceId: EntityId, relationDefinitionId: EntityId, sourceNodeId: EntityId, targetNodeId: EntityId, requestId: String, commitMessage: String, attribution: MutationAttribution) {
         self.workspaceId = workspaceId
         self.relationDefinitionId = relationDefinitionId
         self.sourceNodeId = sourceNodeId
         self.targetNodeId = targetNodeId
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 
@@ -176,18 +215,26 @@ public struct AssignTagInput: Codable, Hashable, Sendable {
     public let workspaceId: EntityId
     public let nodeId: EntityId
     public let tagId: EntityId
-    public init(workspaceId: EntityId, nodeId: EntityId, tagId: EntityId) {
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public init(workspaceId: EntityId, nodeId: EntityId, tagId: EntityId, requestId: String, commitMessage: String, attribution: MutationAttribution) {
         self.workspaceId = workspaceId
         self.nodeId = nodeId
         self.tagId = tagId
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 
 public struct AssignTagOutput: Codable, Hashable, Sendable {
     public let nodeId: EntityId
     public let tagId: EntityId
-    public init(nodeId: EntityId, tagId: EntityId) {
+    public let changed: Bool
+    public init(nodeId: EntityId, tagId: EntityId, changed: Bool) {
         self.nodeId = nodeId
         self.tagId = tagId
+        self.changed = changed
     }
 }

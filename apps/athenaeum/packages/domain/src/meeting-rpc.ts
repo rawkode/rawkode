@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { Meeting, Speaker, TranscriptSegmentRecord, TranscriptSegmentSource } from "./meeting.js"
+import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 
 // Phase 6 domain-extension task (plan §"Meetings & voice"), item 4: "RPC schemas: startMeeting,
@@ -28,7 +29,13 @@ import { EntityId, IsoDateTimeString } from "./node.js"
  *  identical convention. */
 export class StartMeetingInput extends Schema.Class<StartMeetingInput>("StartMeetingInput")({
   workspaceId: EntityId,
-  title: Schema.String.pipe(Schema.minLength(1))
+  title: Schema.String.pipe(Schema.minLength(1)),
+  /** Caller-owned semantic identity. Transport retries must reuse this value. */
+  requestId: MutationRequestId,
+  /** Human/job rationale retained in the private ledger payload. */
+  commitMessage: MutationCommitMessage,
+  /** Asserted caller provenance; principal and policy remain server-derived. */
+  attribution: MutationAttribution
 }) {}
 
 export class StartMeetingOutput extends Schema.Class<StartMeetingOutput>("StartMeetingOutput")({
@@ -66,6 +73,12 @@ export class AppendTranscriptSegmentInput extends Schema.Class<AppendTranscriptS
 )({
   workspaceId: EntityId,
   meetingId: EntityId,
+  /** Caller-owned identity for the semantic segment. Transport retries must reuse this value. */
+  requestId: MutationRequestId,
+  /** Human/job rationale retained in the private ledger payload and required for every write. */
+  commitMessage: MutationCommitMessage,
+  /** Asserted surface/job provenance; principal and policy remain server-derived. */
+  attribution: MutationAttribution,
   speakerId: Schema.optional(EntityId),
   text: Schema.String,
   startOffsetMs: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
@@ -13,7 +13,6 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 import { AppRunFrame } from "./AppRunFrame.js"
 
 // App Library editor — the direct/mainline path (`updateAppCode`/`getAppCode`/`deleteApp`,
@@ -53,6 +52,9 @@ import { AppRunFrame } from "./AppRunFrame.js"
 // the same token to the App's own `/run` calls. The parent page's `WorkspaceRpcClient`/session
 // credential never crosses into the iframe at all.
 
+const appCodeSaveFailureMessage =
+  "We couldn’t confirm that this code was saved. Your draft is still here. Review the current code before saving again."
+
 function CodeEditor({
   appId,
   kind,
@@ -62,6 +64,14 @@ function CodeEditor({
   readonly kind: AppCodeKind
   readonly onSaved: () => void
 }) {
+  const [retryGeneration, setRetryGeneration] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const [retainedCode, setRetainedCode] = useState<string | undefined>(undefined)
+  const [draft, setDraft] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const isSavingRef = useRef(false)
+  const retryClaim = useRef<{ appId: EntityId; kind: AppCodeKind; sawLoading: boolean } | undefined>(undefined)
   const codeEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
@@ -69,22 +79,61 @@ function CodeEditor({
       ),
     [appId, kind]
   )
-  const codeState = useEffectQuery(codeEffect, [appId, kind])
+  const codeState = useEffectQuery(codeEffect, [appId, kind, retryGeneration])
 
-  const [draft, setDraft] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (claim.appId !== appId || claim.kind !== kind) {
+      retryClaim.current = undefined
+      setRetryClaimed(false)
+      return
+    }
+    if (codeState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // The retry-generation render still contains the preceding failure. Keep the presentation
+    // claim until this keyed code read visibly loads and then reaches its terminal result.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [appId, codeState.status, kind])
+
+  const retryCode = useCallback(() => {
+    if (retryClaim.current !== undefined || codeState.status === "loading") return
+    retryClaim.current = { appId, kind, sawLoading: false }
+    setRetryClaimed(true)
+    setRetryGeneration((generation) => generation + 1)
+  }, [appId, codeState.status, kind])
+
+  const isRetryingCode = retryClaimed || codeState.status === "loading"
+
+  const knownEmpty = codeState.status === "failure" && codeState.error._tag === "AppCodeVersionNotFound"
+  const codeUnavailable = codeState.status === "failure" && !knownEmpty
+
+  // Keep an already-observed code snapshot on screen through a transient reload failure. The
+  // component is keyed by app/kind below, so this state can never cross from Client to Server
+  // code (or between Apps), and the failure branch keeps it read-only until a real read succeeds.
+  useEffect(() => {
+    if (codeState.status === "success") setRetainedCode(codeState.value.codeVersion.code)
+    else if (knownEmpty) setRetainedCode("")
+  }, [codeState, knownEmpty])
 
   const loadedCode =
     codeState.status === "success"
       ? codeState.value.codeVersion.code
-      : codeState.status === "failure" && codeState.error._tag === "AppCodeVersionNotFound"
+      : knownEmpty
         ? ""
-        : undefined
+        : retainedCode
 
   const value = draft ?? loadedCode ?? ""
+  const retainedEditorVisible = loadedCode !== undefined || draft !== null
+  const editorReadOnly = codeUnavailable || codeState.status === "loading"
 
   const handleSave = () => {
+    if (isSavingRef.current) return
+    isSavingRef.current = true
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
@@ -93,12 +142,13 @@ function CodeEditor({
       )
     )
     fiber.addObserver((exit) => {
+      isSavingRef.current = false
       setBusy(false)
       if (Exit.isSuccess(exit)) {
         setDraft(null)
         onSaved()
       } else if (!Exit.isInterrupted(exit)) {
-        setError("Failed to save code")
+        setError(appCodeSaveFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -106,11 +156,23 @@ function CodeEditor({
 
   return (
     <div className="app-library-code-editor">
-      {codeState.status === "loading" && <p>Loading {kind} code…</p>}
-      {codeState.status === "failure" && codeState.error._tag !== "AppCodeVersionNotFound" && (
-        <p className="error">{formatDomainError(codeState.error)}</p>
+      {codeState.status === "loading" && (
+        <p role="status" aria-live="polite" aria-atomic="true">
+          Loading {kind} code…
+        </p>
       )}
-      {codeState.status !== "loading" && (
+      {codeUnavailable && (
+        <section className="app-code-load-state" role="alert">
+          <div>
+            <p className="app-code-load-title">{kind === "client" ? "Client" : "Server"} code couldn&rsquo;t be loaded.</p>
+            <p>{retainedEditorVisible ? "Current content is kept read-only until this succeeds." : "Retry before editing or saving code."}</p>
+          </div>
+          <button type="button" onClick={retryCode} disabled={isRetryingCode}>
+            {isRetryingCode ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
+      {retainedEditorVisible && (
         <>
           <textarea
             className="app-library-code-textarea"
@@ -119,10 +181,11 @@ function CodeEditor({
             onChange={(event) => setDraft(event.target.value)}
             placeholder={`No ${kind} code yet — write some and save.`}
             aria-label={`${kind} code`}
+            readOnly={editorReadOnly}
             disabled={busy}
           />
-          {error !== null && <p className="error">{error}</p>}
-          <button type="button" onClick={handleSave} disabled={busy || draft === null}>
+          {error !== null && <p className="error" role="alert">{error}</p>}
+          <button type="button" onClick={handleSave} disabled={busy || editorReadOnly || draft === null}>
             {busy ? "Saving…" : `Save ${kind} code`}
           </button>
         </>
@@ -135,24 +198,31 @@ function AppPreview({ appId, clientCodeVersion }: { readonly appId: EntityId; re
   return <AppRunFrame appId={appId} clientCodeVersion={clientCodeVersion} className="app-library-preview-frame" />
 }
 
+const appDeleteFailureMessage =
+  "We couldn’t confirm that this app was deleted. It may still be available. Review your apps before taking another action."
+
 export function AppDetail({ app, onChanged }: { readonly app: App; readonly onChanged: () => void }) {
   const [tab, setTab] = useState<AppCodeKind>("client")
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const isDeletingRef = useRef(false)
 
   const handleDelete = () => {
+    if (isDeletingRef.current) return
     if (!window.confirm(`Delete "${app.title}"? This cannot be undone.`)) return
+    isDeletingRef.current = true
     setDeleteBusy(true)
     setDeleteError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.deleteApp(new DeleteAppInput({ workspaceId, appId: app.id }))))
     )
     fiber.addObserver((exit) => {
+      isDeletingRef.current = false
       setDeleteBusy(false)
       if (Exit.isSuccess(exit)) {
         onChanged()
       } else if (!Exit.isInterrupted(exit)) {
-        setDeleteError("Failed to delete app")
+        setDeleteError(appDeleteFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -174,7 +244,7 @@ export function AppDetail({ app, onChanged }: { readonly app: App; readonly onCh
           {deleteBusy ? "Deleting…" : "Delete"}
         </button>
       </header>
-      {deleteError !== null && <p className="error">{deleteError}</p>}
+      {deleteError !== null && <p className="error" role="alert">{deleteError}</p>}
 
       <div className="app-library-tabs" role="tablist">
         <button
@@ -197,7 +267,7 @@ export function AppDetail({ app, onChanged }: { readonly app: App; readonly onCh
         </button>
       </div>
 
-      <CodeEditor appId={app.id} kind={tab} onSaved={onChanged} />
+      <CodeEditor key={`${app.id}:${tab}`} appId={app.id} kind={tab} onSaved={onChanged} />
 
       {tab === "client" && (
         <>

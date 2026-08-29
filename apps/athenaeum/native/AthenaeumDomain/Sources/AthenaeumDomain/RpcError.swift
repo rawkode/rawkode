@@ -1,5 +1,11 @@
 import Foundation
 
+public let LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE =
+    "Loro page content updates must use commitLoroPageContent."
+
+public let LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE =
+    "Loro request identity was already used for a different command."
+
 // Mirrors `packages/domain/src/errors.ts`'s `DomainError` union and
 // `packages/domain/src/rpc-error.ts`'s `RpcErrorEnvelope` + `encodeRpcError`/`decodeRpcError` —
 // risk #3's mitigation (plan §"Top risks": "a {tag, message, data} thrown-error envelope
@@ -24,9 +30,13 @@ import Foundation
 /// `observerVerificationFailed`), matching `errors.ts`'s own "New Data.TaggedErrors" widening.
 public enum DomainError: Error, Hashable, Sendable {
     case nodeNotFound(nodeId: String)
+    case nodeAlreadyExists(nodeId: String)
     case validationError(message: String, cause: String?)
     case unexpectedError(message: String)
     case pageNotFound(nodeId: String)
+    case pageFormatMismatch(nodeId: String, expected: PageDocumentFormat, actual: PageDocumentFormat)
+    case loroSemanticCommitRequired(nodeId: String)
+    case loroRequestIdentityConflict(nodeId: String, requestId: String)
     case tagNotFound(tagId: String)
     case factNotFound(factId: String)
     case edgeNotFound(edgeId: String)
@@ -46,9 +56,13 @@ public enum DomainError: Error, Hashable, Sendable {
 /// Mirrors `rpc-error.ts`'s `knownTags` — the closed set of tags `RpcErrorEnvelope.tag` accepts.
 public enum DomainErrorTag: String, Codable, Hashable, Sendable {
     case nodeNotFound = "NodeNotFound"
+    case nodeAlreadyExists = "NodeAlreadyExists"
     case validationError = "ValidationError"
     case unexpectedError = "UnexpectedError"
     case pageNotFound = "PageNotFound"
+    case pageFormatMismatch = "PageFormatMismatch"
+    case loroSemanticCommitRequired = "LoroSemanticCommitRequired"
+    case loroRequestIdentityConflict = "LoroRequestIdentityConflict"
     case tagNotFound = "TagNotFound"
     case factNotFound = "FactNotFound"
     case edgeNotFound = "EdgeNotFound"
@@ -101,6 +115,12 @@ public func encodeRpcError(_ error: DomainError) -> RpcErrorEnvelope {
             message: "Node not found: \(nodeId)",
             data: ["nodeId": .string(nodeId)]
         )
+    case .nodeAlreadyExists(let nodeId):
+        return RpcErrorEnvelope(
+            tag: .nodeAlreadyExists,
+            message: "Node already exists: \(nodeId)",
+            data: ["nodeId": .string(nodeId)]
+        )
     case .validationError(let message, let cause):
         return RpcErrorEnvelope(
             tag: .validationError,
@@ -114,6 +134,24 @@ public func encodeRpcError(_ error: DomainError) -> RpcErrorEnvelope {
             tag: .pageNotFound,
             message: "Page not found: \(nodeId)",
             data: ["nodeId": .string(nodeId)]
+        )
+    case .pageFormatMismatch(let nodeId, let expected, let actual):
+        return RpcErrorEnvelope(
+            tag: .pageFormatMismatch,
+            message: "Page \(nodeId) uses \(actual.rawValue), but this operation requires \(expected.rawValue)",
+            data: ["nodeId": .string(nodeId), "expected": .string(expected.rawValue), "actual": .string(actual.rawValue)]
+        )
+    case .loroSemanticCommitRequired(let nodeId):
+        return RpcErrorEnvelope(
+            tag: .loroSemanticCommitRequired,
+            message: LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+            data: ["nodeId": .string(nodeId)]
+        )
+    case .loroRequestIdentityConflict(let nodeId, let requestId):
+        return RpcErrorEnvelope(
+            tag: .loroRequestIdentityConflict,
+            message: LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE,
+            data: ["nodeId": .string(nodeId), "requestId": .string(requestId)]
         )
     case .tagNotFound(let tagId):
         return RpcErrorEnvelope(
@@ -213,6 +251,8 @@ public func decodeRpcError(_ envelope: RpcErrorEnvelope) -> DomainError {
     switch envelope.tag {
     case .nodeNotFound:
         return .nodeNotFound(nodeId: jsonString(envelope.data["nodeId"]))
+    case .nodeAlreadyExists:
+        return .nodeAlreadyExists(nodeId: jsonString(envelope.data["nodeId"]))
     case .validationError:
         return .validationError(message: envelope.message, cause: envelope.data["cause"].flatMap {
             if case .string(let s) = $0 { return s } else { return nil }
@@ -221,6 +261,21 @@ public func decodeRpcError(_ envelope: RpcErrorEnvelope) -> DomainError {
         return .unexpectedError(message: envelope.message)
     case .pageNotFound:
         return .pageNotFound(nodeId: jsonString(envelope.data["nodeId"]))
+    case .pageFormatMismatch:
+        return .pageFormatMismatch(
+            nodeId: jsonString(envelope.data["nodeId"]),
+            expected: pageDocumentFormat(envelope.data["expected"]),
+            actual: pageDocumentFormat(envelope.data["actual"])
+        )
+    case .loroSemanticCommitRequired:
+        // This convenience accepts a trusted, already-validated envelope. Raw C4 envelopes
+        // must use decodeValidatedRpcError(_:) so malformed data cannot fabricate this case.
+        return .loroSemanticCommitRequired(nodeId: jsonString(envelope.data["nodeId"]))
+    case .loroRequestIdentityConflict:
+        return .loroRequestIdentityConflict(
+            nodeId: jsonString(envelope.data["nodeId"]),
+            requestId: jsonString(envelope.data["requestId"])
+        )
     case .tagNotFound:
         return .tagNotFound(tagId: jsonString(envelope.data["tagId"]))
     case .factNotFound:
@@ -276,12 +331,70 @@ public func decodeRpcError(_ envelope: RpcErrorEnvelope) -> DomainError {
     }
 }
 
+private func pageDocumentFormat(_ value: JSONValue?) -> PageDocumentFormat {
+    guard case .string(let raw) = value, let format = PageDocumentFormat(rawValue: raw) else {
+        // The outer envelope was schema-validated on the TS side. Preserve the existing
+        // non-throwing decodeRpcError API for malformed hand-constructed envelopes; callers
+        // decoding raw data still fail closed for invalid tags/JSON.
+        return .automergeV1
+    }
+    return format
+}
+
 /// Convenience overload mirroring `decodeRpcError`'s actual TS entry point, which accepts
 /// `unknown` (e.g. `JSON.parse`'d straight off a caught `Error#message`): decodes `data` as a
 /// `RpcErrorEnvelope` via `JSONDecoder` first, then recovers the typed `DomainError` — a
 /// malformed payload throws the `DecodingError` instead of silently misdecoding, same fail-closed
 /// contract.
 public func decodeRpcError(from data: Data) throws -> DomainError {
-    let envelope = try JSONDecoder().decode(RpcErrorEnvelope.self, from: data)
+    try decodeValidatedRpcError(data)
+}
+
+/// Decodes a raw RPC error envelope and applies the C4 strict wire contract. The existing
+/// `decodeRpcError(_:)` remains a convenience for envelopes already validated by a trusted
+/// producer; callers handling untrusted raw C4 data must use this entry point.
+public func decodeValidatedRpcError(_ raw: Data) throws -> DomainError {
+    let rawJSON = try JSONSerialization.jsonObject(with: raw)
+    if let rawEnvelope = rawJSON as? [String: Any],
+       [DomainErrorTag.loroSemanticCommitRequired.rawValue, DomainErrorTag.loroRequestIdentityConflict.rawValue]
+        .contains(rawEnvelope["tag"] as? String ?? ""),
+       Set(rawEnvelope.keys) != Set(["tag", "message", "data"])
+    {
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: [],
+                debugDescription: "Malformed strict Loro RPC error envelope"
+            )
+        )
+    }
+    let envelope = try JSONDecoder().decode(RpcErrorEnvelope.self, from: raw)
+    guard envelope.tag == .loroSemanticCommitRequired || envelope.tag == .loroRequestIdentityConflict else {
+        return decodeRpcError(envelope)
+    }
+    let isValid: Bool
+    switch envelope.tag {
+    case .loroSemanticCommitRequired:
+        isValid = envelope.message == LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE
+            && Set(envelope.data.keys) == Set(["nodeId"])
+            && { if case let .string(nodeId)? = envelope.data["nodeId"] { return EntityId.isValid(nodeId) }; return false }()
+    case .loroRequestIdentityConflict:
+        isValid = envelope.message == LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE
+            && Set(envelope.data.keys) == Set(["nodeId", "requestId"])
+            && { if case let .string(nodeId)? = envelope.data["nodeId"], case let .string(requestId)? = envelope.data["requestId"] { return EntityId.isValid(nodeId) && isCanonicalLoroRequestId(requestId) }; return false }()
+    default:
+        isValid = false
+    }
+    guard isValid else {
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: [],
+                debugDescription: "Malformed strict Loro RPC error envelope"
+            )
+        )
+    }
     return decodeRpcError(envelope)
+}
+
+private func isCanonicalLoroRequestId(_ value: String) -> Bool {
+    !value.isEmpty && value.utf16.count <= 200 && isECMAScriptTrimmed(value)
 }

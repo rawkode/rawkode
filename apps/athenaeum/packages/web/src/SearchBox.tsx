@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import * as Effect from "effect/Effect"
-import { SearchNodesInput } from "@athenaeum/domain"
+import { SearchNodesInput, SearchNodesOutput } from "@athenaeum/domain"
+import type { DomainError } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 
 // Retrieval pass (design-review 2026-08-22 finding #1, "Search"): the review's Flow 3 verified
 // there was "no search input anywhere in the shell" while the backend has shipped a real,
@@ -18,6 +18,59 @@ import { formatDomainError } from "./format-domain-error.js"
 
 const SEARCH_DEBOUNCE_MS = 250
 
+const EMPTY_SEARCH_OUTPUT = new SearchNodesOutput({ results: [] })
+
+/** Shared retrieval state for the resident sidebar search and the transient command palette. */
+export function useNodeSearch(query: string, enabled = true) {
+  const [debouncedQuery, setDebouncedQuery] = useState("")
+  const [retryKey, setRetryKey] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  const active = enabled && debouncedQuery.length > 0
+  const searchEffect = useMemo<Effect.Effect<SearchNodesOutput, DomainError, WorkspaceRpcClient>>(
+    () =>
+      active
+        ? WorkspaceRpcClient.pipe(
+            Effect.flatMap((client) =>
+              client.searchNodes(new SearchNodesInput({ workspaceId, query: debouncedQuery, limit: 20 }))
+            )
+          )
+        : Effect.succeed(EMPTY_SEARCH_OUTPUT),
+    [active, debouncedQuery, retryKey]
+  )
+  const state = useEffectQuery(searchEffect, [active, debouncedQuery, retryKey])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [state.status])
+  const retry = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { sawLoading: false }
+    setRetryClaimed(true)
+    setRetryKey((key) => key + 1)
+  }, [state.status])
+  const isRetrying = retryClaimed || state.status === "loading"
+
+  // Consumers must only offer result actions once their own visible query is the query which
+  // produced this state. During the debounce window, the previous request may still be successful
+  // but it is no longer a safe navigation target.
+  const isCurrent = active && debouncedQuery === query.trim()
+  return { active, debouncedQuery, isCurrent, state, retry, isRetrying }
+}
+
 export function SearchBox({
   onNavigated
 }: {
@@ -27,77 +80,100 @@ export function SearchBox({
 }) {
   const navigate = useNavigate()
   const [query, setQuery] = useState("")
-  const [debouncedQuery, setDebouncedQuery] = useState("")
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const { isCurrent, state, retry, isRetrying } = useNodeSearch(query)
+  const trimmedQuery = query.trim()
+  // A prior successful request must never remain keyboard-selectable after the user has typed a
+  // different query but before its debounce elapses. Treat that small interval as loading rather
+  // than sending the user to a stale result.
+  const hasCurrentSearch = isCurrent
+  const results = hasCurrentSearch && state.status === "success" ? state.value.results : []
 
   useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    }
-  }, [query])
-
-  const active = debouncedQuery.length > 0
-
-  const searchEffect = useMemo(
-    () =>
-      active
-        ? WorkspaceRpcClient.pipe(
-            Effect.flatMap((client) =>
-              client.searchNodes(new SearchNodesInput({ workspaceId, query: debouncedQuery, limit: 20 }))
-            )
-          )
-        : Effect.succeed({ results: [] as ReadonlyArray<{ nodeId: string; title: string; snippet: string }> }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debouncedQuery, active]
-  )
-  const state = useEffectQuery(searchEffect, [debouncedQuery, active])
+    setSelectedIndex((index) => Math.min(index, Math.max(results.length - 1, 0)))
+  }, [results.length])
 
   const openResult = (nodeId: string) => {
-    setQuery("")
-    setDebouncedQuery("")
+    // AppShell persists across node routes, so retain this current, typed search session while a
+    // person inspects a result. Escape and a subsequent edit remain the explicit clear/change
+    // paths, and `hasCurrentSearch` still fails closed during a new debounce window.
     navigate(`/node/${nodeId}`)
     onNavigated?.()
   }
+
+  const activeResultId = results.length > 0 ? `sidebar-search-option-${selectedIndex}` : undefined
 
   return (
     <div className="shell-search" role="search">
       <input
         type="search"
-        className="shell-search-input"
+        className="ds-field shell-search-input"
         placeholder="Search notes…"
         aria-label="Search notes"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={results.length > 0}
+        aria-controls="sidebar-search-results"
+        aria-activedescendant={activeResultId}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setSelectedIndex(0)
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
+            event.preventDefault()
             setQuery("")
-            setDebouncedQuery("")
-          }
-          // Enter opens the top hit — the "I typed what I want, take me there" fast path.
-          if (event.key === "Enter" && state.status === "success" && state.value.results.length > 0) {
-            openResult(state.value.results[0].nodeId)
+            setSelectedIndex(0)
+          } else if (event.key === "ArrowDown") {
+            if (results.length > 0) {
+              event.preventDefault()
+              setSelectedIndex((index) => (index + 1) % results.length)
+            }
+          } else if (event.key === "ArrowUp") {
+            if (results.length > 0) {
+              event.preventDefault()
+              setSelectedIndex((index) => (index - 1 + results.length) % results.length)
+            }
+          } else if (event.key === "Enter") {
+            const result = results[selectedIndex]
+            if (result !== undefined) {
+              event.preventDefault()
+              openResult(result.nodeId)
+            }
           }
         }}
       />
 
-      {active && (
-        <div className="shell-search-results" aria-live="polite">
-          {state.status === "loading" && <p className="shell-search-status">Searching…</p>}
-          {state.status === "failure" && (
-            <p className="shell-search-status error">{formatDomainError(state.error)}</p>
+      {trimmedQuery.length > 0 && (
+        <div className="shell-search-results">
+          {(!hasCurrentSearch || state.status === "loading") && (
+            <p className="shell-search-status" role="status" aria-live="polite" aria-atomic="true">
+              Searching…
+            </p>
           )}
-          {state.status === "success" && state.value.results.length === 0 && (
-            <p className="shell-search-status">No matches.</p>
+          {hasCurrentSearch && state.status === "failure" && (
+            <div className="shell-search-status shell-search-failure" role="alert">
+              <span>Search couldn’t be completed.</span>
+              <button type="button" onClick={retry} disabled={isRetrying}>{isRetrying ? "Retrying…" : "Retry"}</button>
+            </div>
           )}
-          {state.status === "success" && state.value.results.length > 0 && (
-            <ul className="shell-search-result-list">
-              {state.value.results.map((result) => (
-                <li key={result.nodeId}>
+          {hasCurrentSearch && state.status === "success" && results.length === 0 && (
+            <p className="shell-search-status" role="status" aria-live="polite" aria-atomic="true">
+              No matches.
+            </p>
+          )}
+          {results.length > 0 && (
+            <ul id="sidebar-search-results" className="shell-search-result-list" role="listbox" aria-label="Search results">
+              {results.map((result, index) => (
+                <li key={result.nodeId} role="presentation">
                   <button
+                    id={`sidebar-search-option-${index}`}
                     type="button"
-                    className="shell-search-result"
+                    role="option"
+                    aria-selected={selectedIndex === index}
+                    className={`shell-search-result${selectedIndex === index ? " shell-search-result-selected" : ""}`}
+                    onMouseEnter={() => setSelectedIndex(index)}
                     onClick={() => openResult(result.nodeId)}
                   >
                     <span className="shell-search-result-title">{result.title}</span>

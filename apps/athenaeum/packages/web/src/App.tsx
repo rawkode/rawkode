@@ -10,7 +10,6 @@ import { workspaceId, setActiveWorkspaceId } from "./workspace-id.js"
 import { clearSession, loadSession, type DevSession } from "./dev-session.js"
 import { SignIn } from "./SignIn.js"
 import { AppShell } from "./AppShell.js"
-import { ChatPanel } from "./ChatPanel.js"
 import { CalendarOAuthCallback } from "./CalendarOAuthCallback.js"
 import { catchUpSyncFeed, loadSyncFeedCursor, saveSyncFeedCursor } from "./sync-feed-client.js"
 
@@ -42,6 +41,9 @@ const MeetingsRoute = lazy(() => import("./routes/MeetingsRoute.js").then((m) =>
 const WorkoutsRoute = lazy(() => import("./routes/WorkoutsRoute.js").then((m) => ({ default: m.WorkoutsRoute })))
 const SharingRoute = lazy(() => import("./routes/SharingRoute.js").then((m) => ({ default: m.SharingRoute })))
 const AppsRoute = lazy(() => import("./routes/AppsRoute.js").then((m) => ({ default: m.AppsRoute })))
+// The agent is a secondary drawer, not part of the first interaction on Today. Keep its RPC
+// schemas, review UI, and model-state code out of the initial bundle until the user opens it.
+const ChatPanel = lazy(() => import("./ChatPanel.js").then((m) => ({ default: m.ChatPanel })))
 
 // Suspense fallback for the routes above — shown only on a route's first visit (subsequent visits
 // hit the browser's module cache, no fallback flash). Deliberately not a bare "Loading..." string
@@ -60,6 +62,15 @@ function RouteLoadingFallback() {
         </span>
         <span>Loading…</span>
       </div>
+    </div>
+  )
+}
+
+function ChatLoadingFallback() {
+  return (
+    <div className="chat-panel chat-panel-loading" role="status" aria-live="polite">
+      <span className="chat-first-message-eyebrow">Agent workspace</span>
+      <p>Preparing the agent…</p>
     </div>
   )
 }
@@ -95,20 +106,27 @@ function Workspace({
   // diagnostic pass, not something any render depends on. Unrelated to the removed Phase 0 section
   // above; kept verbatim.
   useEffect(() => {
+    // Wrap the outer fiber in `Effect.exit` so the cleanup interruption used by React Strict Mode
+    // (and by a workspace remount) is not reported as a sync-feed failure. The inner Exit still
+    // preserves genuine RPC/protocol failures for diagnostics.
     const fiber = runtime.runFork(
-      WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) => catchUpSyncFeed(client, workspaceId, loadSyncFeedCursor(workspaceId)))
+      Effect.exit(
+        WorkspaceRpcClient.pipe(
+          Effect.flatMap((client) => catchUpSyncFeed(client, workspaceId, loadSyncFeedCursor(workspaceId)))
+        )
       )
     )
     fiber.addObserver((exit) => {
-      if (Exit.isSuccess(exit)) {
-        saveSyncFeedCursor(workspaceId, exit.value.cursor)
+      if (!Exit.isSuccess(exit)) return
+      const inner = exit.value
+      if (Exit.isSuccess(inner)) {
+        saveSyncFeedCursor(workspaceId, inner.value.cursor)
         console.info(
-          `[syncFeed] caught up: epoch=${exit.value.epoch} entriesSeen=${exit.value.entriesSeen}`,
-          exit.value.byEntityKind
+          `[syncFeed] caught up: epoch=${inner.value.epoch} entriesSeen=${inner.value.entriesSeen}`,
+          inner.value.byEntityKind
         )
-      } else {
-        console.error("[syncFeed] catch-up failed:", exit.cause.toString())
+      } else if (!Exit.isInterrupted(inner)) {
+        console.error("[syncFeed] catch-up failed:", inner.cause.toString())
       }
     })
     return () => {
@@ -165,7 +183,11 @@ function Workspace({
               activeWorkspaceId={activeWorkspaceId}
               onSwitchWorkspace={onSwitchWorkspace}
               onSignOut={onSignOut}
-              chat={<ChatPanel />}
+              chat={
+                <Suspense fallback={<ChatLoadingFallback />}>
+                  <ChatPanel />
+                </Suspense>
+              }
             />
           }
         >

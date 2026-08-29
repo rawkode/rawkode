@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { Email } from "./auth.js"
 import {
   GatekeeperBinding,
+  GatekeeperBindingSummary,
   GatekeeperBindingConfig,
   GatekeeperKind,
   GoogleCalendarBindingConfig
@@ -83,5 +84,19 @@ describe("GatekeeperBinding", () => {
     const encoded = Schema.encodeSync(GatekeeperBinding)(binding)
     expect(Schema.decodeUnknownSync(GatekeeperBinding)(encoded)).toEqual(binding)
     expect(encoded.gatekeeperKind).toBe(encoded.config.kind)
+  })
+
+  it("round-trips a sanitized management summary without account identity", () => {
+    const summary = new GatekeeperBindingSummary({
+      id,
+      workspaceId,
+      gatekeeperKind: "google-calendar",
+      mode: "selected",
+      createdAt
+    })
+    const encoded = Schema.encodeSync(GatekeeperBindingSummary)(summary)
+    expect(Schema.decodeUnknownSync(GatekeeperBindingSummary)(encoded)).toEqual(summary)
+    expect(encoded).not.toHaveProperty("boundBy")
+    expect(encoded).not.toHaveProperty("config")
   })
 })

@@ -5,6 +5,12 @@ import { JsonValue } from "./json-value.js"
 import { EntityId } from "./node.js"
 import { TagFieldValueKind } from "./tag-field-definition.js"
 
+const AgentCommitMessage = Schema.transform(
+  Schema.String.pipe(Schema.maxLength(756)),
+  Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500)),
+  { decode: (value) => value.trim(), encode: (value) => value }
+)
+
 // Phase 3 storage-schema task (plan: "Agent tools (readNote, editNote, createNode, addFact,
 // addEdge, linkCalendarEvent) take a chat-local binding name resolved the same way — reuse the
 // mechanism as designed"). One input/output `Schema.Class` pair per tool, following
@@ -37,20 +43,18 @@ export class ReadNoteToolOutput extends Schema.Class<ReadNoteToolOutput>("ReadNo
 }) {}
 
 /**
- * Applies an edit to a note's body via the chat's Automerge fork (chat-fork-rpc.ts /
- * docs/automerge-fork-spike.md) — never a direct mainline write, per the plan's "note-body edits
- * use Automerge branches, not the row-level pending flag." Field shape otherwise mirrors
- * `ApplyChatForkEditInput`/`Output` (chat-fork-rpc.ts) exactly (`index`/`deleteCount`/
- * `insertText`), substituting `binding` for that method's `nodeId` — this *is* the agent-tool
- * front end to that same RPC method, once the Storage stage wires binding resolution in front of
- * it.
+ * Applies an edit to a note's body. Legacy Automerge pages retain the chat-fork workflow, while
+ * native Loro pages commit through the semantic ledger gateway. `commitMessage` is the bounded
+ * agent-authored rationale retained by the latter path; the legacy fork accepts it for the same
+ * stable tool contract and carries it into the durable proposal rationale.
  */
 export class EditNoteToolInput extends Schema.Class<EditNoteToolInput>("EditNoteToolInput")({
   chatId: EntityId,
   binding: ChatBindingName,
   index: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   deleteCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  insertText: Schema.String
+  insertText: Schema.String,
+  commitMessage: AgentCommitMessage
 }) {}
 
 /**

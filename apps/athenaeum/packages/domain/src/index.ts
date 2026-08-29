@@ -9,16 +9,141 @@ export { EntityId, IsoDateTimeString, Node, PendingMarker } from "./node.js"
 export {
   LEDGER_COMMAND_VERSION,
   LEDGER_MESSAGE_DERIVATION_VERSION,
+  CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION,
   ACCEPT_CHAT_FORK_MESSAGE_DERIVATION_VERSION,
+  AGENT_CHANGE_DECISION_MESSAGE_DERIVATION_VERSION,
+  APPLY_SUPERTAG_MESSAGE_DERIVATION_VERSION,
+  ADD_FACT_MESSAGE_DERIVATION_VERSION,
+  CREATE_EDGE_MESSAGE_DERIVATION_VERSION,
+  CREATE_TAG_MESSAGE_DERIVATION_VERSION,
+  DEFINE_TAG_FIELD_MESSAGE_DERIVATION_VERSION,
+  ASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
+  UNASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
+  SYNC_NOTE_REFERENCES_MESSAGE_DERIVATION_VERSION,
+  CREATE_RELATION_DEFINITION_MESSAGE_DERIVATION_VERSION,
+  CREATE_BOOKMARK_MESSAGE_DERIVATION_VERSION,
+  APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION,
+  START_MEETING_MESSAGE_DERIVATION_VERSION,
+  ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
+  COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION,
+  PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION,
+  ACTIVATE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
+  MIGRATE_LEGACY_PAGE_MESSAGE_DERIVATION_VERSION,
+  LEGACY_PAGE_MIGRATION_ENGINE_VERSION,
+  MUTATION_ATTRIBUTION_VERSION,
   AcceptChatForkLedgerCommand,
   AcceptPageProposalLedgerCommand,
+  AgentJobMutationAttribution,
+  AgentChangeDecisionLedgerCommand,
+  ApplySupertagLedgerCommand,
+  ApplySupertagLedgerFieldValue,
+  ApplySupertagLedgerPayload,
+  AddFactLedgerCommand,
+  AddFactLedgerPayload,
+  AssignTagLedgerCommand,
+  AssignTagLedgerPayload,
+  CreateEdgeLedgerCommand,
+  CreateEdgeLedgerPayload,
+  CreateTagLedgerCommand,
+  CreateTagLedgerPayload,
+  EnsureLoroPageLedgerCommand,
+  EnsureLoroPageLedgerPayload,
+  CommitLoroPageContentLedgerCommand,
+  CommitLoroPageContentLedgerPayload,
+  PrepareMeetingInDailyNoteLedgerCommand,
+  PrepareMeetingInDailyNoteLedgerPayload,
+  ActivateLoroPageLedgerCommand,
+  ActivateLoroPageLedgerPayload,
+  MigrateLegacyPageLedgerCommand,
+  MigrateLegacyPageLedgerPayload,
+  DefineTagFieldLedgerCommand,
+  DefineTagFieldLedgerPayload,
+  UnassignTagLedgerCommand,
+  UnassignTagLedgerPayload,
+  SyncNoteReferencesLedgerCommand,
+  SyncNoteReferencesLedgerEdge,
+  SyncNoteReferencesLedgerPayload,
+  CreateRelationDefinitionLedgerCommand,
+  CreateRelationDefinitionLedgerPayload,
+  CreateBookmarkLedgerCommand,
+  CreateBookmarkLedgerPayload,
+  CreateBookmarkLedgerTitle,
+  CreateBookmarkLedgerTitleAbsent,
+  CreateBookmarkLedgerTitlePresent,
+  AppendTranscriptSegmentLedgerCommand,
+  AppendTranscriptSegmentLedgerPayload,
+  AppendTranscriptSegmentLedgerSpeaker,
+  AppendTranscriptSegmentLedgerSpeakerAbsent,
+  AppendTranscriptSegmentLedgerSpeakerPresent,
+  StartMeetingLedgerCommand,
+  StartMeetingLedgerPayload,
   CreateNodeLedgerCommand,
+  CreateNodeWithIntentLedgerCommand,
+  CreateNodeWithIntentLedgerPayload,
+  HumanUiMutationAttribution,
   LedgerCommand,
   LedgerReceipt,
+  MutationAttribution,
+  MutationCommitMessage,
+  MutationRequestId,
+  SystemMutationAttribution,
   acceptChatForkCommitMessage,
   createNodeCommitMessage,
-  normalizeCreateNodeTitle
+  normalizeCreateNodeTitle,
+  applySupertagCommitMessage,
+  addFactCommitMessage,
+  assignTagCommitMessage,
+  createEdgeCommitMessage,
+  createTagCommitMessage,
+  defineTagFieldCommitMessage,
+  unassignTagCommitMessage,
+  syncNoteReferencesCommitMessage,
+  createRelationDefinitionCommitMessage,
+  createBookmarkCommitMessage,
+  appendTranscriptSegmentCommitMessage,
+  startMeetingCommitMessage,
+  normalizeCreateTagName
 } from "./ledger.js"
+export {
+  ActorContexts,
+  MUTATION_REQUEST_V2_VERSION,
+  MUTATION_TEXT_MAX_SCALARS,
+  MUTATION_TEXT_MAX_UTF8_BYTES,
+  UNICODE_VALIDATION_TABLE_VERSION,
+  decodeMutationRequestV2,
+  decodeActorContext,
+  decodeLedgerEventV2,
+  decodeOutboxDeliveryV2,
+  decodeOutboxIntentV2,
+  decodeDeliveryRecordV2,
+  decodeResolvedMutationIntentV2,
+  decideWorkspaceReplayV2,
+  digestCanonicalV2,
+  commandFingerprintMaterialV2,
+  custodyDigestMaterialV2,
+  resolvedActorCustodyDigestV2,
+  createPreAuthorizationIdentityV2,
+  decidePreAuthorizationReplayV2,
+  eventDigestMaterialV2,
+  normalizeMutationText
+} from "./ledger-v2.js"
+export type {
+  ActorContext,
+  DeliveryRecordV2,
+  IngressEvidenceV2,
+  LedgerEventV2,
+  MutationRequestV2,
+  OutboxDeliveryV2,
+  OutboxIntentV2,
+  ResolvedMutationIntentV2
+} from "./ledger-v2.js"
+export {
+  LedgerActivityActor,
+  LedgerActivityType,
+  LedgerActivityEntry,
+  ListRecentLedgerActivityInput,
+  ListRecentLedgerActivityOutput
+} from "./ledger-rpc.js"
 
 export {
   CardinalityViolation,
@@ -30,8 +155,13 @@ export {
   GraphIssueDetected,
   GraphIssueNotFound,
   NodeNotFound,
+  NodeAlreadyExists,
   OAuthExchangeFailed,
   ObserverVerificationFailed,
+  PageFormatMismatch,
+  LoroContentConflict,
+  LoroSemanticCommitRequired,
+  LoroRequestIdentityConflict,
   PageNotFound,
   PendingNameConflict,
   RelationDefinitionNotFound,
@@ -69,6 +199,7 @@ export {
 
 export {
   CreateNodeInput,
+  CreateNodeWithIntentInput,
   CreateNodeOutput,
   GetNodeInput,
   GetNodeOutput,
@@ -117,7 +248,8 @@ export {
   BASE_TAG_FIELD_DEFINITIONS,
   BaseTagFieldIds,
   TagFieldDefinition,
-  TagFieldValueKind
+  TagFieldValueKind,
+  normalizeTagFieldName
 } from "./tag-field-definition.js"
 
 export { SearchNodesInput, SearchNodesOutput, SearchResultEntry } from "./search-rpc.js"
@@ -132,6 +264,35 @@ export {
 } from "./page-rpc.js"
 
 export {
+  AutomergePageDocumentDescriptor,
+  LegacyPageDocumentDescriptor,
+  LoroPageDocumentDescriptor,
+  MigratedLoroPageDocumentDescriptor,
+  NativeLoroPageDocumentDescriptor,
+  PageDocumentDescriptor,
+  PageDocumentFormat
+} from "./page-document-format.js"
+
+export {
+  CommitLoroPageContentInput,
+  CommitLoroPageContentOutput,
+  CreateLoroPageInput,
+  CreateLoroPageOutput,
+  CreationIntent,
+  LoroMutationIntentV1,
+  GetPageDocumentDescriptorInput,
+  GetPageDocumentDescriptorOutput,
+  GetLegacyPageProjectionInput,
+  GetLegacyPageProjectionOutput,
+  MigrateLegacyPageInput,
+  MigrateLegacyPageOutput,
+  LoroPageSyncMessageInput,
+  LoroPageSyncMessageOutput,
+  StartLoroPageSyncInput,
+  StartLoroPageSyncOutput
+} from "./page-document-rpc.js"
+
+export {
   PageSyncMessageInput,
   PageSyncMessageOutput,
   RotateEpochInput,
@@ -142,7 +303,12 @@ export {
   SyncFeedOutput
 } from "./sync-rpc.js"
 
-export { decodeRpcError, encodeRpcError, RpcErrorEnvelope } from "./rpc-error.js"
+export {
+  decodeRpcError,
+  encodeRpcError,
+  LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+  RpcErrorEnvelope
+} from "./rpc-error.js"
 
 export { NodesRepository } from "./nodes-repository.js"
 export { PagesRepository } from "./pages-repository.js"
@@ -153,6 +319,46 @@ export { RelationDefinitionsRepository } from "./relation-definitions-repository
 export { GraphIssuesRepository } from "./graph-issues-repository.js"
 
 export { JsonValue } from "./json-value.js"
+export {
+  WORKFORCE_SCHEMA_VERSION, WORKFORCE_EVENT_CANONICAL_VERSION, WORKFORCE_STANDUP_PROJECTION_VERSION,
+  canonicalWorkforceValueV1, canonicalWorkforcePreimageV1, digestWorkforcePreimageV1,
+  compareCanonicalWorkforcePreimagesV1, decodeWorkforceStandupInput,
+  type NonEmptyString, type Version, type MicroEmployeeId, type JobId, type WorkflowId,
+  type ScheduleId, type CouncilId, type OccurrenceId, type RunId, type EventId, type FactId,
+  type LocalDate as WorkforceLocalDate, type CivilTimeZone, type Sequence, type Utf8Digest, type WorkforceDigest, type DefinitionKind,
+  type DefinitionIdByKind, type DefinitionRef, type MicroEmployeeDefinition, type JobDefinition,
+  type WorkflowDefinition, type ScheduleDefinition, type CouncilDefinition, type WorkforceDefinition,
+  type ScheduleOccurrenceRef, type RunRef, type WorkforceResult, type WorkforceClaim,
+  type ExternalDiagnostic, type RunObservedEvent, type ResultObservedEvent, type ClaimObservedEvent,
+  type DiagnosticObservedEvent, type WorkforceEvent, type WorkforceRunFact, type Availability,
+  type WorkforceInputName, type InputName, type WorkforceStandupInput, type WorkforceDecodeError, type Either,
+  type CanonicalWorkforceValue
+} from "./workforce.js"
+export {
+  RUN_IDENTITY_VERSION, WORKFORCE_MUTATION_PROVENANCE_VERSION,
+  WORKFORCE_MUTATION_BRIDGE_INPUT_VERSION, WORKFORCE_MUTATION_BRIDGE_OUTPUT_VERSION,
+  bridgeWorkforceMutationProvenance,
+  type RunIdentity, type WorkforceMutationProvenance, type WorkforceMutationBridgeRecord,
+  type WorkforceMutationBridgeInput, type WorkforceMutationBridgeDiagnostic,
+  type WorkforceMutationBridgeOutput
+} from "./workforce-mutation-provenance.js"
+export {
+  projectWorkforceStandup,
+  type WorkforceProjectionDiagnostic,
+  type WorkforceStandupProjection
+} from "./workforce-projection.js"
+export { CANONICAL_SNAPSHOT_VERSION, canonicalJson, canonicalJsonBytes, canonicalSha256, sha256Hex, sha256HexSync } from "./canonical-hash.js"
+export {
+  STANDUP_PUBLICATION_PROTOCOL_VERSION, STANDUP_PUBLICATION_SLOT_IDENTITY_VERSION, STANDUP_PUBLICATION_REQUEST_ID_VERSION, STANDUP_PUBLICATION_CHILD_NODE_ID_VERSION, STANDUP_PUBLICATION_FINGERPRINT_VERSION, STANDUP_PUBLICATION_MAX_TEXT_BYTES,
+  canonicalStandupPublicationSlot, canonicalStandupPublicationText, standupPublicationSlotDigest, standupPublicationRequestIdentity, standupPublicationChildNodeId, standupPublicationFingerprint,
+  StandupPublicationReference, StandupPublicationCompanionStatus, StandupPublication, ListStandupPublicationsInput, ListStandupPublicationsOutput,
+  type StandupPublicationDefinitionKind, type StandupPublicationDefinitionRef, type StandupPublicationSlotIdentity, type CanonicalStandupPublicationSlot, type CanonicalStandupPublicationText, type StandupPublicationFingerprintInput, type StandupPublicationCompanionStatus as StandupPublicationCompanionStatusType
+} from "./standup-publication.js"
+export { LORO_PAGE_META_CONTAINER, LORO_PROSEMIRROR_CONTAINER, LORO_PAGE_SCHEMA_VERSION } from "./loro-page-contract.js"
+export {
+  AgentChangeOperation, AgentChangeProposal, AgentChangeProposalDecision, AgentChangeProposalState, AgentChangeReservation,
+  AgentChangeSnapshot, AgentChangeTargetKind, agentChangeReservationKey
+} from "./agent-change-proposal.js"
 export { Page } from "./page.js"
 export { canonicalAutomergeHeadsHash } from "./automerge-heads.js"
 export { PageProposal, PageProposalProvenance, PageCommit } from "./page-proposal.js"
@@ -281,6 +487,8 @@ export {
   ListPendingChangesOutput,
   MergeChangesInput,
   MergeChangesOutput,
+  DecideAgentChangeProposalInput,
+  DecideAgentChangeProposalOutput,
   RevertChangesInput,
   RevertChangesOutput,
   SendChatMessageInput,
@@ -342,6 +550,7 @@ export { Bookmark, BookmarkUrl } from "./bookmark.js"
 
 export {
   GatekeeperBinding,
+  GatekeeperBindingSummary,
   GatekeeperBindingConfig,
   GatekeeperKind,
   GoogleCalendarBindingConfig
@@ -370,9 +579,24 @@ export {
   ListBookmarksOutput,
   ListCalendarEventsInput,
   ListCalendarEventsOutput,
+  ListGatekeeperBindingsInput,
+  ListGatekeeperBindingsOutput,
   SyncGoogleCalendarInput,
   SyncGoogleCalendarOutput
 } from "./gatekeeper-rpc.js"
+
+export {
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
+  PrepareMeetingInDailyNoteInput,
+  PrepareMeetingInDailyNoteOutput,
+  IanaTimeZone,
+  LocalDate,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefHistoryStatus,
+  TodayBriefPerson
+} from "./today-brief-rpc.js"
 
 // Phase 6 spike (plan §"Meetings & voice") — see cloud-transcription.ts's own header comment for
 // the full design rationale and its relationship to model-client.ts's established pattern.

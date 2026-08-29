@@ -20,6 +20,7 @@ import AthenaeumDomain
 public enum WatchWorkspaceConfiguration {
     private static let workspaceIdDefaultsKey = "athenaeum.workspaceId"
     private static let backendURLDefaultsKey = "athenaeum.backendURL"
+    private static let credentialDefaultsKey = "athenaeum.session.credential"
 
     /// `wrangler dev`'s own default port — matches `WorkspaceConfiguration.defaultBackendURL` and
     /// `AthenaeumRPC`/`AthenaeumCore`'s live-test default. A real watch/phone pairing would need a
@@ -45,5 +46,14 @@ public enum WatchWorkspaceConfiguration {
         // pattern (see `EntityId.swift`'s `uuidPattern`).
         // swiftlint:disable:next force_try
         return try! EntityId(validating: generated)
+    }
+
+    /// Resolves the persisted dev-auth credential using the same key as the native app's
+    /// `DevSession`. The watch's standard defaults are not automatically shared with the phone;
+    /// an app-group/WatchConnectivity bridge must provision this value in a real paired install.
+    /// Captures must not begin without it because the public `addFact` ledger route is authenticated.
+    public static func resolveBearerCredential(defaults: UserDefaults = .standard) -> String? {
+        guard let stored = defaults.string(forKey: credentialDefaultsKey), !stored.isEmpty else { return nil }
+        return stored
     }
 }

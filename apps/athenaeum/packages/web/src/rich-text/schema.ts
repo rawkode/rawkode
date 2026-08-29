@@ -1,5 +1,5 @@
 import type { Mark, Node as PMNode } from "prosemirror-model"
-import { next as am } from "@automerge/automerge"
+import type * as Automerge from "@automerge/automerge"
 import { SchemaAdapter, type MappedSchemaSpec } from "../vendor/automerge-prosemirror/schema.js"
 import type { BlockMarker } from "../vendor/automerge-prosemirror/types.js"
 
@@ -210,7 +210,7 @@ const richTextSchemaSpec: MappedSchemaSpec = {
       automerge: {
         markName: "link",
         parsers: {
-          fromAutomerge: (mark: am.MarkValue) => {
+          fromAutomerge: (mark: Automerge.MarkValue) => {
             if (typeof mark === "string") {
               try {
                 const value = JSON.parse(mark) as { href?: string; title?: string }
@@ -289,7 +289,7 @@ const richTextSchemaSpec: MappedSchemaSpec = {
       automerge: {
         markName: "entity-ref",
         parsers: {
-          fromAutomerge: (mark: am.MarkValue) => {
+          fromAutomerge: (mark: Automerge.MarkValue) => {
             if (typeof mark === "string") {
               try {
                 const value = JSON.parse(mark) as Partial<EntityRefPayload>
@@ -328,7 +328,7 @@ const richTextSchemaSpec: MappedSchemaSpec = {
       automerge: {
         markName: "supertag-ref",
         parsers: {
-          fromAutomerge: (mark: am.MarkValue) => {
+          fromAutomerge: (mark: Automerge.MarkValue) => {
             if (typeof mark === "string") {
               try {
                 const value = JSON.parse(mark) as Partial<SupertagRefPayload>
@@ -363,7 +363,7 @@ export const richTextSchemaAdapter = new SchemaAdapter(richTextSchemaSpec)
  *  block markers and marks now present inline in that same Automerge Text sequence. This is what
  *  keeps the backend's "Page/Automerge doc bytes are opaque" property intact (task hard constraint)
  *  — nothing about the wire/storage field name changed, only what's inside it. */
-export const RICH_TEXT_PATH: am.Prop[] = ["text"]
+export const RICH_TEXT_PATH: Automerge.Prop[] = ["text"]
 
 /** Root-level scalar written into every Automerge doc this schema touches (migration and every
  *  local edit — see `migration.ts`'s `ensureRichTextSchema` and `LocalDocHandle.change`) — the

@@ -11,13 +11,15 @@ import AthenaeumRPC
 // you scoped down"): this view model DOES include a minimal message-compose affordance
 // (`sendMessage()`) — cheap to add once `WorkspaceRPCClient+AgentEdit.swift` exists and it's what
 // makes the accept/revert flow demonstrable end-to-end *inside the app itself*, not only via the
-// `phase3-driver` CLI. What it deliberately does NOT do, staying inside the "not required" scope:
-// render `toolCalls` content, distinguish/collapse `"tool"`-role log rows specially, support
-// multiple concurrent in-flight sends, or offer any chat-management affordance beyond
-// create/list/select. `errorMessage`'s `describeSendError` also gives the plan's own
-// "model not configured" case (no `ANTHROPIC_API_KEY` in this environment, per this task's hard
-// constraint) a clear, specific message rather than a raw stringified error, mirroring the web
-// stage's `ChatPanel.tsx` banner.
+// `phase3-driver` CLI. The composer is intentionally first-class: an empty workspace can start
+// with a prompt and the model creates a deterministic chat title from it, while the explicit
+// title form remains available for users who want to name a conversation before writing. What it
+// deliberately does NOT do, staying inside the "not required" scope: render `toolCalls` content,
+// distinguish/collapse `"tool"`-role log rows specially, or support multiple concurrent in-flight
+// sends. `errorMessage`'s `describeSendError` also gives the plan's own "model not configured"
+// case (no `ANTHROPIC_API_KEY` in this environment, per this task's hard constraint) a clear,
+// specific message rather than a raw stringified error, mirroring the web stage's `ChatPanel.tsx`
+// banner.
 @MainActor
 public final class AgentEditViewModel: ObservableObject {
     public enum LoadStatus: Equatable {
@@ -60,13 +62,44 @@ public final class AgentEditViewModel: ObservableObject {
     /// — so this sentinel is simpler and exactly as correct as a computed max would be here.
     private static let acceptAllSentinel = 1_000_000_000
 
+    /// Turns a first prompt into the same compact, deterministic title used by the web composer.
+    /// Determinism matters here: a retry after a failed model call should continue the existing
+    /// chat rather than creating a differently named conversation.
+    static func chatTitleFromMessage(_ message: String) -> String {
+        let normalized = message.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard !normalized.isEmpty else { return "New chat" }
+        guard normalized.count > 48 else { return normalized }
+        return "\(normalized.prefix(47).trimmingCharacters(in: .whitespacesAndNewlines))…"
+    }
+
+    /// A failed catalog read does not prove that the workspace has no chats. Keep that failure
+    /// presentation-safe, rather than surfacing transport detail or inviting a first-message
+    /// create flow against an unknown catalog.
+    static func chatListLoadFailureMessage(for _: Error) -> String {
+        "Chats couldn’t be loaded. Nothing has been changed. Retry to check your conversations."
+    }
+
+    /// The empty-state composer may start a chat, so it is available only after a successful
+    /// catalog read has explicitly established that no chats exist.
+    static func isLoadedEmptyChatCatalog(chatsAreEmpty: Bool, status: LoadStatus) -> Bool {
+        chatsAreEmpty && status == .loaded
+    }
+
     private let client: WorkspaceRPCClient
     public let workspaceId: EntityId
 
-    public init(baseURL: URL = WorkspaceConfiguration.resolveBackendURL(), workspaceId: EntityId = WorkspaceConfiguration.resolveWorkspaceId()) {
+    public init(
+        baseURL: URL = WorkspaceConfiguration.resolveBackendURL(),
+        workspaceId: EntityId = WorkspaceConfiguration.resolveWorkspaceId(),
+        bearerCredential: String? = nil
+    ) {
         self.workspaceId = workspaceId
         let workspaceURL = baseURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
-        self.client = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue)
+        self.client = WorkspaceRPCClient(
+            baseURL: workspaceURL,
+            workspaceId: workspaceId.rawValue,
+            bearerCredential: bearerCredential
+        )
     }
 
     /// Test/CLI-driver-only escape hatch: build a view model against an already-constructed
@@ -100,7 +133,7 @@ public final class AgentEditViewModel: ObservableObject {
             }
             status = .loaded
         } catch {
-            status = .error(String(describing: error))
+            status = .error(Self.chatListLoadFailureMessage(for: error))
         }
     }
 
@@ -116,8 +149,21 @@ public final class AgentEditViewModel: ObservableObject {
             chats.insert(chat, at: 0)
             await selectChat(chat.id)
         } catch {
-            errorMessage = "Failed to create chat: \(error)"
+            errorMessage = Self.namedChatCreationFailureMessage(for: error)
         }
+    }
+
+    /// A lost creation response cannot prove that a named chat was not recorded. The view keeps
+    /// the title, so direct the caller to inspect their chats without exposing transport detail.
+    static func namedChatCreationFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that the chat was created. Your title is still here. Review existing chats before creating another."
+    }
+
+    /// A failed detail read may include transport diagnostics and does not prove any cached chat
+    /// content changed. Keep the existing selection and detail state intact while presenting a
+    /// safe recovery path.
+    static func chatDetailLoadFailureMessage(for _: Error) -> String {
+        "This chat couldn’t be loaded. Nothing has been changed. Select it again or reload conversations."
     }
 
     public func selectChat(_ chatId: String) async {
@@ -129,8 +175,27 @@ public final class AgentEditViewModel: ObservableObject {
             pending = pendingChanges
             await refreshNoteForks(chatId: chatId, messages: chatMessages)
         } catch {
-            errorMessage = "Failed to load chat \(chatId): \(error)"
+            errorMessage = Self.chatDetailLoadFailureMessage(for: error)
         }
+    }
+
+    /// Creates the first chat lazily from the user's prompt. Keeping this at the view-model
+    /// boundary means both the native composer and any future native surfaces share the same
+    /// no-empty-title invariant without adding a new RPC or a second chat-creation path.
+    private func ensureChat(for message: String) async throws -> String {
+        if let selectedChatId = selectedChatId {
+            return selectedChatId
+        }
+
+        isCreatingChat = true
+        defer { isCreatingChat = false }
+        let chat = try await client.createChat(title: Self.chatTitleFromMessage(message))
+        chats.insert(chat, at: 0)
+        selectedChatId = chat.id
+        messages = []
+        pending = RPCPendingChanges()
+        pendingNoteForks = []
+        return chat.id
     }
 
     // MARK: - Note-body edits (chat-fork accept/revert) — adversarial-review fix
@@ -211,12 +276,20 @@ public final class AgentEditViewModel: ObservableObject {
     // MARK: - Sending a message (minimal — see this file's header comment)
 
     public func sendMessage() async {
-        guard let chatId = selectedChatId else { return }
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         isSending = true
         errorMessage = nil
         defer { isSending = false }
+
+        let chatId: String
+        do {
+            chatId = try await ensureChat(for: text)
+        } catch {
+            errorMessage = Self.firstMessageChatCreationFailureMessage(for: error)
+            return
+        }
+
         do {
             _ = try await client.sendChatMessage(chatId: chatId, text: text)
             messageText = ""
@@ -224,6 +297,12 @@ public final class AgentEditViewModel: ObservableObject {
         } catch {
             errorMessage = Self.describeSendError(error)
         }
+    }
+
+    /// A failed lazy chat creation leaves the first message unsent. Keep that draft visible and
+    /// ask the caller to inspect their chats rather than exposing transport detail or implying retry safety.
+    static func firstMessageChatCreationFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that the chat was created. Your message is still here. Review existing chats before taking another action."
     }
 
     /// Mirrors the web stage's `ChatPanel.tsx` banner: `sendChatMessage` against the real
@@ -239,7 +318,8 @@ public final class AgentEditViewModel: ObservableObject {
             return "The agent model isn't configured in this environment (no ANTHROPIC_API_KEY " +
                 "secret) — this is expected, not a bug. See docs/agent-model-client.md."
         }
-        return "Failed to send message: \(error)"
+        return "We couldn’t confirm that your message was sent. Your draft is still here. " +
+            "Review the chat before taking another action."
     }
 
     // MARK: - Accept / revert (the flow this stage is scoped to get right)
@@ -253,8 +333,12 @@ public final class AgentEditViewModel: ObservableObject {
             _ = try await client.mergeChanges(chatId: chatId, mergeThrough: Self.acceptAllSentinel)
             await selectChat(chatId)
         } catch {
-            errorMessage = "Failed to accept changes: \(error)"
+            errorMessage = Self.pendingChangesAcceptFailureMessage(for: error)
         }
+    }
+
+    static func pendingChangesAcceptFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that the pending changes were accepted. Review this chat before taking another action."
     }
 
     public func revert() async {
@@ -266,7 +350,11 @@ public final class AgentEditViewModel: ObservableObject {
             _ = try await client.revertChanges(chatId: chatId, revertFrom: 0)
             await selectChat(chatId)
         } catch {
-            errorMessage = "Failed to revert changes: \(error)"
+            errorMessage = Self.pendingChangesRevertFailureMessage(for: error)
         }
+    }
+
+    static func pendingChangesRevertFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that the pending changes were reverted. Review this chat before taking another action."
     }
 }

@@ -296,6 +296,6 @@ public final class VoiceAssistantViewModel: ObservableObject {
             return "Voice isn't configured in this environment (no OPENAI_REALTIME_API_KEY " +
                 "secret) — this is expected, not a bug. See docs/meetings-voice-decisions.md."
         }
-        return "\(error)"
+        return "We couldn’t confirm the voice session state. Review the session before taking another action."
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import AthenaeumDomain
 
 // Phase 5 native stage ("Extend AthenaeumDomain/AthenaeumRPC with the new schemas/methods... a
 // calendar day view... and a bookmarks capture affordance") — the native client for
@@ -189,6 +190,30 @@ public struct RPCGatekeeperBinding: Sendable, Equatable {
     }
 }
 
+/// Sanitized management projection returned by `listGatekeeperBindings`. It intentionally has no
+/// account, credential, or provider connection identity.
+public struct RPCGatekeeperBindingSummary: Sendable, Equatable {
+    public let id: String
+    public let workspaceId: String
+    public let gatekeeperKind: String
+    public let mode: String
+    public let createdAt: String
+
+    init(_ value: CapnWebValue) throws {
+        guard let id = try value.field("id").stringValue,
+              let workspaceId = try value.field("workspaceId").stringValue,
+              let gatekeeperKind = try value.field("gatekeeperKind").stringValue,
+              let mode = try value.field("mode").stringValue,
+              let createdAt = try value.field("createdAt").stringValue
+        else { throw CapnWebError.malformedMessage("malformed GatekeeperBindingSummary: \(value)") }
+        self.id = id
+        self.workspaceId = workspaceId
+        self.gatekeeperKind = gatekeeperKind
+        self.mode = mode
+        self.createdAt = createdAt
+    }
+}
+
 extension WorkspaceRPCClient {
     // MARK: - Google Calendar: connect / disconnect / sync
 
@@ -247,6 +272,12 @@ extension WorkspaceRPCClient {
         return try (result.field("events").arrayValue ?? []).map(RPCCalendarEvent.init)
     }
 
+    /// Lists server-authoritative, sanitized binding summaries for management surfaces.
+    public func listGatekeeperBindings() async throws -> [RPCGatekeeperBindingSummary] {
+        let result = try await rpc("listGatekeeperBindings", ["workspaceId": .string(workspaceId)])
+        return try (result.field("bindings").arrayValue ?? []).map(RPCGatekeeperBindingSummary.init)
+    }
+
     /// Not wired into the shipped app UI this pass (no linking affordance yet) — see this file's
     /// top doc comment. Proven live by `Phase5Driver`'s `link-calendar-event` subcommand.
     public func linkCalendarEventToNode(calendarEventId: String, nodeId: String) async throws -> RPCCalendarEvent {
@@ -261,8 +292,26 @@ extension WorkspaceRPCClient {
 
     /// Captures a new bookmark (`bookmark.ts`) — the write half of the bookmarks capture
     /// affordance (`AthenaeumAppUI`'s `BookmarksView`).
-    public func createBookmark(url: String, title: String? = nil) async throws -> RPCBookmark {
-        var args: [String: CapnWebValue] = ["url": .string(url)]
+    public func createBookmark(
+        url: String,
+        title: String? = nil,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCBookmark {
+        var args: [String: CapnWebValue] = [
+            "url": .string(url),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": .object([
+                "version": .string(attribution.version),
+                "kind": .string(attribution.kind),
+                "surface": attribution.surface.map(CapnWebValue.string) ?? .undefined,
+                "jobId": attribution.jobId.map(CapnWebValue.string) ?? .undefined,
+                "runId": attribution.runId.map(CapnWebValue.string) ?? .undefined,
+                "source": attribution.source.map(CapnWebValue.string) ?? .undefined
+            ])
+        ]
         args["title"] = title.map(CapnWebValue.string) ?? .undefined
         let result = try await rpc("createBookmark", args)
         return try RPCBookmark(result.field("bookmark"))

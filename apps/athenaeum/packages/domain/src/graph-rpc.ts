@@ -3,6 +3,7 @@ import { Edge } from "./edge.js"
 import { Fact } from "./fact.js"
 import { GraphIssue } from "./graph-issue.js"
 import { JsonValue } from "./json-value.js"
+import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 import { EntityId } from "./node.js"
 import { RelationCardinality, RelationDefinition } from "./relation-definition.js"
 import { Tag } from "./tag.js"
@@ -20,7 +21,12 @@ import { GraphViewName, ViewSpec } from "./view-spec.js"
 export class CreateTagInput extends Schema.Class<CreateTagInput>("CreateTagInput")({
   workspaceId: EntityId,
   name: Schema.String.pipe(Schema.minLength(1)),
-  parentIds: Schema.Array(EntityId)
+  // Parent order is retained in the stored Tag and is part of ledger request identity; a retry
+  // with the same parent set in a different order is a different semantic command.
+  parentIds: Schema.Array(EntityId),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class CreateTagOutput extends Schema.Class<CreateTagOutput>("CreateTagOutput")({
@@ -32,15 +38,16 @@ export class AddFactInput extends Schema.Class<AddFactInput>("AddFactInput")({
   nodeId: EntityId,
   predicateId: Schema.String.pipe(Schema.minLength(1)),
   value: JsonValue,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution,
   // Same convention as `rpc.ts`'s `CreateNodeInput.id` (adversarial-review fix, see this file's
   // and `sync-feed-service-live.ts`'s doc comments): optional caller-supplied id, defaulted
   // server-side (crypto.randomUUID()) when absent, preserving every existing caller's behavior.
-  // A caller that retries a failed/uncertain `addFact` call by resending the *same* id gets a
-  // real idempotent write — `FactsRepository.put` is an upsert, and `SyncFeedService.append` now
-  // recognizes a repeat `(entityKind, entityId, hash)` and returns the original feed entry
-  // instead of appending a duplicate. A caller that omits `id` (every current caller — Phase 1's
-  // client never retries yet) gets a fresh id per call, same as before; there is no way to
-  // recognize that as a "retry" of anything without a stable id, by design.
+  // A caller that retries a failed/uncertain `addFact` call resends the same requestId and command
+  // context; the WorkspaceDO ledger replays the exact receipt before invoking GraphService again.
+  // `id` remains optional because it controls the Fact identity/upsert independently: distinct
+  // requestIds without an id are distinct operations and receive fresh server-minted Fact ids.
   id: Schema.optional(EntityId)
 }) {}
 
@@ -56,7 +63,10 @@ export class CreateRelationDefinitionInput extends Schema.Class<CreateRelationDe
   inverseName: Schema.String.pipe(Schema.minLength(1)),
   sourceTagId: EntityId,
   targetTagId: EntityId,
-  cardinality: RelationCardinality
+  cardinality: RelationCardinality,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class CreateRelationDefinitionOutput extends Schema.Class<CreateRelationDefinitionOutput>(
@@ -69,7 +79,10 @@ export class CreateEdgeInput extends Schema.Class<CreateEdgeInput>("CreateEdgeIn
   workspaceId: EntityId,
   relationDefinitionId: EntityId,
   sourceNodeId: EntityId,
-  targetNodeId: EntityId
+  targetNodeId: EntityId,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class CreateEdgeOutput extends Schema.Class<CreateEdgeOutput>("CreateEdgeOutput")({
@@ -167,12 +180,16 @@ export class ListTagsOutput extends Schema.Class<ListTagsOutput>("ListTagsOutput
 export class AssignTagInput extends Schema.Class<AssignTagInput>("AssignTagInput")({
   workspaceId: EntityId,
   nodeId: EntityId,
-  tagId: EntityId
+  tagId: EntityId,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class AssignTagOutput extends Schema.Class<AssignTagOutput>("AssignTagOutput")({
   nodeId: EntityId,
-  tagId: EntityId
+  tagId: EntityId,
+  changed: Schema.Boolean
 }) {}
 
 /**
@@ -188,12 +205,16 @@ export class AssignTagOutput extends Schema.Class<AssignTagOutput>("AssignTagOut
 export class UnassignTagInput extends Schema.Class<UnassignTagInput>("UnassignTagInput")({
   workspaceId: EntityId,
   nodeId: EntityId,
-  tagId: EntityId
+  tagId: EntityId,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class UnassignTagOutput extends Schema.Class<UnassignTagOutput>("UnassignTagOutput")({
   nodeId: EntityId,
-  tagId: EntityId
+  tagId: EntityId,
+  changed: Schema.Boolean
 }) {}
 
 // --- Rich-text-editor-stage addition: entity-reference-to-edge projection ---------------------
@@ -222,7 +243,10 @@ export class SyncNoteReferencesInput extends Schema.Class<SyncNoteReferencesInpu
   // The complete current set of node ids the note's `entity-ref` marks reference, as of this call —
   // not a delta. The server diffs this against the existing "mentions" edges from `nodeId` and
   // creates/deletes to match exactly.
-  referencedNodeIds: Schema.Array(EntityId)
+  referencedNodeIds: Schema.Array(EntityId),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class SyncNoteReferencesOutput extends Schema.Class<SyncNoteReferencesOutput>(
@@ -260,7 +284,10 @@ export class DefineTagFieldInput extends Schema.Class<DefineTagFieldInput>("Defi
   tagId: EntityId,
   name: Schema.String.pipe(Schema.minLength(1)),
   valueKind: TagFieldValueKind,
-  sortOrder: Schema.Number.pipe(Schema.int(), Schema.nonNegative())
+  sortOrder: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class DefineTagFieldOutput extends Schema.Class<DefineTagFieldOutput>("DefineTagFieldOutput")({
@@ -310,9 +337,10 @@ export class ListTagFieldsOutput extends Schema.Class<ListTagFieldsOutput>("List
 // No `SetFieldValueInput`/`Output` pair: decisions doc §1 explicitly decided **against** a new
 // convenience RPC for writing a single field value, since one already exists and needs no
 // change — "Write/update a field value = the existing `addFact` RPC (`AddFactInput`: workspaceId,
-// nodeId, predicateId, value, id?)... Setting a field for the first time omits `id`... Editing an
-// already-set field reuses `AddFactInput.id`... a real in-place update through the unmodified RPC,
-// not a new 'updateFact' method." `predicateId` is simply `TagFieldDefinition.id`'s string form.
+// nodeId, predicateId, value, requestId, commitMessage, attribution, id?)... Setting a field for the
+// first time omits `id`... Editing an already-set field reuses `AddFactInput.id` for the Fact
+// upsert while each semantic operation receives a new requestId... a real in-place update through
+// the unmodified RPC, not a new 'updateFact' method." `predicateId` is simply `TagFieldDefinition.id`'s string form.
 // `ApplySupertagInput.fieldValues` below is the one genuinely new writing surface this pass adds,
 // and it exists to combine tagging + seeding fields in one round trip, not to replace `addFact`.
 
@@ -342,6 +370,12 @@ export class ApplySupertagInput extends Schema.Class<ApplySupertagInput>("ApplyS
   workspaceId: EntityId,
   nodeId: EntityId,
   tagId: EntityId,
+  /** One logical operation id, generated once and retained across transport retries. */
+  requestId: MutationRequestId,
+  /** Caller rationale is private ledger payload data; the server derives the public activity label. */
+  commitMessage: MutationCommitMessage,
+  /** Asserted provenance only; authorization still comes from the authenticated connection. */
+  attribution: MutationAttribution,
   fieldValues: Schema.optional(Schema.Array(ApplySupertagFieldValue))
 }) {}
 

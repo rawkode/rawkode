@@ -31,7 +31,9 @@
       "@types/react-dom": "^19.2.4",
       "@vitejs/plugin-react": "^5.2.0",
       "typescript": "^5.9.3",
-      "@automerge/automerge": "^3.4.1"
+      "@automerge/automerge": "^3.4.1",
+      "loro-crdt": "1.14.1",
+      "loro-prosemirror": "0.4.4"
     }
   }
 }

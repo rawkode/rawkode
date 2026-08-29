@@ -12,6 +12,7 @@
    whole app's palette later is a one-file edit, not a grep-and-replace. */
 
 :root {
+  color-scheme: dark;
   /* --- Hue anchors -------------------------------------------------------------------------- */
   --hue-neutral: 220; /* cool-blue tint for every "gray" below */
   --hue-warm: 75; /* warm tint for text — keeps "off-white" from reading blue-white */
@@ -29,9 +30,20 @@
      --color-border stays reserved for decorative/low-emphasis dividers. */
   --color-border-strong: oklch(54% 0.026 var(--hue-neutral));
 
+  /* Semantic surface roles. Components should choose a role based on what the surface does,
+     rather than reaching for a generic raised card by habit. */
+  --color-canvas: var(--color-ground);
+  --color-chrome: oklch(18% 0.021 var(--hue-neutral));
+  --color-panel: var(--color-surface);
+  --color-inset: var(--color-surface-sunken);
+  --color-overlay: var(--color-surface-raised);
+  --color-scrim: oklch(8% 0.01 var(--hue-neutral) / 0.6);
+  --color-scrim-strong: oklch(8% 0.01 var(--hue-neutral) / 0.85);
+
   /* --- Text (warm off-white, never pure white) ----------------------------------------------- */
   --color-text: oklch(93% 0.02 var(--hue-warm));
   --color-text-muted: oklch(72% 0.018 var(--hue-warm));
+  --color-text-prose: oklch(86% 0.02 var(--hue-warm));
   /* 60% (was 52%): 52% measured ~3.27:1 against --color-surface, below WCAG AA's 4.5:1 for text.
      60% measures ~4.56:1 (relative-luminance method, sRGB via OKLCH) — verified below. */
   --color-text-faint: oklch(60% 0.014 var(--hue-warm));
@@ -92,6 +104,17 @@
   /* --- Shell layout dimensions ------------------------------------------------------------------ */
   --shell-sidebar-w: 15.5rem;
   --shell-chat-w: 22rem;
+  --shell-content-max: 78rem;
+  --shell-document-max: 46rem;
+  --shell-inspector-w: 20rem;
+
+  /* Semantic stacking order. */
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-drawer: 40;
+  --z-scrim: 39;
+  --z-floating: 50;
+  --z-modal: 60;
 
   /* --- Motion (restrained by design — "confident", not showcase) --------------------------------
      One easing curve (decisive deceleration, no bounce/elastic anywhere) and three duration steps:

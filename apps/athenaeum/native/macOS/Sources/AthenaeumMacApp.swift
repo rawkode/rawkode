@@ -10,7 +10,9 @@ struct AthenaeumMacApp: App {
     var body: some Scene {
         WindowGroup {
             AthenaeumRootView()
-                .frame(minWidth: 480, minHeight: 480)
+                .frame(minWidth: 920, minHeight: 640)
         }
+        .defaultSize(width: 1180, height: 780)
+        .windowToolbarStyle(.unified)
     }
 }

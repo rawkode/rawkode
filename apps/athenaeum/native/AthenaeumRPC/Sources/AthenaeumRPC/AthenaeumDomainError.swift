@@ -1,4 +1,41 @@
+import AthenaeumDomain
 import Foundation
+
+private struct RpcErrorTag: Decodable {
+    let tag: String
+}
+
+private struct AnyCodingKey: CodingKey, Hashable {
+    let stringValue: String
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+    var intValue: Int? { nil }
+    init(_ stringValue: String) { self.stringValue = stringValue }
+}
+
+/// JSONSerialization bridges strings through Foundation and strips a leading U+FEFF in this
+/// environment. Strict Loro request identities are wire identities, so decode this envelope with
+/// Swift's JSONDecoder to preserve its scalar sequence before validation.
+private struct StrictLoroRequestIdentityConflictEnvelope: Decodable {
+    let nodeId: String
+    let requestId: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+        guard Set(container.allKeys.map(\.stringValue)) == Set(["tag", "message", "data"]),
+              try container.decode(String.self, forKey: AnyCodingKey("tag")) == "LoroRequestIdentityConflict",
+              try container.decode(String.self, forKey: AnyCodingKey("message")) == AthenaeumDomain.LORO_REQUEST_IDENTITY_CONFLICT_MESSAGE
+        else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Malformed LoroRequestIdentityConflict RPC error envelope"))
+        }
+        let data = try container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("data"))
+        guard Set(data.allKeys.map(\.stringValue)) == Set(["nodeId", "requestId"]) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Malformed LoroRequestIdentityConflict RPC error envelope"))
+        }
+        nodeId = try data.decode(String.self, forKey: AnyCodingKey("nodeId"))
+        requestId = try data.decode(String.self, forKey: AnyCodingKey("requestId"))
+    }
+}
 
 /// A hand-mirrored Swift equivalent of `@athenaeum/domain`'s `DomainError` union
 /// (`packages/domain/src/errors.ts`) and its `RpcErrorEnvelope` wire encoding
@@ -10,9 +47,14 @@ import Foundation
 /// current RPC method can actually throw.
 public enum AthenaeumDomainError: Error, Sendable, Equatable {
     case nodeNotFound(nodeId: String)
+    case nodeAlreadyExists(nodeId: String)
     case validationError(message: String)
     case unexpectedError(message: String)
     case pageNotFound(nodeId: String)
+    case pageFormatMismatch(nodeId: String, expected: PageDocumentFormat, actual: PageDocumentFormat)
+    case loroContentConflict(nodeId: String, expectedStorageVersion: Int, currentStorageVersion: Int, expectedSnapshotSHA256: String, currentSnapshotSHA256: String, expectedVersionVectorSHA256: String, currentVersionVectorSHA256: String, message: String)
+    case loroSemanticCommitRequired(nodeId: String)
+    case loroRequestIdentityConflict(nodeId: String, requestId: String)
     case tagNotFound(tagId: String)
     case factNotFound(factId: String)
     case edgeNotFound(edgeId: String)
@@ -61,6 +103,19 @@ public enum AthenaeumDomainError: Error, Sendable, Equatable {
     /// typed value, never silently misdecode) without requiring this client to model Effect's
     /// `ParseError` type for what is, on this side, just a best-effort fallback.
     public static func decode(name: String, message: String) -> AthenaeumDomainError {
+        if let raw = message.data(using: .utf8),
+           (try? JSONDecoder().decode(RpcErrorTag.self, from: raw))?.tag == "LoroRequestIdentityConflict"
+        {
+            guard let envelope = try? JSONDecoder().decode(StrictLoroRequestIdentityConflictEnvelope.self, from: raw),
+                  EntityId.isValid(envelope.nodeId),
+                  !envelope.requestId.isEmpty,
+                  envelope.requestId.utf16.count <= 200,
+                  AthenaeumDomain.isECMAScriptTrimmed(envelope.requestId)
+            else {
+                return .unrecognizedRemoteError(name: name, message: message)
+            }
+            return .loroRequestIdentityConflict(nodeId: envelope.nodeId, requestId: envelope.requestId)
+        }
         guard
             let data = message.data(using: .utf8),
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -75,12 +130,74 @@ public enum AthenaeumDomainError: Error, Sendable, Equatable {
         func strArray(_ key: String) -> [String] {
             (data0[key] as? [Any])?.compactMap { $0 as? String } ?? []
         }
+        func int(_ key: String) -> Int? { data0[key] as? Int }
+        func requiredNonBlankString(_ key: String) -> String? {
+            guard let value = data0[key] as? String,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return nil
+            }
+            return value
+        }
+        func requiredSafePositiveInteger(_ key: String) -> Int? {
+            guard let number = data0[key] as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite,
+                  number.doubleValue.rounded(.towardZero) == number.doubleValue,
+                  let value = Int(exactly: number.doubleValue),
+                  LoroWireSafeInteger.contains(value)
+            else {
+                return nil
+            }
+            return value
+        }
 
         switch tag {
         case "NodeNotFound": return .nodeNotFound(nodeId: str("nodeId"))
+        case "NodeAlreadyExists": return .nodeAlreadyExists(nodeId: str("nodeId"))
         case "ValidationError": return .validationError(message: envelopeMessage)
         case "UnexpectedError": return .unexpectedError(message: envelopeMessage)
         case "PageNotFound": return .pageNotFound(nodeId: str("nodeId"))
+        case "PageFormatMismatch":
+            guard
+                let expected = PageDocumentFormat(rawValue: str("expected")),
+                let actual = PageDocumentFormat(rawValue: str("actual"))
+            else {
+                return .unrecognizedRemoteError(name: name, message: message)
+            }
+            return .pageFormatMismatch(nodeId: str("nodeId"), expected: expected, actual: actual)
+        case "LoroContentConflict":
+            guard let nodeId = requiredNonBlankString("nodeId"),
+                  EntityId.isValid(nodeId),
+                  let expectedStorageVersion = requiredSafePositiveInteger("expectedStorageVersion"),
+                  let currentStorageVersion = requiredSafePositiveInteger("currentStorageVersion"),
+                  let expectedSnapshotSHA256 = requiredNonBlankString("expectedSnapshotSha256"),
+                  let currentSnapshotSHA256 = requiredNonBlankString("currentSnapshotSha256"),
+                  let expectedVersionVectorSHA256 = requiredNonBlankString("expectedVersionVectorSha256"),
+                  let currentVersionVectorSHA256 = requiredNonBlankString("currentVersionVectorSha256"),
+                  LoroMutationWire.isDigest(expectedSnapshotSHA256),
+                  LoroMutationWire.isDigest(currentSnapshotSHA256),
+                  LoroMutationWire.isDigest(expectedVersionVectorSHA256),
+                  LoroMutationWire.isDigest(currentVersionVectorSHA256),
+                  let conflictMessage = json["message"] as? String,
+                  !conflictMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return .unrecognizedRemoteError(name: name, message: message)
+            }
+            return .loroContentConflict(nodeId: nodeId, expectedStorageVersion: expectedStorageVersion, currentStorageVersion: currentStorageVersion, expectedSnapshotSHA256: expectedSnapshotSHA256, currentSnapshotSHA256: currentSnapshotSHA256, expectedVersionVectorSHA256: expectedVersionVectorSHA256, currentVersionVectorSHA256: currentVersionVectorSHA256, message: conflictMessage)
+        case "LoroSemanticCommitRequired":
+            guard
+                Set(json.keys) == Set(["tag", "message", "data"]),
+                json["message"] as? String == AthenaeumDomain.LORO_SEMANTIC_COMMIT_REQUIRED_MESSAGE,
+                Set(data0.keys) == Set(["nodeId"]),
+                let nodeId = data0["nodeId"] as? String,
+                EntityId.isValid(nodeId)
+            else {
+                return .unrecognizedRemoteError(name: name, message: message)
+            }
+            return .loroSemanticCommitRequired(nodeId: nodeId)
+        case "LoroRequestIdentityConflict":
+            return .unrecognizedRemoteError(name: name, message: message)
         case "TagNotFound": return .tagNotFound(tagId: str("tagId"))
         case "FactNotFound": return .factNotFound(factId: str("factId"))
         case "EdgeNotFound": return .edgeNotFound(edgeId: str("edgeId"))

@@ -12,17 +12,21 @@ import AthenaeumRPC
 // `phase2..5-driver` (see `Phase5Driver.swift`'s own header comment for the pattern this
 // follows). Every subcommand talks to the real backend (`wrangler dev`, `packages/backend`) over
 // the real `AthenaeumRPC` HTTP-batch transport — nothing here is stubbed or mocked at the RPC
-// layer. `--workspace` is any fresh UUID (an ungoverned workspace — `requireRoleForGovernedWorkspace` is a
-// no-op for one with no owner, `workspace-durable-object.ts`'s own header comment — so no dev sign-in
-// is required for this driver, matching `phase2-driver`'s identical anonymous-workspace convention).
+// layer. `--workspace` is any fresh UUID. Ledgered `start-meeting` and transcript appends require
+// `--credential <token>` (or `ATHENAEUM_CREDENTIAL`) even for an ungoverned workspace; the token
+// supplies the server-derived principal recorded by the command ledger.
 //
 // `transcribe-say` is the load-bearing subcommand: it decodes a real audio file (in practice, a
 // file `say -o file.aiff "..."` genuinely synthesized) through the real, protocol-based
 // `SyntheticAudioSource` (`AudioCaptureSource` conformance — the real dependency-injection seam,
 // per this task's hard constraint), chunks it via the real `AudioChunker`, transcribes each chunk,
 // and appends every non-empty transcript to a real meeting via `WorkspaceRPCClient
-// .appendTranscriptSegment` (`MeetingTranscriptionPipeline`, `AthenaeumCore`). `--transcriber`
-// selects which `OnDeviceTranscriber` drives that pipeline:
+// .appendTranscriptSegment` (`MeetingTranscriptionPipeline`, `AthenaeumCore`). `--request-id`
+// identifies one meeting-start command; reuse it after an uncertain response so the ledger returns
+// the original meeting rather than creating a second session. `--transcriber`
+// selects which `OnDeviceTranscriber` drives that pipeline. `--capture-id` identifies one
+// audio/configuration run; reuse it after an uncertain transport failure so ledger retries replay
+// the same per-chunk request identities. Reusing it with changed input intentionally conflicts.
 //
 //   --transcriber sfspeech (default): the REAL `SFSpeechRecognizerTranscriber`, wrapping the real
 //   `SFSpeechRecognizer`. Per docs/meetings-voice-decisions.md §1.2 (confirmed independently by
@@ -159,10 +163,11 @@ struct Phase6Driver {
         guard let apiURL = URL(string: "\(backendURLString)/api/workspace/\(workspaceId.rawValue)") else {
             fail("invalid backend URL: \(backendURLString)")
         }
-        let client = WorkspaceRPCClient(baseURL: apiURL, workspaceId: workspaceId.rawValue)
+        let credential = optionValue(allArgs, "--credential") ?? ProcessInfo.processInfo.environment["ATHENAEUM_CREDENTIAL"]
+        let client = WorkspaceRPCClient(baseURL: apiURL, workspaceId: workspaceId.rawValue, bearerCredential: credential)
 
         let flagsWithValues: Set<String> = [
-            "--backend", "--workspace", "--meeting", "--transcriber", "--timeout-seconds", "--max-chunk-seconds", "--min-chunk-seconds"
+            "--backend", "--workspace", "--credential", "--meeting", "--request-id", "--capture-id", "--transcriber", "--timeout-seconds", "--max-chunk-seconds", "--min-chunk-seconds"
         ]
         var positional: [String] = []
         var i = 0
@@ -178,7 +183,18 @@ struct Phase6Driver {
         switch subcommand {
         case "start-meeting":
             let title = requireArg(positional, 0, "title")
-            let meeting = try await client.startMeeting(title: title)
+            guard credential != nil else { fail("--credential <token> (or ATHENAEUM_CREDENTIAL) is required for 'start-meeting'") }
+            let requestId = optionValue(allArgs, "--request-id") ?? UUID().uuidString
+            guard !requestId.isEmpty, requestId.count <= 200, requestId.unicodeScalars.allSatisfy(\.isASCII) else {
+                fail("--request-id must contain 1...200 ASCII characters")
+            }
+            print("REQUEST_ID: \(requestId)")
+            let meeting = try await client.startMeeting(
+                title: title,
+                requestId: requestId,
+                commitMessage: "Start a meeting session from the Phase 6 driver.",
+                attribution: MutationAttribution(kind: "humanUi", surface: "macos")
+            )
             print("MEETING_ID: \(meeting.id)")
             print("TITLE: \(meeting.title)")
             print("STARTED_AT: \(meeting.startedAt)")
@@ -211,7 +227,9 @@ struct Phase6Driver {
         case "transcribe-say":
             let audioPath = requireArg(positional, 0, "audioFilePath")
             guard let meetingId = optionValue(allArgs, "--meeting") else { fail("--meeting <id> is required") }
+            guard credential != nil else { fail("--credential <token> (or ATHENAEUM_CREDENTIAL) is required for 'transcribe-say'") }
             let transcriberName = optionValue(allArgs, "--transcriber") ?? "sfspeech"
+            let captureId = optionValue(allArgs, "--capture-id") ?? UUID().uuidString
             let timeoutSeconds = Double(optionValue(allArgs, "--timeout-seconds") ?? "20") ?? 20
             let minChunk = Double(optionValue(allArgs, "--min-chunk-seconds") ?? "1.5") ?? 1.5
             let maxChunk = Double(optionValue(allArgs, "--max-chunk-seconds") ?? "5") ?? 5
@@ -219,6 +237,7 @@ struct Phase6Driver {
             let fileURL = URL(fileURLWithPath: audioPath)
             let source = try SyntheticAudioSource(fileURL: fileURL, origin: .microphone)
             print("DECODED_BLOCKS: \(source.allBlocks.count) from \(fileURL.lastPathComponent)")
+            print("CAPTURE_ID: \(captureId)")
 
             let baseTranscriber: OnDeviceTranscriber
             switch transcriberName {
@@ -242,7 +261,10 @@ struct Phase6Driver {
                     chunkerConfig: AudioChunkerConfig(minChunkDurationSeconds: minChunk, maxChunkDurationSeconds: maxChunk),
                     sink: client,
                     meetingId: meetingId,
-                    skipSilentChunks: true
+                    skipSilentChunks: true,
+                    captureId: captureId,
+                    commitMessage: "Capture transcript segment from the Phase 6 meeting transcription pipeline.",
+                    attribution: MutationAttribution(kind: "humanUi", surface: "macos")
                 )
                 print("APPENDED_SEGMENT_COUNT: \(appended.count)")
                 for (segment, result) in appended {

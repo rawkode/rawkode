@@ -9,9 +9,9 @@ export function MeetingsRoute() {
   return (
     <div className="route-view route-view--light">
       <header className="route-heading">
-        <span className="route-heading-kicker">Read-only</span>
+        <span className="route-heading-kicker">Your conversations</span>
         <h1>Meetings</h1>
-        <p>Recorded and transcribed natively — select a meeting to review its transcript.</p>
+        <p>Find the people, decisions, and context from conversations you have captured.</p>
       </header>
       <MeetingsPanel />
     </div>

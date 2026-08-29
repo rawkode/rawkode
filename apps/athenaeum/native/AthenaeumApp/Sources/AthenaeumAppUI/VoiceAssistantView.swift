@@ -8,13 +8,21 @@ import AthenaeumDomain
 /// Owns its `VoiceAssistantViewModel` as a `@StateObject` constructed from plain params
 /// (`backendURL`/`workspaceId`/`bearerCredential`) — same convention `CalendarDayView` already
 /// establishes, deliberately NOT `PendingChangesView`'s "take an already-built `@ObservedObject`"
-/// shape: `VoiceAssistantView` is instantiated inline inside `WorkspaceView`'s `body`, which
+/// shape: `VoiceAssistantView` is instantiated inline inside `WorkspaceCommandCenterView`'s detail,
+/// which
 /// SwiftUI recomputes on any sibling panel's state change — a pre-built model handed in as a plain
 /// value would be silently reconstructed (and its live mic capture + background poll/pump `Task`s
 /// orphaned, never cancelled) on every one of those re-renders; `@StateObject` is specifically the
 /// primitive that survives that.
+enum VoiceTurnSendPresentation {
+    static func canStartSend(isSending: Bool) -> Bool {
+        !isSending
+    }
+}
+
 public struct VoiceAssistantView: View {
     @StateObject private var model: VoiceAssistantViewModel
+    @State private var isSendingTurn = false
 
     public init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         _model = StateObject(
@@ -60,8 +68,9 @@ public struct VoiceAssistantView: View {
                 Label("Listening", systemImage: "waveform")
                     .foregroundStyle(.green)
                 Spacer()
-                Button("Send") { Task { await model.sendTurn() } }
+                Button(isSendingTurn ? "Sending…" : "Send") { sendTurn() }
                     .buttonStyle(.bordered)
+                    .disabled(!VoiceTurnSendPresentation.canStartSend(isSending: isSendingTurn))
                 Button("End session") { Task { await model.endSession() } }
                     .buttonStyle(.bordered)
                     .tint(.red)
@@ -69,6 +78,18 @@ public struct VoiceAssistantView: View {
                 ProgressView().controlSize(.small)
                 Text("Ending…").foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func sendTurn() {
+        guard VoiceTurnSendPresentation.canStartSend(isSending: isSendingTurn) else {
+            return
+        }
+
+        isSendingTurn = true
+        Task { @MainActor in
+            defer { isSendingTurn = false }
+            await model.sendTurn()
         }
     }
 

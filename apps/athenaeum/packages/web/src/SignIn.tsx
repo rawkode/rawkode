@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { signIn, type DevSession } from "./dev-session.js"
 
 // Web-stage task item 1: "A minimal dev sign-in screen (email input, per the Decisions stage's
@@ -6,26 +6,33 @@ import { signIn, type DevSession } from "./dev-session.js"
 // valid persisted `DevSession` — see `dev-session.ts`'s header comment for the full HARD
 // CONSTRAINT framing this component's own on-page copy repeats for the end user.
 
+const devSignInFailureMessage = "We couldn’t complete dev sign-in. Check the email and try again."
+
 export function SignIn({ onSignedIn }: { readonly onSignedIn: (session: DevSession) => void }) {
   const [email, setEmail] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isSubmittingRef = useRef(false)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmed = email.trim()
-    if (trimmed.length === 0) return
+    if (trimmed.length === 0 || isSubmittingRef.current) return
+    isSubmittingRef.current = true
 
     setSubmitting(true)
     setError(null)
     signIn(trimmed).then(
       (session) => {
+        isSubmittingRef.current = false
         setSubmitting(false)
         onSignedIn(session)
       },
       (thrown: unknown) => {
+        isSubmittingRef.current = false
         setSubmitting(false)
-        setError(thrown instanceof Error ? thrown.message : String(thrown))
+        setError(devSignInFailureMessage)
+        console.error(thrown)
       }
     )
   }
@@ -53,7 +60,7 @@ export function SignIn({ onSignedIn }: { readonly onSignedIn: (session: DevSessi
             {submitting ? "Signing in…" : "Sign in (dev)"}
           </button>
         </form>
-        {error !== null && <p className="error">{error}</p>}
+        {error !== null && <p className="error" role="alert">{error}</p>}
       </div>
     </main>
   )

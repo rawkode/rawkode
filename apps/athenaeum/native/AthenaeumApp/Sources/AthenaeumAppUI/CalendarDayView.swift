@@ -20,11 +20,13 @@ final class CalendarDayViewModel: ObservableObject {
         let endDisplay: String
         let attendees: String
         let status: String
+        let linkedNodeId: String?
         let startSortKey: String
     }
 
     @Published private(set) var events: [EventRow] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedEvents = false
     @Published var errorMessage: String?
 
     private let client: WorkspaceRPCClient
@@ -32,6 +34,12 @@ final class CalendarDayViewModel: ObservableObject {
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
         self.client = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
+    }
+
+    /// Test-only construction seam: production continues to resolve its workspace-scoped client
+    /// above, while focused lifecycle tests can exercise the exact calendar read protocol.
+    init(client: WorkspaceRPCClient) {
+        self.client = client
     }
 
     /// Local-day `[from, to)` window in UTC ISO-8601 — matches `web/src/day-window.ts`'s own
@@ -62,13 +70,46 @@ final class CalendarDayViewModel: ObservableObject {
                         endDisplay: Self.displayTime(event.end),
                         attendees: event.attendees.map { $0.displayName ?? $0.email }.joined(separator: ", "),
                         status: event.status,
+                        linkedNodeId: event.linkedNodeId,
                         startSortKey: event.start.isoString
                     )
                 }
+            hasLoadedEvents = true
             errorMessage = nil
         } catch {
-            errorMessage = "Failed to load calendar events: \(error)"
+            errorMessage = Self.calendarLoadFailureMessage(for: error)
         }
+    }
+
+    /// Calendar read failures can contain provider or credential-adjacent detail. The existing
+    /// refresh control is the safe recovery path without presenting an unavailable day as empty.
+    static func calendarLoadFailureMessage(for _: Error) -> String {
+        "Calendar events couldn’t be loaded. Nothing has been changed. Refresh to check today again."
+    }
+
+    /// A blank result only means "no events" after the current day window has completed a
+    /// successful read. Before then, or after a failure, the schedule remains unknown.
+    static func shouldShowEmptyEvents(
+        isEmpty: Bool,
+        hasLoadedEvents: Bool,
+        isLoading: Bool,
+        errorMessage: String?
+    ) -> Bool {
+        isEmpty && hasLoadedEvents && !isLoading && errorMessage == nil
+    }
+
+    static func shouldShowEventsLoading(
+        hasLoadedEvents: Bool,
+        isLoading: Bool,
+        errorMessage: String?
+    ) -> Bool {
+        isLoading || (!hasLoadedEvents && errorMessage == nil)
+    }
+
+    /// An inline retry is useful only after a failed read has completed. During a refresh the
+    /// existing loading state takes over, so the action cannot imply that the schedule is empty.
+    static func shouldShowEventsRetry(errorMessage: String?, isLoading: Bool) -> Bool {
+        errorMessage != nil && !isLoading
     }
 
     private static let displayFormatter: DateFormatter = {
@@ -97,13 +138,33 @@ final class CalendarDayViewModel: ObservableObject {
     }
 }
 
+enum CalendarDayRefreshPresentation {
+    static func canStartRefresh(isRefreshInFlight: Bool) -> Bool {
+        !isRefreshInFlight
+    }
+
+    static func isLoading(isModelLoading: Bool, isRefreshInFlight: Bool) -> Bool {
+        isModelLoading || isRefreshInFlight
+    }
+}
+
 public struct CalendarDayView: View {
     @StateObject private var model: CalendarDayViewModel
+    // View-local so rapid header/retry activation is rejected before the model's asynchronous
+    // loading state can re-render. The calendar read and its data contract remain model-owned.
+    @State private var isRefreshInFlight = false
+    private let onOpenEntity: ((String) -> Void)?
 
-    public init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
+    public init(
+        backendURL: URL,
+        workspaceId: EntityId,
+        bearerCredential: String?,
+        onOpenEntity: ((String) -> Void)? = nil
+    ) {
         _model = StateObject(
             wrappedValue: CalendarDayViewModel(backendURL: backendURL, workspaceId: workspaceId, bearerCredential: bearerCredential)
         )
+        self.onOpenEntity = onOpenEntity
     }
 
     public var body: some View {
@@ -111,14 +172,46 @@ public struct CalendarDayView: View {
             HStack {
                 Text("Today").font(.title2.bold())
                 Spacer()
-                if model.isLoading {
+                if CalendarDayViewModel.shouldShowEventsLoading(
+                    hasLoadedEvents: model.hasLoadedEvents,
+                    isLoading: isLoadingEvents,
+                    errorMessage: model.errorMessage
+                ) {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button("Refresh") { Task { await model.refresh() } }
+                    Button("Refresh") { startRefresh() }
                 }
             }
 
-            if model.events.isEmpty && !model.isLoading {
+            if CalendarDayViewModel.shouldShowEventsLoading(
+                hasLoadedEvents: model.hasLoadedEvents,
+                isLoading: isLoadingEvents,
+                errorMessage: model.errorMessage
+            ) {
+                ProgressView("Loading today’s events…")
+                    .foregroundStyle(.secondary)
+            } else if let error = model.errorMessage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Calendar events are unavailable", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    if CalendarDayViewModel.shouldShowEventsRetry(
+                        errorMessage: model.errorMessage,
+                        isLoading: isLoadingEvents
+                    ) {
+                        Button("Retry") { startRefresh() }
+                            .accessibilityHint("Retries loading today’s calendar events.")
+                    }
+                }
+            } else if CalendarDayViewModel.shouldShowEmptyEvents(
+                isEmpty: model.events.isEmpty,
+                hasLoadedEvents: model.hasLoadedEvents,
+                isLoading: isLoadingEvents,
+                errorMessage: model.errorMessage
+            ) {
                 Text("No events today.").foregroundStyle(.secondary)
             }
             ForEach(model.events) { row in
@@ -132,6 +225,19 @@ public struct CalendarDayView: View {
                         if !row.attendees.isEmpty {
                             Text(row.attendees).font(.caption).foregroundStyle(.secondary)
                         }
+                        if let linkedNodeId = row.linkedNodeId, let onOpenEntity {
+                            Button {
+                                onOpenEntity(linkedNodeId)
+                            } label: {
+                                Label("Open linked entity", systemImage: "link")
+                                    .font(.caption)
+                            }
+                            #if os(macOS)
+                            .buttonStyle(.link)
+                            #else
+                            .buttonStyle(.borderless)
+                            #endif
+                        }
                     }
                     Spacer()
                     if row.status != "confirmed" {
@@ -139,12 +245,42 @@ public struct CalendarDayView: View {
                     }
                 }
             }
-
-            if let error = model.errorMessage {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
         }
         .padding()
-        .task { await model.refresh() }
+        .task { await refreshOnAppear() }
+    }
+
+    private var isLoadingEvents: Bool {
+        CalendarDayRefreshPresentation.isLoading(
+            isModelLoading: model.isLoading,
+            isRefreshInFlight: isRefreshInFlight
+        )
+    }
+
+    private func startRefresh() {
+        guard beginRefresh() else { return }
+        Task { @MainActor in
+            await completeRefresh()
+        }
+    }
+
+    private func refreshOnAppear() async {
+        guard beginRefresh() else { return }
+        await completeRefresh()
+    }
+
+    private func beginRefresh() -> Bool {
+        guard CalendarDayRefreshPresentation.canStartRefresh(
+            isRefreshInFlight: isRefreshInFlight
+        ) else {
+            return false
+        }
+        isRefreshInFlight = true
+        return true
+    }
+
+    private func completeRefresh() async {
+        defer { isRefreshInFlight = false }
+        await model.refresh()
     }
 }

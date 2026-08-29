@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import { BaseTagIds, CreateRelationDefinitionInput, EntityId, type DomainError } from "@athenaeum/domain"
+import { BaseTagIds, CreateRelationDefinitionInput, EntityId, HumanUiMutationAttribution, MutationRequestId, type DomainError } from "@athenaeum/domain"
 import type { WorkspaceRpcClientService } from "./rpc-client.js"
 
 // Backlinks-demo affordance (task: "seeing at least one backlink appear after creating a related
@@ -20,6 +20,7 @@ import type { WorkspaceRpcClientService } from "./rpc-client.js"
 // freshly-seeded workspace (`seed-base-tags.ts`), not because "mentions" is semantically Project-only.
 
 const storageKey = (workspaceId: EntityId): string => `athenaeum:mentionsRelationDefinitionId:${workspaceId}`
+const pendingStorageKey = (workspaceId: EntityId): string => `athenaeum:pendingMentionsRelationDefinition:${workspaceId}`
 
 export const ensureMentionsRelationDefinition = (
   client: WorkspaceRpcClientService,
@@ -32,16 +33,48 @@ export const ensureMentionsRelationDefinition = (
       if (Option.isSome(decoded)) return decoded.value
     }
 
+    const request = {
+      forwardName: "mentions",
+      inverseName: "mentioned by",
+      sourceTagId: BaseTagIds.Project,
+      targetTagId: BaseTagIds.Project,
+      cardinality: "many-to-many" as const
+    }
+    const pendingRaw = window.localStorage.getItem(pendingStorageKey(workspaceId))
+    let requestId: string | undefined
+    if (pendingRaw !== null) {
+      try {
+        const pending: unknown = JSON.parse(pendingRaw)
+        if (typeof pending === "object" && pending !== null &&
+            (pending as { forwardName?: unknown }).forwardName === request.forwardName &&
+            (pending as { inverseName?: unknown }).inverseName === request.inverseName &&
+            (pending as { sourceTagId?: unknown }).sourceTagId === request.sourceTagId &&
+            (pending as { targetTagId?: unknown }).targetTagId === request.targetTagId &&
+            (pending as { cardinality?: unknown }).cardinality === request.cardinality &&
+            typeof (pending as { requestId?: unknown }).requestId === "string" &&
+            Option.isSome(Schema.decodeUnknownOption(MutationRequestId)((pending as { requestId: string }).requestId))) {
+          requestId = (pending as { requestId: string }).requestId
+        }
+      } catch {
+        // Replace malformed local state with a fresh immutable operation below.
+      }
+    }
+    requestId ??= crypto.randomUUID()
+    window.localStorage.setItem(pendingStorageKey(workspaceId), JSON.stringify({ ...request, requestId }))
     const { relationDefinition } = yield* client.createRelationDefinition(
       new CreateRelationDefinitionInput({
         workspaceId,
-        forwardName: "mentions",
-        inverseName: "mentioned by",
-        sourceTagId: BaseTagIds.Project,
-        targetTagId: BaseTagIds.Project,
-        cardinality: "many-to-many"
+        ...request,
+        requestId,
+        commitMessage: "Ensure the workspace mention relation exists.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "humanUi",
+          surface: "web-backlinks"
+        })
       })
     )
     window.localStorage.setItem(storageKey(workspaceId), relationDefinition.id)
+    window.localStorage.removeItem(pendingStorageKey(workspaceId))
     return relationDefinition.id
   })

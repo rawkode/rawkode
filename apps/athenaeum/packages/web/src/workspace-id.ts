@@ -30,11 +30,23 @@ const resolveWorkspaceId = (): EntityId => {
   const fromQuery = tryDecode(url.searchParams.get("workspace"))
   if (fromQuery !== undefined) return fromQuery
 
-  const fromStorage = tryDecode(window.localStorage.getItem(STORAGE_KEY))
+  // Access to Web Storage can be unavailable in privacy mode, sandboxed iframes, and test
+  // environments. Workspace identity is still useful in those modes; persistence is best effort.
+  let storage: Storage | undefined
+  try {
+    storage = window.localStorage
+  } catch {
+    storage = undefined
+  }
+  const fromStorage = tryDecode(storage?.getItem(STORAGE_KEY) ?? null)
   if (fromStorage !== undefined) return fromStorage
 
   const generated = Schema.decodeUnknownSync(EntityId)(crypto.randomUUID())
-  window.localStorage.setItem(STORAGE_KEY, generated)
+  try {
+    storage?.setItem(STORAGE_KEY, generated)
+  } catch {
+    // Persistence is optional; the current in-memory module binding remains valid for this session.
+  }
   return generated
 }
 

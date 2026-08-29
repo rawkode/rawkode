@@ -1,7 +1,8 @@
 import * as Schema from "effect/Schema"
 import { Bookmark, BookmarkUrl } from "./bookmark.js"
 import { CalendarEvent } from "./calendar-event.js"
-import { GatekeeperBinding } from "./gatekeeper-binding.js"
+import { GatekeeperBinding, GatekeeperBindingSummary } from "./gatekeeper-binding.js"
+import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 
 // Phase 5 domain-extension task, item 5: "RPC schemas: connectGoogleCalendar (OAuth kickoff),
@@ -126,6 +127,20 @@ export class SyncGoogleCalendarOutput extends Schema.Class<SyncGoogleCalendarOut
   triggered: Schema.Boolean
 }) {}
 
+/** Lists sanitized, server-authoritative external bindings for this workspace. The response is
+ * suitable for management surfaces and intentionally excludes account/credential identity. */
+export class ListGatekeeperBindingsInput extends Schema.Class<ListGatekeeperBindingsInput>(
+  "ListGatekeeperBindingsInput"
+)({
+  workspaceId: EntityId
+}) {}
+
+export class ListGatekeeperBindingsOutput extends Schema.Class<ListGatekeeperBindingsOutput>(
+  "ListGatekeeperBindingsOutput"
+)({
+  bindings: Schema.Array(GatekeeperBindingSummary)
+}) {}
+
 // --- Google Calendar: reads --------------------------------------------------------------------
 
 /** Lists this workspace's synced `CalendarEvent` rows, optionally bounded to `[from, to)`. Reads the
@@ -167,16 +182,17 @@ export class LinkCalendarEventToNodeOutput extends Schema.Class<LinkCalendarEven
 
 // --- Bookmarks -----------------------------------------------------------------------------------
 
-/** Captures a new bookmark (bookmark.ts). No gatekeeper/OAuth involved — see bookmark.ts's own
- *  header comment for why bookmarks are the plan's deliberately low-complexity Phase 5 companion
- *  to Calendar. `id`/`capturedAt` are server-assigned, not caller-supplied (unlike
- *  `CreateNodeInput`'s optional caller-supplied `id` — bookmarks have no deterministic-id use case
- *  analogous to `web/src/daily-note-id.ts`'s daily-note resolution, so there is no reason to widen
- *  this method's contract to accept one). */
+/** Captures a new bookmark (bookmark.ts). The request metadata is part of the durable ledger
+ *  command: callers can safely retry an uncertain response without creating a second capture, and
+ *  every edit carries explicit provenance and a commit message. `id`/`capturedAt` remain
+ *  server-assigned. */
 export class CreateBookmarkInput extends Schema.Class<CreateBookmarkInput>("CreateBookmarkInput")({
   workspaceId: EntityId,
   url: BookmarkUrl,
-  title: Schema.optional(Schema.String)
+  title: Schema.optional(Schema.String),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class CreateBookmarkOutput extends Schema.Class<CreateBookmarkOutput>(

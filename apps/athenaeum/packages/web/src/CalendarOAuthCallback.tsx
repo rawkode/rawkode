@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { GoogleCalendarOAuthCallbackInput, type DomainError } from "@athenaeum/domain"
+import { GoogleCalendarOAuthCallbackInput } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { workspaceId } from "./workspace-id.js"
 import { saveCalendarBindingId } from "./calendar-binding-storage.js"
-import { formatDomainError } from "./format-domain-error.js"
 
 // The REAL other half of `CalendarPanel.tsx`'s OAuth redirect — this is genuinely what a
 // production deployment's `CALENDAR_OAUTH_REDIRECT_URI` route does (see `gatekeeper-rpc.ts`'s own
@@ -39,13 +37,13 @@ type CallbackState =
   | { readonly status: "failure"; readonly message: string }
   | { readonly status: "missing-params" }
 
-/** Same `Effect.exit` + `Cause.squash` technique `use-effect-query.ts` uses, inlined here (this
- *  is a one-shot side effect triggered by a URL, not a `deps`-driven query — the hook doesn't
- *  fit) so a real `DomainError` (e.g. `ValidationError` for a `state` that doesn't match this
- *  workspace) renders via `formatDomainError` instead of a generic string, while a genuine defect
- *  (network failure, decode failure) still gets a readable fallback. */
-const isDomainError = (value: unknown): value is DomainError =>
-  typeof value === "object" && value !== null && typeof (value as { _tag?: unknown })._tag === "string"
+// An OAuth code is single-use, so the callback must never offer an in-place retry. Its user-facing
+// result also must not echo provider query values, domain failures, or transport causes; all of
+// those can carry account/provider context and the safe recovery is a fresh connection from the
+// calendar surface.
+const cancelledMessage = "Calendar connection was cancelled. Return to Athenaeum to try again."
+const incompleteMessage = "This calendar connection link is incomplete. Return to Athenaeum and start the connection again."
+const failedMessage = "Calendar connection couldn’t be completed. Return to Athenaeum and try connecting your calendar again."
 
 export function CalendarOAuthCallback() {
   const [state, setState] = useState<CallbackState>({ status: "idle" })
@@ -59,7 +57,7 @@ export function CalendarOAuthCallback() {
     const errorParam = params.get("error") // Google sets this (e.g. "access_denied") on refusal.
 
     if (errorParam !== null) {
-      setState({ status: "failure", message: `Google returned an OAuth error: "${errorParam}"` })
+      setState({ status: "failure", message: cancelledMessage })
       return
     }
     if (code === null || oauthState === null) {
@@ -89,13 +87,7 @@ export function CalendarOAuthCallback() {
         saveCalendarBindingId(workspaceId, inner.value.binding.id)
         setState({ status: "success", bindingId: inner.value.binding.id })
       } else if (!Exit.isInterrupted(inner)) {
-        const squashed: unknown = Cause.squash(inner.cause)
-        setState({
-          status: "failure",
-          message: isDomainError(squashed)
-            ? formatDomainError(squashed)
-            : `Unexpected error — check the console for details (${String(squashed)})`
-        })
+        setState({ status: "failure", message: failedMessage })
         console.error(inner.cause.toString())
       }
     })
@@ -112,20 +104,16 @@ export function CalendarOAuthCallback() {
   return (
     <div className="oauth-callback-overlay">
       <div className="oauth-callback-card">
-        <h2>Connecting Google Calendar…</h2>
+        <h2>Google Calendar connection</h2>
         {state.status === "idle" && <p>Preparing…</p>}
         {state.status === "running" && <p>Completing the connection…</p>}
         {state.status === "missing-params" && (
-          <p className="error">
-            This page expects Google to redirect back with <code>?code=</code> and{" "}
-            <code>?state=</code> query parameters, but at least one is missing. If you navigated
-            here directly, go back and click "Connect Google Calendar" instead.
-          </p>
+          <p className="error" role="alert">{incompleteMessage}</p>
         )}
-        {state.status === "failure" && <p className="error">Couldn't complete the connection: {state.message}</p>}
+        {state.status === "failure" && <p className="error" role="alert">{state.message}</p>}
         {state.status === "success" && (
           <p className="oauth-callback-success">
-            Connected. Binding <code>{state.bindingId}</code> saved for this workspace, in this
+            Google Calendar is connected. The connection is saved for this workspace in this
             browser.
           </p>
         )}

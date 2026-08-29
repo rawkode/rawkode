@@ -1,4 +1,5 @@
 import XCTest
+import AthenaeumDomain
 @testable import AthenaeumRPC
 
 /// **Live integration tests** — the actual proof, per this stage's mandate, that "a minimal
@@ -105,6 +106,16 @@ final class WorkspaceRPCClientLiveTests: XCTestCase {
         XCTAssertTrue(page.entries.contains(where: { $0.entityId == node.id && $0.entityKind == "node" }))
     }
 
+    func testSearchNodesFindsCreatedTitle() async throws {
+        let workspaceId = freshWorkspaceId()
+        let client = try makeClient(workspaceId: workspaceId)
+        let node = try await client.createNode(title: "Native search result")
+
+        let results = try await client.searchNodes(query: "Native search result")
+
+        XCTAssertTrue(results.contains(where: { $0.nodeId.rawValue == node.id }))
+    }
+
     /// Adversarial-review fix: `WorkspaceRPCClient.listTags()` (`WorkspaceRPCClient+Graph.swift`) called
     /// a `listTags` backend RPC method that did not exist — confirmed live via a raw
     /// `TypeError`, and confirmed as the only one of `WorkspaceRPCClient+Graph.swift`'s six methods
@@ -117,7 +128,12 @@ final class WorkspaceRPCClientLiveTests: XCTestCase {
         let workspaceId = freshWorkspaceId()
         let client = try makeClient(workspaceId: workspaceId)
 
-        let created = try await client.createTag(name: "Live listTags test tag")
+        let created = try await client.createTag(
+            name: "Live listTags test tag",
+            requestId: UUID().uuidString.lowercased(),
+            commitMessage: "Define the live test Supertag.",
+            attribution: MutationAttribution(kind: "humanUi", surface: "macos")
+        )
         XCTAssertEqual(created.name, "Live listTags test tag")
         XCTAssertFalse(created.builtin)
 

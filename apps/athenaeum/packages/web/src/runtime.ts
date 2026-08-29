@@ -51,6 +51,17 @@ const buildRuntime = (
 export let runtime = buildRuntime(workspaceId)
 
 /**
+ * Opaque identity for the current live runtime connection.  A runtime object is the primary
+ * identity used by long-lived in-process work, but exposing this separate token makes a scope
+ * replacement explicit to UI code that may otherwise still hold a live ES-module binding from
+ * the prior connection for one render tick.
+ *
+ * This is deliberately process-local: it protects attachment/adoption boundaries during an
+ * auth or workspace switch; it does not claim any reload, crash, or tab-close durability.
+ */
+export let runtimeConnectionIdentity: object = Object.freeze({})
+
+/**
  * Swaps the live connection to `nextWorkspaceId`, presenting `credential` (a dev sign-in credential
  * from `dev-session.ts`) as the `?token=` Bearer credential — see `dev-auth.ts#extractBearerCredential`'s
  * doc comment for why a browser WebSocket upgrade must use the query-param form rather than an
@@ -63,5 +74,6 @@ export let runtime = buildRuntime(workspaceId)
 export const switchWorkspaceConnection = (nextWorkspaceId: EntityId, credential?: string): void => {
   const previous = runtime
   runtime = buildRuntime(nextWorkspaceId, credential)
+  runtimeConnectionIdentity = Object.freeze({})
   void previous.dispose()
 }

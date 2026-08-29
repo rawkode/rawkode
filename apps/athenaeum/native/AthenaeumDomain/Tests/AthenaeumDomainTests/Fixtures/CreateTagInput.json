@@ -1,5 +1,12 @@
 {
   "workspaceId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e5f",
   "name": "Project",
-  "parentIds": []
+  "parentIds": [],
+  "requestId": "fixture-create-tag",
+  "commitMessage": "Define the Project Supertag.",
+  "attribution": {
+    "version": "athenaeum.mutation-attribution.v1",
+    "kind": "humanUi",
+    "surface": "web-supertags-manager"
+  }
 }

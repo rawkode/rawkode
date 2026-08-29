@@ -89,6 +89,24 @@ export class RevertChangesOutput extends Schema.Class<RevertChangesOutput>("Reve
   revertFrom: Schema.Number.pipe(Schema.int(), Schema.nonNegative())
 }) {}
 
+/** Decides one immutable proposal captured by the agent-edit service.  `principal` is deliberately
+ * absent: the Workspace Durable Object derives it from the authenticated connection and records
+ * it in the ledger.  `provenance` explains which employee/job/tool produced the proposal; it is
+ * evidence, not authority. */
+export class DecideAgentChangeProposalInput extends Schema.Class<DecideAgentChangeProposalInput>("DecideAgentChangeProposalInput")({
+  workspaceId: EntityId,
+  proposalId: EntityId,
+  requestId: Schema.String.pipe(Schema.minLength(1)),
+  decision: Schema.Literal("accept", "reject"),
+  message: Schema.String.pipe(Schema.minLength(1)),
+  provenance: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+export class DecideAgentChangeProposalOutput extends Schema.Class<DecideAgentChangeProposalOutput>("DecideAgentChangeProposalOutput")({
+  proposalId: EntityId,
+  state: Schema.Literal("accepted", "rejected", "conflicted")
+}) {}
+
 export class ListChatChangesInput extends Schema.Class<ListChatChangesInput>("ListChatChangesInput")({
   chatId: EntityId
 }) {}

@@ -1,4 +1,5 @@
 import Foundation
+import AthenaeumDomain
 
 /// The minimal entity mirrors this client decodes into — hand-written against
 /// `packages/domain/src/*.ts`'s `Schema.Class` field shapes, not generated. A future
@@ -123,9 +124,9 @@ public struct RPCPageSyncResult: Sendable, Equatable {
 /// `packages/backend/src/workspace-durable-object.ts`'s `WorkspaceRpcApi` exposes today except
 /// `subscribeToNodes` (a live Cap'n Web push subscription, deliberately out of scope for the HTTP
 /// batch transport — see decisions.md) and the remaining graph-mutation methods (`createTag`,
-/// `addFact`, `createRelationDefinition`, `createEdge`, `assignTag`, `listGraphIssues`,
-/// `listTagClosure`, `searchNodes`), which follow the exact same `call(_:args:)` pattern below
-/// and were left for whichever stage first needs them rather than mirrored speculatively.
+/// `addFact`, `createRelationDefinition`, `createEdge`, `assignTag`, `listTagFields`, `listGraphIssues`,
+/// `listTagClosure`), which follow the exact same `call(_:args:)` pattern below and were left
+/// for whichever stage first needs them rather than mirrored speculatively.
 public final class WorkspaceRPCClient: Sendable {
     private let client: CapnWebBatchClient
     public let workspaceId: String
@@ -177,6 +178,34 @@ public final class WorkspaceRPCClient: Sendable {
         var args: [String: CapnWebValue] = ["title": .string(title)]
         args["id"] = id.map(CapnWebValue.string) ?? .undefined
         let result = try await rpc("createNode", args)
+        return try RPCNode(result.field("node"))
+    }
+
+    /// Provenance-bearing node creation. Keep the legacy overload above for compatibility clients;
+    /// this route is the first-party write path and requires a caller-owned retry id, rationale,
+    /// and attribution on every request.
+    public func createNodeWithIntent(
+        title: String,
+        id: String? = nil,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCNode {
+        var args: [String: CapnWebValue] = [
+            "title": .string(title),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": .object([
+                "version": .string(attribution.version),
+                "kind": .string(attribution.kind),
+                "surface": attribution.surface.map(CapnWebValue.string) ?? .undefined,
+                "jobId": attribution.jobId.map(CapnWebValue.string) ?? .undefined,
+                "runId": attribution.runId.map(CapnWebValue.string) ?? .undefined,
+                "source": attribution.source.map(CapnWebValue.string) ?? .undefined
+            ])
+        ]
+        args["id"] = id.map(CapnWebValue.string) ?? .undefined
+        let result = try await rpc("createNodeWithIntent", args)
         return try RPCNode(result.field("node"))
     }
 

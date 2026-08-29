@@ -5,6 +5,7 @@ import * as Exit from "effect/Exit"
 import {
   AddFactInput,
   EntityId,
+  HumanUiMutationAttribution,
   ListNodesInput,
   ListTagFieldsInput,
   RunViewInput,
@@ -21,6 +22,7 @@ import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { formatDomainError } from "./format-domain-error.js"
 import { AddTagFieldForm } from "./AddTagFieldForm.js"
+import type { FloatingAnchorRect, FloatingAnchorRectSource } from "./floating-popover-position.js"
 
 // docs/supertag-centering-decisions.md §2, "Field-editing popover" — shown after inserting a
 // `#tag` chip (`RichNoteEditor.tsx`'s `onSupertagApplied`) or on clicking an existing one
@@ -32,6 +34,10 @@ import { AddTagFieldForm } from "./AddTagFieldForm.js"
 export interface SupertagFieldPopoverTarget {
   readonly tagId: EntityId
   readonly name: string
+  /** Viewport rectangle of the chip/caret that opened this editor. */
+  readonly anchorRect?: FloatingAnchorRect
+  /** Optional live source used to keep the popover attached while the page scrolls. */
+  readonly anchorRectSource?: FloatingAnchorRectSource
 }
 
 /** `graph_facts`'s real columns (`read-model.ts`: `graph_facts AS SELECT id, nodeId, predicateId,
@@ -124,7 +130,7 @@ const parseByValueKind = (valueKind: TagFieldValueKind, raw: string, checked: bo
   }
 }
 
-export function SupertagFieldPopover({
+function LegacySupertagFieldPopover({
   nodeId,
   tag,
   onClose,
@@ -244,6 +250,11 @@ export function SupertagFieldPopover({
               nodeId,
               predicateId: fieldId,
               value,
+              requestId: crypto.randomUUID(),
+              commitMessage: "Update a Supertag field.",
+              attribution: new HumanUiMutationAttribution({
+                version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertag-field-editor"
+              }),
               id: existingFact ? (existingFact.id as EntityId) : undefined
             })
           )
@@ -309,7 +320,18 @@ export function SupertagFieldPopover({
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) =>
-          client.unassignTag(new UnassignTagInput({ workspaceId, nodeId, tagId: tag.tagId }))
+          client.unassignTag(new UnassignTagInput({
+            workspaceId,
+            nodeId,
+            tagId: tag.tagId,
+            requestId: crypto.randomUUID(),
+            commitMessage: `Remove the #${tag.name} membership from this note.`,
+            attribution: new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "web-supertag-field-editor"
+            })
+          }))
         )
       )
     )
@@ -423,6 +445,7 @@ export function SupertagFieldPopover({
           <AddTagFieldForm
             tagId={tag.tagId}
             nextSortOrder={state.value.fields.filter((f) => !f.inherited).length}
+            surface="web-supertag-field-editor"
             onAdded={() => setRefreshKey((k) => k + 1)}
           />
         </div>
@@ -430,3 +453,8 @@ export function SupertagFieldPopover({
     </div>
   )
 }
+
+// Keep the previous implementation available as a fallback while the coordinator-backed
+// implementation is verified. Existing consumers continue to import this module unchanged.
+export { SupertagFieldPopover } from "./SupertagFieldPopoverV2.js"
+export { LegacySupertagFieldPopover }

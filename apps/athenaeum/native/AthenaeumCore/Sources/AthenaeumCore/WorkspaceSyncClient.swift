@@ -1,20 +1,10 @@
 import Foundation
-import Automerge
 import AthenaeumDomain
 import AthenaeumRPC
 
-// `WorkspaceSyncClient` — plan §"Repo/package layout"'s "sync client" actor: the real client half of
-// both of the plan's Sync protocol content classes (§"Sync protocol"):
-//
-//  1. Automerge prose sync (`syncPage`) — mirrors `web/src/automerge-page.ts`'s
-//     `syncPageWithServer` line for line: same "always call `startPageSync` first, then exchange
-//     `generateSyncMessage`/`pageSyncMessage` until both sides have nothing left to send, bounded
-//     at 50 round trips, `reset: true` reclaims with a fresh session id" shape, reusing one stable
-//     `SyncSessionHandle` per node across calls (not a fresh id per debounced edit — the exact
-//     fix Phase 1's web stage made, see that file's doc comment history).
-//  2. Structured-record sync feed (`catchUpStructuredSync`) — mirrors
-//     `web/src/sync-feed-client.ts`'s `catchUpSyncFeed`: pages through `syncFeed` with a
-//     persisted `(epoch, afterCounter)` cursor, restarting from scratch on `epochMismatch`.
+// `WorkspaceSyncClient` is the native Loro and structured-record sync client. Legacy Automerge
+// transport remains a backend/web compatibility lane and is deliberately not linkable from this
+// shipped target: combining its static Rust FFI with `loro-swift` makes the macOS app un-linkable.
 //
 // Every mutation method here follows the plan's "Native local SQLite stays the immediate write
 // authority (durable-before-sync)": the local `LocalWorkspaceStore` write always happens, and always
@@ -27,6 +17,18 @@ import AthenaeumRPC
 
 public enum WorkspaceSyncClientError: Error, Sendable, Equatable {
     case pageNotFoundLocally(EntityId)
+    case missingLoroCreationIntent(EntityId)
+    case invalidLoroDescriptor(EntityId)
+    case invalidLoroSyncResponse
+    case invalidNodeCreationInput
+}
+
+/// Deliberately opaque native Loro result.  Rich-text traversal and mutation remain outside this
+/// transport/durability stage.
+public struct LoroPageReadOnlyProjection: Sendable, Equatable {
+    public let format: PageDocumentFormat
+    public let schemaVersion: Int
+    public let isDirty: Bool
 }
 
 public struct SyncFeedCatchUpResult: Sendable, Equatable {
@@ -37,16 +39,274 @@ public struct SyncFeedCatchUpResult: Sendable, Equatable {
 
 public actor WorkspaceSyncClient {
     private let localStore: LocalWorkspaceStore
-    private let pageStore: PageDocumentStore
     private let rpcClient: WorkspaceRPCClient
+    private let loroTransport: any LoroWorkspaceTransport
+    private let loroStore: LoroPageDocumentStore
+    private let loroGate: LoroNodeOperationGate
+    private let semanticAuthentication: @Sendable () async -> Bool
+    private let semanticTransport: (any LoroSemanticCheckpointTransport)?
+    private var loroSessions: [String: LoroSyncSession] = [:]
+    private var loroInFlight: [String: LoroInFlightFrame] = [:]
     public let workspaceId: EntityId
 
-    public init(localStore: LocalWorkspaceStore, pageStore: PageDocumentStore, rpcClient: WorkspaceRPCClient, workspaceId: EntityId) {
+    public init(localStore: LocalWorkspaceStore, rpcClient: WorkspaceRPCClient, workspaceId: EntityId) {
         self.localStore = localStore
-        self.pageStore = pageStore
         self.rpcClient = rpcClient
+        self.loroTransport = rpcClient
+        self.loroStore = LoroPageDocumentStore()
+        self.loroGate = LoroNodeOperationGate()
+        self.semanticAuthentication = { [rpcClient] in (try? await rpcClient.whoami().authenticated) ?? false }
+        self.semanticTransport = nil
         self.workspaceId = workspaceId
     }
+
+    /// Core-test seam for the Loro protocol only. It deliberately accepts no legacy document
+    /// store, so test binaries prove the same FFI closure as the shipped app.
+    init(localStore: LocalWorkspaceStore, loroTransport: any LoroWorkspaceTransport, workspaceId: EntityId, semanticAuthentication: @escaping @Sendable () async -> Bool = { false }, semanticTransport: (any LoroSemanticCheckpointTransport)? = nil, loroStore: LoroPageDocumentStore? = nil) {
+        self.localStore = localStore
+        self.rpcClient = WorkspaceRPCClient(baseURL: URL(string: "http://127.0.0.1")!, workspaceId: workspaceId.rawValue)
+        self.loroTransport = loroTransport
+        self.loroStore = loroStore ?? LoroPageDocumentStore()
+        self.loroGate = LoroNodeOperationGate()
+        self.semanticAuthentication = semanticAuthentication
+        self.semanticTransport = semanticTransport
+        self.workspaceId = workspaceId
+    }
+
+    /// The semantic runtime uses these same instances, so a read sync cannot overlap a semantic
+    /// dispatch or recovery for the same `(workspace,node)`.
+    func makeLoroSemanticRuntime(intent: LoroMutationIntentV1?) async throws -> LoroSemanticRuntime {
+        guard let intent, (try await rpcClient.whoami()).authenticated else { throw LoroSemanticRuntimeError.custodyDenied }
+        // This short-lived proof is deliberately generated only after the authenticated RPC
+        // session answers `whoami`; individual commits still receive server authorization.
+        let custody = LoroSemanticCustody(workspaceId: workspaceId, intent: intent, expiresAt: Date().addingTimeInterval(60))
+        return LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, rpc: rpcClient, workspaceId: workspaceId, custody: custody)
+    }
+
+    /// Startup recovery only dispatches a genuinely in-flight frozen checkpoint. Retained and
+    /// terminal rows are returned without authenticating or changing durable state.
+    public func recoverInFlightLoroSemanticCheckpoint(nodeId: EntityId) async throws -> LoroSemanticCheckpointResolution {
+        let local = localStore; let documents = loroStore; let gate = loroGate; let rpc = rpcClient; let workspace = workspaceId; let transport = semanticTransport; let auth = semanticAuthentication
+        return try await withLoroLease(nodeId: nodeId) { [local, documents, gate, rpc, workspace, transport, auth, nodeId] in
+            guard let checkpoint = try await local.loroCheckpoint(workspaceId: workspace, nodeId: nodeId) else { return .none }
+            guard checkpoint.state == .inFlight else { return .init(checkpoint) }
+            guard await auth() else { return .deniedAuthorizationOrSession }
+            let custody = LoroSemanticCustody(workspaceId: workspace, intent: checkpoint.intent, expiresAt: Date().addingTimeInterval(60))
+            let runtime = transport.map { LoroSemanticRuntime(local: local, documents: documents, gate: gate, workspaceId: workspace, custody: custody, transport: $0) }
+                ?? LoroSemanticRuntime(local: local, documents: documents, gate: gate, rpc: rpc, workspaceId: workspace, custody: custody)
+            guard let outcome = try await runtime.recoverInFlightAssumingLease(nodeId: nodeId) else { return .inFlight }
+            return .init(outcome)
+        }
+    }
+
+    /// Explicit retry replays only the durable retained-retry checkpoint; it never creates a
+    /// replacement intent or a replacement candidate.
+    public func retryRetainedLoroSemanticCheckpoint(nodeId: EntityId) async throws -> LoroSemanticCheckpointResolution {
+        let local = localStore; let documents = loroStore; let gate = loroGate; let rpc = rpcClient; let workspace = workspaceId; let transport = semanticTransport; let auth = semanticAuthentication
+        return try await withLoroLease(nodeId: nodeId) { [local, documents, gate, rpc, workspace, transport, auth, nodeId] in
+            guard let checkpoint = try await local.loroCheckpoint(workspaceId: workspace, nodeId: nodeId) else { return .none }
+            guard checkpoint.state == .retainedRetry else { return .init(checkpoint) }
+            guard await auth() else { return .deniedAuthorizationOrSession }
+            let custody = LoroSemanticCustody(workspaceId: workspace, intent: checkpoint.intent, expiresAt: Date().addingTimeInterval(60))
+            let runtime = transport.map { LoroSemanticRuntime(local: local, documents: documents, gate: gate, workspaceId: workspace, custody: custody, transport: $0) }
+                ?? LoroSemanticRuntime(local: local, documents: documents, gate: gate, rpc: rpc, workspaceId: workspace, custody: custody)
+            guard let outcome = try await runtime.retryRetainedAssumingLease(nodeId: nodeId) else { return .retainedRetry }
+            return .init(outcome)
+        }
+    }
+
+    /// Authoring admission is observational: it neither creates a candidate nor changes the
+    /// published replica or local authority. It shares the read-sync node gate.
+    public func loroNativePlainEditorEligibility(nodeId: EntityId) async throws -> LoroNativePlainEditorEligibility {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId] in
+            try await nativePlainEditorEligibilityAssumingLease(nodeId: nodeId)
+        }
+    }
+
+    /// Explicitly re-establishes literal authoring authority from the sealed, durable accepted
+    /// row. This is intentionally separate from eligibility and submission: after a
+    /// `submittedNeedsReload` result, a subsequent edit must remain closed until this recovery
+    /// operation (or a fresh explicit sync/recovery flow) completes.
+    public func recoverAcceptedLoroLiteralForEditing(nodeId: EntityId) async throws -> LoroNativePlainEditorEligibility {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId] in
+            guard await semanticAuthentication() else { return .unauthenticated }
+            if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+                return .checkpointResolutionRequired(.init(checkpoint))
+            }
+            guard let accepted = try await localStore.acceptedLoroPageEvidence(workspaceId: workspaceId, nodeId: nodeId) else {
+                return .ineligible
+            }
+            try await loroStore.installAcceptedLiteral(accepted)
+            return try await nativePlainEditorEligibilityAfterAuthenticationAssumingLease(nodeId: nodeId)
+        }
+    }
+
+    /// Value-only semantic submission for native plain-text editors. Core generates the request
+    /// identity and attribution after validating the immutable editor witness under one node lease.
+    public func submitNativePlainText(nodeId: EntityId, base: LoroNativePlainEditorState, proposedText: String) async throws -> LoroNativePlainTextSubmissionDisposition {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId, base, proposedText] in
+            let eligibility = try await nativePlainEditorEligibilityAssumingLease(nodeId: nodeId)
+            switch eligibility {
+            case .unauthenticated: return .unauthenticated
+            case .checkpointResolutionRequired(let resolution): return .checkpointResolutionRequired(resolution)
+            case .ineligible: return .ineligible
+            case .editable(let current):
+                guard base == current else { return .staleEditorState }
+                guard !proposedText.contains("\n") && !proposedText.contains("\r") else { return .invalidProposedText }
+                guard proposedText != base.text else { return .noChange }
+                let replacement = Self.nativePlainReplacement(from: base.text, to: proposedText)
+                let intent = try LoroMutationIntentV1(requestId: UUID().uuidString.lowercased(), commitMessage: "Edit daily note", attribution: .humanUi(surface: "macos"))
+                let custody = LoroSemanticCustody(workspaceId: workspaceId, intent: intent, expiresAt: Date().addingTimeInterval(60))
+                let runtime = semanticTransport.map { LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, workspaceId: workspaceId, custody: custody, transport: $0) }
+                    ?? LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, rpc: rpcClient, workspaceId: workspaceId, custody: custody)
+                switch try await runtime.replacePlainTextAssumingLease(nodeId: nodeId, scalarRange: replacement.baseRange, replacement: replacement.proposedMiddle) {
+                case .committed: return .submitted
+                case .committedCacheInvalidated: return .submittedNeedsReload
+                case .deniedAuthorizationOrSession:
+                    // If candidate freezing won the race with custody expiry, durable evidence
+                    // is the user-facing truth and must not be hidden behind a bare auth result.
+                    if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+                        return .checkpointResolutionRequired(.init(checkpoint))
+                    }
+                    return .unauthenticated
+                case .retainedRetry: return .checkpointResolutionRequired(.retainedRetry)
+                case .retainedConflict: return .checkpointResolutionRequired(.retainedConflict)
+                case .retainedRequestIdentity: return .checkpointResolutionRequired(.retainedRequestIdentity)
+                }
+            }
+        }
+    }
+
+    /// Observational rich admission. This cannot install literal authority or mint a candidate.
+    public func loroNativeRichEditorEligibility(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId] in
+            try await nativeRichEditorEligibilityAssumingLease(nodeId: nodeId)
+        }
+    }
+
+    /// Explicit rich-authority recovery. This intentionally does not broaden legacy plain
+    /// recovery, whose strict plain subset and error taxonomy remain stable.
+    public func recoverAcceptedLoroRichLiteralForEditing(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId] in
+            guard await semanticAuthentication() else { return .unauthenticated }
+            if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+                return .checkpointResolutionRequired(.init(checkpoint))
+            }
+            guard let accepted = try await localStore.acceptedLoroPageEvidence(workspaceId: workspaceId, nodeId: nodeId) else { return .ineligible }
+            try await loroStore.installAcceptedRichLiteral(accepted)
+            return try await nativeRichEditorEligibilityAfterAuthenticationAssumingLease(nodeId: nodeId)
+        }
+    }
+
+    /// Value-only semantic submission for native rich editors. Core owns request identity,
+    /// attribution, literal authority, candidate bytes, and transport custody.
+    public func submitNativeRichDocumentV1(nodeId: EntityId, base: LoroNativeRichEditorState, proposed: LoroNativeRichDocumentV1, commitMessage: String) async throws -> LoroNativeRichDocumentSubmissionDisposition {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId, base, proposed, commitMessage] in
+            let eligibility = try await nativeRichEditorEligibilityAssumingLease(nodeId: nodeId)
+            switch eligibility {
+            case .unauthenticated: return .unauthenticated
+            case .checkpointResolutionRequired(let resolution): return .checkpointResolutionRequired(resolution)
+            case .ineligible: return .ineligible
+            case .editable(let current):
+                guard base == current else { return .staleEditorState }
+                let canonical: LoroCanonicalSemanticValueV1
+                do { canonical = try proposed.semantic.validated() }
+                catch { return .invalidProposedDocument }
+                guard canonical != base.document.semantic else { return .noChange }
+                let message: LoroCommitMessageV1
+                do { message = try LoroCommitMessageV1(commitMessage) }
+                catch { return .invalidCommitMessage }
+                let intent = try LoroMutationIntentV1(requestId: UUID().uuidString.lowercased(), commitMessage: message.value, attribution: .humanUi(surface: "macos"))
+                let custody = LoroSemanticCustody(workspaceId: workspaceId, intent: intent, expiresAt: Date().addingTimeInterval(60))
+                let runtime = semanticTransport.map { LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, workspaceId: workspaceId, custody: custody, transport: $0) }
+                    ?? LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, rpc: rpcClient, workspaceId: workspaceId, custody: custody)
+                switch try await runtime.replaceRichDocumentAssumingLease(nodeId: nodeId, proposed: .init(semantic: canonical)) {
+                case .committed: return .submitted
+                case .committedCacheInvalidated: return .submittedNeedsReload
+                case .deniedAuthorizationOrSession:
+                    if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+                        return .checkpointResolutionRequired(.init(checkpoint))
+                    }
+                    return .unauthenticated
+                case .retainedRetry: return .checkpointResolutionRequired(.retainedRetry)
+                case .retainedConflict: return .checkpointResolutionRequired(.retainedConflict)
+                case .retainedRequestIdentity: return .checkpointResolutionRequired(.retainedRequestIdentity)
+                }
+            }
+        }
+    }
+
+    private func nativePlainEditorEligibilityAssumingLease(nodeId: EntityId) async throws -> LoroNativePlainEditorEligibility {
+        guard await semanticAuthentication() else { return .unauthenticated }
+        return try await nativePlainEditorEligibilityAfterAuthenticationAssumingLease(nodeId: nodeId)
+    }
+
+    private func nativeRichEditorEligibilityAssumingLease(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility {
+        guard await semanticAuthentication() else { return .unauthenticated }
+        return try await nativeRichEditorEligibilityAfterAuthenticationAssumingLease(nodeId: nodeId)
+    }
+
+    private func nativeRichEditorEligibilityAfterAuthenticationAssumingLease(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility {
+        if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+            return .checkpointResolutionRequired(.init(checkpoint))
+        }
+        guard let node = try await localStore.node(id: nodeId), node.workspaceId == workspaceId,
+              let local = try await localStore.loroPage(nodeId: nodeId), local.nodeId == nodeId else { return .ineligible }
+        let inspection = try await loroStore.inspectPersistedReplicaV1(snapshot: local.snapshotBytes)
+        guard inspection.snapshotSHA256 == local.localSnapshotSHA256, inspection.pageSchemaVersion == local.pageSchemaVersion else {
+            throw LocalWorkspaceStoreError.invalidLoroPageState
+        }
+        guard !local.dirty, local.pageSchemaVersion == 1, local.observedDescriptorStorageVersion > 0,
+              local.localSnapshotSHA256 == local.observedDescriptorSnapshotSHA256 else { return .ineligible }
+        let replica = LoroPageReplicaWitness(snapshotSHA256: inspection.snapshotSHA256, versionVectorSHA256: inspection.versionVectorSHA256)
+        let route = LoroPageRouteWitness(nodeId: nodeId, format: .loroV1, storageVersion: local.observedDescriptorStorageVersion, schemaVersion: local.pageSchemaVersion, snapshotSHA256: local.observedDescriptorSnapshotSHA256)
+        do { return .editable(.init(try await loroStore.nativeRichLoroEditableV1(nodeId: nodeId, route: route, persistedReplica: replica, publishedReplica: replica, isDirty: local.dirty))) }
+        catch LoroPageDocumentStoreError.nativePlainTextIneligible { return .ineligible }
+        catch LoroPageDocumentStoreError.nativeRichTextIneligible { return .ineligible }
+        catch LoroPageDocumentStoreError.nativePlainTextWitnessMismatch { return .ineligible }
+        catch LoroPageDocumentStoreError.inputTooLarge { return .ineligible }
+        catch LoroPageProjectionError.pageNotPublished { return .ineligible }
+    }
+
+    /// This admission path deliberately does not populate the literal cache. It can verify
+    /// read-only durable data and inspect an already-installed literal, but a caller must cross
+    /// `recoverAcceptedLoroLiteralForEditing` to re-authorize bytes for a new candidate.
+    private func nativePlainEditorEligibilityAfterAuthenticationAssumingLease(nodeId: EntityId) async throws -> LoroNativePlainEditorEligibility {
+        // Once admission is authenticated, retained evidence wins over decoding a potentially
+        // malformed current replica. Before authentication it remains completely opaque.
+        if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+            return .checkpointResolutionRequired(.init(checkpoint))
+        }
+        guard let node = try await localStore.node(id: nodeId), node.workspaceId == workspaceId else { return .ineligible }
+        guard let local = try await localStore.loroPage(nodeId: nodeId), local.nodeId == nodeId else { return .ineligible }
+        let inspection = try await loroStore.inspectPersistedReplicaV1(snapshot: local.snapshotBytes)
+        guard inspection.snapshotSHA256 == local.localSnapshotSHA256, inspection.pageSchemaVersion == local.pageSchemaVersion else {
+            throw LocalWorkspaceStoreError.invalidLoroPageState
+        }
+        guard !local.dirty, local.pageSchemaVersion == 1, local.observedDescriptorStorageVersion > 0,
+              local.localSnapshotSHA256 == local.observedDescriptorSnapshotSHA256 else { return .ineligible }
+        let replica = LoroPageReplicaWitness(snapshotSHA256: inspection.snapshotSHA256, versionVectorSHA256: inspection.versionVectorSHA256)
+        let route = LoroPageRouteWitness(nodeId: nodeId, format: .loroV1, storageVersion: local.observedDescriptorStorageVersion, schemaVersion: local.pageSchemaVersion, snapshotSHA256: local.observedDescriptorSnapshotSHA256)
+        do { return .editable(.init(try await loroStore.nativePlainLoroEditableV1(nodeId: nodeId, route: route, persistedReplica: replica, publishedReplica: replica, isDirty: local.dirty))) }
+        catch LoroPageDocumentStoreError.nativePlainTextIneligible { return .ineligible }
+        catch LoroPageDocumentStoreError.nativePlainTextWitnessMismatch { return .ineligible }
+        catch LoroPageProjectionError.pageNotPublished { return .ineligible }
+    }
+
+    struct NativePlainReplacement: Sendable {
+        let baseRange: Range<Int>
+        let proposedMiddle: String
+    }
+
+    nonisolated static func nativePlainReplacement(from base: String, to proposed: String) -> NativePlainReplacement {
+        let old = Array(base.unicodeScalars); let new = Array(proposed.unicodeScalars)
+        var prefix = 0
+        while prefix < old.count && prefix < new.count && old[prefix] == new[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < old.count - prefix && suffix < new.count - prefix && old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+        return .init(baseRange: prefix..<(old.count - suffix), proposedMiddle: String(String.UnicodeScalarView(new[prefix..<(new.count - suffix)])))
+    }
+
 
     // MARK: - Nodes
 
@@ -73,9 +333,44 @@ public actor WorkspaceSyncClient {
         return confirmed
     }
 
+    /// Provenance-bearing node creation. The operation object is supplied by the caller and is
+    /// reused verbatim when a multi-step flow retries after an uncertain response; the legacy
+    /// `createNode` above remains available for compatibility fixtures and anonymous transports.
+    @discardableResult
+    public func createNodeWithIntent(
+        title: String,
+        id: EntityId? = nil,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> Node {
+        let canonicalTitle = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard !canonicalTitle.isEmpty else { throw WorkspaceSyncClientError.invalidNodeCreationInput }
+        let localId = try id ?? EntityId(validating: UUID().uuidString.lowercased())
+        let createdAt = try IsoDateTimeString(validating: ISO8601DateFormatter().string(from: Date()))
+        let localNode = Node(id: localId, workspaceId: workspaceId, title: canonicalTitle, createdAt: createdAt)
+        try await localStore.upsertNode(localNode, dirty: true)
+
+        let remote = try await rpcClient.createNodeWithIntent(
+            title: canonicalTitle,
+            id: localId.rawValue,
+            requestId: requestId,
+            commitMessage: commitMessage,
+            attribution: attribution
+        )
+        let confirmed = Node(
+            id: try EntityId(validating: remote.id),
+            workspaceId: try EntityId(validating: remote.workspaceId),
+            title: remote.title,
+            createdAt: try IsoDateTimeString(validating: remote.createdAt)
+        )
+        try await localStore.upsertNode(confirmed, dirty: false)
+        return confirmed
+    }
+
     /// Resolve-or-create: mirrors `DailyNote.tsx`'s `resolveDailyNote`'s node half — `getNode`,
     /// falling back to `createNode` only on `NodeNotFound`.
-    public func resolveOrCreateNode(id: EntityId, title: String) async throws -> Node {
+    public func resolveOrCreateNode(id: EntityId, title: String, creationIntent: CreationIntent? = nil) async throws -> Node {
         do {
             let remote = try await rpcClient.getNode(nodeId: id.rawValue)
             let node = Node(
@@ -87,108 +382,227 @@ public actor WorkspaceSyncClient {
             try await localStore.upsertNode(node, dirty: false)
             return node
         } catch AthenaeumDomainError.nodeNotFound {
+            if let creationIntent {
+                do {
+                    return try await createNodeWithIntent(
+                        title: title,
+                        id: id,
+                        requestId: creationIntent.requestId,
+                        commitMessage: creationIntent.commitMessage,
+                        attribution: creationIntent.attribution
+                    )
+                } catch AthenaeumDomainError.nodeAlreadyExists {
+                    // Another device may have won the explicit-id race after our getNode. Read
+                    // that winner and make it the clean local authority instead of leaving the
+                    // optimistic dirty row behind. Only accept it when it is the same canonical
+                    // daily-note title; a different occupant remains a real collision.
+                    let remote = try await rpcClient.getNode(nodeId: id.rawValue)
+                    let existing = Node(
+                        id: try EntityId(validating: remote.id),
+                        workspaceId: try EntityId(validating: remote.workspaceId),
+                        title: remote.title,
+                        createdAt: try IsoDateTimeString(validating: remote.createdAt)
+                    )
+                    try await localStore.upsertNode(existing, dirty: false)
+                    let canonicalTitle = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+                    guard existing.workspaceId == workspaceId, existing.title == canonicalTitle else {
+                        throw AthenaeumDomainError.nodeAlreadyExists(nodeId: id.rawValue)
+                    }
+                    return existing
+                }
+            }
             return try await createNode(title: title, id: id)
         }
     }
 
-    // MARK: - Pages (structured reference row + Automerge genesis)
+    // MARK: - Native Loro pages (separate from Automerge)
 
-    /// Resolve-or-create for a node's page, mirroring `DailyNote.tsx`'s page half
-    /// (`getPageText` falling back to `createPage` on `PageNotFound`), then immediately runs one
-    /// real sync exchange to pull the (possibly pre-existing) server content into a fresh local
-    /// replica — never assumes a brand-new `createPage` response means the local doc already has
-    /// everything, since another device could have created it first.
-    @discardableResult
-    public func resolveOrCreatePage(nodeId: EntityId, session: SyncSessionHandle) async throws -> String {
-        do {
-            _ = try await rpcClient.getPageText(nodeId: nodeId.rawValue)
-        } catch AthenaeumDomainError.pageNotFound {
-            _ = try await rpcClient.createPage(nodeId: nodeId.rawValue)
-        }
-
-        let placeholder = Page(nodeId: nodeId, automergeDocId: nodeId.rawValue, headsHash: "")
-        try await localStore.upsertPage(placeholder, docBytes: nil, dirty: false)
-
-        // Always starts from a genuinely empty local replica unless this run already has one
-        // loaded with possible local-only pending edits worth preserving (e.g. a repeated call
-        // for the same node within one process lifetime) — never a locally-`putObject`-created
-        // genesis, whether or not the page already existed server-side (see
-        // `PageDocumentStore`'s doc comment for why that would be unsafe even for a *newly*
-        // created, still-empty server page). The subsequent `syncPage` call is what actually
-        // pulls the server's real genesis/content in, via the real sync-message exchange.
-        if !(await pageStore.isLoaded(nodeId: nodeId)) {
-            await pageStore.loadEmpty(nodeId: nodeId)
-        }
-        return try await syncPage(nodeId: nodeId, session: session)
-    }
-
-    /// Applies a local edit as a real Automerge change (never a server RPC — see
-    /// `PageDocumentStore`'s doc comment), then immediately persists the resulting snapshot bytes
-    /// to `LocalWorkspaceStore` (durable-before-sync) — the edit survives a crash even before the
-    /// next `syncPage` call reaches the network.
-    @discardableResult
-    public func applyLocalEdit(
-        nodeId: EntityId,
-        index: Int,
-        deleteCount: Int,
-        insertText: String
-    ) async throws -> String {
-        let text = try await pageStore.applyLocalSplice(
-            nodeId: nodeId, index: index, deleteCount: deleteCount, insertText: insertText
-        )
-        try await persistPageSnapshotLocally(nodeId: nodeId, dirty: true)
-        return text
-    }
-
-    private func persistPageSnapshotLocally(nodeId: EntityId, dirty: Bool) async throws {
-        let bytes = try await pageStore.snapshotBytes(nodeId: nodeId)
-        let headsHash = try await pageStore.headsHash(nodeId: nodeId)
-        let page = Page(nodeId: nodeId, automergeDocId: nodeId.rawValue, headsHash: headsHash)
-        try await localStore.upsertPage(page, docBytes: bytes, dirty: dirty)
-    }
-
-    /// The real Automerge sync-session round trip against `startPageSync`/`pageSyncMessage` —
-    /// see this file's top doc comment for the exact `automerge-page.ts` correspondence. Persists
-    /// the converged snapshot to `LocalWorkspaceStore` and clears the page's `dirty` flag on success.
-    @discardableResult
-    public func syncPage(nodeId: EntityId, session: SyncSessionHandle) async throws -> String {
-        guard await pageStore.isLoaded(nodeId: nodeId) else {
-            throw WorkspaceSyncClientError.pageNotFoundLocally(nodeId)
-        }
-
-        var syncState = SyncState()
-        var ordinal = 0
-        var serverMessage = try await rpcClient.startPageSync(nodeId: nodeId.rawValue, sessionId: session.id)
-
-        roundLoop: for _ in 0..<50 {
-            if let serverMessage {
-                try await pageStore.receiveSyncMessage(nodeId: nodeId, state: syncState, message: serverMessage)
+    /// Creation intent is mandatory only for the PageNotFound branch. Callers must retain the
+    /// same value across uncertain retries; this client never fabricates provenance.
+    public func resolveOrCreateLoroPageReadOnly(nodeId: EntityId, creationIntent: CreationIntent?) async throws -> LoroPageReadOnlyProjection {
+        let transport = loroTransport
+        return try await withLoroLease(nodeId: nodeId) { [self, transport, nodeId] in
+            let descriptor: PageDocumentDescriptor
+            do {
+                descriptor = try await transport.getPageDocumentDescriptor(nodeId: nodeId.rawValue)
+            } catch AthenaeumDomainError.pageNotFound {
+                guard let creationIntent else { throw WorkspaceSyncClientError.missingLoroCreationIntent(nodeId) }
+                descriptor = try await transport.createLoroPage(nodeId: nodeId.rawValue, creationIntent: creationIntent)
             }
+            let schema = try self.validateLoroDescriptor(descriptor, nodeId: nodeId)
+            return try await self.synchronizeLoro(nodeId: nodeId, descriptor: descriptor, schemaVersion: schema)
+        }
+    }
 
-            guard let outMessage = try await pageStore.generateSyncMessage(nodeId: nodeId, state: syncState) else {
-                // Nothing left for us to send — caught up (mirrors syncPageWithServer's `break`).
-                break roundLoop
-            }
+    public func syncLoroPageReadOnly(nodeId: EntityId) async throws -> LoroPageReadOnlyProjection {
+        let transport = loroTransport
+        return try await withLoroLease(nodeId: nodeId) { [self, transport, nodeId] in
+            let descriptor = try await transport.getPageDocumentDescriptor(nodeId: nodeId.rawValue)
+            let schema = try self.validateLoroDescriptor(descriptor, nodeId: nodeId)
+            return try await self.synchronizeLoro(nodeId: nodeId, descriptor: descriptor, schemaVersion: schema)
+        }
+    }
 
-            let response = try await rpcClient.pageSyncMessage(
-                nodeId: nodeId.rawValue, sessionId: session.id, ordinal: ordinal, message: outMessage
+    /// Read-only recursive projection of the actor-published Loro replica. A fresh descriptor is
+    /// captured into the typed route witness; AppUI must compare it with the descriptor that
+    /// selected the Loro route before replacing its current presentation. The synchronization,
+    /// descriptor recheck, and actor-confined projection share one node lease so another local
+    /// sync cannot replace the published replica between those phases.
+    public func syncLoroPageProjectionReadOnly(nodeId: EntityId) async throws -> LoroPageProjection {
+        let transport = loroTransport
+        return try await withLoroLease(nodeId: nodeId) { [self, transport, nodeId] in
+            let selectedDescriptor = try await transport.getPageDocumentDescriptor(nodeId: nodeId.rawValue)
+            let selectedSchema = try self.validateLoroDescriptor(selectedDescriptor, nodeId: nodeId)
+            let selectedDescriptorWitness = self.descriptorWitness(selectedDescriptor)
+            let selectedRoute = LoroPageRouteWitness(
+                nodeId: nodeId,
+                format: .loroV1,
+                storageVersion: selectedDescriptorWitness.0,
+                schemaVersion: selectedSchema,
+                snapshotSHA256: selectedDescriptorWitness.1
             )
-            ordinal += 1
 
-            if response.reset {
-                session.id = UUID().uuidString
-                syncState = SyncState()
-                serverMessage = try await rpcClient.startPageSync(nodeId: nodeId.rawValue, sessionId: session.id)
-                ordinal = 0
-                continue roundLoop
+            let result = try await self.synchronizeLoro(
+                nodeId: nodeId,
+                descriptor: selectedDescriptor,
+                schemaVersion: selectedSchema
+            )
+
+            // A changed descriptor means the replica was synchronized against a different route
+            // witness. Do not relabel that replica as the new route or expose it to AppUI.
+            let confirmedDescriptor = try await transport.getPageDocumentDescriptor(nodeId: nodeId.rawValue)
+            let confirmedSchema = try self.validateLoroDescriptor(confirmedDescriptor, nodeId: nodeId)
+            let confirmedDescriptorWitness = self.descriptorWitness(confirmedDescriptor)
+            let confirmedRoute = LoroPageRouteWitness(
+                nodeId: nodeId,
+                format: .loroV1,
+                storageVersion: confirmedDescriptorWitness.0,
+                schemaVersion: confirmedSchema,
+                snapshotSHA256: confirmedDescriptorWitness.1
+            )
+            guard selectedRoute == confirmedRoute, result.schemaVersion == selectedSchema else {
+                throw WorkspaceSyncClientError.invalidLoroDescriptor(nodeId)
             }
-
-            serverMessage = response.message
-            if response.converged, serverMessage == nil { break roundLoop }
+            return try await self.loroStore.projectPublished(
+                nodeId: nodeId,
+                route: selectedRoute,
+                isDirty: result.isDirty
+            )
         }
+    }
 
-        try await persistPageSnapshotLocally(nodeId: nodeId, dirty: false)
-        return try await pageStore.text(nodeId: nodeId)
+    private func withLoroLease<T: Sendable>(nodeId: EntityId, operation: @Sendable () async throws -> T) async throws -> T {
+        let key = "\(workspaceId.rawValue):\(nodeId.rawValue)"
+        return try await loroGate.withLease(key, operation: operation)
+    }
+
+    nonisolated private func validateLoroDescriptor(_ descriptor: PageDocumentDescriptor, nodeId: EntityId) throws -> Int {
+        guard descriptor.nodeId == nodeId, descriptor.activeFormat == .loroV1 else {
+            throw WorkspaceSyncClientError.invalidLoroDescriptor(nodeId)
+        }
+        switch descriptor {
+        case .migratedLoro(_, _, _, let loro), .nativeLoro(_, _, let loro):
+            guard loro.schemaVersion == 1 else { throw WorkspaceSyncClientError.invalidLoroDescriptor(nodeId) }
+            return loro.schemaVersion
+        case .legacy:
+            throw WorkspaceSyncClientError.invalidLoroDescriptor(nodeId)
+        }
+    }
+
+    nonisolated private func descriptorWitness(_ descriptor: PageDocumentDescriptor) -> (Int, String) {
+        switch descriptor {
+        case .migratedLoro(_, let version, _, let loro), .nativeLoro(_, let version, let loro):
+            return (version, loro.snapshotSha256)
+        case .legacy:
+            preconditionFailure("validated before witness extraction")
+        }
+    }
+
+    private func synchronizeLoro(nodeId: EntityId, descriptor: PageDocumentDescriptor, schemaVersion: Int) async throws -> LoroPageReadOnlyProjection {
+        let witness = descriptorWitness(descriptor)
+        if let frame = loroInFlight[nodeId.rawValue] {
+            guard frame.workspaceId == workspaceId, frame.nodeId == nodeId else {
+                throw WorkspaceSyncClientError.invalidLoroSyncResponse
+            }
+            // This is deliberately the first network side effect on retry: it is the exact
+            // immutable request which had an uncertain outcome, not a regenerated handshake.
+            let response = try await loroTransport.loroPageReadSyncMessage(nodeId: nodeId.rawValue, sessionId: frame.sessionId, ordinal: frame.ordinal, clientVersion: frame.clientVersion)
+            return try await acceptLoroResponse(response, frame: frame, witness: witness, schemaVersion: schemaVersion)
+        }
+        let persisted = try await localStore.loroPage(nodeId: nodeId)
+        let source: Data
+        if let persisted { source = persisted.snapshotBytes } else { source = try await loroStore.loadEmptyReplica().snapshotBytes }
+        return try await runLoroSession(nodeId: nodeId, source: source, witness: witness, schemaVersion: schemaVersion, resetsRemaining: 1)
+    }
+
+    private func runLoroSession(nodeId: EntityId, source: Data, witness: (Int, String), schemaVersion: Int, resetsRemaining: Int) async throws -> LoroPageReadOnlyProjection {
+        let sessionId = UUID().uuidString.lowercased()
+        let started = try await loroTransport.startLoroPageSync(nodeId: nodeId.rawValue, sessionId: sessionId)
+        guard started.sessionId == sessionId, !started.message.isEmpty, !started.serverVersion.isEmpty else {
+            throw WorkspaceSyncClientError.invalidLoroSyncResponse
+        }
+        // `prepare` works on a clone reconstructed from durable bytes, so a failed import never
+        // mutates the published cache or its SQLite row.
+        let candidate = try await loroStore.prepare(nodeId: nodeId, snapshot: source, applying: started.message, serverVersion: started.serverVersion)
+        // The start payload is already accepted remote state. Make it durable before exposing a
+        // session/frame or publishing cache state, so a crash cannot forget a merged server base.
+        try await persistLoro(candidate, dirty: true, witness: witness, nodeId: nodeId)
+        let session = try LoroSyncSession(workspaceId: workspaceId, nodeId: nodeId, sessionId: sessionId, started: true, nextOrdinal: 0, knownServerVersion: started.serverVersion)
+        loroSessions[nodeId.rawValue] = session
+
+        // There is intentionally no native editor mutation API yet. The read-only frame is
+        // retained so an uncertain transport retry preserves its session identity exactly.
+        let frame = LoroInFlightFrame(workspaceId: workspaceId, nodeId: nodeId, sessionId: sessionId, ordinal: 0, clientVersion: candidate.versionBytes)
+        loroInFlight[nodeId.rawValue] = frame
+        let response: LoroPageSyncMessageOutput
+        do {
+            response = try await loroTransport.loroPageReadSyncMessage(nodeId: nodeId.rawValue, sessionId: sessionId, ordinal: 0, clientVersion: candidate.versionBytes)
+        } catch { throw error }
+        return try await acceptLoroResponse(response, frame: frame, witness: witness, schemaVersion: schemaVersion, candidate: candidate, resetsRemaining: resetsRemaining)
+    }
+
+    private func acceptLoroResponse(_ response: LoroPageSyncMessageOutput, frame: LoroInFlightFrame, witness: (Int, String), schemaVersion: Int, candidate suppliedCandidate: LoroPreparedPageState? = nil, resetsRemaining: Int = 1) async throws -> LoroPageReadOnlyProjection {
+        guard response.sessionId == frame.sessionId, response.ordinal == frame.ordinal else { throw WorkspaceSyncClientError.invalidLoroSyncResponse }
+        let persisted = try await localStore.loroPage(nodeId: frame.nodeId)
+        let candidate: LoroPreparedPageState
+        if let suppliedCandidate {
+            candidate = suppliedCandidate
+        } else {
+            guard let persisted else { throw WorkspaceSyncClientError.pageNotFoundLocally(frame.nodeId) }
+            candidate = try await loroStore.prepare(nodeId: frame.nodeId, snapshot: persisted.snapshotBytes, serverVersion: frame.clientVersion)
+        }
+        if response.reset {
+            guard resetsRemaining > 0 else { throw WorkspaceSyncClientError.invalidLoroSyncResponse }
+            // Reset means the old frame may have been applied. Persist the merged candidate dirty,
+            // then re-handshake from those durable bytes rather than replaying it.
+            try await persistLoro(candidate, dirty: true, witness: witness, nodeId: frame.nodeId)
+            loroInFlight[frame.nodeId.rawValue] = nil
+            return try await runLoroSession(nodeId: frame.nodeId, source: candidate.snapshotBytes, witness: witness, schemaVersion: schemaVersion, resetsRemaining: resetsRemaining - 1)
+        }
+        let accepted = try await loroStore.prepare(nodeId: frame.nodeId, snapshot: candidate.snapshotBytes, applying: response.update, serverVersion: response.serverVersion)
+        let semanticVersionMatch: Bool
+        if response.converged {
+            semanticVersionMatch = try await loroStore.versionVectorsEqual(accepted.versionBytes, response.serverVersion)
+        } else {
+            semanticVersionMatch = false
+        }
+        let converged = response.converged && semanticVersionMatch
+        // A definitive converged response is the only way to clear dirty. Previous dirty state is
+        // evidence of an earlier uncertainty, not a reason to override this semantic convergence.
+        let dirty = !converged
+        try await persistLoro(accepted, dirty: dirty, witness: witness, nodeId: frame.nodeId)
+        loroInFlight[frame.nodeId.rawValue] = nil
+        loroSessions[frame.nodeId.rawValue] = try LoroSyncSession(workspaceId: workspaceId, nodeId: frame.nodeId, sessionId: frame.sessionId, started: true, nextOrdinal: frame.ordinal + 1, knownServerVersion: response.serverVersion)
+        return LoroPageReadOnlyProjection(format: .loroV1, schemaVersion: schemaVersion, isDirty: dirty)
+    }
+
+    private func persistLoro(_ candidate: LoroPreparedPageState, dirty: Bool, witness: (Int, String), nodeId: EntityId) async throws {
+        try await localStore.upsertLoroPage(LoroPageLocalState(prepared: candidate, dirty: dirty, observedDescriptorStorageVersion: witness.0, observedDescriptorSnapshotSHA256: witness.1))
+        try await loroStore.publish(nodeId: nodeId, prepared: candidate)
+        // Read-sync output is reconstructable observation material. It may update the durable
+        // page and observed projection, but it cannot populate literal authoring authority.
+        // Invalidate any prior literal so it cannot be reused after the route changes.
+        await loroStore.invalidateLiteralCache(nodeId: nodeId)
     }
 
     // MARK: - Structured graph mutations (Tags/Facts/Edges) — local-first, same discipline as
@@ -200,8 +614,8 @@ public actor WorkspaceSyncClient {
     // leaving them write-only/local-only, without inventing that later machinery early.
 
     @discardableResult
-    public func createTag(name: String, parentIds: [EntityId] = []) async throws -> Tag {
-        let remote = try await rpcClient.createTag(name: name, parentIds: parentIds.map(\.rawValue))
+    public func createTag(name: String, parentIds: [EntityId] = [], requestId: String, commitMessage: String, attribution: MutationAttribution) async throws -> Tag {
+        let remote = try await rpcClient.createTag(name: name, parentIds: parentIds.map(\.rawValue), requestId: requestId, commitMessage: commitMessage, attribution: attribution)
         let tag = try Tag(
             id: EntityId(validating: remote.id),
             name: remote.name,
@@ -213,13 +627,13 @@ public actor WorkspaceSyncClient {
     }
 
     @discardableResult
-    public func addFact(nodeId: EntityId, predicateId: String, value: JSONValue, id: EntityId? = nil) async throws -> Fact {
+    public func addFact(nodeId: EntityId, predicateId: String, value: JSONValue, requestId: String, commitMessage: String, attribution: MutationAttribution, id: EntityId? = nil) async throws -> Fact {
         let localId = try id ?? EntityId(validating: UUID().uuidString.lowercased())
         let localFact = Fact(id: localId, nodeId: nodeId, predicateId: predicateId, value: value)
         try await localStore.upsertFact(localFact, dirty: true)
 
         let remote = try await rpcClient.addFact(
-            nodeId: nodeId.rawValue, predicateId: predicateId, value: value.toCapnWebValue(), id: localId.rawValue
+            nodeId: nodeId.rawValue, predicateId: predicateId, value: value.toCapnWebValue(), requestId: requestId, commitMessage: commitMessage, attribution: attribution, id: localId.rawValue
         )
         let confirmed = Fact(
             id: try EntityId(validating: remote.id),
@@ -232,11 +646,14 @@ public actor WorkspaceSyncClient {
     }
 
     @discardableResult
-    public func createEdge(relationDefinitionId: EntityId, sourceNodeId: EntityId, targetNodeId: EntityId) async throws -> Edge {
+    public func createEdge(relationDefinitionId: EntityId, sourceNodeId: EntityId, targetNodeId: EntityId, requestId: String, commitMessage: String, attribution: MutationAttribution) async throws -> Edge {
         let remote = try await rpcClient.createEdge(
             relationDefinitionId: relationDefinitionId.rawValue,
             sourceNodeId: sourceNodeId.rawValue,
-            targetNodeId: targetNodeId.rawValue
+            targetNodeId: targetNodeId.rawValue,
+            requestId: requestId,
+            commitMessage: commitMessage,
+            attribution: attribution
         )
         let edge = Edge(
             id: try EntityId(validating: remote.id),

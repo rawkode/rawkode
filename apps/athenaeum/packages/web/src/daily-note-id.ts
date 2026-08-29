@@ -39,10 +39,10 @@ export const todayDailyNoteId: EntityId = dailyNoteIdForDate(new Date())
 export const todayDailyNoteTitle: string = dailyNoteTitleForDate(new Date())
 
 // --- Retrieval pass (design-review 2026-08-22 finding #1: "no way in the UI to open any note
-// except today's") — the day-navigation route (`/notes?date=YYYY-MM-DD`) and the node view both
+// except today's") — the day-navigation route (`/notes?date=YYYY-MM-DD`) and the node route both
 // need the two inverse operations of the scheme above: "is this stamp a real calendar date?" (to
 // validate the query param) and "is this node id a daily note, and for which day?" (so
-// `/node/:id` can offer "open in the daily editor"). Both are pure string/date functions on the
+// `/node/:id` can redirect to the daily editor). Both are pure string/date functions on the
 // exact same encoding `dailyNoteIdForDate` writes — no new id scheme, no schema change.
 
 const DATE_STAMP_RE = /^(\d{4})-(\d{2})-(\d{2})$/

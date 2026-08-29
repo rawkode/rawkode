@@ -76,6 +76,16 @@ public struct SyncGoogleCalendarOutput: Codable, Hashable, Sendable {
     public init(triggered: Bool) { self.triggered = triggered }
 }
 
+public struct ListGatekeeperBindingsInput: Codable, Hashable, Sendable {
+    public let workspaceId: EntityId
+    public init(workspaceId: EntityId) { self.workspaceId = workspaceId }
+}
+
+public struct ListGatekeeperBindingsOutput: Codable, Hashable, Sendable {
+    public let bindings: [GatekeeperBindingSummary]
+    public init(bindings: [GatekeeperBindingSummary]) { self.bindings = bindings }
+}
+
 // --- Google Calendar: reads --------------------------------------------------------------------
 
 public struct ListCalendarEventsInput: Codable, Hashable, Sendable {
@@ -116,10 +126,23 @@ public struct CreateBookmarkInput: Codable, Hashable, Sendable {
     public let workspaceId: EntityId
     public let url: BookmarkUrl
     public let title: String?
-    public init(workspaceId: EntityId, url: BookmarkUrl, title: String? = nil) {
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public init(
+        workspaceId: EntityId,
+        url: BookmarkUrl,
+        title: String? = nil,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) {
         self.workspaceId = workspaceId
         self.url = url
         self.title = title
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 

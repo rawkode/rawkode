@@ -23,8 +23,11 @@ export interface MentionSource {
    *  dumb" preference one level up, at the picker's own data source). */
   readonly listCandidates: () => Promise<readonly MentionCandidate[]>
   /** Creates a new node with the given title (the picker's "Create new '<query>'" option) and
-   *  returns its id — backed by the existing `createNode` RPC, no new backend surface. */
+   *  returns its id — backed by the provenance-bearing node RPC. */
   readonly createNode: (title: string) => Promise<MentionCandidate>
+  /** Confirms that a newly-created candidate was inserted into the document. The source may use
+   *  this to retire a pending retry identity only after the editor mutation succeeds. */
+  readonly confirmNodeCreation?: (title: string, candidate: MentionCandidate) => void
 }
 
 interface MentionState {
@@ -121,6 +124,7 @@ export const mentionPlugin = (schema: Schema, source: MentionSource): Plugin<Men
         tr.insertText(" ", afterInsert)
         tr.setSelection(TextSelection.create(tr.doc, afterInsert + 1))
         editorView.dispatch(tr)
+        if (item.kind === "create") source.confirmNodeCreation?.(item.title, candidate)
         editorView.focus()
       }
 

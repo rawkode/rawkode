@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Link } from "react-router"
 import * as Effect from "effect/Effect"
 import {
   GetWorkoutInput,
@@ -13,7 +14,7 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
+import { EmptyState } from "./EmptyState.js"
 
 // Web-stage Phase 7 task: "Build a minimal workout list/detail view (read path only — import is
 // native-only since it needs HealthKit)." Workouts are imported natively
@@ -85,18 +86,66 @@ function CardioSplitRow({ split }: { readonly split: WorkoutCardioSplit }) {
 }
 
 function WorkoutDetailView({ nodeId }: { readonly nodeId: EntityId }) {
+  const [retryGeneration, setRetryGeneration] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ nodeId: EntityId; sawLoading: boolean } | undefined>(undefined)
   const getWorkoutEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) => client.getWorkout(new GetWorkoutInput({ workspaceId, nodeId })))
       ),
-    [nodeId]
+    [nodeId, retryGeneration]
   )
-  const state = useEffectQuery(getWorkoutEffect, [nodeId])
+  const state = useEffectQuery(getWorkoutEffect, [nodeId, retryGeneration])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (claim.nodeId !== nodeId) {
+      retryClaim.current = undefined
+      setRetryClaimed(false)
+      return
+    }
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A retry-generation render still contains the preceding failure result. Keep the claim until
+    // this selected workout has visibly entered loading, then release it only after it settles.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [nodeId, state.status])
+  const retryWorkout = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { nodeId, sawLoading: false }
+    setRetryClaimed(true)
+    setRetryGeneration((generation) => generation + 1)
+  }, [nodeId, state.status])
+  const isRetryingWorkout = retryClaimed || state.status === "loading"
 
-  if (state.status === "loading") return <p className="workouts-detail-loading">Loading workout…</p>
+  if (state.status === "loading") {
+    return (
+      <p className="workouts-detail-loading" role="status" aria-live="polite" aria-atomic="true">
+        Loading workout…
+      </p>
+    )
+  }
   if (state.status === "failure") {
-    return <p className="error">{formatDomainError(state.error)}</p>
+    if (state.error._tag === "WorkoutNotFound") {
+      return (
+        <section className="workouts-load-state" role="status">
+          <p>This workout is no longer available. Refresh activity history to update the list.</p>
+        </section>
+      )
+    }
+    return (
+      <section className="workouts-load-state" role="alert" aria-label="Workout details are unavailable">
+        <p>Workout details couldn&rsquo;t be loaded. Nothing has been changed.</p>
+        <button type="button" onClick={retryWorkout} disabled={isRetryingWorkout}>
+          {isRetryingWorkout ? "Retrying…" : "Retry"}
+        </button>
+      </section>
+    )
   }
 
   const { workout } = state.value
@@ -159,7 +208,9 @@ function WorkoutDetailView({ nodeId }: { readonly nodeId: EntityId }) {
 
 export function WorkoutsPanel() {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshClaimed, setRefreshClaimed] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<EntityId | undefined>(undefined)
+  const refreshClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
 
   const workoutsEffect = useMemo(
     () =>
@@ -167,31 +218,83 @@ export function WorkoutsPanel() {
     [refreshKey]
   )
   const workoutsState = useEffectQuery(workoutsEffect, [refreshKey])
+  // `useEffectQuery` keeps its preceding settled result until the next list generation enters
+  // loading. Retain that same-workspace list for continuity, but do not let it claim a current
+  // empty history while the new generation is still unresolved.
+  const activeRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    activeRefreshKey.current = refreshKey
+  }, [refreshKey])
+  const stateIsCurrent = activeRefreshKey.current === refreshKey
+  const currentWorkouts = stateIsCurrent && workoutsState.status === "success" ? workoutsState.value.workouts : undefined
+  const successfulWorkouts = useRef<ReadonlyArray<WorkoutSummary> | undefined>(currentWorkouts)
+  if (currentWorkouts !== undefined) successfulWorkouts.current = currentWorkouts
+  const cachedWorkouts = successfulWorkouts.current
+  const visibleWorkouts = currentWorkouts ?? cachedWorkouts ?? []
+  const isLoadingWorkouts = !stateIsCurrent || workoutsState.status === "loading"
 
-  const workouts: ReadonlyArray<WorkoutSummary> =
-    workoutsState.status === "success" ? workoutsState.value.workouts : []
+  useEffect(() => {
+    const claim = refreshClaim.current
+    if (claim === undefined) return
+    if (workoutsState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A refresh-key render initially retains the preceding result. Keep this presentation claim
+    // until the list visibly enters loading, then release it only after that read settles.
+    if (!claim.sawLoading) return
+    refreshClaim.current = undefined
+    setRefreshClaimed(false)
+  }, [workoutsState.status])
+
+  const refreshWorkouts = useCallback(() => {
+    if (refreshClaim.current !== undefined || workoutsState.status === "loading") return
+    refreshClaim.current = { sawLoading: false }
+    setRefreshClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [workoutsState.status])
+
+  const isRefreshingWorkouts = refreshClaimed || isLoadingWorkouts
 
   return (
     <section className="workouts-panel">
       <h2>Workouts</h2>
       <p className="workouts-panel-hint">
-        Read-only here — workout import happens natively, from HealthKit (or a synthetic data
-        source for testing), through a real Swift <code>WorkoutDataSource</code> pipeline. This
-        panel lists what's been imported into this workspace and lets you review one workout's full
-        exercise/set or split detail.
+        Review activity from HealthKit alongside your notes. Each imported workout is structured
+        so you can search, link, and build on it later.
       </p>
 
-      <button type="button" onClick={() => setRefreshKey((k) => k + 1)} disabled={workoutsState.status === "loading"}>
-        {workoutsState.status === "loading" ? "Loading…" : "Refresh"}
+      <button type="button" onClick={refreshWorkouts} disabled={isRefreshingWorkouts}>
+        {refreshClaimed || (isLoadingWorkouts && cachedWorkouts !== undefined)
+          ? "Refreshing…"
+          : isLoadingWorkouts
+            ? "Loading…"
+            : "Refresh"}
       </button>
 
-      {workoutsState.status === "failure" && <p className="error">{formatDomainError(workoutsState.error)}</p>}
-      {workoutsState.status === "success" && workouts.length === 0 && (
-        <p className="workouts-empty">No workouts imported yet.</p>
+      {workoutsState.status === "failure" && (
+        <section className="workouts-load-state" role="alert" aria-label="Workouts are unavailable">
+          <p>
+            {cachedWorkouts === undefined
+              ? "Workouts couldn’t be loaded. Nothing has been changed."
+              : "Workouts couldn’t be refreshed. Your previously loaded workouts remain available."}
+          </p>
+          <button type="button" onClick={refreshWorkouts} disabled={isRefreshingWorkouts}>
+            {isRefreshingWorkouts ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
+      {currentWorkouts !== undefined && currentWorkouts.length === 0 && (
+        <EmptyState
+          icon="◌"
+          title="No activity here yet"
+          message="Import a workout from HealthKit in the macOS app. Your activity will show up here as typed context."
+          action={<Link className="ds-button" to="/notes">Open today’s note</Link>}
+        />
       )}
 
       <ul className="workouts-list">
-        {workouts.map((workout) => (
+        {visibleWorkouts.map((workout) => (
           <li key={workout.nodeId} className="workouts-list-item">
             <button
               type="button"
@@ -200,6 +303,7 @@ export function WorkoutsPanel() {
                   ? "workouts-list-item-button workouts-list-item-button-selected"
                   : "workouts-list-item-button"
               }
+              aria-current={workout.nodeId === selectedNodeId ? "true" : undefined}
               onClick={() => setSelectedNodeId(workout.nodeId)}
             >
               <span className="workouts-list-item-kind">{workout.kind}</span>

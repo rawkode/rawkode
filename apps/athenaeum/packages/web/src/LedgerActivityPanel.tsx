@@ -1,0 +1,211 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import * as Effect from "effect/Effect"
+import type { LedgerActivityEntry } from "@athenaeum/domain"
+import { ListRecentLedgerActivityInput } from "@athenaeum/domain"
+import { WorkspaceRpcClient } from "./rpc-client.js"
+import { useEffectQuery } from "./use-effect-query.js"
+import { workspaceId } from "./workspace-id.js"
+import { dailyStandupWindow } from "./daily-standup-window.js"
+
+const actorLabel = (actor: LedgerActivityEntry["actor"]): string => {
+  if (actor === "you") return "You"
+  if (actor === "workspace-member") return "Workspace member"
+  return "Anonymous"
+}
+
+export type DailyStandupSummary = {
+  readonly total: number
+  readonly byYou: number
+  readonly byWorkspaceMembers: number
+  readonly byAnonymous: number
+}
+
+export const summarizeDailyStandup = (
+  entries: readonly LedgerActivityEntry[]
+): DailyStandupSummary => entries.reduce<DailyStandupSummary>((summary, entry) => ({
+  total: summary.total + 1,
+  byYou: summary.byYou + (entry.actor === "you" ? 1 : 0),
+  byWorkspaceMembers: summary.byWorkspaceMembers + (entry.actor === "workspace-member" ? 1 : 0),
+  byAnonymous: summary.byAnonymous + (entry.actor === "anonymous" ? 1 : 0)
+}), { total: 0, byYou: 0, byWorkspaceMembers: 0, byAnonymous: 0 })
+
+const typeLabel = (type: LedgerActivityEntry["type"]): string => {
+  switch (type) {
+    case "createNode": return "Created a node"
+    case "createNodeWithIntent": return "Created a node with provenance"
+    case "acceptChatFork": return "Accepted a note edit"
+    case "acceptPageProposal": return "Accepted a page proposal"
+    case "agentChangeDecision": return "Decided an agent change"
+    case "applySupertag": return "Applied a structured tag"
+    case "addFact": return "Updated a workspace fact"
+    case "createEdge": return "Created a relationship"
+    case "createRelationDefinition": return "Created a relationship definition"
+    case "createBookmark": return "Captured a bookmark"
+    case "appendTranscriptSegment": return "Captured a transcript segment"
+    case "startMeeting": return "Started a meeting"
+    case "prepareMeetingInDailyNote": return "Prepared a meeting in the daily note"
+    case "createTag": return "Created a Supertag definition"
+    case "defineTagField": return "Added a field to a Supertag definition"
+    case "assignTag": return "Requested a Supertag membership"
+    case "unassignTag": return "Requested removal of a Supertag membership"
+    case "syncNoteReferences": return "Reconciled note mentions"
+    default: {
+      const exhaustive: never = type
+      return exhaustive
+    }
+  }
+}
+
+/**
+ * The daily note's standup subdocument. This is intentionally backed by the existing, privacy
+ * safe ledger projection: until workforce runs exist, the honest thing to show is recorded work
+ * and its commit reason, not a synthetic employee report.
+ */
+export function DailyStandup() {
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshClaimed, setRefreshClaimed] = useState(false)
+  const refreshClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
+  const dayWindow = useMemo(() => dailyStandupWindow(), [refreshKey])
+  const query = useEffectQuery(
+    WorkspaceRpcClient.pipe(
+      Effect.flatMap((client) =>
+        client.listRecentLedgerActivity(new ListRecentLedgerActivityInput({
+          workspaceId,
+          limit: 8,
+          from: dayWindow.from,
+          to: dayWindow.to
+        }))
+      )
+    ),
+    [refreshKey]
+  )
+  // `useEffectQuery` publishes the preceding settled result until the next generation enters
+  // loading. Do not let that older result claim the new generation or its day window.
+  const activeRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    activeRefreshKey.current = refreshKey
+  }, [refreshKey])
+  const stateIsCurrent = activeRefreshKey.current === refreshKey
+  const currentEntries = stateIsCurrent && query.status === "success" ? query.value.entries : undefined
+  const successfulEntries = useRef<{
+    readonly from: string
+    readonly to: string
+    readonly entries: readonly LedgerActivityEntry[]
+  } | undefined>(undefined)
+  if (currentEntries !== undefined) {
+    successfulEntries.current = { from: dayWindow.from, to: dayWindow.to, entries: currentEntries }
+  }
+  // A daily note must never show yesterday's recorded work after the local day window changes.
+  const cachedEntries = successfulEntries.current?.from === dayWindow.from && successfulEntries.current.to === dayWindow.to
+    ? successfulEntries.current.entries
+    : undefined
+  const visibleEntries = currentEntries ?? cachedEntries
+  const isLoadingActivity = !stateIsCurrent || query.status === "loading"
+  const activityLoadFailed = stateIsCurrent && query.status === "failure"
+
+  useEffect(() => {
+    const claim = refreshClaim.current
+    if (claim === undefined) return
+    if (query.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A refresh-key render still sees the prior settled result. Release only after its claimed
+    // generation has entered loading and subsequently reached its terminal query state.
+    if (!claim.sawLoading) return
+    refreshClaim.current = undefined
+    setRefreshClaimed(false)
+  }, [query.status])
+
+  const refresh = useCallback(() => {
+    if (refreshClaim.current !== undefined || query.status === "loading") return
+    refreshClaim.current = { sawLoading: false }
+    setRefreshClaimed(true)
+    setRefreshKey((value) => value + 1)
+  }, [query.status])
+
+  useEffect(() => {
+    window.addEventListener("focus", refresh)
+    return () => window.removeEventListener("focus", refresh)
+  }, [refresh])
+
+  const isRefreshing = refreshClaimed || isLoadingActivity
+
+  return (
+    <section className="daily-note-standup" aria-labelledby="daily-standup-title">
+      <div className="ledger-activity-heading">
+        <div>
+          <span className="section-kicker">Daily standup</span>
+          <h2 id="daily-standup-title">Recorded work</h2>
+        </div>
+        <div className="ledger-activity-heading-actions">
+          <span className="ledger-activity-badge">ledger</span>
+          <button
+            type="button"
+            className="ledger-activity-refresh"
+            onClick={refresh}
+            disabled={isRefreshing}
+            aria-label="Refresh recorded work"
+          >
+            {isRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+      <p className="ledger-activity-intro">Changes recorded today. Every entry has an actor and a commit reason.</p>
+
+      {isLoadingActivity && (
+        <p className="ledger-activity-state" role="status">
+          {cachedEntries === undefined ? "Loading activity…" : "Refreshing activity…"}
+        </p>
+      )}
+      {activityLoadFailed && (
+        <p className="ledger-activity-state" role="alert">
+          Recorded activity couldn&rsquo;t be loaded. Nothing has been changed. Refresh to check this workspace again.
+        </p>
+      )}
+      {currentEntries !== undefined && currentEntries.length === 0 && (
+        <p className="ledger-activity-state">No ledgered changes yet.</p>
+      )}
+      {visibleEntries !== undefined && visibleEntries.length > 0 && (
+        <>
+          <StandupSummary summary={summarizeDailyStandup(visibleEntries)} />
+          <ol className="ledger-activity-list">
+            {visibleEntries.map((entry, index) => (
+              <li key={`${entry.occurredAt}-${entry.type}-${index}`} className="ledger-activity-entry">
+                <div className="ledger-activity-entry-meta">
+                  <span className="ledger-activity-kind">{typeLabel(entry.type)}</span>
+                  <span className={`ledger-activity-actor ledger-activity-actor-${entry.actor}`}>{actorLabel(entry.actor)}</span>
+                  <time dateTime={entry.occurredAt}>{formatActivityTime(entry.occurredAt)}</time>
+                </div>
+                <div className="ledger-activity-reason">
+                  <span>Commit reason</span>
+                  <p>{entry.message}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  )
+}
+
+function StandupSummary({ summary }: { readonly summary: DailyStandupSummary }) {
+  const parts = [
+    `${summary.total} ${summary.total === 1 ? "change" : "changes"}`,
+    summary.byYou > 0 ? `${summary.byYou} by you` : undefined,
+    summary.byWorkspaceMembers > 0 ? `${summary.byWorkspaceMembers} by workspace members` : undefined,
+    summary.byAnonymous > 0 ? `${summary.byAnonymous} automated` : undefined
+  ].filter((part): part is string => part !== undefined)
+
+  return <p className="ledger-activity-summary" aria-label="Daily standup summary">{parts.join(" · ")}</p>
+}
+
+/** Kept as a compatibility export for surfaces that still use the old contextual name. */
+export const LedgerActivityPanel = DailyStandup
+
+function formatActivityTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date)
+}

@@ -21,6 +21,18 @@
   white-space: pre-wrap;
 }
 
+/* Give an empty daily note a quiet first action in the default (dark) theme as well as the
+   opt-in visual variants. The editor sets `data-empty` from the actual PM document because
+   ProseMirror's generated empty-paragraph DOM also contains widget decorations. */
+.rich-note-editor .ProseMirror[data-empty="true"]::before {
+  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
 .rich-note-editor .ProseMirror p {
   margin: 0 0 var(--space-3);
 }
@@ -49,7 +61,9 @@
 .rich-note-editor .ProseMirror blockquote {
   margin: var(--space-3) 0;
   padding: var(--space-1) var(--space-4);
-  border-left: 3px solid var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
   color: var(--color-text-muted);
   font-style: italic;
 }
@@ -245,7 +259,7 @@ button.supertag-chip:hover {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
-  z-index: 20;
+  z-index: var(--z-floating);
 }
 
 .rich-toolbar-button {
@@ -283,7 +297,7 @@ button.supertag-chip:hover {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
-  z-index: 30;
+  z-index: var(--z-floating);
 }
 
 .rich-slash-item,

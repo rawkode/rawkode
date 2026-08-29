@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
 import * as Effect from "effect/Effect"
 import {
@@ -14,7 +14,7 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
+import { EmptyState } from "./EmptyState.js"
 
 // Web-stage Phase 6 task: "since system-audio capture and the realtime voice mic path are
 // native-only per this phase's scope, build the web side as a READ path: a meetings list +
@@ -45,14 +45,42 @@ const formatOffset = (ms: number): string => {
 }
 
 function TranscriptViewer({ meetingId }: { readonly meetingId: EntityId }) {
+  const [retryGeneration, setRetryGeneration] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ meetingId: EntityId; sawLoading: boolean } | undefined>(undefined)
   const getMeetingEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) => client.getMeeting(new GetMeetingInput({ workspaceId, meetingId })))
       ),
-    [meetingId]
+    [meetingId, retryGeneration]
   )
-  const state = useEffectQuery(getMeetingEffect, [meetingId])
+  const state = useEffectQuery(getMeetingEffect, [meetingId, retryGeneration])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (claim.meetingId !== meetingId) {
+      retryClaim.current = undefined
+      setRetryClaimed(false)
+      return
+    }
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A retry-key render initially retains the preceding failure result. Keep the claim until
+    // this generation has visibly entered loading, then release it only after it settles.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [meetingId, state.status])
+  const retryTranscript = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { meetingId, sawLoading: false }
+    setRetryClaimed(true)
+    setRetryGeneration((generation) => generation + 1)
+  }, [meetingId, state.status])
+  const isRetryingTranscript = retryClaimed || state.status === "loading"
 
   const linkedNodeId = state.status === "success" ? state.value.meeting.linkedNodeId : undefined
 
@@ -70,9 +98,29 @@ function TranscriptViewer({ meetingId }: { readonly meetingId: EntityId }) {
   )
   const nodeState = useEffectQuery(getNodeEffect, [linkedNodeId])
 
-  if (state.status === "loading") return <p className="meetings-transcript-loading">Loading transcript…</p>
+  if (state.status === "loading") {
+    return (
+      <p className="meetings-transcript-loading" role="status" aria-live="polite" aria-atomic="true">
+        Loading transcript…
+      </p>
+    )
+  }
   if (state.status === "failure") {
-    return <p className="error">{formatDomainError(state.error)}</p>
+    if (state.error._tag === "MeetingNotFound") {
+      return (
+        <section className="meetings-load-state" role="status">
+          <p>This meeting is no longer available. Refresh meeting history to update the list.</p>
+        </section>
+      )
+    }
+    return (
+      <section className="meetings-load-state" role="alert" aria-label="Transcript is unavailable">
+        <p>Transcript couldn&rsquo;t be loaded. Nothing has been changed.</p>
+        <button type="button" onClick={retryTranscript} disabled={isRetryingTranscript}>
+          {isRetryingTranscript ? "Retrying…" : "Retry"}
+        </button>
+      </section>
+    )
   }
 
   const { meeting, segments, speakers } = state.value
@@ -106,7 +154,9 @@ function TranscriptViewer({ meetingId }: { readonly meetingId: EntityId }) {
               {linkedNodeTitle ?? <em>{meeting.linkedNodeId}</em>}
             </Link>
             {nodeState.status === "failure" && (
-              <span className="error"> ({formatDomainError(nodeState.error)})</span>
+              <span className="error meetings-linked-node-error" role="status">
+                {" "}Linked note title couldn’t be loaded. The note link is still available.
+              </span>
             )}
           </p>
         )}
@@ -147,7 +197,9 @@ function TranscriptViewer({ meetingId }: { readonly meetingId: EntityId }) {
 
 export function MeetingsPanel() {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshClaimed, setRefreshClaimed] = useState(false)
   const [selectedMeetingId, setSelectedMeetingId] = useState<EntityId | undefined>(undefined)
+  const refreshClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
 
   const meetingsEffect = useMemo(
     () =>
@@ -155,29 +207,88 @@ export function MeetingsPanel() {
     [refreshKey]
   )
   const meetingsState = useEffectQuery(meetingsEffect, [refreshKey])
+  // `useEffectQuery` keeps its preceding settled result until the next list generation enters
+  // loading. Retain that same-workspace list for continuity, but do not let it claim a current
+  // empty history while the new generation is still unresolved.
+  const activeRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    activeRefreshKey.current = refreshKey
+  }, [refreshKey])
+  const stateIsCurrent = activeRefreshKey.current === refreshKey
+  const currentMeetings = stateIsCurrent && meetingsState.status === "success" ? meetingsState.value.meetings : undefined
+  const successfulMeetings = useRef<ReadonlyArray<Meeting> | undefined>(currentMeetings)
+  if (currentMeetings !== undefined) successfulMeetings.current = currentMeetings
+  const cachedMeetings = successfulMeetings.current
+  const visibleMeetings = currentMeetings ?? cachedMeetings ?? []
+  const isLoadingMeetings = !stateIsCurrent || meetingsState.status === "loading"
 
-  const meetings: ReadonlyArray<Meeting> = meetingsState.status === "success" ? meetingsState.value.meetings : []
+  useEffect(() => {
+    const claim = refreshClaim.current
+    if (claim === undefined) return
+    if (meetingsState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A refresh-key render initially retains the preceding result. Keep this presentation claim
+    // until the list visibly enters loading, then release it only after that read settles.
+    if (!claim.sawLoading) return
+    refreshClaim.current = undefined
+    setRefreshClaimed(false)
+  }, [meetingsState.status])
+
+  const refreshMeetings = useCallback(() => {
+    if (refreshClaim.current !== undefined || meetingsState.status === "loading") return
+    refreshClaim.current = { sawLoading: false }
+    setRefreshClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [meetingsState.status])
+
+  const isRefreshingMeetings = refreshClaimed || isLoadingMeetings
 
   return (
     <section className="meetings-panel">
       <h2>Meetings</h2>
       <p className="meetings-panel-hint">
-        Read-only here — meeting capture and transcription happen natively (system-audio capture,
-        on-device speech recognition with a cloud fallback). This panel lists what's been recorded
-        in this workspace and lets you review a transcript.
+        Review conversations captured in the native app. Transcripts, speakers, and linked notes
+        become part of your second brain here.
       </p>
 
-      <button type="button" onClick={() => setRefreshKey((k) => k + 1)} disabled={meetingsState.status === "loading"}>
-        {meetingsState.status === "loading" ? "Loading…" : "Refresh"}
+      <button type="button" onClick={refreshMeetings} disabled={isRefreshingMeetings}>
+        {refreshClaimed || (isLoadingMeetings && cachedMeetings !== undefined)
+          ? "Refreshing…"
+          : isLoadingMeetings
+            ? "Loading…"
+            : "Refresh"}
       </button>
+      {isRefreshingMeetings && (
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {refreshClaimed || cachedMeetings !== undefined ? "Refreshing meetings…" : "Loading meetings…"}
+        </p>
+      )}
 
-      {meetingsState.status === "failure" && <p className="error">{formatDomainError(meetingsState.error)}</p>}
-      {meetingsState.status === "success" && meetings.length === 0 && (
-        <p className="meetings-empty">No meetings recorded yet.</p>
+      {meetingsState.status === "failure" && (
+        <section className="meetings-load-state" role="alert" aria-label="Meetings are unavailable">
+          <p>
+            {cachedMeetings === undefined
+              ? "Meetings couldn’t be loaded. Nothing has been changed."
+              : "Meetings couldn’t be refreshed. Your previously loaded meetings remain available."}
+          </p>
+          <button type="button" onClick={refreshMeetings} disabled={isRefreshingMeetings}>
+            {isRefreshingMeetings ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
+      {currentMeetings !== undefined && currentMeetings.length === 0 && (
+        <EmptyState
+          icon="⌁"
+          title="Your meeting history starts here"
+          message="Start a meeting capture in the macOS app. When it ends, the transcript and people you met will appear here."
+          action={<Link className="ds-button" to="/notes">Open today’s note</Link>}
+        />
       )}
 
       <ul className="meetings-list">
-        {meetings.map((meeting) => (
+        {visibleMeetings.map((meeting) => (
           <li key={meeting.id} className="meetings-list-item">
             <button
               type="button"
@@ -186,6 +297,7 @@ export function MeetingsPanel() {
                   ? "meetings-list-item-button meetings-list-item-button-selected"
                   : "meetings-list-item-button"
               }
+              aria-current={meeting.id === selectedMeetingId ? "true" : undefined}
               onClick={() => setSelectedMeetingId(meeting.id)}
             >
               <span className="meetings-list-item-title">{meeting.title}</span>

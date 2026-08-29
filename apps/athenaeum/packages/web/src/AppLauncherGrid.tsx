@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { CreateAppInput, ListAppsInput, UpdateAppCodeInput, type App, type AppIcon, type EntityId } from "@athenaeum/domain"
@@ -6,7 +6,7 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
+import { EmptyState } from "./EmptyState.js"
 
 // Web stage: "an icon-grid App Library (per David's explicit 'like on iPhone' reference — a grid
 // of app icons/tiles, each launchable)." This is that grid — the PRIMARY `/apps` view
@@ -68,18 +68,37 @@ button.addEventListener("click", function () {
 });
 `.trim()
 
-function CreateAppForm({ onCreated }: { readonly onCreated: (appId: EntityId) => void }) {
+const appCreationFailureMessage =
+  "We couldn’t confirm that this app was created. Its title and icon are still here. Review your apps before taking another action."
+
+function CreateAppForm({
+  openRequest,
+  onCreated
+}: {
+  readonly openRequest: number
+  readonly onCreated: (appId: EntityId) => void
+}) {
   const [open, setOpen] = useState(false)
+  const handledOpenRequest = useRef(openRequest)
   const [title, setTitle] = useState("")
   const [icon, setIcon] = useState("🧩")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isCreatingRef = useRef(false)
+
+  useEffect(() => {
+    if (openRequest === handledOpenRequest.current) return
+    handledOpenRequest.current = openRequest
+    setOpen(true)
+  }, [openRequest])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedTitle = title.trim()
     const trimmedIcon = icon.trim()
     if (trimmedTitle.length === 0 || trimmedIcon.length === 0) return
+    if (isCreatingRef.current) return
+    isCreatingRef.current = true
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
@@ -90,6 +109,7 @@ function CreateAppForm({ onCreated }: { readonly onCreated: (appId: EntityId) =>
       )
     )
     fiber.addObserver((exit) => {
+      isCreatingRef.current = false
       setBusy(false)
       if (Exit.isSuccess(exit)) {
         setOpen(false)
@@ -97,7 +117,7 @@ function CreateAppForm({ onCreated }: { readonly onCreated: (appId: EntityId) =>
         setIcon("🧩")
         onCreated(exit.value.app.id)
       } else if (!Exit.isInterrupted(exit)) {
-        setError("Failed to create app")
+        setError(appCreationFailureMessage)
         console.error(exit.cause.toString())
       }
     })
@@ -140,7 +160,7 @@ function CreateAppForm({ onCreated }: { readonly onCreated: (appId: EntityId) =>
           Cancel
         </button>
       </div>
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && <p className="error" role="alert">{error}</p>}
     </form>
   )
 }
@@ -216,12 +236,48 @@ export function AppLauncherGrid({
   readonly onEdit: (appId: EntityId) => void
 }) {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [createAppOpenRequest, setCreateAppOpenRequest] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const appsEffect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listApps(new ListAppsInput({ workspaceId })))),
     [refreshKey]
   )
   const appsState = useEffectQuery(appsEffect, [refreshKey])
-  const apps: ReadonlyArray<App> = appsState.status === "success" ? appsState.value.apps : []
+  // `useEffectQuery` keeps its preceding settled result until the next generation enters its
+  // loading state. Keep that result as a same-workspace cache, but do not let it claim an empty
+  // catalog or make a grid of app tiles disappear while the current generation is unresolved.
+  const activeRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    activeRefreshKey.current = refreshKey
+  }, [refreshKey])
+  const stateIsCurrent = activeRefreshKey.current === refreshKey
+  const currentApps = stateIsCurrent && appsState.status === "success" ? appsState.value.apps : undefined
+  const successfulApps = useRef<ReadonlyArray<App> | undefined>(currentApps)
+  if (currentApps !== undefined) successfulApps.current = currentApps
+  const cachedApps = successfulApps.current
+  const visibleApps = currentApps ?? cachedApps ?? []
+  const isLoadingApps = !stateIsCurrent || appsState.status === "loading"
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (appsState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // The refresh-key render still contains the preceding catalog failure. Keep the visible
+    // claim until this app-list retry enters loading and then reaches a terminal result.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [appsState.status])
+  const retryApps = useCallback(() => {
+    if (retryClaim.current !== undefined || appsState.status === "loading") return
+    retryClaim.current = { sawLoading: false }
+    setRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [appsState.status])
+  const isRetryingApps = retryClaimed || isLoadingApps
 
   const handleCreated = (appId: EntityId) => {
     setRefreshKey((k) => k + 1)
@@ -235,17 +291,37 @@ export function AppLauncherGrid({
 
   return (
     <section className="app-launcher">
-      <p className="app-library-hint">
-        Agent-authored apps run as real, sandboxed Cloudflare Worker Loader isolates — no ambient access to this
-        workspace's data unless explicitly granted. Tap an app to launch it; edit its code from inside the launch
-        view.
-      </p>
-
-      {appsState.status === "loading" && <p>Loading…</p>}
-      {appsState.status === "failure" && <p className="error">{formatDomainError(appsState.error)}</p>}
+      {isLoadingApps && <p>{cachedApps === undefined ? "Loading…" : "Refreshing apps…"}</p>}
+      {appsState.status === "failure" && (
+        <section className="app-launcher-load-state" role="alert">
+          <div>
+            <h2>Apps are unavailable</h2>
+            <p>
+              {cachedApps === undefined
+                ? "Apps could not be loaded. Nothing has been changed. Retry to check them again."
+                : "Apps could not be refreshed. Your previously loaded apps remain available. Retry to check them again."}
+            </p>
+          </div>
+          <button type="button" onClick={retryApps} disabled={isRetryingApps}>
+            {isRetryingApps ? "Retrying…" : "Retry"}
+          </button>
+        </section>
+      )}
+      {currentApps !== undefined && currentApps.length === 0 && (
+        <EmptyState
+          icon="✦"
+          title="Make a tool for the moment"
+          message="Create a small App for a task you keep repeating. You can keep it, change it, or throw it away when the work is done."
+          action={
+            <button type="button" onClick={() => setCreateAppOpenRequest((request) => request + 1)}>
+              Create an app
+            </button>
+          }
+        />
+      )}
 
       <div className="app-grid" role="list">
-        {apps.map((app) => (
+        {visibleApps.map((app) => (
           <button
             key={app.id}
             type="button"
@@ -261,7 +337,7 @@ export function AppLauncherGrid({
             {app.pending !== undefined && <span className="app-tile-pending-badge">pending</span>}
           </button>
         ))}
-        <CreateAppForm onCreated={handleCreated} />
+        <CreateAppForm openRequest={createAppOpenRequest} onCreated={handleCreated} />
       </div>
 
       {import.meta.env.DEV && <DevSeedTestAppButton onSeeded={handleSeeded} />}

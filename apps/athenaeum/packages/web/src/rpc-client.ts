@@ -46,7 +46,10 @@ import {
   CreateEdgeInput,
   CreateEdgeOutput,
   CreateNodeInput,
+  CreateNodeWithIntentInput,
   CreateNodeOutput,
+  CreateLoroPageInput,
+  CreateLoroPageOutput,
   CreatePageInput,
   CreatePageOutput,
   CreateRelationDefinitionInput,
@@ -75,8 +78,18 @@ import {
   GetMeetingOutput,
   GetNodeInput,
   GetNodeOutput,
+  GetPageDocumentDescriptorInput,
+  GetPageDocumentDescriptorOutput,
   GetPageTextInput,
   GetPageTextOutput,
+  MigrateLegacyPageInput,
+  MigrateLegacyPageOutput,
+  CommitLoroPageContentInput,
+  CommitLoroPageContentOutput,
+  PrepareMeetingInDailyNoteInput,
+  PrepareMeetingInDailyNoteOutput,
+  LoroPageSyncMessageInput,
+  LoroPageSyncMessageOutput,
   GetWorkoutInput,
   GetWorkoutOutput,
   GoogleCalendarOAuthCallbackInput,
@@ -89,6 +102,8 @@ import {
   ListBookmarksOutput,
   ListCalendarEventsInput,
   ListCalendarEventsOutput,
+  ListGatekeeperBindingsInput,
+  ListGatekeeperBindingsOutput,
   ListChatChangesInput,
   ListChatChangesOutput,
   ListChatsInput,
@@ -101,6 +116,8 @@ import {
   ListNodesOutput,
   ListPendingChangesInput,
   ListPendingChangesOutput,
+  ListRecentLedgerActivityInput,
+  ListRecentLedgerActivityOutput,
   ListShareLinksInput,
   ListShareLinksOutput,
   ListWorkoutsInput,
@@ -144,12 +161,16 @@ import {
   StartMeetingOutput,
   StartPageSyncInput,
   StartPageSyncOutput,
+  StartLoroPageSyncInput,
+  StartLoroPageSyncOutput,
   SyncFeedInput,
   SyncFeedOutput,
   SyncGoogleCalendarInput,
   SyncGoogleCalendarOutput,
   SyncNoteReferencesInput,
   SyncNoteReferencesOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   AppendTranscriptSegmentInput,
   AppendTranscriptSegmentOutput,
   WhoamiOutput,
@@ -178,14 +199,22 @@ interface WorkspaceApi {
   whoami(): Promise<unknown>
 
   createNode(input: unknown): Promise<unknown>
+  createNodeWithIntent(input: unknown): Promise<unknown>
   listNodes(input: unknown): Promise<unknown>
   getNode(input: unknown): Promise<unknown>
   subscribeToNodes(input: unknown): Promise<NodesSubscriptionApi>
   createPage(input: unknown): Promise<unknown>
+  createLoroPage(input: unknown): Promise<unknown>
   getPageText(input: unknown): Promise<unknown>
   applyPageEdit(input: unknown): Promise<unknown>
   startPageSync(input: unknown): Promise<unknown>
   pageSyncMessage(input: unknown): Promise<unknown>
+  getPageDocumentDescriptor(input: unknown): Promise<unknown>
+  migrateLegacyPage(input: unknown): Promise<unknown>
+  commitLoroPageContent(input: unknown): Promise<unknown>
+  prepareMeetingInDailyNote(input: unknown): Promise<unknown>
+  startLoroPageSync(input: unknown): Promise<unknown>
+  loroPageSyncMessage(input: unknown): Promise<unknown>
   listBacklinks(input: unknown): Promise<unknown>
   // Rich-text-editor stage (task item: "@-mention entity references... projected into the real
   // edges/backlinks system") — mirrors `WorkspaceRpcApi.syncNoteReferences` exactly (`graph-rpc.ts`).
@@ -226,6 +255,7 @@ interface WorkspaceApi {
   revertChanges(input: unknown): Promise<unknown>
   listChatChanges(input: unknown): Promise<unknown>
   listPendingChanges(input: unknown): Promise<unknown>
+  listRecentLedgerActivity(input: unknown): Promise<unknown>
   // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) — adversarial-review fix:
   // previously missing from this interface entirely, so the web UI had no way to review, accept,
   // or revert an agent's note-body edits (chat-fork-rpc.ts / chat-fork-service-live.ts already
@@ -258,6 +288,7 @@ interface WorkspaceApi {
   disconnectGoogleCalendar(input: unknown): Promise<unknown>
   syncGoogleCalendar(input: unknown): Promise<unknown>
   listCalendarEvents(input: unknown): Promise<unknown>
+  getTodayBrief(input: unknown): Promise<unknown>
   linkCalendarEventToNode(input: unknown): Promise<unknown>
   createBookmark(input: unknown): Promise<unknown>
   listBookmarks(input: unknown): Promise<unknown>
@@ -313,19 +344,39 @@ export interface NodesSubscriptionHandle {
 export interface WorkspaceRpcClientService {
   readonly whoami: () => Effect.Effect<WhoamiOutput, DomainError>
   readonly createNode: (input: CreateNodeInput) => Effect.Effect<CreateNodeOutput, DomainError>
+  readonly createNodeWithIntent: (input: CreateNodeWithIntentInput) => Effect.Effect<CreateNodeOutput, DomainError>
   readonly listNodes: (input: ListNodesInput) => Effect.Effect<ListNodesOutput, DomainError>
   readonly getNode: (input: GetNodeInput) => Effect.Effect<GetNodeOutput, DomainError>
   readonly subscribeToNodes: (
     input: ListNodesInput
   ) => Effect.Effect<NodesSubscriptionHandle, DomainError, Scope.Scope>
-  // --- Page bodies (Automerge) — Daily notes stage additions ---------------------------------
+  // --- Page bodies — Loro is the product path; Automerge remains a legacy compatibility lane --
   readonly createPage: (input: CreatePageInput) => Effect.Effect<CreatePageOutput, DomainError>
+  readonly createLoroPage: (input: CreateLoroPageInput) => Effect.Effect<CreateLoroPageOutput, DomainError>
   readonly getPageText: (input: GetPageTextInput) => Effect.Effect<GetPageTextOutput, DomainError>
   readonly applyPageEdit: (input: ApplyPageEditInput) => Effect.Effect<ApplyPageEditOutput, DomainError>
   readonly startPageSync: (input: StartPageSyncInput) => Effect.Effect<StartPageSyncOutput, DomainError>
   readonly pageSyncMessage: (
     input: PageSyncMessageInput
   ) => Effect.Effect<PageSyncMessageOutput, DomainError>
+  readonly getPageDocumentDescriptor: (
+    input: GetPageDocumentDescriptorInput
+  ) => Effect.Effect<GetPageDocumentDescriptorOutput, DomainError>
+  readonly migrateLegacyPage: (
+    input: MigrateLegacyPageInput
+  ) => Effect.Effect<MigrateLegacyPageOutput, DomainError>
+  readonly commitLoroPageContent: (
+    input: CommitLoroPageContentInput
+  ) => Effect.Effect<CommitLoroPageContentOutput, DomainError>
+  readonly prepareMeetingInDailyNote: (
+    input: PrepareMeetingInDailyNoteInput
+  ) => Effect.Effect<PrepareMeetingInDailyNoteOutput, DomainError>
+  readonly startLoroPageSync: (
+    input: StartLoroPageSyncInput
+  ) => Effect.Effect<StartLoroPageSyncOutput, DomainError>
+  readonly loroPageSyncMessage: (
+    input: LoroPageSyncMessageInput
+  ) => Effect.Effect<LoroPageSyncMessageOutput, DomainError>
   // --- Graph ------------------------------------------------------------------------------------
   readonly listBacklinks: (input: ListBacklinksInput) => Effect.Effect<ListBacklinksOutput, DomainError>
   readonly syncNoteReferences: (
@@ -369,6 +420,9 @@ export interface WorkspaceRpcClientService {
   readonly listPendingChanges: (
     input: ListPendingChangesInput
   ) => Effect.Effect<ListPendingChangesOutput, DomainError>
+  readonly listRecentLedgerActivity: (
+    input: ListRecentLedgerActivityInput
+  ) => Effect.Effect<ListRecentLedgerActivityOutput, DomainError>
   // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) — see WorkspaceApi's own
   // comment above for why these were added. `forkChatEdit`/`applyChatForkEdit` are the agent-
   // tool-side operations (mirrored here for interface completeness against the backend's full
@@ -419,6 +473,10 @@ export interface WorkspaceRpcClientService {
   readonly listCalendarEvents: (
     input: ListCalendarEventsInput
   ) => Effect.Effect<ListCalendarEventsOutput, DomainError>
+  readonly listGatekeeperBindings: (
+    input: ListGatekeeperBindingsInput
+  ) => Effect.Effect<ListGatekeeperBindingsOutput, DomainError>
+  readonly getTodayBrief: (input: GetTodayBriefInput) => Effect.Effect<GetTodayBriefOutput, DomainError>
   readonly linkCalendarEventToNode: (
     input: LinkCalendarEventToNodeInput
   ) => Effect.Effect<LinkCalendarEventToNodeOutput, DomainError>
@@ -475,6 +533,11 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
             workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(input))
           ),
 
+        createNodeWithIntent: (input) =>
+          callForValue(CreateNodeOutput, () =>
+            workspaceStub.createNodeWithIntent(Schema.encodeSync(CreateNodeWithIntentInput)(input))
+          ),
+
         listNodes: (input) =>
           callForValue(ListNodesOutput, () =>
             workspaceStub.listNodes(Schema.encodeSync(ListNodesInput)(input))
@@ -495,10 +558,15 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
             } satisfies NodesSubscriptionHandle
           }),
 
-        // --- Page bodies (Automerge) — Daily notes stage additions -----------------------------
+        // --- Page bodies — Loro product path plus legacy Automerge compatibility ---------------
 
         createPage: (input) =>
           callForValue(CreatePageOutput, () => workspaceStub.createPage(Schema.encodeSync(CreatePageInput)(input))),
+
+        createLoroPage: (input) =>
+          callForValue(CreateLoroPageOutput, () =>
+            workspaceStub.createLoroPage(Schema.encodeSync(CreateLoroPageInput)(input))
+          ),
 
         getPageText: (input) =>
           callForValue(GetPageTextOutput, () =>
@@ -518,6 +586,36 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         pageSyncMessage: (input) =>
           callForValue(PageSyncMessageOutput, () =>
             workspaceStub.pageSyncMessage(Schema.encodeSync(PageSyncMessageInput)(input))
+          ),
+
+        getPageDocumentDescriptor: (input) =>
+          callForValue(GetPageDocumentDescriptorOutput, () =>
+            workspaceStub.getPageDocumentDescriptor(Schema.encodeSync(GetPageDocumentDescriptorInput)(input))
+          ),
+
+        migrateLegacyPage: (input) =>
+          callForValue(MigrateLegacyPageOutput, () =>
+            workspaceStub.migrateLegacyPage(Schema.encodeSync(MigrateLegacyPageInput)(input))
+          ),
+
+        commitLoroPageContent: (input) =>
+          callForValue(CommitLoroPageContentOutput, () =>
+            workspaceStub.commitLoroPageContent(Schema.encodeSync(CommitLoroPageContentInput)(input))
+          ),
+
+        prepareMeetingInDailyNote: (input) =>
+          callForValue(PrepareMeetingInDailyNoteOutput, () =>
+            workspaceStub.prepareMeetingInDailyNote(Schema.encodeSync(PrepareMeetingInDailyNoteInput)(input))
+          ),
+
+        startLoroPageSync: (input) =>
+          callForValue(StartLoroPageSyncOutput, () =>
+            workspaceStub.startLoroPageSync(Schema.encodeSync(StartLoroPageSyncInput)(input))
+          ),
+
+        loroPageSyncMessage: (input) =>
+          callForValue(LoroPageSyncMessageOutput, () =>
+            workspaceStub.loroPageSyncMessage(Schema.encodeSync(LoroPageSyncMessageInput)(input))
           ),
 
         // --- Graph -------------------------------------------------------------------------------
@@ -641,6 +739,11 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
             workspaceStub.listPendingChanges(Schema.encodeSync(ListPendingChangesInput)(input))
           ),
 
+        listRecentLedgerActivity: (input) =>
+          callForValue(ListRecentLedgerActivityOutput, () =>
+            workspaceStub.listRecentLedgerActivity(Schema.encodeSync(ListRecentLedgerActivityInput)(input))
+          ),
+
         // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) --------------------
 
         forkChatEdit: (input) =>
@@ -756,6 +859,16 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         listCalendarEvents: (input) =>
           callForValue(ListCalendarEventsOutput, () =>
             workspaceStub.listCalendarEvents(Schema.encodeSync(ListCalendarEventsInput)(input))
+          ),
+
+        listGatekeeperBindings: (input) =>
+          callForValue(ListGatekeeperBindingsOutput, () =>
+            workspaceStub.listGatekeeperBindings(Schema.encodeSync(ListGatekeeperBindingsInput)(input))
+          ),
+
+        getTodayBrief: (input) =>
+          callForValue(GetTodayBriefOutput, () =>
+            workspaceStub.getTodayBrief(Schema.encodeSync(GetTodayBriefInput)(input))
           ),
 
         linkCalendarEventToNode: (input) =>

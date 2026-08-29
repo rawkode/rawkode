@@ -1,5 +1,5 @@
 // `AgentEditService` — the plan's diagrammed Effect Service ("Pending records, changes stream,
-// Automerge-fork prose branches, binding map" — plan §"Agent-native editing & gatekeeper
+// Loro semantic commits, legacy Automerge-fork prose branches, binding map" — plan §"Agent-native editing & gatekeeper
 // integrations"). This is a REIMPLEMENTATION of `cloudflare-os/plans/multi-gadget.md` §Q15's
 // exact provisional-creation/crash-safety algorithm, retargeted from gadget records to
 // node/fact/edge records:
@@ -35,17 +35,10 @@
 // - **`reconcilePendingChanges(chatId)`**: the crash-safety sweep, run automatically at the start
 //   and end of `sendChatMessage` (mirroring §Q15's "at agent turn start and end") and directly
 //   callable by tests. See its own doc comment for the exact set-difference algorithm.
-// - **Note-body pending edits**: `readNoteTool`/`editNoteTool` are thin wrappers over the
-//   already-built, already-tested `ChatForkService`/`NotesService` (the Decisions stage's Phase 3
-//   mini-spike, and the Storage stage's page-body service) — `editNoteTool` forks (idempotently)
-//   and applies the edit to the fork; `readNoteTool` prefers an active fork's text over mainline,
-//   so a chat's own reads see its own pending prose edits. Accept/revert of a note-body fork stays
-//   on `ChatForkService`'s own `acceptChatFork`/`revertChatFork` RPC methods (already real,
-//   already tested) — deliberately NOT folded into this file's `mergeChanges`/`revertChanges`,
-//   which stay scoped to the row-level `pending` mechanism exactly as the plan separates the two
-//   ("Structured mutations... use the simpler row-level pending flag, no fork needed" / "Note-body
-//   edits use Automerge branches... accept = merge fork into mainline heads, revert = discard
-//   fork" — two independent mechanisms, two independent accept/revert entry points).
+// - **Note-body edits**: Loro pages use the semantic ledger gateway and become durable immediately;
+//   legacy Automerge pages retain the existing chat fork, so older pages remain reviewable without
+//   allowing the compatibility path to become a second Loro authority. Accept/revert of a legacy
+//   fork stays on `ChatForkService`'s own RPC methods.
 // - **Binding map + naming**: `chatBindings` (agent-edit-collections.ts), a per-chat namespace
 //   (chat-binding.ts's own doc comment: "chat-local"). `createNodeTool` claims the agent-chosen
 //   `binding` name, deduping via `ensureUniqueBindingName`'s `_2`/`_3` suffixing on collision —
@@ -72,6 +65,13 @@ import {
   App,
   AppBindingTarget,
   AppCodeVersion,
+  AgentChangeProposal,
+  AgentChangeProposalDecision,
+  AgentChangeReservation,
+  AgentChangeSnapshot,
+  agentChangeReservationKey,
+  canonicalJsonBytes,
+  sha256HexSync,
   Chat,
   ChatBinding,
   ChatBindingName,
@@ -144,6 +144,7 @@ import { reviveNode } from "./nodes-repository-live.js"
 import { indexNodeText, upsertEdge, upsertFact, upsertNode } from "./read-model.js"
 import { SyncFeedService } from "./sync-feed-service-live.js"
 import { ChatForkService } from "./chat-fork-service-live.js"
+import { AgentLoroEditService, type AgentLoroEditContext } from "./agent-loro-edit-service-live.js"
 import { GraphService } from "./graph-service-live.js"
 import { NotesService } from "./notes-service-live.js"
 import {
@@ -154,6 +155,8 @@ import {
   reviveChatMessage,
   toUnexpectedError
 } from "./agent-edit-collections.js"
+import type { AgentChangeProposalCollections } from "./agent-change-proposal-collections.js"
+import { proposalStorageError } from "./agent-change-proposal-collections.js"
 
 // --- Test hooks (same established convention as `createEdgeTestHook`/`putTestHook`/
 // `notesServiceSessionCapTestHook`) ------------------------------------------------------------
@@ -179,6 +182,15 @@ export const agentEditTestHooks: { skipToolLog: boolean; skipFlush: boolean; ski
   skipFlush: false,
   skipReconcile: false
 }
+
+/** Test-only crash point: invoked inside the real outer capture transaction after a reservation
+ * SQLite INSERT. Throwing proves evidence, request identity, and every reservation roll back together. */
+export const agentChangeCaptureTestHooks: {
+  afterReservationInsert?: (count: number) => void
+  /** Simulates the crash window P5 reconciliation must defend: durable reservation survives while
+   * a pending marker appears unstamped to the next turn. Never enabled outside tests. */
+  unstampCapturedNode?: boolean
+} = {}
 
 const MAX_TURN_ITERATIONS = 25
 
@@ -235,7 +247,11 @@ export class AgentEditService extends Context.Tag("@athenaeum/backend/AgentEditS
       content: string,
       toolCalls?: ReadonlyArray<ToolCallRequest>
     ) => Effect.Effect<ChatMessageRecord, DomainError>
-    readonly sendChatMessage: (chatId: EntityId, text: string) => Effect.Effect<AgentTurnResult, DomainError>
+    readonly sendChatMessage: (
+      chatId: EntityId,
+      text: string,
+      context?: AgentLoroEditContext
+    ) => Effect.Effect<AgentTurnResult, DomainError>
     readonly mergeChanges: (chatId: EntityId, mergeThrough: number) => Effect.Effect<void, DomainError>
     readonly revertChanges: (chatId: EntityId, revertFrom: number) => Effect.Effect<void, DomainError>
     readonly listChatChanges: (chatId: EntityId) => Effect.Effect<ReadonlyArray<ChangesMessage>, DomainError>
@@ -249,6 +265,18 @@ export class AgentEditService extends Context.Tag("@athenaeum/backend/AgentEditS
       chatId: EntityId
     ) => Effect.Effect<{ nodes: ReadonlyArray<NodeEntity>; facts: ReadonlyArray<Fact>; edges: ReadonlyArray<Edge> }, DomainError>
     readonly reconcilePendingChanges: (chatId: EntityId) => Effect.Effect<ReconcileResult, DomainError>
+    /** Must be invoked inside the Workspace DO's one outer `storage.transactionSync` callback. */
+    readonly captureProposalAndReserve: (input: {
+      chatId: EntityId; operation: "merge" | "revert"; rangeBoundary: number; requestId: string;
+      actor: string; provenance: string
+    }) => Effect.Effect<AgentChangeProposal, DomainError>
+    readonly capturedProposalForRequest: (requestId: string) => Effect.Effect<AgentChangeProposal | undefined, DomainError>
+    /** Applies one immutable proposal snapshot. The caller must wrap this effect in the
+     * Workspace DO's outer transaction together with the ledger command and receipt. */
+    readonly decideAgentChangeProposal: (input: {
+      proposalId: EntityId
+      decision: "accept" | "reject"
+    }) => Effect.Effect<"accepted" | "rejected" | "conflicted", DomainError>
 
     // Agent tools (task item 6) — real, pending-record-producing implementations exercised by
     // `sendChatMessage`'s tool-calling loop, and directly callable/testable on their own. None of
@@ -257,7 +285,11 @@ export class AgentEditService extends Context.Tag("@athenaeum/backend/AgentEditS
     // logging/flushing entirely, which is the correct behavior for unit-testing the mutation in
     // isolation.
     readonly readNoteTool: (input: ReadNoteToolInput) => Effect.Effect<ReadNoteToolOutput, DomainError>
-    readonly editNoteTool: (input: EditNoteToolInput) => Effect.Effect<EditNoteToolOutput, DomainError>
+    readonly editNoteTool: (
+      input: EditNoteToolInput,
+      toolCallId?: string,
+      context?: AgentLoroEditContext
+    ) => Effect.Effect<EditNoteToolOutput, DomainError>
     readonly createNodeTool: (input: CreateNodeToolInput) => Effect.Effect<CreateNodeToolOutput, DomainError>
     readonly addFactTool: (input: AddFactToolInput) => Effect.Effect<AddFactToolOutput, DomainError>
     readonly addEdgeTool: (input: AddEdgeToolInput) => Effect.Effect<AddEdgeToolOutput, DomainError>
@@ -289,16 +321,17 @@ const TOOL_SPECS: ReadonlyArray<ToolSpec> = [
   }),
   new ToolSpec({
     name: "editNote",
-    description: "Apply a text splice edit to a bound note, via this chat's own pending (forked) copy.",
+    description: "Apply a text splice to a bound note. Loro notes commit through the semantic ledger; legacy Automerge notes stay in this chat's reviewable fork.",
     inputSchema: {
       type: "object",
       properties: {
         binding: { type: "string" },
         index: { type: "number" },
         deleteCount: { type: "number" },
-        insertText: { type: "string" }
+        insertText: { type: "string" },
+        commitMessage: { type: "string" }
       },
-      required: ["binding", "index", "deleteCount", "insertText"]
+      required: ["binding", "index", "deleteCount", "insertText", "commitMessage"]
     }
   }),
   new ToolSpec({
@@ -407,8 +440,8 @@ const TOOL_SPECS: ReadonlyArray<ToolSpec> = [
 
 const SYSTEM_PROMPT =
   "You are Athenaeum's agent-native editing assistant. You can read/edit notes and propose graph " +
-  "changes (nodes/facts/edges) via tools; every change you make is pending until the user reviews " +
-  "and accepts it. Reply with plain text once you are done."
+  "changes (nodes/facts/edges) via tools. Loro note edits commit through the semantic ledger; " +
+  "legacy Automerge note edits remain pending for review. Reply with plain text once you are done."
 
 /** What one dispatched tool call produced, before `executeToolCall` logs/flushes it — `refs` is
  *  which pending entities (if any) this call touched, `batch` is the `ChangesMessage` fields (if
@@ -432,6 +465,7 @@ export const makeAgentEditServiceLive = (
   factsCollections: FactsCollections,
   edgesCollections: EdgesCollections,
   appCollections: AppCollections,
+  proposalCollections: AgentChangeProposalCollections,
   sql: SqlStorage
 ): Layer.Layer<
   AgentEditService,
@@ -443,6 +477,7 @@ export const makeAgentEditServiceLive = (
   | GraphService
   | NotesService
   | ChatForkService
+  | AgentLoroEditService
   | SyncFeedService
   | ModelClient
 > =>
@@ -456,6 +491,7 @@ export const makeAgentEditServiceLive = (
       const graph = yield* GraphService
       const notes = yield* NotesService
       const chatFork = yield* ChatForkService
+      const agentLoroEdit = yield* AgentLoroEditService
       const syncFeed = yield* SyncFeedService
       const modelClient = yield* ModelClient
 
@@ -629,22 +665,45 @@ export const makeAgentEditServiceLive = (
       const readNoteTool = (input: ReadNoteToolInput): Effect.Effect<ReadNoteToolOutput, DomainError> =>
         Effect.gen(function* () {
           const nodeId = yield* resolveNodeBinding(input.chatId, input.binding)
+          // The format router owns this decision.  In particular, a migrated Loro descriptor
+          // retains an Automerge witness but remains Loro-active, so it must not probe the
+          // legacy fork/page services at all.
+          const loroRead = yield* agentLoroEdit.read(nodeId)
+          if (loroRead.format === "loro-v1") return new ReadNoteToolOutput({ text: loroRead.text })
           const preview = yield* chatFork.previewFork(input.chatId, nodeId)
           if (preview.forked) return new ReadNoteToolOutput({ text: preview.text })
           const { text } = yield* notes.getPageText(nodeId)
           return new ReadNoteToolOutput({ text })
         })
 
-      const editNoteTool = (input: EditNoteToolInput): Effect.Effect<EditNoteToolOutput, DomainError> =>
+      const editNoteTool = (
+        input: EditNoteToolInput,
+        toolCallId = `direct-edit:${crypto.randomUUID()}`,
+        context: AgentLoroEditContext = {}
+      ): Effect.Effect<EditNoteToolOutput, DomainError> =>
         Effect.gen(function* () {
           const nodeId = yield* resolveNodeBinding(input.chatId, input.binding)
-          yield* chatFork.fork(input.chatId, nodeId)
+          const loroEdit = yield* agentLoroEdit.edit({
+            chatId: input.chatId,
+            toolCallId,
+            nodeId,
+            index: input.index,
+            deleteCount: input.deleteCount,
+            insertText: input.insertText,
+            commitMessage: input.commitMessage,
+            context
+          })
+          if (loroEdit.format === "loro-v1") return new EditNoteToolOutput({ text: loroEdit.text, nodeId })
+          // Legacy compatibility still uses a reviewable Automerge proposal, but retain the
+          // agent-authored commit message as its durable rationale for later acceptance/audit.
+          yield* chatFork.fork(input.chatId, nodeId, input.commitMessage)
           const { text } = yield* chatFork.applyForkEdit(
             input.chatId,
             nodeId,
             input.index,
             input.deleteCount,
-            input.insertText
+            input.insertText,
+            input.commitMessage
           )
           // `nodeId` rides along in the output (adversarial-review fix) purely so a reviewing
           // client can discover, from the tool-log JSON it already fetches, which node this
@@ -971,6 +1030,256 @@ export const makeAgentEditServiceLive = (
           Effect.flatMap((raw) => Effect.forEach(raw, reviveApp))
         )
 
+      /** Capture is deliberately a synchronous effect: its caller places this entire read/validate/
+       * write sequence in a single DO transaction. Canonical bytes, not the digest, are the live
+       * validation primitive; the SHA-256 is an integrity/audit aid only. */
+      const captureProposalAndReserve = (input: {
+        chatId: EntityId; operation: "merge" | "revert"; rangeBoundary: number; requestId: string;
+        actor: string; provenance: string
+      }): Effect.Effect<AgentChangeProposal, DomainError> => Effect.gen(function* () {
+        const chat = yield* getChatRow(input.chatId)
+        if (chat.workspaceId !== workspaceId) return yield* Effect.fail(new ValidationError({ message: "chat does not belong to this workspace" }))
+        // Derive idempotency evidence from the actual semantic command inside the transaction;
+        // a caller-provided fingerprint is never an authority on command identity.
+        const requestCanonicalPayload = canonicalJsonBytes({
+          version: "athenaeum.agent-change-capture.v1", workspaceId, chatId: input.chatId,
+          operation: input.operation, rangeBoundary: input.rangeBoundary,
+          actor: input.actor, provenance: input.provenance
+        })
+        const requestCanonicalPayloadText = new TextDecoder().decode(requestCanonicalPayload)
+        const requestFingerprint = sha256HexSync(requestCanonicalPayload)
+        const identity = sql.exec<{ canonicalPayload: string; fingerprint: string; proposalId: string }>(
+          "SELECT canonicalPayload, fingerprint, proposalId FROM agent_change_request_identities WHERE requestId = ?", input.requestId
+        ).toArray()[0]
+        if (identity !== undefined) {
+          if (identity.canonicalPayload !== requestCanonicalPayloadText || identity.fingerprint !== requestFingerprint) {
+            return yield* Effect.fail(new ValidationError({ message: "request id was already used for a different proposal capture" }))
+          }
+          const replay = yield* proposalCollections.proposals.get(Schema.decodeUnknownSync(EntityId)(identity.proposalId)).pipe(Effect.mapError(proposalStorageError))
+          if (replay === undefined) return yield* Effect.fail(new UnexpectedError({ message: "request identity has no immutable proposal evidence" }))
+          return replay
+        }
+        const eligible = (sequence: number | undefined) => sequence !== undefined && (input.operation === "merge" ? sequence <= input.rangeBoundary : sequence >= input.rangeBoundary)
+        const nodes = (yield* pendingNodesForChat(input.chatId)).filter((row) => eligible(row.pending?.sequence))
+        const facts = (yield* pendingFactsForChat(input.chatId)).filter((row) => eligible(row.pending?.sequence))
+        const edges = (yield* pendingEdgesForChat(input.chatId)).filter((row) => eligible(row.pending?.sequence))
+        const apps = (yield* pendingAppsForChat(input.chatId)).filter((row) => eligible(row.pending?.sequence))
+        const rows: ReadonlyArray<{ kind: "node" | "fact" | "edge" | "app" | "appCodeVersion"; id: string; row: unknown; pendingSequence: number }> = [
+          ...nodes.map((row) => ({ kind: "node" as const, id: row.id, row, pendingSequence: row.pending!.sequence! })),
+          ...facts.map((row) => ({ kind: "fact" as const, id: row.id, row, pendingSequence: row.pending!.sequence! })),
+          ...edges.map((row) => ({ kind: "edge" as const, id: row.id, row, pendingSequence: row.pending!.sequence! })),
+          ...apps.map((app) => ({ kind: "app" as const, id: app.id, row: app, pendingSequence: app.pending!.sequence! }))
+        ]
+        const appVersions = yield* Effect.forEach(apps, (app) => Effect.all([
+          aheadOfPointerVersions(app.id, "client", app.clientCodeVersion),
+          aheadOfPointerVersions(app.id, "server", app.serverCodeVersion)
+        ]).pipe(Effect.map((byKind) => byKind.flat().map((row) => ({
+          kind: "appCodeVersion" as const, id: appCodeVersionKey(row), row, pendingSequence: app.pending!.sequence!
+        })))))
+        const all = [...rows, ...appVersions.flat()].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
+        if (all.length === 0) return yield* Effect.fail(new ValidationError({ message: "proposal capture selected no stamped pending changes" }))
+        const proposalId = Schema.decodeUnknownSync(EntityId)(crypto.randomUUID())
+        const capturedAt = Schema.decodeUnknownSync(IsoDateTimeString)(new Date().toISOString())
+        const snapshot = all.map((entry, selectionPosition) => {
+          const canonicalRowBytes = canonicalJsonBytes(entry.row)
+          const sha256 = sha256HexSync(canonicalRowBytes)
+          const expectedDurableVersion = entry.kind === "appCodeVersion"
+            ? String((entry.row as AppCodeVersion).version)
+            : entry.kind === "app"
+              ? (entry.row as App).updatedAt
+              : entry.kind === "node"
+                ? (entry.row as NodeEntity).createdAt
+                : sha256
+          return new AgentChangeSnapshot({
+            kind: entry.kind, id: entry.id, canonicalRowBytes, sha256,
+            // P5.2 validates these against a fresh live read, and compares canonical bytes
+            // synchronously as the final authority (never trusting a digest alone).
+            expectedDurableVersion, pendingChatId: input.chatId,
+            pendingSequence: entry.pendingSequence, selectionPosition
+          })
+        })
+        // This is an INSERT-only unique identity reservation. The surrounding WDO transaction
+        // rolls this back with the evidence and target reservations if any later step fails.
+        yield* Effect.try({
+          try: () => sql.exec(
+            "INSERT INTO agent_change_request_identities (requestId, canonicalPayload, fingerprint, proposalId) VALUES (?, ?, ?, ?)",
+            input.requestId, requestCanonicalPayloadText, requestFingerprint, proposalId
+          ),
+          catch: () => new ValidationError({ message: "request id was already reserved" })
+        })
+        const proposal = new AgentChangeProposal({
+          proposalId, workspaceId, chatId: input.chatId, operation: input.operation, rangeBoundary: input.rangeBoundary,
+          requestId: input.requestId, requestCanonicalPayload, requestFingerprint, actor: input.actor, provenance: input.provenance, capturedAt, snapshot
+        })
+        yield* proposalCollections.proposals.put(proposal).pipe(Effect.mapError(proposalStorageError))
+        yield* proposalCollections.decisions.put(new AgentChangeProposalDecision({ proposalId, state: "reserved" })).pipe(Effect.mapError(proposalStorageError))
+        let inserted = 0
+        yield* Effect.forEach(snapshot, (entry) => Effect.gen(function* () {
+          const key = agentChangeReservationKey(entry.kind, entry.id)
+          yield* Effect.try({
+            try: () => sql.exec(
+              `INSERT INTO agent_change_reservation_keys
+                (reservationKey, kind, entityId, proposalId, chatId, expectedVersion, expectedDigest, capturedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              key, entry.kind, entry.id, proposalId, input.chatId, entry.expectedDurableVersion, entry.sha256, capturedAt
+            ),
+            catch: () => new ValidationError({ message: `pending target ${key} is already reserved` })
+          })
+          inserted++
+          agentChangeCaptureTestHooks.afterReservationInsert?.(inserted)
+          yield* proposalCollections.reservations.put(new AgentChangeReservation({
+            key, kind: entry.kind, id: entry.id, proposalId,
+            expectedDurableVersion: entry.expectedDurableVersion, expectedDigest: entry.sha256, state: "reserved", capturedAt
+          })).pipe(Effect.mapError(proposalStorageError))
+        }), { discard: true })
+        if (agentChangeCaptureTestHooks.unstampCapturedNode) {
+          for (const entry of snapshot.filter((entry) => entry.kind === "node")) {
+            const node = yield* nodesRepository.get(Schema.decodeUnknownSync(EntityId)(entry.id))
+            yield* nodesRepository.put(new NodeEntity({ ...node, pending: new PendingMarker({ chatId: input.chatId }) }))
+          }
+        }
+        return proposal
+      })
+
+      const capturedProposalForRequest = (requestId: string): Effect.Effect<AgentChangeProposal | undefined, DomainError> => Effect.gen(function* () {
+        const identity = sql.exec<{ proposalId: string }>(
+          "SELECT proposalId FROM agent_change_request_identities WHERE requestId = ?", requestId
+        ).toArray()[0]
+        if (identity === undefined) return undefined
+        return yield* proposalCollections.proposals.get(Schema.decodeUnknownSync(EntityId)(identity.proposalId)).pipe(Effect.mapError(proposalStorageError))
+      })
+
+      const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
+        left.length === right.length && left.every((byte, index) => byte === right[index])
+
+      type SnapshotValue = NodeEntity | Fact | Edge | App | AppCodeVersion
+
+      /** Reads the exact current row named by a snapshot. Missing targets are returned as
+       * `undefined` so a stale proposal becomes a durable conflict instead of a partial write. */
+      const currentSnapshotValue = (snapshot: AgentChangeSnapshot): Effect.Effect<SnapshotValue | undefined, UnexpectedError> => {
+        const id = Schema.decodeUnknownSync(EntityId)(snapshot.id)
+        switch (snapshot.kind) {
+          case "node":
+            return nodesRepository.get(id).pipe(
+              Effect.catchTag("NodeNotFound", () => Effect.succeed(undefined))
+            )
+          case "fact":
+            return factsRepository.get(id).pipe(
+              Effect.catchTag("FactNotFound", () => Effect.succeed(undefined))
+            )
+          case "edge":
+            return edgesRepository.get(id).pipe(
+              Effect.catchTag("EdgeNotFound", () => Effect.succeed(undefined))
+            )
+          case "app":
+            return appsRepository.get(id).pipe(
+              Effect.catchTag("AppNotFound", () => Effect.succeed(undefined))
+            )
+          case "appCodeVersion":
+            return appCollections.appCodeVersions.get(snapshot.id).pipe(
+              Effect.mapError(appsToUnexpectedError),
+              Effect.flatMap((raw) => raw === undefined ? Effect.succeed(undefined) : reviveAppCodeVersion(raw))
+            )
+        }
+      }
+
+      const releaseProposalReservations = (proposalId: EntityId, snapshots: ReadonlyArray<AgentChangeSnapshot>): Effect.Effect<void, UnexpectedError> =>
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            snapshots,
+            (snapshot) => proposalCollections.reservations.delete(agentChangeReservationKey(snapshot.kind, snapshot.id)).pipe(Effect.mapError(proposalStorageError)),
+            { discard: true }
+          )
+          sql.exec("DELETE FROM agent_change_reservation_keys WHERE proposalId = ?", proposalId)
+        })
+
+      /** P5.2's exact-decision path. It validates every immutable snapshot against fresh storage
+       * before mutating anything; one stale/missing target conflicts the whole proposal. */
+      const decideAgentChangeProposal = (input: {
+        proposalId: EntityId
+        decision: "accept" | "reject"
+      }): Effect.Effect<"accepted" | "rejected" | "conflicted", DomainError> => Effect.gen(function* () {
+        const proposal = yield* proposalCollections.proposals.get(input.proposalId).pipe(Effect.mapError(proposalStorageError))
+        if (proposal === undefined || proposal.workspaceId !== workspaceId) {
+          return yield* Effect.fail(new ValidationError({ message: "agent change proposal was not found in this workspace" }))
+        }
+        const existing = yield* proposalCollections.decisions.get(input.proposalId).pipe(Effect.mapError(proposalStorageError))
+        if (existing === undefined) {
+          return yield* Effect.fail(new UnexpectedError({ message: "agent change proposal has no decision row" }))
+        }
+        if (existing.state !== "reserved") {
+          return existing.state === "accepted" || existing.state === "rejected" || existing.state === "conflicted"
+            ? existing.state
+            : yield* Effect.fail(new ValidationError({ message: `unsupported terminal proposal state ${existing.state}` }))
+        }
+
+        const current = new Map<string, SnapshotValue>()
+        let fresh = true
+        for (const snapshot of proposal.snapshot) {
+          const value = yield* currentSnapshotValue(snapshot)
+          if (value === undefined) {
+            fresh = false
+            continue
+          }
+          const bytes = canonicalJsonBytes(value)
+          if (!bytesEqual(bytes, snapshot.canonicalRowBytes) || sha256HexSync(bytes) !== snapshot.sha256) fresh = false
+          current.set(`${snapshot.kind}:${snapshot.id}`, value)
+        }
+
+        if (!fresh) {
+          yield* proposalCollections.decisions.put(new AgentChangeProposalDecision({ proposalId: input.proposalId, state: "conflicted" })).pipe(Effect.mapError(proposalStorageError))
+          yield* releaseProposalReservations(input.proposalId, proposal.snapshot)
+          return "conflicted"
+        }
+
+        if (input.decision === "accept") {
+          const promotedApps = new Set<string>()
+          for (const snapshot of proposal.snapshot) {
+            const value = current.get(`${snapshot.kind}:${snapshot.id}`)
+            if (value === undefined) continue
+            switch (snapshot.kind) {
+              case "node": yield* promoteNode(value as NodeEntity); break
+              case "fact": yield* promoteFact(value as Fact); break
+              case "edge": yield* promoteEdge(value as Edge); break
+              case "app":
+                if (!promotedApps.has(snapshot.id)) {
+                  yield* promoteApp(value as App)
+                  promotedApps.add(snapshot.id)
+                }
+                break
+              case "appCodeVersion": break
+            }
+          }
+        } else {
+          const revertedApps = new Set<string>()
+          for (const snapshot of proposal.snapshot) {
+            const value = current.get(`${snapshot.kind}:${snapshot.id}`)
+            if (value === undefined) continue
+            switch (snapshot.kind) {
+              case "node": yield* nodesRepository.delete(Schema.decodeUnknownSync(EntityId)(snapshot.id)); break
+              case "fact": yield* factsRepository.delete(Schema.decodeUnknownSync(EntityId)(snapshot.id)); break
+              case "edge": yield* edgesRepository.delete(Schema.decodeUnknownSync(EntityId)(snapshot.id)); break
+              case "app":
+                if (!revertedApps.has(snapshot.id)) {
+                  yield* revertApp(value as App)
+                  revertedApps.add(snapshot.id)
+                }
+                break
+              case "appCodeVersion":
+                if (!revertedApps.has((value as AppCodeVersion).appId)) {
+                  yield* appCollections.appCodeVersions.delete(snapshot.id).pipe(Effect.mapError(appsToUnexpectedError))
+                }
+                break
+            }
+          }
+        }
+
+        const state = input.decision === "accept" ? "accepted" : "rejected"
+        yield* proposalCollections.decisions.put(new AgentChangeProposalDecision({ proposalId: input.proposalId, state })).pipe(Effect.mapError(proposalStorageError))
+        yield* releaseProposalReservations(input.proposalId, proposal.snapshot)
+        return state
+      })
+
       const mergeChanges = (chatId: EntityId, mergeThrough: number): Effect.Effect<void, DomainError> =>
         Effect.gen(function* () {
           yield* getChatRow(chatId)
@@ -1066,10 +1375,22 @@ export const makeAgentEditServiceLive = (
       const reconcilePendingChanges = (chatId: EntityId): Effect.Effect<ReconcileResult, DomainError> =>
         Effect.gen(function* () {
           const logged = yield* loggedEntityIds(chatId)
-          const nodes = (yield* pendingNodesForChat(chatId)).filter((n) => n.pending!.sequence === undefined)
-          const facts = (yield* pendingFactsForChat(chatId)).filter((f) => f.pending!.sequence === undefined)
-          const edges = (yield* pendingEdgesForChat(chatId)).filter((e) => e.pending!.sequence === undefined)
-          const apps = (yield* pendingAppsForChat(chatId)).filter((a) => a.pending!.sequence === undefined)
+          // A reserved target is deliberate in-flight proposal evidence, not a crash orphan.
+          // Reconciliation must not mutate or reap it until the P5.2 terminal decision path owns it.
+          const reserved = new Set(sql.exec<{ reservationKey: string }>(
+            "SELECT reservationKey FROM agent_change_reservation_keys WHERE chatId = ?", chatId
+          ).toArray().map((row) => row.reservationKey))
+          // Filter against authoritative storage *before* selecting unstamped crash candidates.
+          // This is what makes the branch real when a restart observes a reservation plus a
+          // partially persisted pending marker.
+          const nodes = (yield* pendingNodesForChat(chatId)).filter((n) =>
+            !reserved.has(agentChangeReservationKey("node", n.id)) && n.pending!.sequence === undefined)
+          const facts = (yield* pendingFactsForChat(chatId)).filter((f) =>
+            !reserved.has(agentChangeReservationKey("fact", f.id)) && f.pending!.sequence === undefined)
+          const edges = (yield* pendingEdgesForChat(chatId)).filter((e) =>
+            !reserved.has(agentChangeReservationKey("edge", e.id)) && e.pending!.sequence === undefined)
+          const apps = (yield* pendingAppsForChat(chatId)).filter((a) =>
+            !reserved.has(agentChangeReservationKey("app", a.id)) && a.pending!.sequence === undefined)
 
           let reAdopted = 0
           let reaped = 0
@@ -1233,7 +1554,11 @@ export const makeAgentEditServiceLive = (
       /** Runs the real tool implementation for one `ToolCallRequest`, normalizing its output into
        *  the `{resultText, refs, batch}` shape `executeToolCall` needs — never itself logs or
        *  flushes (that's `executeToolCall`'s uniform job for every tool, below). */
-      const dispatchTool = (chatId: EntityId, call: ToolCallRequest): Effect.Effect<ToolDispatchOutcome, DomainError> =>
+      const dispatchTool = (
+        chatId: EntityId,
+        call: ToolCallRequest,
+        context: AgentLoroEditContext
+      ): Effect.Effect<ToolDispatchOutcome, DomainError> =>
         Effect.gen(function* () {
           switch (call.name) {
             case "readNote": {
@@ -1243,7 +1568,7 @@ export const makeAgentEditServiceLive = (
             }
             case "editNote": {
               const input = yield* decodeToolInput(EditNoteToolInput, chatId, call.input)
-              const output = yield* editNoteTool(input)
+              const output = yield* editNoteTool(input, call.id, context)
               return { resultText: JSON.stringify(output), refs: [], batch: {} }
             }
             case "createNode": {
@@ -1357,10 +1682,11 @@ export const makeAgentEditServiceLive = (
        */
       const executeToolCall = (
         chatId: EntityId,
-        call: ToolCallRequest
+        call: ToolCallRequest,
+        context: AgentLoroEditContext
       ): Effect.Effect<{ logMessage: ChatMessageRecord | undefined; changesSequence: number | undefined }, DomainError> =>
         Effect.gen(function* () {
-          const outcome = yield* Effect.either(dispatchTool(chatId, call))
+          const outcome = yield* Effect.either(dispatchTool(chatId, call, context))
 
           // `encodeRpcError` (not `error.message`) — every `Data.TaggedError` subclass here
           // structurally inherits a `.message` from JS's own `Error`, but most of these classes
@@ -1393,7 +1719,11 @@ export const makeAgentEditServiceLive = (
           return { logMessage, changesSequence: sequence }
         })
 
-      const sendChatMessage = (chatId: EntityId, text: string): Effect.Effect<AgentTurnResult, DomainError> =>
+      const sendChatMessage = (
+        chatId: EntityId,
+        text: string,
+        context: AgentLoroEditContext = {}
+      ): Effect.Effect<AgentTurnResult, DomainError> =>
         Effect.gen(function* () {
           yield* getChatRow(chatId)
           // §Q15: "reconcilePendingGadgets(chatId)... at agent turn start and end."
@@ -1433,7 +1763,7 @@ export const makeAgentEditServiceLive = (
             produced.push(assistantToolMessage)
 
             for (const call of result.calls) {
-              const { logMessage, changesSequence } = yield* executeToolCall(chatId, call)
+              const { logMessage, changesSequence } = yield* executeToolCall(chatId, call, context)
               if (logMessage !== undefined) produced.push(logMessage)
               if (changesSequence !== undefined) changesSequences.push(changesSequence)
             }
@@ -1473,6 +1803,9 @@ export const makeAgentEditServiceLive = (
         mergeChanges,
         revertChanges,
         listChatChanges: listChangesSorted,
+        captureProposalAndReserve,
+        capturedProposalForRequest,
+        decideAgentChangeProposal,
         listPendingChanges: (chatId) =>
           Effect.gen(function* () {
             yield* getChatRow(chatId)

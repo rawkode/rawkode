@@ -19,6 +19,34 @@ public struct CreateNodeInput: Codable, Hashable, Sendable {
     }
 }
 
+/// Strict provenance-bearing node creation. The legacy `CreateNodeInput` remains available for
+/// compatibility clients; all first-party authenticated writes should use this contract so the
+/// server can persist the caller's intent and attribution in the workspace ledger.
+public struct CreateNodeWithIntentInput: Codable, Hashable, Sendable {
+    public let workspaceId: EntityId
+    public let title: String
+    public let id: EntityId?
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+
+    public init(
+        workspaceId: EntityId,
+        title: String,
+        id: EntityId? = nil,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) {
+        self.workspaceId = workspaceId
+        self.title = title
+        self.id = id
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
+    }
+}
+
 public struct CreateNodeOutput: Codable, Hashable, Sendable {
     public let node: Node
     public init(node: Node) { self.node = node }

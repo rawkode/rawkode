@@ -1,6 +1,6 @@
-import {
+import { Schema } from "prosemirror-model"
+import type {
   NodeSpec,
-  Schema,
   MarkSpec,
   MarkType,
   Mark,
@@ -8,8 +8,8 @@ import {
   NodeType,
   Node,
 } from "prosemirror-model"
-import { next as am } from "@automerge/automerge"
-import { BlockMarker } from "./types.js"
+import type * as Automerge from "@automerge/automerge"
+import type { BlockMarker } from "./types.js"
 
 type ExpandConfig = "both" | "none"
 
@@ -24,7 +24,7 @@ export type MappedNodeSpec = NodeSpec & {
     block?: BlockMappingSpec
     isEmbed?: boolean
     attrParsers?: {
-      fromProsemirror: (node: Node) => { [key: string]: am.MaterializeValue }
+      fromProsemirror: (node: Node) => { [key: string]: Automerge.MaterializeValue }
       fromAutomerge: (block: BlockMarker) => Attrs
     }
   }
@@ -36,8 +36,8 @@ export type MappedMarkSpec = MarkSpec & {
   automerge?: {
     markName: string
     parsers?: {
-      fromAutomerge: (value: am.MarkValue) => Attrs
-      fromProsemirror: (mark: Mark) => am.MarkValue
+      fromAutomerge: (value: Automerge.MarkValue) => Attrs
+      fromProsemirror: (mark: Mark) => Automerge.MarkValue
     }
   }
 }
@@ -46,8 +46,8 @@ export type MarkMapping = {
   automergeMarkName: string
   prosemirrorMark: MarkType
   parsers: {
-    fromAutomerge: (value: am.MarkValue) => Attrs
-    fromProsemirror: (mark: Mark) => am.MarkValue
+    fromAutomerge: (value: Automerge.MarkValue) => Attrs
+    fromProsemirror: (mark: Mark) => Automerge.MarkValue
   }
 }
 
@@ -56,7 +56,7 @@ export type NodeMapping = {
   outer: NodeType | null
   content: NodeType
   attrParsers?: {
-    fromProsemirror: (node: Node) => { [key: string]: am.MaterializeValue }
+    fromProsemirror: (node: Node) => { [key: string]: Automerge.MaterializeValue }
     fromAutomerge: (block: BlockMarker) => Attrs
   }
   isEmbed?: boolean
@@ -194,8 +194,8 @@ by setting the automerge.unknownBlock property to true`,
     return (mark?.prosemirrorMark.spec.inclusive ?? true) ? "both" : "none"
   }
 
-  updateSpansConfig(): am.UpdateSpansConfig {
-    const config: am.UpdateSpansConfig = {
+  updateSpansConfig(): Automerge.UpdateSpansConfig {
+    const config: Automerge.UpdateSpansConfig = {
       defaultExpand: "both",
       perMarkExpand: {},
     }
@@ -265,7 +265,7 @@ function addAmgNodeStateAttrs(nodes: { [key: string]: MappedNodeSpec }): {
 export function amMarksFromPmMarks(
   adapter: SchemaAdapter,
   marks: readonly Mark[],
-): { [key: string]: am.MarkValue } {
+): { [key: string]: Automerge.MarkValue } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: { [key: string]: any } = {}
   marks.forEach(mark => {
@@ -286,9 +286,9 @@ export function amMarksFromPmMarks(
 
 export function pmMarksFromAmMarks(
   adapter: SchemaAdapter,
-  amMarks: am.MarkSet,
+  amMarks: Automerge.MarkSet,
 ): Mark[] {
-  const unknownMarks: { [key: string]: am.MaterializeValue } = {}
+  const unknownMarks: { [key: string]: Automerge.MaterializeValue } = {}
   let hasUnknownMark = false
   const pmMarks = []
 

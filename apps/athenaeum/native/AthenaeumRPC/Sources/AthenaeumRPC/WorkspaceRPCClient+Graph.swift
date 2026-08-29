@@ -1,4 +1,5 @@
 import Foundation
+import AthenaeumDomain
 
 // Genuine cross-cutting addition, confined to `native/AthenaeumRPC` (the Decisions stage's own
 // resolved transport package) — NOT a new stage-owned file duplicating dispatch logic against
@@ -29,6 +30,62 @@ public struct RPCTag: Sendable, Equatable {
         self.name = name
         self.parentIds = try (value.field("parentIds").arrayValue ?? []).compactMap(\.stringValue)
         self.builtin = builtin
+    }
+}
+
+/// Mirrors `packages/domain/src/tag-field-definition.ts`'s `TagFieldValueKind`.
+public enum RPCTagFieldValueKind: String, Sendable, Equatable {
+    case text
+    case number
+    case date
+    case checkbox
+    case entityRef = "entity-ref"
+}
+
+/// Mirrors `packages/domain/src/tag-field-definition.ts`'s `TagFieldDefinition`.
+public struct RPCTagFieldDefinition: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let tagId: String
+    public let name: String
+    public let valueKind: RPCTagFieldValueKind
+    public let sortOrder: Int
+    public let builtin: Bool
+
+    init(_ value: CapnWebValue) throws {
+        guard let id = try value.field("id").stringValue,
+              let tagId = try value.field("tagId").stringValue,
+              let name = try value.field("name").stringValue,
+              let valueKindValue = try value.field("valueKind").stringValue,
+              let valueKind = RPCTagFieldValueKind(rawValue: valueKindValue),
+              let sortOrder = try value.field("sortOrder").intValue,
+              sortOrder >= 0,
+              let builtin = try value.field("builtin").boolValue,
+              !name.isEmpty
+        else { throw CapnWebError.malformedMessage("malformed TagFieldDefinition: \(value)") }
+        self.id = id
+        self.tagId = tagId
+        self.name = name
+        self.valueKind = valueKind
+        self.sortOrder = sortOrder
+        self.builtin = builtin
+    }
+}
+
+/// One effective field returned by `listTagFields`, including whether it was inherited from an
+/// ancestor Supertag. Keeping this resolution on the RPC boundary lets native render the same
+/// effective schema as web without reimplementing tag-closure traversal locally.
+public struct RPCResolvedTagField: Sendable, Equatable, Identifiable {
+    public let field: RPCTagFieldDefinition
+    public let inherited: Bool
+
+    public var id: String { field.id }
+
+    init(_ value: CapnWebValue) throws {
+        self.field = try RPCTagFieldDefinition(value.field("field"))
+        guard let inherited = try value.field("inherited").boolValue else {
+            throw CapnWebError.malformedMessage("malformed ResolvedTagField: \(value)")
+        }
+        self.inherited = inherited
     }
 }
 
@@ -86,10 +143,13 @@ public struct RPCRelationDefinition: Sendable, Equatable {
 extension WorkspaceRPCClient {
     // MARK: - Tags
 
-    public func createTag(name: String, parentIds: [String] = []) async throws -> RPCTag {
+    public func createTag(name: String, parentIds: [String] = [], requestId: String, commitMessage: String, attribution: MutationAttribution) async throws -> RPCTag {
         let result = try await rpc("createTag", [
             "name": .string(name),
-            "parentIds": .array(parentIds.map(CapnWebValue.string))
+            "parentIds": .array(parentIds.map(CapnWebValue.string)),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
         ])
         return try RPCTag(result.field("tag"))
     }
@@ -100,25 +160,54 @@ extension WorkspaceRPCClient {
         return try tags.map(RPCTag.init)
     }
 
-    public func assignTag(nodeId: String, tagId: String) async throws {
-        _ = try await rpc("assignTag", ["nodeId": .string(nodeId), "tagId": .string(tagId)])
+    /// Returns the effective field definitions for a Supertag, including inherited fields. The
+    /// backend owns closure traversal; native only decodes the already-resolved projection.
+    public func listTagFields(tagId: String) async throws -> [RPCResolvedTagField] {
+        let result = try await rpc("listTagFields", ["tagId": .string(tagId)])
+        return try (result.field("fields").arrayValue ?? []).map(RPCResolvedTagField.init)
+    }
+
+    public func assignTag(nodeId: String, tagId: String, requestId: String, commitMessage: String, attribution: MutationAttribution) async throws {
+        _ = try await rpc("assignTag", [
+            "nodeId": .string(nodeId),
+            "tagId": .string(tagId),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
+        ])
     }
 
     // MARK: - Facts
 
-    /// `id` mirrors `AddFactInput.id`'s optional-caller-supplied-id convention (`graph-rpc.ts`) —
-    /// passing a stable id makes a retried call idempotent (`SyncFeedService.append`'s
-    /// write-side dedup); omitting it (the default) gets a fresh server-minted id every call.
+    private func mutationAttributionValue(_ attribution: MutationAttribution) -> CapnWebValue {
+        var fields: [String: CapnWebValue] = [
+            "version": .string(attribution.version),
+            "kind": .string(attribution.kind)
+        ]
+        if let surface = attribution.surface { fields["surface"] = .string(surface) }
+        if let jobId = attribution.jobId { fields["jobId"] = .string(jobId) }
+        if let runId = attribution.runId { fields["runId"] = .string(runId) }
+        if let source = attribution.source { fields["source"] = .string(source) }
+        return .object(fields)
+    }
+
+    /// `requestId` is the caller-owned semantic operation identity and must be retained across
+    /// transport retries. `id` independently controls Fact identity/upsert; omitting it lets the
+    /// server mint a new Fact id for each distinct requestId.
     public func addFact(
         nodeId: String,
         predicateId: String,
         value: CapnWebValue,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution,
         id: String? = nil
     ) async throws -> RPCFact {
         var args: [String: CapnWebValue] = [
             "nodeId": .string(nodeId),
             "predicateId": .string(predicateId),
-            "value": value
+            "value": value, "requestId": .string(requestId), "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
         ]
         args["id"] = id.map(CapnWebValue.string) ?? .undefined
         let result = try await rpc("addFact", args)
@@ -132,14 +221,20 @@ extension WorkspaceRPCClient {
         inverseName: String,
         sourceTagId: String,
         targetTagId: String,
-        cardinality: String
+        cardinality: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
     ) async throws -> RPCRelationDefinition {
         let result = try await rpc("createRelationDefinition", [
             "forwardName": .string(forwardName),
             "inverseName": .string(inverseName),
             "sourceTagId": .string(sourceTagId),
             "targetTagId": .string(targetTagId),
-            "cardinality": .string(cardinality)
+            "cardinality": .string(cardinality),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
         ])
         return try RPCRelationDefinition(result.field("relationDefinition"))
     }
@@ -147,12 +242,18 @@ extension WorkspaceRPCClient {
     public func createEdge(
         relationDefinitionId: String,
         sourceNodeId: String,
-        targetNodeId: String
+        targetNodeId: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
     ) async throws -> RPCEdge {
         let result = try await rpc("createEdge", [
             "relationDefinitionId": .string(relationDefinitionId),
             "sourceNodeId": .string(sourceNodeId),
-            "targetNodeId": .string(targetNodeId)
+            "targetNodeId": .string(targetNodeId),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
         ])
         return try RPCEdge(result.field("edge"))
     }

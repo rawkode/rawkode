@@ -12,11 +12,33 @@ import {
   ListBacklinksOutput,
   ListTagClosureInput,
   ListTagClosureOutput,
+  EntityId,
+  HumanUiMutationAttribution,
   MentionRelationId,
   SyncNoteReferencesInput,
   SyncNoteReferencesOutput
 } from "@athenaeum/domain"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspace, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+
+const connectMentionWorkspace = async (workspaceId: ReturnType<typeof freshWorkspaceId>) => {
+  const { credential } = await devSignIn(`mention-references-${crypto.randomUUID()}@example.com`)
+  return (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
+}
+
+const mentionInput = (args: {
+  workspaceId: ReturnType<typeof freshWorkspaceId>
+  nodeId: EntityId
+  referencedNodeIds: EntityId[]
+  requestId: string
+}) => Schema.encodeSync(SyncNoteReferencesInput)(new SyncNoteReferencesInput({
+  ...args,
+  commitMessage: "Keep note mentions current.",
+  attribution: new HumanUiMutationAttribution({
+    version: "athenaeum.mutation-attribution.v1",
+    kind: "humanUi",
+    surface: "rich-text-editor"
+  })
+}))
 
 describe("Mention relation seeding", () => {
   let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
@@ -27,7 +49,7 @@ describe("Mention relation seeding", () => {
 
   it("the fixed 'mentions' relation exists on a fresh workspace and is not a Base Tag closure entry", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     // The relation definition itself has no closure entry (it's a RelationDefinition, not a Tag)
     // — this just confirms seeding didn't leak into the tag closure while we're here; the real
@@ -54,7 +76,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("creates a 'mentions' edge per referenced node, and listBacklinks on the mentioned node sees the mentioning note", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const mentioned = await createNode(workspaceId, "Project Athenaeum")
@@ -62,7 +84,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
     const syncOutput = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id], requestId: "mention-create" })
         )
       )
     )
@@ -85,7 +107,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("is idempotent: calling again with the identical set creates no new edges and keeps the same edge id", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const mentioned = await createNode(workspaceId, "Project Athenaeum")
@@ -93,14 +115,14 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
     const first = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id], requestId: "mention-idempotent-1" })
         )
       )
     )
     const second = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id], requestId: "mention-idempotent-1" })
         )
       )
     )
@@ -117,7 +139,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("a repeated id in referencedNodeIds reconciles to exactly one edge, not a duplicate", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const mentioned = await createNode(workspaceId, "Project Athenaeum")
@@ -125,7 +147,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
     const output = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id, mentioned.id] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id, mentioned.id], requestId: "mention-duplicate" })
         )
       )
     )
@@ -134,7 +156,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("removing a reference from a later call deletes the stale edge, and the backlink disappears", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const keep = await createNode(workspaceId, "Kept Reference")
@@ -142,14 +164,14 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
     await workspaceStub.syncNoteReferences(
       Schema.encodeSync(SyncNoteReferencesInput)(
-        new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [keep.id, drop.id] })
+        mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [keep.id, drop.id], requestId: "mention-replace-1" })
       )
     )
 
     const reconciled = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [keep.id] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [keep.id], requestId: "mention-replace-2" })
         )
       )
     )
@@ -173,20 +195,20 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("an empty referencedNodeIds list removes every existing mention edge from that note", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const mentioned = await createNode(workspaceId, "Project Athenaeum")
 
     await workspaceStub.syncNoteReferences(
       Schema.encodeSync(SyncNoteReferencesInput)(
-        new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id] })
+        mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [mentioned.id], requestId: "mention-clear-1" })
       )
     )
     const cleared = Schema.decodeUnknownSync(SyncNoteReferencesOutput)(
       await workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [], requestId: "mention-clear-2" })
         )
       )
     )
@@ -202,7 +224,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
 
   it("referencing a node id that doesn't exist fails closed as NodeNotFound and writes nothing", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectMentionWorkspace(workspaceId)
 
     const note = await createNode(workspaceId, "Daily Note")
     const bogusTarget = "00000000-0000-0000-0000-0000000000ff"
@@ -210,7 +232,7 @@ describe("syncNoteReferences: reconciliation into real 'mentions' edges", () => 
     const error = await rejectionToDomainError(
       workspaceStub.syncNoteReferences(
         Schema.encodeSync(SyncNoteReferencesInput)(
-          new SyncNoteReferencesInput({ workspaceId, nodeId: note.id, referencedNodeIds: [bogusTarget as any] })
+          mentionInput({ workspaceId, nodeId: note.id, referencedNodeIds: [bogusTarget as any], requestId: "mention-invalid" })
         )
       )
     )

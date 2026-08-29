@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import ScreenCaptureKit
 import AVFoundation
@@ -133,3 +134,4 @@ public final class ScreenCaptureKitAudioSource: NSObject, AudioCaptureSource, SC
         return Array(UnsafeBufferPointer(start: floatPointer, count: frameCount))
     }
 }
+#endif

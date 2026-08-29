@@ -48,4 +48,24 @@ final class ScalarValidationTests: XCTestCase {
         let epoch = try WorkspaceEpoch(validating: "epoch-abc123")
         XCTAssertEqual(epoch.rawValue, "epoch-abc123")
     }
+
+    func testLocalDateAcceptsRealDatesAndRejectsImpossibleDates() throws {
+        XCTAssertEqual(try LocalDate(validating: "2026-02-28").rawValue, "2026-02-28")
+        XCTAssertThrowsError(try LocalDate(validating: "2026-02-30"))
+        XCTAssertThrowsError(try LocalDate(validating: "2026-2-28"))
+    }
+
+    func testIanaTimeZoneAcceptsKnownZoneAndRejectsUnknownZone() throws {
+        XCTAssertEqual(try IanaTimeZone(validating: "Europe/London").rawValue, "Europe/London")
+        XCTAssertThrowsError(try IanaTimeZone(validating: "Not/AZone"))
+    }
+
+    func testTodayBriefPersonDecodingMatchesOptionalContract() throws {
+        let decoder = JSONDecoder()
+        let missing = try decoder.decode(TodayBriefPerson.self, from: Data("{}".utf8))
+        XCTAssertNil(missing.displayName)
+        XCTAssertThrowsError(try decoder.decode(TodayBriefPerson.self, from: Data(#"{"displayName":null}"#.utf8)))
+        XCTAssertThrowsError(try decoder.decode(TodayBriefPerson.self, from: Data(#"{"displayName":""}"#.utf8)))
+        XCTAssertNil(try decoder.decode(TodayBriefPerson.self, from: JSONEncoder().encode(missing)).displayName)
+    }
 }

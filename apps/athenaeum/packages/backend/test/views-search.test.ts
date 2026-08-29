@@ -27,13 +27,38 @@ import {
   ApplyPageEditOutput,
   CreateTagInput,
   CreateTagOutput,
+  HumanUiMutationAttribution,
   RunViewInput,
   RunViewOutput,
   SearchNodesInput,
   SearchNodesOutput,
-  ViewSpec
+  ViewSpec,
+  type EntityId
 } from "@athenaeum/domain"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspace, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+
+const webFieldAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-supertag-field-editor"
+})
+
+const tagAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-supertags-manager"
+})
+
+const assignInput = (workspaceId: EntityId, nodeId: EntityId, tagId: EntityId, requestId: string) => new AssignTagInput({
+  workspaceId,
+  nodeId,
+  tagId,
+  requestId,
+  commitMessage: "Assign the Supertag for this view test.",
+  attribution: new HumanUiMutationAttribution({
+    version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-graph-view"
+  })
+})
 
 describe("runView: graph_tags/graph_tag_closure see the seeded Base Tags too", () => {
   let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
@@ -60,14 +85,15 @@ describe("runView: graph_tags/graph_tag_closure see the seeded Base Tags too", (
 
   it("hasTag against a Base Tag works via the read-model (not just the KV-backed listTagClosure RPC)", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-base-tag-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const person = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Ada Lovelace" })))
     ).node
     Schema.decodeUnknownSync(AssignTagOutput)(
       await workspaceStub.assignTag(
-        Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: person.id, tagId: BaseTagIds.Person }))
+        Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, person.id, BaseTagIds.Person, `views-assign-person-${crypto.randomUUID()}`))
       )
     )
 
@@ -96,11 +122,19 @@ describe("runView: graph_nodes filtered by hasTag (table view)", () => {
 
   it("returns exactly the nodes assigned the queried tag, and none of the untagged ones", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-tag-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const tag = Schema.decodeUnknownSync(CreateTagOutput)(
       await workspaceStub.createTag(
-        Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "Reviewer", parentIds: [] }))
+        Schema.encodeSync(CreateTagInput)(new CreateTagInput({
+          workspaceId,
+          name: "Reviewer",
+          parentIds: [],
+          requestId: `views-create-tag-${crypto.randomUUID()}`,
+          commitMessage: "Define the Reviewer Supertag for the view test.",
+          attribution: tagAttribution()
+        }))
       )
     ).tag
 
@@ -116,12 +150,12 @@ describe("runView: graph_nodes filtered by hasTag (table view)", () => {
 
     Schema.decodeUnknownSync(AssignTagOutput)(
       await workspaceStub.assignTag(
-        Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: nodeA.id, tagId: tag.id }))
+        Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, nodeA.id, tag.id, `views-assign-a-${crypto.randomUUID()}`))
       )
     )
     Schema.decodeUnknownSync(AssignTagOutput)(
       await workspaceStub.assignTag(
-        Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: nodeB.id, tagId: tag.id }))
+        Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, nodeB.id, tag.id, `views-assign-b-${crypto.randomUUID()}`))
       )
     )
     // nodeC is deliberately left untagged.
@@ -153,7 +187,8 @@ describe("runView: graph_nodes grouped by a fact value (board view)", () => {
 
   it("annotates every row with its 'status' fact value, correctly per node", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-add-fact-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const todo = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Write plan" })))
@@ -167,13 +202,13 @@ describe("runView: graph_nodes grouped by a fact value (board view)", () => {
 
     Schema.decodeUnknownSync(AddFactOutput)(
       await workspaceStub.addFact(
-        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: todo.id, predicateId: "status", value: "todo" }))
+        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: todo.id, predicateId: "status", value: "todo", requestId: "views-todo", commitMessage: "Set status.", attribution: webFieldAttribution() }))
       )
     )
     Schema.decodeUnknownSync(AddFactOutput)(
       await workspaceStub.addFact(
         Schema.encodeSync(AddFactInput)(
-          new AddFactInput({ workspaceId, nodeId: doing.id, predicateId: "status", value: "doing" })
+          new AddFactInput({ workspaceId, nodeId: doing.id, predicateId: "status", value: "doing", requestId: "views-doing", commitMessage: "Set status.", attribution: webFieldAttribution() })
         )
       )
     )
@@ -371,14 +406,15 @@ describe("runView: eq/in against a plain column FieldRef (not a fact value)", ()
 
   it("graph_node_tags: eq on the string `nodeId` column finds the real row (not double-JSON-encoded)", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-node-tags-eq-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Ada" })))
     ).node
     Schema.decodeUnknownSync(AssignTagOutput)(
       await workspaceStub.assignTag(
-        Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Person }))
+        Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, node.id, BaseTagIds.Person, `views-assign-eq-${crypto.randomUUID()}`))
       )
     )
 
@@ -399,14 +435,15 @@ describe("runView: eq/in against a plain column FieldRef (not a fact value)", ()
 
   it("graph_facts: eq on the string `nodeId` column finds the real fact row", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-add-fact-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Grace" })))
     ).node
     const fact = Schema.decodeUnknownSync(AddFactOutput)(
       await workspaceStub.addFact(
-        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "role", value: "Engineer" }))
+        Schema.encodeSync(AddFactInput)(new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "role", value: "Engineer", requestId: "views-role", commitMessage: "Set role.", attribution: webFieldAttribution() }))
       )
     ).fact
 
@@ -432,13 +469,14 @@ describe("runView: eq/in against a plain column FieldRef (not a fact value)", ()
 
   it("graph_node_tags: in on the string `nodeId` column matches, and a non-member id does not", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`views-node-tags-in-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Linus" })))
     ).node
     await workspaceStub.assignTag(
-      Schema.encodeSync(AssignTagInput)(new AssignTagInput({ workspaceId, nodeId: node.id, tagId: BaseTagIds.Person }))
+      Schema.encodeSync(AssignTagInput)(assignInput(workspaceId, node.id, BaseTagIds.Person, `views-assign-in-${crypto.randomUUID()}`))
     )
 
     const spec = new ViewSpec({

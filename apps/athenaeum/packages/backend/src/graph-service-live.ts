@@ -11,6 +11,7 @@
 
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import {
@@ -69,15 +70,30 @@ import {
 const isMaxOneFromSource = (cardinality: RelationCardinality): boolean =>
   cardinality === "one-to-one" || cardinality === "many-to-one"
 
-/**
- * Test-only injection point, same pattern as `nodes-repository-live.ts`'s `putTestHook`: a real
- * suspension point a test can park a fiber at (between `createEdge`'s pre-write cardinality
- * pre-check and the actual write), so two `createEdge` calls can be driven to genuinely
- * interleave — both passing the pre-check before either has written — without depending on
- * Effect's fiber scheduler's incidental yield points. `undefined` (the only value production code
- * ever sees) is an unconditional no-op.
- */
-export const createEdgeTestHook: { beforeWrite: (() => Effect.Effect<void>) | undefined } = {
+export interface SyncNoteReferencesResult {
+  readonly edges: ReadonlyArray<Edge>
+  readonly created: ReadonlyArray<Edge>
+  /** Full edge tombstones captured before deletion. */
+  readonly removed: ReadonlyArray<Edge>
+}
+
+const compareMentionEdges = (left: Edge, right: Edge): number =>
+  left.targetNodeId.localeCompare(right.targetNodeId) || left.id.localeCompare(right.id)
+
+/** Test-only deterministic conflict seam. The public ledger route executes graph mutations
+ * synchronously inside one storage transaction, so an async suspension point here would make the
+ * atomic path impossible to execute. Tests may instead persist one competing edge after the
+ * ordinary pre-check and before the candidate write; production always sees `undefined`. */
+export interface CreateEdgeTestHookContext {
+  readonly relationDefinitionId: EntityId
+  readonly sourceNodeId: EntityId
+  readonly targetNodeId: EntityId
+  readonly insertConflictingEdge: (targetNodeId: EntityId) => Edge
+}
+
+export const createEdgeTestHook: {
+  beforeWrite: ((context: CreateEdgeTestHookContext) => void) | undefined
+} = {
   beforeWrite: undefined
 }
 
@@ -144,24 +160,32 @@ export class GraphService extends Context.Tag("@athenaeum/backend/GraphService")
     /** Assigns an existing tag to an existing node — the real underlying mutation
      *  `graph_node_tags`/the `hasTag` `ViewPredicate` op need (see `graph-rpc.ts`'s
      *  `AssignTagInput` doc comment for why this stage added it). Idempotent: re-assigning the
-     *  same `(nodeId, tagId)` pair overwrites the same composite-keyed row. */
+     *  same `(nodeId, tagId)` pair is a no-op and does not emit a duplicate projection/feed row. */
     readonly assignTag: (
       workspaceId: EntityId,
       nodeId: EntityId,
       tagId: EntityId
-    ) => Effect.Effect<void, DomainError>
+    ) => Effect.Effect<boolean, DomainError>
+    /** Returns whether a workspace-owned node currently carries a specific tag. This is a
+     * read-side validation primitive for server projections; it never mutates the graph or emits
+     * a feed entry. */
+    readonly hasTag: (
+      workspaceId: EntityId,
+      nodeId: EntityId,
+      tagId: EntityId
+    ) => Effect.Effect<boolean, DomainError>
     /** `assignTag`'s symmetric counterpart (supertag-centering pass, docs/supertag-centering-
      *  decisions.md §2's `unassignTag` addition) — removes the `(nodeId, tagId)` `graph_node_tags`
      *  row, mirroring `syncNoteReferences`' own edge-delete branch's three-step shape (KV delete,
      *  read-model delete, `"delete"` sync-feed entry). Idempotent: unassigning a tag the node
-     *  doesn't currently carry is a no-op (the KV `delete` and SQL `DELETE` both tolerate a
-     *  missing row), not an error — same "re-running a reconciliation step is safe" discipline
-     *  every other mutation in this file follows. */
+     *  doesn't currently carry is a no-op with no phantom projection/feed row, not an error —
+     *  the same "re-running a reconciliation step is safe" discipline every other mutation here
+     *  follows. */
     readonly unassignTag: (
       workspaceId: EntityId,
       nodeId: EntityId,
       tagId: EntityId
-    ) => Effect.Effect<void, DomainError>
+    ) => Effect.Effect<boolean, DomainError>
     /** Rich-text-editor pass, entity-reference-to-edge projection (`mention.ts`'s
      *  `MENTION_RELATION_DEFINITION`, `graph-rpc.ts`'s `SyncNoteReferencesInput`/`Output`):
      *  reconciles `nodeId`'s current `"mentions"` edges against the caller-reported
@@ -176,7 +200,7 @@ export class GraphService extends Context.Tag("@athenaeum/backend/GraphService")
       workspaceId: EntityId,
       nodeId: EntityId,
       referencedNodeIds: ReadonlyArray<EntityId>
-    ) => Effect.Effect<ReadonlyArray<Edge>, DomainError>
+    ) => Effect.Effect<SyncNoteReferencesResult, DomainError>
 
     // --- Supertag-centering pass (docs/supertag-centering-decisions.md §1/§2) -------------------
 
@@ -290,13 +314,15 @@ export const makeGraphServiceLive = (
           return fact
         })
 
-      const assignTagImpl = (workspaceId: EntityId, nodeId: EntityId, tagId: EntityId): Effect.Effect<void, DomainError> =>
+      const assignTagImpl = (workspaceId: EntityId, nodeId: EntityId, tagId: EntityId): Effect.Effect<boolean, DomainError> =>
         Effect.gen(function* () {
           void workspaceId
           yield* nodesRepository.get(nodeId)
           yield* tagsRepository.get(tagId)
 
           const row = { id: nodeTagRowId(nodeId, tagId), nodeId, tagId }
+          const existing = yield* nodeTagsCollections.nodeTags.get(row.id).pipe(Effect.mapError(nodeTagsToUnexpectedError))
+          if (existing !== undefined) return false
           yield* nodeTagsCollections.nodeTags.put(row).pipe(Effect.mapError(nodeTagsToUnexpectedError))
           yield* upsertNodeTag(sql, nodeId, tagId)
           // `entityId` carries the node (rather than the tag, or the composite key, neither of
@@ -304,6 +330,7 @@ export const makeGraphServiceLive = (
           // feed entry cares primarily about "this node's tag membership changed"; `payload`
           // carries the full `(nodeId, tagId)` pair for anyone who needs both.
           yield* syncFeed.append("nodeTag", nodeId, "put", row)
+          return true
         })
 
       return {
@@ -391,9 +418,31 @@ export const makeGraphServiceLive = (
               }
             }
 
-            // Real suspension point for the concurrency test (see `createEdgeTestHook`'s doc
-            // comment): production code always sees this as `Effect.void`.
-            yield* Effect.suspend(() => (createEdgeTestHook.beforeWrite ? createEdgeTestHook.beforeWrite() : Effect.void))
+            const insertConflictingEdge = (conflictingTargetNodeId: EntityId): Edge => {
+              const conflictingEdge = new Edge({
+                id: crypto.randomUUID() as EntityId,
+                relationDefinitionId,
+                sourceNodeId,
+                targetNodeId: conflictingTargetNodeId
+              })
+              const exit = Effect.runSyncExit(Effect.gen(function* () {
+                yield* edgesRepository.put(conflictingEdge)
+                yield* upsertEdge(sql, conflictingEdge)
+                yield* syncFeed.append("edge", conflictingEdge.id, "put", conflictingEdge)
+                return conflictingEdge
+              }))
+              if (Exit.isFailure(exit)) throw new Error("failed to inject deterministic edge conflict")
+              return exit.value
+            }
+
+            // Deterministic test-only conflict injection; unlike the old async hook this remains
+            // valid inside the ledger's synchronous transaction boundary.
+            yield* Effect.sync(() => createEdgeTestHook.beforeWrite?.({
+              relationDefinitionId,
+              sourceNodeId,
+              targetNodeId,
+              insertConflictingEdge
+            }))
 
             const edge = new Edge({
               id: crypto.randomUUID() as EntityId,
@@ -463,14 +512,26 @@ export const makeGraphServiceLive = (
 
         assignTag: assignTagImpl,
 
+        hasTag: (workspaceId, nodeId, tagId) =>
+          Effect.gen(function* () {
+            const node = yield* nodesRepository.get(nodeId)
+            if (node.workspaceId !== workspaceId || node.pending !== undefined) return false
+            yield* tagsRepository.get(tagId)
+            const row = yield* nodeTagsCollections.nodeTags.get(nodeTagRowId(nodeId, tagId)).pipe(Effect.mapError(nodeTagsToUnexpectedError))
+            return row !== undefined
+          }),
+
         unassignTag: (workspaceId, nodeId, tagId) =>
           Effect.gen(function* () {
             void workspaceId
             const id = nodeTagRowId(nodeId, tagId)
             const row = { id, nodeId, tagId }
+            const existing = yield* nodeTagsCollections.nodeTags.get(id).pipe(Effect.mapError(nodeTagsToUnexpectedError))
+            if (existing === undefined) return false
             yield* nodeTagsCollections.nodeTags.delete(id).pipe(Effect.mapError(nodeTagsToUnexpectedError))
             yield* deleteNodeTag(sql, nodeId, tagId)
             yield* syncFeed.append("nodeTag", nodeId, "delete", row)
+            return true
           }),
 
         syncNoteReferences: (workspaceId, nodeId, referencedNodeIds) =>
@@ -487,12 +548,12 @@ export const makeGraphServiceLive = (
             // node id twice (e.g. two separate `@`-mentions of the same node in one page) must
             // reconcile to exactly one edge, not be treated as "two edges wanted".
             const desired = new Set(referencedNodeIds)
-            const existing = yield* edgesForSourceAndRelation(nodeId, MentionRelationId)
+            const existing = [...(yield* edgesForSourceAndRelation(nodeId, MentionRelationId))].sort(compareMentionEdges)
 
-            const toDelete = existing.filter((edge) => !desired.has(edge.targetNodeId))
-            const kept = existing.filter((edge) => desired.has(edge.targetNodeId))
+            const toDelete = existing.filter((edge) => !desired.has(edge.targetNodeId)).sort(compareMentionEdges)
+            const kept = existing.filter((edge) => desired.has(edge.targetNodeId)).sort(compareMentionEdges)
             const keptTargetIds = new Set(kept.map((edge) => edge.targetNodeId))
-            const toCreateIds = [...desired].filter((targetNodeId) => !keptTargetIds.has(targetNodeId))
+            const toCreateIds = [...desired].filter((targetNodeId) => !keptTargetIds.has(targetNodeId)).sort()
 
             // Validate every NEW target exists before writing anything — a stale/mistyped
             // `@`-mention referencing a node id that no longer exists rejects the whole call
@@ -527,7 +588,12 @@ export const makeGraphServiceLive = (
               })
             )
 
-            return [...kept, ...created]
+            const orderedCreated = created.sort(compareMentionEdges)
+            return {
+              edges: [...kept, ...orderedCreated].sort(compareMentionEdges),
+              created: orderedCreated,
+              removed: toDelete
+            }
           }),
 
         defineTagField: (workspaceId, tagId, name, valueKind, sortOrder) =>

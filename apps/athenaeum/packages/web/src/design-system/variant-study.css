@@ -87,20 +87,13 @@ html[data-variant] .sync-status-synced {
   visibility: hidden;
 }
 
-/* S5 — docked creation forms → progressive disclosure
-   (hover/focus-within keeps them reachable) */
+/* S5 — docked workspace creation → progressive disclosure
+   (hover/focus-within keeps it reachable). Backlinks owns a real disclosure in Backlinks.tsx. */
 html[data-variant] .workspace-switcher-create {
   display: none;
 }
 html[data-variant] .shell-session:hover .workspace-switcher-create,
 html[data-variant] .shell-session:focus-within .workspace-switcher-create {
-  display: flex;
-}
-html[data-variant] .link-form {
-  display: none;
-}
-html[data-variant] .backlinks:hover .link-form,
-html[data-variant] .backlinks:focus-within .link-form {
   display: flex;
 }
 
@@ -123,8 +116,8 @@ html[data-variant] .shell-nav-item {
   font-size: var(--text-sm);
 }
 
-/* S9 — empty-note invitation (matches ProseMirror empty doc) */
-html[data-variant] .rich-note-editor .ProseMirror > p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+/* S9 — empty-note invitation (editor-owned document state) */
+html[data-variant] .rich-note-editor .ProseMirror[data-empty="true"]::before {
   content: "What's happening today?  ·  # to tag  ·  @ to link";
   float: left;
   height: 0;
@@ -173,4 +166,12 @@ html[data-variant="study"] *::-webkit-scrollbar-track {
 }
 html[data-variant="study"] *::-webkit-scrollbar-thumb {
   border-color: var(--color-ground);
+}
+
+/* The sidebar becomes a drawer below the shell breakpoint. Keep the study
+   structural override from reserving its desktop column while it is hidden. */
+@media (max-width: 58rem) {
+  html[data-variant] .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

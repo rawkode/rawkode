@@ -48,10 +48,20 @@ import * as LogLevel from "effect/LogLevel"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import { VersionVector, type LoroDoc } from "loro-crdt/bundler"
 import { newHttpBatchRpcResponse, newWebSocketRpcSession, RpcTarget } from "capnweb"
 import {
   AcceptChatForkInput,
   AcceptChatForkOutput,
+  MigrateLegacyPageInput,
+  MigrateLegacyPageOutput,
+  CommitLoroPageContentInput,
+  CommitLoroPageContentOutput,
+  PrepareMeetingInDailyNoteInput,
+  PrepareMeetingInDailyNoteOutput,
+  LoroContentConflict,
+  LoroRequestIdentityConflict,
+  LoroSemanticCommitRequired,
   AddCollaboratorInput,
   AddCollaboratorOutput,
   AddFactInput,
@@ -104,7 +114,12 @@ import {
   CreateEdgeInput,
   CreateEdgeOutput,
   CreateNodeInput,
+  CreateNodeWithIntentInput,
   CreateNodeOutput,
+  DecideAgentChangeProposalInput,
+  DecideAgentChangeProposalOutput,
+  CreateLoroPageInput,
+  CreateLoroPageOutput,
   CreatePageInput,
   CreatePageOutput,
   ProposePageEditInput,
@@ -139,12 +154,20 @@ import {
   GetMeetingOutput,
   GetNodeInput,
   GetNodeOutput,
+  GetPageDocumentDescriptorInput,
+  GetPageDocumentDescriptorOutput,
+  GetLegacyPageProjectionInput,
+  GetLegacyPageProjectionOutput,
+  type PageDocumentDescriptor,
   GetPageTextInput,
   GetPageTextOutput,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
   GraphIssuesRepository,
   IsoDateTimeString,
+  LocalDate,
   LinkCalendarEventToNodeInput,
   LinkCalendarEventToNodeOutput,
   ListBacklinksInput,
@@ -161,6 +184,10 @@ import {
   ListMeetingsOutput,
   ListPendingChangesInput,
   ListPendingChangesOutput,
+  ListRecentLedgerActivityInput,
+  ListRecentLedgerActivityOutput,
+  LedgerActivityEntry,
+  LedgerActivityType,
   ListChatsInput,
   ListChatsOutput,
   ListGraphIssuesInput,
@@ -175,6 +202,8 @@ import {
   ListTagFieldsOutput,
   ListTagsInput,
   ListTagsOutput,
+  LoroPageSyncMessageInput,
+  LoroPageSyncMessageOutput,
   Meeting,
   MergeChangesInput,
   MergeChangesOutput,
@@ -182,7 +211,14 @@ import {
   ModelClient,
   type ModelError,
   ModelTurnResult,
+  AgentJobMutationAttribution,
+  HumanUiMutationAttribution,
+  MutationAttribution,
+  NodeAlreadyExists,
   NodeNotFound,
+  SystemMutationAttribution,
+  PageFormatMismatch,
+  PageNotFound,
   OpenVoiceAudioSessionInput,
   OpenVoiceAudioSessionOutput,
   PollVoiceAudioEventsInput,
@@ -197,7 +233,6 @@ import {
   RedeemShareLinkOutput,
   RemoveCollaboratorInput,
   RemoveCollaboratorOutput,
-  requireAuthenticatedUser,
   RevokeShareLinkInput,
   RevokeShareLinkOutput,
   type Role,
@@ -216,6 +251,7 @@ import {
   RevertChangesOutput,
   RevertChatForkInput,
   RevertChatForkOutput,
+  requireAuthenticatedUser,
   RotateEpochInput,
   RotateEpochOutput,
   RunViewInput,
@@ -229,6 +265,8 @@ import {
   SendVoiceAudioChunkOutput,
   StartPageSyncInput,
   StartPageSyncOutput,
+  StartLoroPageSyncInput,
+  StartLoroPageSyncOutput,
   SyncFeedInput,
   SyncFeedOutput,
   SyncGoogleCalendarInput,
@@ -241,6 +279,10 @@ import {
   Unauthorized,
   UnexpectedError,
   ValidationError,
+  normalizeCreateTagName,
+  normalizeTagFieldName,
+  sha256HexSync,
+  AgentChangeProposal,
   WhoamiOutput,
   ImportWorkoutInput,
   ImportWorkoutOutput,
@@ -264,7 +306,14 @@ import { makeSharingCollections, type SharingCollections } from "./sharing-colle
 import { makeSharingServiceLive, SharingService } from "./sharing-service-live.js"
 import { initializeWorkspaceOwner, makeWorkspaceMetaSingleton, type WorkspaceMeta } from "./workspace-ownership.js"
 import { makeNodesRepositoryLive, makeWorkspaceCollections, type WorkspaceCollections } from "./nodes-repository-live.js"
-import { makePagesCollections, makePagesRepositoryLive } from "./pages-repository-live.js"
+import {
+  decodePageDocumentFormatRow,
+  makePagesCollections,
+  makePagesRepositoryLive,
+  toUnexpectedError,
+  type PageDocumentFormatRow,
+  type PagesCollections
+} from "./pages-repository-live.js"
 import { makeTagsCollections, makeTagsRepositoryLive } from "./tags-repository-live.js"
 import { makeTagClosureCollections } from "./tag-closure.js"
 import { makeFactsCollections, makeFactsRepositoryLive } from "./facts-repository-live.js"
@@ -280,19 +329,22 @@ import { makeTagFieldDefinitionsCollections } from "./tag-field-definitions-live
 import { ensureBaseTagsSeeded } from "./seed-base-tags.js"
 import { ensureBaseTagFieldsSeeded } from "./seed-base-tag-fields.js"
 import { ensureMentionRelationSeeded } from "./mention-seed.js"
-import { GraphService, makeGraphServiceLive } from "./graph-service-live.js"
+import { GraphService, makeGraphServiceLive, type SyncNoteReferencesResult } from "./graph-service-live.js"
 import { NotesService, makeNotesServiceLive } from "./notes-service-live.js"
+import { LoroPageService, makeLoroPageServiceLive } from "./loro-page-service-live.js"
 import { ChatForkService, makeChatForkServiceLive } from "./chat-fork-service-live.js"
 import { makePageProposalCollections } from "./page-proposal-collections.js"
 import { PageProposalService, makePageProposalServiceLive } from "./page-proposal-service-live.js"
 import { ViewsService, makeViewsServiceLive } from "./views-service-live.js"
 import { AgentEditService, makeAgentEditServiceLive } from "./agent-edit-service-live.js"
+import { AgentLoroEditService, makeAgentLoroEditServiceLive } from "./agent-loro-edit-service-live.js"
 import { makeAgentEditCollections } from "./agent-edit-collections.js"
+import { makeAgentChangeProposalCollections } from "./agent-change-proposal-collections.js"
 import { makeAppCollections } from "./app-collections.js"
 import { makeAppsRepositoryLive } from "./apps-repository-live.js"
 import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
 import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeServiceLive } from "./app-runtime-service-live.js"
-import { CalendarService, makeCalendarServiceLive } from "./calendar-service-live.js"
+import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
 import { makeCalendarCollections } from "./calendar-collections.js"
 import {
   CalendarGatekeeperClient,
@@ -305,7 +357,47 @@ import { resolveAiGatewayRoute } from "./ai-gateway-route.js"
 import { ensureGraphViews, indexNodeText, upsertNode } from "./read-model.js"
 import { NodesSubscription } from "./nodes-subscription.js"
 import { decodeRpcInput, domainErrorFromCause, runOrThrowRpcError, runRpcProgram } from "./rpc-boundary.js"
-import { LedgerConflict, LedgerService, ledgerFingerprint } from "./ledger-service.js"
+import {
+  agentChangeDecisionLedgerFingerprint,
+  addFactLedgerFingerprint,
+  assignTagLedgerFingerprint,
+  applySupertagLedgerFingerprint,
+  createEdgeLedgerFingerprint,
+  createTagLedgerFingerprint,
+  ensureLoroPageLedgerFingerprint,
+  commitLoroPageContentLedgerFingerprint,
+  prepareMeetingInDailyNoteLedgerFingerprint,
+  migrateLegacyPageLedgerFingerprint,
+  createRelationDefinitionLedgerFingerprint,
+  createBookmarkLedgerFingerprint,
+  appendTranscriptSegmentLedgerFingerprint,
+  startMeetingLedgerFingerprint,
+  defineTagFieldLedgerFingerprint,
+  syncNoteReferencesLedgerFingerprint,
+  unassignTagLedgerFingerprint,
+  type AddFactLedgerCommandInput,
+  type ApplySupertagLedgerCommandInput,
+  type AssignTagLedgerCommandInput,
+  type CreateEdgeLedgerCommandInput,
+  type CreateTagLedgerCommandInput,
+  type EnsureLoroPageLedgerCommandInput,
+  type CommitLoroPageContentLedgerCommandInput,
+  type PrepareMeetingInDailyNoteLedgerCommandInput,
+  type MigrateLegacyPageLedgerCommandInput,
+  type CreateRelationDefinitionLedgerCommandInput,
+  type CreateBookmarkLedgerCommandInput,
+  type AppendTranscriptSegmentLedgerCommandInput,
+  type StartMeetingLedgerCommandInput,
+  type DefineTagFieldLedgerCommandInput,
+  type SyncNoteReferencesLedgerCommandInput,
+  type UnassignTagLedgerCommandInput,
+  type CreateNodeWithIntentLedgerCommandInput,
+  LedgerConflict,
+  LedgerService,
+  ledgerFingerprint,
+  createNodeWithIntentLedgerFingerprint
+} from "./ledger-service.js"
+import { loroVersionVectorIdentity } from "./loro-page-service-live.js"
 import { makeMeetingCollections } from "./meeting-collections.js"
 import {
   makeMeetingAudioBucketR2Live,
@@ -354,6 +446,19 @@ import type { Env } from "./index.js"
  */
 /** Test-only seam for the crash window after the ledger transaction commits and before cache publication. */
 export const pageProposalAcceptanceTestHook: { afterTransactionBeforePublish: (() => void) | undefined } = {
+  afterTransactionBeforePublish: undefined
+}
+
+/** Test-only seam for page persistence preparation. Production leaves it unset; tests can throw
+ * after a prepared page write has touched durable rows/index/feed but before the surrounding
+ * `transactionSync` callback returns, proving cache and protocol-session publication stay deferred
+ * until the transaction has committed. */
+export const pagePersistenceTestHook: {
+  afterPrepareBeforeCommit: (() => void) | undefined
+  /** Runs after durable commit but before the candidate enters the in-memory cache. */
+  afterTransactionBeforePublish: (() => void) | undefined
+} = {
+  afterPrepareBeforeCommit: undefined,
   afterTransactionBeforePublish: undefined
 }
 
@@ -420,7 +525,9 @@ type WorkspaceServices =
   | SyncFeedService
   | GraphService
   | NotesService
+  | LoroPageService
   | ChatForkService
+  | AgentLoroEditService
   | PageProposalService
   | ViewsService
   | AgentEditService
@@ -448,6 +555,44 @@ const requireOwnWorkspace = (
           message: `workspaceId ${requestedWorkspaceId} does not match this connection's workspace (${ownWorkspaceId})`
         })
       )
+
+/** Daily-note ids are deterministic from the civil date. Keep the same reserved UUID family as
+ * the web client, but derive it from the validated server input so a caller cannot direct a
+ * meeting preparation into an unrelated Loro page. */
+const dailyNoteIdForLocalDate = (localDate: LocalDate): EntityId => {
+  const suffix = localDate.replaceAll("-", "").padStart(12, "0")
+  return Schema.decodeUnknownSync(EntityId)(`00000000-0000-4000-8000-${suffix}`)
+}
+
+const requireDailyNoteForLocalDate = (
+  dailyNoteId: EntityId,
+  localDate: LocalDate
+): Effect.Effect<void, ValidationError> => {
+  const expected = dailyNoteIdForLocalDate(localDate)
+  return dailyNoteId === expected
+    ? Effect.void
+    : Effect.fail(new ValidationError({
+      message: `dailyNoteId ${dailyNoteId} does not resolve to the requested localDate ${localDate}`
+    }))
+}
+
+// `applySupertag` runs an existing GraphService effect inside a synchronous transaction. Preserve
+// every closed domain failure emitted by that effect (for example NodeNotFound/TagNotFound) rather
+// than reducing the graph's typed RPC contract to UnexpectedError at the ledger boundary.
+const DOMAIN_ERROR_TAGS = new Set([
+  "NodeNotFound", "NodeAlreadyExists", "ValidationError", "UnexpectedError", "PageNotFound", "PageFormatMismatch",
+  "TagNotFound", "FactNotFound", "EdgeNotFound", "RelationDefinitionNotFound", "GraphIssueNotFound",
+  "CardinalityViolation", "GraphIssueDetected", "ChatNotFound", "ChatBindingNotFound",
+  "PendingNameConflict", "ToolNotImplemented", "Unauthorized", "WorkspaceAccessDenied",
+  "WorkspaceNotFound", "GatekeeperNotConnected", "OAuthExchangeFailed", "ObserverVerificationFailed",
+  "MeetingNotFound", "VoiceSessionNotFound", "WorkoutNotFound", "WorkoutImportConflict", "AppNotFound",
+  "AppCodeVersionNotFound", "AppCodeTooLarge", "TagFieldDefinitionNotFound"
+])
+
+const isDomainError = (error: unknown): error is DomainError =>
+  typeof error === "object" && error !== null &&
+  typeof (error as { readonly _tag?: unknown })._tag === "string" &&
+  DOMAIN_ERROR_TAGS.has((error as { readonly _tag: string })._tag)
 
 /**
  * Phase 4 task item 7's `use`/`build` capability gate. **Adversarial-review fix (both blocking
@@ -843,6 +988,106 @@ class WorkspaceRpcApi extends RpcTarget {
         })
       )
     )
+
+    return runRpcProgram(this.#runtime, program, CreateNodeOutput)
+  }
+
+  /** The strict node-creation boundary. Unlike the legacy createNode compatibility method,
+   * this route requires an authenticated caller, an immutable rationale, and a stable retry key. */
+  async createNodeWithIntent(input: unknown): Promise<unknown> {
+    const sql = this.#sql
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(CreateNodeWithIntentInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to create a workspace node." }))
+        const title = decoded.title.trim().replace(/\s+/g, " ")
+        const commitMessage = decoded.commitMessage.trim()
+        const requestId = decoded.requestId.trim()
+        if (title.length === 0) return Effect.fail(new ValidationError({ message: "A non-blank node title is required." }))
+        if (commitMessage.length === 0) return Effect.fail(new ValidationError({ message: "A commit message is required to create a workspace node." }))
+        if (requestId.length === 0) return Effect.fail(new ValidationError({ message: "A non-blank request id is required." }))
+        const attribution: MutationAttribution = decoded.attribution.kind === "agentJob"
+          ? new AgentJobMutationAttribution({
+              version: decoded.attribution.version,
+              kind: decoded.attribution.kind,
+              jobId: decoded.attribution.jobId.trim(),
+              runId: decoded.attribution.runId.trim()
+            })
+          : decoded.attribution.kind === "system"
+            ? new SystemMutationAttribution({
+                version: decoded.attribution.version,
+                kind: decoded.attribution.kind,
+                source: decoded.attribution.source.trim()
+              })
+            : new HumanUiMutationAttribution({
+                version: decoded.attribution.version,
+                kind: decoded.attribution.kind,
+                surface: decoded.attribution.surface
+              })
+        if ((attribution.kind === "agentJob" && (attribution.jobId.length === 0 || attribution.runId.length === 0)) ||
+            (attribution.kind === "system" && attribution.source.length === 0)) {
+          return Effect.fail(new ValidationError({ message: "Attribution identifiers must contain non-whitespace text." }))
+        }
+        return Effect.gen(function* () {
+          const repository = yield* NodesRepository
+          const syncFeed = yield* SyncFeedService
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const nodeId = decoded.id ?? Schema.decodeUnknownSync(EntityId)(crypto.randomUUID())
+          const requestIdentity = `create-node-with-intent:${requestId}`
+          const command: CreateNodeWithIntentLedgerCommandInput = {
+            requestIdentity, requestId, workspaceId: decoded.workspaceId,
+            principal: currentUser.email, policy, nodeId, requestedNodeId: decoded.id, title, commitMessage,
+            attribution, fingerprint: "", createdAt: new Date().toISOString()
+          }
+          const fingerprint = createNodeWithIntentLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let created: NodeEntity | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "createNodeWithIntent",
+              mutate: () => {
+                if (decoded.id !== undefined) {
+                  const existing = Effect.runSyncExit(repository.get(nodeId))
+                  if (Exit.isSuccess(existing)) throw new NodeAlreadyExists({ nodeId })
+                  const error = domainErrorFromCause(existing.cause)
+                  if (!(error instanceof NodeNotFound)) throw error
+                }
+                const node = new NodeEntity({ id: nodeId, workspaceId: decoded.workspaceId, title,
+                  createdAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date().toISOString()) })
+                const write = Effect.runSyncExit(repository.put(node))
+                if (Exit.isFailure(write)) throw domainErrorFromCause(write.cause)
+                const persisted = write.value
+                const projections = Effect.runSyncExit(Effect.gen(function* () {
+                  yield* upsertNode(sql, persisted)
+                  yield* indexNodeText(sql, persisted.id, persisted.title, "")
+                  yield* syncFeed.append("node", persisted.id, "put", persisted)
+                }))
+                if (Exit.isFailure(projections)) throw domainErrorFromCause(projections.cause)
+                created = persisted
+                return new CreateNodeOutput({ node: persisted })
+              },
+              encodeOutput: (output) => Schema.encodeSync(CreateNodeOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(CreateNodeOutput)(output),
+              appendCommand: () => ledger.appendCreateNodeWithIntent(ledgerCommand),
+              appendSideEffects: () => {
+                if (created === undefined) throw new Error("createNodeWithIntent completed without a node")
+                const payload = { nodeId: created.id }
+                ledger.appendEvent(requestIdentity, "create-node-with-intent", payload)
+                ledger.appendOutbox(requestIdentity, "create-node-with-intent", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createNodeWithIntent failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+        })
+      })
+    )
     return runRpcProgram(this.#runtime, program, CreateNodeOutput)
   }
 
@@ -904,18 +1149,442 @@ class WorkspaceRpcApi extends RpcTarget {
     return runOrThrowRpcError(this.#runtime, program)
   }
 
-  // --- Page bodies (Automerge) ----------------------------------------------------------------
+  // --- Legacy page bodies (Automerge compatibility) -------------------------------------------
+
+  // --- Versioned page-document routing (Loro migration) -------------------------------------
+
+  async getPageDocumentDescriptor(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(GetPageDocumentDescriptorInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const loro = yield* LoroPageService
+          return new GetPageDocumentDescriptorOutput({ descriptor: yield* loro.getDescriptor(decoded.nodeId) })
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, GetPageDocumentDescriptorOutput)
+  }
+
+  /**
+   * Read-only compatibility boundary for clients that intentionally do not link Automerge.
+   * The authoritative server flattens the legacy document, returns the exact legacy witness,
+   * and fails closed once the page has a Loro authority. Editing belongs to the migration route,
+   * never to this projection.
+   */
+  async getLegacyPageProjection(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const program = decodeRpcInput(GetLegacyPageProjectionInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const loro = yield* LoroPageService
+          // Keep the witness and its flattened text inside one synchronous DO storage
+          // transaction. Composing `getDescriptor` with NotesService's cached page read could
+          // otherwise pair text from a later Automerge revision with an earlier witness.
+          const projection = yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const exit = Effect.runSyncExit(loro.getLegacyProjection(decoded.nodeId))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              return exit.value
+            }),
+            catch: (error): DomainError =>
+              error instanceof PageNotFound || error instanceof PageFormatMismatch || error instanceof ValidationError || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `legacy page projection transaction failed: ${String(error)}` })
+          })
+          return new GetLegacyPageProjectionOutput({
+            ...projection,
+            readOnly: true,
+            migrationRequired: true
+          })
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, GetLegacyPageProjectionOutput)
+  }
+
+  /** Historical tombstone. It intentionally decodes nothing and cannot write caller-supplied
+   * snapshots; clients must use `migrateLegacyPage`, which derives the target server-side. */
+  async activateLoroPage(_input: unknown): Promise<unknown> {
+    return runRpcProgram(
+      this.#runtime,
+      Effect.fail(new ValidationError({ message: "activateLoroPage is disabled; use migrateLegacyPage" })),
+      Schema.Unknown
+    )
+  }
+
+  async migrateLegacyPage(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(MigrateLegacyPageInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to migrate a legacy page." }))
+        const sharing = yield* SharingService
+        const loro = yield* LoroPageService
+        const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+        const requestIdentity = `migrate-legacy-page:${decoded.intent.requestId}`
+        const base = { requestIdentity, requestId: decoded.intent.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy, nodeId: decoded.nodeId, sourceStorageVersion: decoded.expectedStorageVersion, sourceAutomerge: decoded.expectedAutomerge, schemaVersion: 1, commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution }
+        const fingerprint = migrateLegacyPageLedgerFingerprint(base)
+        let prepared: { readonly candidate: LoroDoc | undefined; readonly resultSnapshotSha256: string; readonly resultSnapshotLength: number; readonly descriptor: PageDocumentDescriptor } | undefined
+        const output = yield* Effect.try({
+          try: () => storage.transactionSync(() => ledger.executeV2({ requestIdentity, fingerprint, type: "migrateLegacyPage",
+            mutate: () => { const exit = Effect.runSyncExit(loro.migrateLegacy({ nodeId: decoded.nodeId, expectedStorageVersion: decoded.expectedStorageVersion, expectedAutomerge: decoded.expectedAutomerge })); if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause); prepared = exit.value; pagePersistenceTestHook.afterPrepareBeforeCommit?.(); return new MigrateLegacyPageOutput({ descriptor: exit.value.descriptor }) },
+            encodeOutput: (value) => Schema.encodeSync(MigrateLegacyPageOutput)(value), decodeOutput: (value) => Schema.decodeUnknownSync(MigrateLegacyPageOutput)(value),
+            appendCommand: () => { const value = prepared; if (value === undefined) throw new Error("migration completed without evidence"); const command: MigrateLegacyPageLedgerCommandInput = { ...base, fingerprint, resultSnapshotSha256: value.resultSnapshotSha256, resultSnapshotLength: value.resultSnapshotLength, storageVersion: value.descriptor.storageVersion, createdAt: new Date().toISOString() }; ledger.appendMigrateLegacyPage(command) },
+            appendSideEffects: () => { const value = prepared; if (value === undefined) throw new Error("migration completed without evidence"); const payload = { nodeId: decoded.nodeId, format: "loro-v1", snapshotSha256: value.resultSnapshotSha256 }; ledger.appendEvent(requestIdentity, "migrate-legacy-page", payload); ledger.appendOutbox(requestIdentity, "migrate-legacy-page", payload) }
+          })),
+          catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError ? new ValidationError({ message: error.message }) : error instanceof PageFormatMismatch || error instanceof UnexpectedError ? error : new UnexpectedError({ message: String(error) })
+        })
+        pagePersistenceTestHook.afterTransactionBeforePublish?.()
+        if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
+        else loro.publishCommittedDocument(decoded.nodeId, prepared.candidate)
+        return output
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, MigrateLegacyPageOutput)
+  }
+
+  /** Semantic, ledgered Loro ingress. Raw sync remains a separate transport path; this route
+   * accepts a bounded update, persists only digest witnesses in the ledger, and never returns
+   * CRDT bytes. */
+  async commitLoroPageContent(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(CommitLoroPageContentInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to commit Loro content." }))
+        let baseVersionVectorSha256: string
+        try { baseVersionVectorSha256 = loroVersionVectorIdentity(VersionVector.decode(decoded.expectedVersionVector)) } catch (error) {
+          return Effect.fail(new ValidationError({ message: `invalid expected Loro version vector: ${String(error)}` }))
+        }
+        const updateSha256 = sha256HexSync(decoded.update)
+        return Effect.gen(function* () {
+          const sharing = yield* SharingService
+          const loro = yield* LoroPageService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `commit-loro-page-content:${decoded.intent.requestId}`
+          const base = {
+            requestIdentity, requestId: decoded.intent.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy,
+            nodeId: decoded.nodeId, expectedStorageVersion: decoded.expectedStorageVersion, expectedSnapshotSha256: decoded.expectedSnapshotSha256,
+            baseVersionVectorSha256, updateSha256, updateLength: decoded.update.length,
+            commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution
+          }
+          const fingerprint = commitLoroPageContentLedgerFingerprint(base)
+          let prepared: import("./loro-page-service-live.js").PreparedLoroContentCommit | undefined
+          const output = yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "commitLoroPageContent",
+              mutate: () => {
+                const exit = Effect.runSyncExit(loro.commitContent({
+                  nodeId: decoded.nodeId, expectedStorageVersion: decoded.expectedStorageVersion,
+                  expectedSnapshotSha256: decoded.expectedSnapshotSha256, expectedVersionVector: decoded.expectedVersionVector, update: decoded.update
+                }))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                prepared = exit.value
+                pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+                return new CommitLoroPageContentOutput({
+                  descriptor: exit.value.descriptor, storageVersion: exit.value.descriptor.storageVersion,
+                  resultSnapshotSha256: (exit.value.descriptor as { loro: { snapshotSha256: string } }).loro.snapshotSha256,
+                  baseVersionVectorSha256: exit.value.baseVersionVectorSha256, resultVersionVectorSha256: exit.value.resultVersionVectorSha256,
+                  updateSha256: exit.value.updateSha256
+                })
+              },
+              encodeOutput: (value) => Schema.encodeSync(CommitLoroPageContentOutput)(value),
+              decodeOutput: (value) => Schema.decodeUnknownSync(CommitLoroPageContentOutput)(value),
+              appendCommand: () => {
+                const value = prepared
+                if (value === undefined) throw new Error("Loro content commit completed without prepared evidence")
+                const command: CommitLoroPageContentLedgerCommandInput = {
+                  ...base, fingerprint, resultVersionVectorSha256: value.resultVersionVectorSha256,
+                  resultSnapshotSha256: (value.descriptor as { loro: { snapshotSha256: string } }).loro.snapshotSha256, createdAt: new Date().toISOString()
+                }
+                ledger.appendCommitLoroPageContent(command)
+              },
+              appendSideEffects: () => {
+                const payload = { nodeId: decoded.nodeId, format: "loro-v1", resultSnapshotSha256: prepared?.descriptor.activeFormat === "loro-v1" ? prepared.descriptor.loro.snapshotSha256 : undefined }
+                ledger.appendEvent(requestIdentity, "commit-loro-page-content", payload)
+                ledger.appendOutbox(requestIdentity, "commit-loro-page-content", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LoroContentConflict
+              ? error
+              : error instanceof LedgerConflict
+                ? new LoroRequestIdentityConflict({ nodeId: decoded.nodeId, requestId: decoded.intent.requestId })
+              : error instanceof ValidationError
+                ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered Loro content commit failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+          // On replay, a receipt has no candidate; reload current authority rather than restoring
+          // its historic state over newer transport changes.
+          pagePersistenceTestHook.afterTransactionBeforePublish?.()
+          if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
+          else loro.publishCommittedDocument(decoded.nodeId, prepared.candidate)
+          return output
+        })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, CommitLoroPageContentOutput)
+  }
+
+  /** Server-derived, idempotent meeting-preparation insertion. The occurrence key is opaque and
+   * all durable content changes remain inside this ledger transaction; no raw CRDT bytes are
+   * accepted or returned by the RPC. */
+  async prepareMeetingInDailyNote(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(PrepareMeetingInDailyNoteInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap((decoded) => requireDailyNoteForLocalDate(decoded.dailyNoteId, decoded.localDate)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to prepare a meeting." }))
+        const sharing = yield* SharingService
+        const calendar = yield* CalendarService
+        const loro = yield* LoroPageService
+        const resolvedWindow = resolveTodayBriefWindow(decoded.localDate, decoded.timeZone)
+        const meeting = yield* calendar.findTodayBriefEvent(decoded.workspaceId, decoded.localDate, decoded.timeZone, decoded.occurrenceKey, currentUser.email)
+        if (meeting === undefined) return yield* Effect.fail(new ValidationError({ message: "The meeting is no longer present in the retained calendar projection." }))
+        const attendeeNames = meeting.people.flatMap((person) => person.displayName === undefined ? [] : [person.displayName])
+        const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+        // The event/date/page/time-zone tuple is the durable operation identity. A retried UI
+        // request may mint a new transport request id (or arrive from the other client), but it
+        // must still replay the same preparation rather than append another block.
+        const requestIdentity = `prepare-meeting-in-daily-note:${decoded.workspaceId}:${decoded.dailyNoteId}:${decoded.localDate}:${resolvedWindow.timeZone}:${decoded.occurrenceKey}`
+        const base = { requestIdentity, requestId: decoded.intent.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy, nodeId: decoded.dailyNoteId, localDate: decoded.localDate, timeZone: resolvedWindow.timeZone, occurrenceKey: decoded.occurrenceKey, commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution }
+        const fingerprint = prepareMeetingInDailyNoteLedgerFingerprint(base)
+        let prepared: import("./loro-page-service-live.js").PreparedLoroContentCommit | undefined
+        let outcome: "created" | "alreadyPrepared" = "alreadyPrepared"
+        let receipt: PrepareMeetingInDailyNoteOutput | undefined
+        const output = yield* Effect.try({
+          try: () => storage.transactionSync(() => ledger.executeV2({
+            requestIdentity, fingerprint, type: "prepareMeetingInDailyNote",
+            mutate: () => {
+              const proposed = Effect.runSyncExit(loro.prepareMeeting({ nodeId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, attendeeNames }))
+              if (Exit.isFailure(proposed)) throw domainErrorFromCause(proposed.cause)
+              outcome = proposed.value.status
+              if (proposed.value.status === "created") {
+                const update = proposed.value.update
+                if (update === undefined) throw new Error("meeting preparation missing its update")
+                const committed = Effect.runSyncExit(loro.commitContent({ nodeId: decoded.dailyNoteId, expectedStorageVersion: proposed.value.expectedStorageVersion, expectedSnapshotSha256: proposed.value.expectedSnapshotSha256, expectedVersionVector: proposed.value.expectedVersionVector, update }))
+                if (Exit.isFailure(committed)) throw domainErrorFromCause(committed.cause)
+                prepared = committed.value
+              }
+              const snapshot = prepared?.descriptor.activeFormat === "loro-v1" ? prepared.descriptor.loro.snapshotSha256 : proposed.value.expectedSnapshotSha256
+              receipt = new PrepareMeetingInDailyNoteOutput({ dailyNoteId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, status: outcome, resultSnapshotSha256: snapshot })
+              return receipt
+            },
+            encodeOutput: (value) => Schema.encodeSync(PrepareMeetingInDailyNoteOutput)(value), decodeOutput: (value) => Schema.decodeUnknownSync(PrepareMeetingInDailyNoteOutput)(value),
+            appendCommand: () => { if (receipt === undefined) throw new Error("meeting preparation completed without receipt"); ledger.appendPrepareMeetingInDailyNote({ ...base, fingerprint, status: receipt.status, resultSnapshotSha256: receipt.resultSnapshotSha256, createdAt: new Date().toISOString() } satisfies PrepareMeetingInDailyNoteLedgerCommandInput) },
+            appendSideEffects: () => { if (receipt === undefined) throw new Error("meeting preparation completed without receipt"); const payload = { nodeId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, status: receipt.status, resultSnapshotSha256: receipt.resultSnapshotSha256 }; ledger.appendEvent(requestIdentity, "prepare-meeting-in-daily-note", payload); ledger.appendOutbox(requestIdentity, "prepare-meeting-in-daily-note", payload) }
+          })),
+          catch: (error): DomainError => error instanceof LedgerConflict ? new LoroRequestIdentityConflict({ nodeId: decoded.dailyNoteId, requestId: decoded.intent.requestId }) : error instanceof ValidationError || isDomainError(error) ? error : new UnexpectedError({ message: `ledgered meeting preparation failed: ${error instanceof Error ? error.message : String(error)}` })
+        })
+        if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.dailyNoteId)
+        else loro.publishCommittedDocument(decoded.dailyNoteId, prepared.candidate)
+        return output
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, PrepareMeetingInDailyNoteOutput)
+  }
+
+  async startLoroPageSync(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(StartLoroPageSyncInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const loro = yield* LoroPageService
+          const result = yield* loro.startSync(decoded.nodeId, decoded.sessionId)
+          return new StartLoroPageSyncOutput({
+            sessionId: decoded.sessionId,
+            message: result.message,
+            serverVersion: result.serverVersion
+          })
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, StartLoroPageSyncOutput)
+  }
+
+  async loroPageSyncMessage(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const program = decodeRpcInput(LoroPageSyncMessageInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      // Raw sync is retained solely for empty convergence/reset frames. Content-bearing
+      // updates must cross the authenticated, attributed semantic ledger boundary.
+      Effect.tap((decoded) =>
+        decoded.update.byteLength > 0
+          ? Effect.fail(new LoroSemanticCommitRequired({ nodeId: decoded.nodeId }))
+          : Effect.void
+      ),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const loro = yield* LoroPageService
+          const prepared = yield* Effect.try({
+            try: () =>
+              storage.transactionSync(() => {
+                const exit = Effect.runSyncExit(
+                  loro.receiveSyncMessage(
+                    decoded.nodeId,
+                    decoded.sessionId,
+                    decoded.ordinal,
+                    decoded.update,
+                    decoded.clientVersion
+                  )
+                )
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+                return exit.value
+              }),
+            catch: (error): DomainError =>
+              error instanceof PageNotFound || error instanceof PageFormatMismatch || error instanceof ValidationError || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `Loro page sync transaction failed: ${String(error)}` })
+          })
+          // The prepared result bundles Loro cache publication and session advancement. Publish
+          // only after the transaction has committed, and do it once as one synchronous step.
+          prepared.commit()
+          const result = prepared.result
+          return new LoroPageSyncMessageOutput({
+            sessionId: decoded.sessionId,
+            ordinal: decoded.ordinal,
+            update: result.update,
+            serverVersion: result.serverVersion,
+            converged: result.converged,
+            reset: result.reset
+          })
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, LoroPageSyncMessageOutput)
+  }
+
+  /** Native product-page creation. This is deliberately separate from `createPage`, which remains
+   * the legacy Automerge compatibility RPC for native clients and explicit migrations. */
+  async createLoroPage(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(CreateLoroPageInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        // Unlike the older direct page route, provenance is mandatory even for an ungoverned
+        // workspace. The role helper deliberately preserves ungoverned compatibility elsewhere;
+        // this ledgered command does not treat anonymous as an authority principal.
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to ensure a Loro page." }))
+        }
+        // `CreationIntent.requestId` was canonicalized exactly once by its public wire schema.
+        // Keep that decoded value intact through identity, fingerprint, persisted payload, and
+        // replay lookup; a second normalization point would make retries ambiguous.
+        const requestId = decoded.creationIntent.requestId
+        const commitMessage = decoded.creationIntent.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A non-blank commit message is required to ensure a Loro page." }))
+        }
+        return Effect.gen(function* () {
+          const sharing = yield* SharingService
+          const loro = yield* LoroPageService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `ensure-loro-page:${requestId}`
+          const base = {
+            requestIdentity, requestId, workspaceId: decoded.workspaceId,
+            principal: currentUser.email, policy, nodeId: decoded.nodeId,
+            commitMessage, attribution: decoded.creationIntent.attribution
+          }
+          const fingerprint = ensureLoroPageLedgerFingerprint(base)
+          let candidate: LoroDoc | undefined
+          let ensuredDescriptor: PageDocumentDescriptor | undefined
+          const output = yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "ensureLoroPage",
+              mutate: () => {
+                const exit = Effect.runSyncExit(loro.create(decoded.nodeId))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                candidate = exit.value.candidate
+                const descriptor = exit.value.descriptor
+                if (descriptor.activeFormat !== "loro-v1") throw new Error("Loro creation returned a non-Loro descriptor")
+                ensuredDescriptor = descriptor
+                pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+                return new CreateLoroPageOutput({ descriptor })
+              },
+              encodeOutput: (value) => Schema.encodeSync(CreateLoroPageOutput)(value),
+              decodeOutput: (value) => Schema.decodeUnknownSync(CreateLoroPageOutput)(value),
+              appendCommand: () => {
+                // This descriptor was produced by the in-transaction mutation; re-reading via
+                // LoroPageService would populate its cache before commit.
+                const descriptor = ensuredDescriptor
+                if (descriptor === undefined) throw new Error("ensureLoroPage completed without a descriptor")
+                const loroDescriptor = descriptor.activeFormat === "loro-v1" && "loro" in descriptor ? descriptor.loro : undefined
+                if (loroDescriptor === undefined) throw new Error("ensureLoroPage missing Loro metadata")
+                const command: EnsureLoroPageLedgerCommandInput = {
+                  ...base, fingerprint, outcome: candidate === undefined ? "alreadyExisted" : "created",
+                  storageVersion: descriptor.storageVersion, schemaVersion: loroDescriptor.schemaVersion,
+                  createdAt: new Date().toISOString()
+                }
+                ledger.appendEnsureLoroPage(command)
+              },
+              appendSideEffects: () => {
+                const payload = { nodeId: decoded.nodeId, format: "loro-v1" }
+                ledger.appendEvent(requestIdentity, "ensure-loro-page", payload)
+                ledger.appendOutbox(requestIdentity, "ensure-loro-page", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered ensureLoroPage failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+          // No cache mutation is permitted in mutate/append/replay. A candidate exists only for
+          // first execution and is published after the transaction has committed; replay and a
+          // pre-ledger existing page reload the canonical durable state into an empty cache.
+          if (candidate === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
+          else loro.publishCommittedDocument(decoded.nodeId, candidate)
+          return output
+        })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, CreateLoroPageOutput)
+  }
 
   async createPage(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
     const program = decodeRpcInput(CreatePageInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const notes = yield* NotesService
-          const { page, text } = yield* notes.createPage(decoded.nodeId)
-          return new CreatePageOutput({ page, text })
+          const prepared = yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const exit = Effect.runSyncExit(notes.prepareCreatePage(decoded.nodeId))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+              return exit.value
+            }),
+            catch: (error): DomainError =>
+              error instanceof NodeNotFound || error instanceof PageNotFound || error instanceof PageFormatMismatch || error instanceof ValidationError || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `page creation transaction failed: ${String(error)}` })
+          })
+          prepared.commit()
+          return new CreatePageOutput({ page: prepared.page, text: prepared.text })
         })
       )
     )
@@ -940,19 +1609,32 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async applyPageEdit(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
     const program = decodeRpcInput(ApplyPageEditInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const notes = yield* NotesService
-          const { page, text } = yield* notes.applyLocalEdit(
-            decoded.nodeId,
-            decoded.index,
-            decoded.deleteCount,
-            decoded.insertText
-          )
-          return new ApplyPageEditOutput({ page, text })
+          const prepared = yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const exit = Effect.runSyncExit(notes.prepareApplyLocalEdit(
+                decoded.nodeId,
+                decoded.index,
+                decoded.deleteCount,
+                decoded.insertText
+              ))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+              return exit.value
+            }),
+            catch: (error): DomainError =>
+              error instanceof PageNotFound || error instanceof PageFormatMismatch || error instanceof ValidationError || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `page edit transaction failed: ${String(error)}` })
+          })
+          prepared.commit()
+          return new ApplyPageEditOutput({ page: prepared.page, text: prepared.text })
         })
       )
     )
@@ -977,18 +1659,32 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async pageSyncMessage(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
     const program = decodeRpcInput(PageSyncMessageInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const notes = yield* NotesService
-          const result = yield* notes.receiveSyncMessage(
-            decoded.nodeId,
-            decoded.sessionId,
-            decoded.ordinal,
-            decoded.message
-          )
+          const prepared = yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const exit = Effect.runSyncExit(notes.prepareReceiveSyncMessage(
+                decoded.nodeId,
+                decoded.sessionId,
+                decoded.ordinal,
+                decoded.message
+              ))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              pagePersistenceTestHook.afterPrepareBeforeCommit?.()
+              return exit.value
+            }),
+            catch: (error): DomainError =>
+              error instanceof PageNotFound || error instanceof PageFormatMismatch || error instanceof ValidationError || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `page sync transaction failed: ${String(error)}` })
+          })
+          prepared.commit()
+          const result = prepared.result
           return new PageSyncMessageOutput({
             sessionId: decoded.sessionId,
             ordinal: decoded.ordinal,
@@ -1048,7 +1744,7 @@ class WorkspaceRpcApi extends RpcTarget {
             if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
             const accepted = exit.value
             ledger.appendAcceptedPageProposal({
-              proposalId: accepted.proposal.proposalId, workspaceId: decoded.workspaceId,
+              proposalId: accepted.proposal.proposalId, nodeId: accepted.proposal.nodeId, workspaceId: decoded.workspaceId,
               principal: currentUser?.email ?? "anonymous", policy, rationale: accepted.proposal.rationale,
               provenance: accepted.proposal.provenance, input: { proposalId: decoded.proposalId },
               result: { headsHash: accepted.commit.committedHeadsHash, proposalHeadsHash: accepted.proposal.proposalHeadsHash },
@@ -1194,82 +1890,287 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async createTag(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(CreateTagInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to create a Supertag definition." }))
+        }
+        const name = normalizeCreateTagName(decoded.name)
+        if (name.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A non-blank Supertag name is required." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to create a Supertag definition." }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const tag = yield* graph.createTag(decoded.workspaceId, decoded.name, decoded.parentIds)
-          return new CreateTagOutput({ tag })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `create-tag:${decoded.requestId}`
+          const command: CreateTagLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            name,
+            parentIds: decoded.parentIds,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = createTagLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let tagId: string | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "createTag",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.createTag(decoded.workspaceId, name, decoded.parentIds))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                tagId = exit.value.id
+                return new CreateTagOutput({ tag: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(CreateTagOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(CreateTagOutput)(output),
+              appendCommand: () => ledger.appendCreateTag(ledgerCommand),
+              appendSideEffects: () => {
+                if (tagId === undefined) throw new Error("createTag completed without a tag identity")
+                const payload = { tagId, name, parentIds: decoded.parentIds }
+                ledger.appendEvent(requestIdentity, "create-tag", payload)
+                ledger.appendOutbox(requestIdentity, "create-tag", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createTag failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, CreateTagOutput)
   }
 
   async addFact(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(AddFactInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to update a workspace fact." }))
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) return Effect.fail(new ValidationError({ message: "A commit message is required to update a workspace fact." }))
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const fact: Fact = yield* graph.addFact(
-            decoded.workspaceId,
-            decoded.nodeId,
-            decoded.predicateId,
-            decoded.value,
-            decoded.id
-          )
-          return new AddFactOutput({ fact })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `add-fact:${decoded.requestId}`
+          const command: AddFactLedgerCommandInput = {
+            requestIdentity, requestId: decoded.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy,
+            nodeId: decoded.nodeId, predicateId: decoded.predicateId, value: decoded.value, ...(decoded.id === undefined ? {} : { factId: decoded.id }),
+            commitMessage, attribution: decoded.attribution, fingerprint: "", createdAt: new Date().toISOString()
+          }
+          const fingerprint = addFactLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let committedFactId: string | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "addFact",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.addFact(decoded.workspaceId, decoded.nodeId, decoded.predicateId, decoded.value, decoded.id))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                committedFactId = exit.value.id
+                return new AddFactOutput({ fact: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(AddFactOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(AddFactOutput)(output),
+              appendCommand: () => ledger.appendAddFact(ledgerCommand),
+              appendSideEffects: () => {
+                const payload = { factId: committedFactId }
+                ledger.appendEvent(requestIdentity, "add-fact", payload)
+                ledger.appendOutbox(requestIdentity, "add-fact", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered addFact failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, AddFactOutput)
   }
 
   async createRelationDefinition(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(CreateRelationDefinitionInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to create a relation definition." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to create a relation definition." }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const relationDefinition = yield* graph.createRelationDefinition(
-            decoded.workspaceId,
-            decoded.forwardName,
-            decoded.inverseName,
-            decoded.sourceTagId,
-            decoded.targetTagId,
-            decoded.cardinality
-          )
-          return new CreateRelationDefinitionOutput({ relationDefinition })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `create-relation-definition:${decoded.requestId}`
+          const command: CreateRelationDefinitionLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            forwardName: decoded.forwardName,
+            inverseName: decoded.inverseName,
+            sourceTagId: decoded.sourceTagId,
+            targetTagId: decoded.targetTagId,
+            cardinality: decoded.cardinality,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = createRelationDefinitionLedgerFingerprint(command)
+          let relationDefinitionId: string | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "createRelationDefinition",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.createRelationDefinition(
+                  decoded.workspaceId,
+                  decoded.forwardName,
+                  decoded.inverseName,
+                  decoded.sourceTagId,
+                  decoded.targetTagId,
+                  decoded.cardinality
+                ))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                relationDefinitionId = exit.value.id
+                return new CreateRelationDefinitionOutput({ relationDefinition: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(CreateRelationDefinitionOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(CreateRelationDefinitionOutput)(output),
+              appendCommand: () => {
+                if (relationDefinitionId === undefined) throw new Error("createRelationDefinition completed without an identity")
+                ledger.appendCreateRelationDefinition({ ...command, fingerprint }, relationDefinitionId)
+              },
+              appendSideEffects: () => {
+                if (relationDefinitionId === undefined) throw new Error("createRelationDefinition completed without an identity")
+                const payload = {
+                  relationDefinitionId,
+                  forwardName: decoded.forwardName,
+                  inverseName: decoded.inverseName,
+                  sourceTagId: decoded.sourceTagId,
+                  targetTagId: decoded.targetTagId,
+                  cardinality: decoded.cardinality
+                }
+                ledger.appendEvent(requestIdentity, "create-relation-definition", payload)
+                ledger.appendOutbox(requestIdentity, "create-relation-definition", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createRelationDefinition failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, CreateRelationDefinitionOutput)
   }
 
   async createEdge(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(CreateEdgeInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to create a workspace relationship." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to create a workspace relationship." }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const edge = yield* graph.createEdge(
-            decoded.workspaceId,
-            decoded.relationDefinitionId,
-            decoded.sourceNodeId,
-            decoded.targetNodeId
-          )
-          return new CreateEdgeOutput({ edge })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `create-edge:${decoded.requestId}`
+          const command: CreateEdgeLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            relationDefinitionId: decoded.relationDefinitionId,
+            sourceNodeId: decoded.sourceNodeId,
+            targetNodeId: decoded.targetNodeId,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = createEdgeLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let edgeId: string | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "createEdge",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.createEdge(
+                  decoded.workspaceId,
+                  decoded.relationDefinitionId,
+                  decoded.sourceNodeId,
+                  decoded.targetNodeId
+                ))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                edgeId = exit.value.id
+                return new CreateEdgeOutput({ edge: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(CreateEdgeOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(CreateEdgeOutput)(output),
+              appendCommand: () => ledger.appendCreateEdge(ledgerCommand),
+              appendSideEffects: () => {
+                if (edgeId === undefined) throw new Error("createEdge completed without an edge identity")
+                const payload = {
+                  edgeId,
+                  relationDefinitionId: decoded.relationDefinitionId,
+                  sourceNodeId: decoded.sourceNodeId,
+                  targetNodeId: decoded.targetNodeId
+                }
+                ledger.appendEvent(requestIdentity, "create-edge", payload)
+                ledger.appendOutbox(requestIdentity, "create-edge", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createEdge failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, CreateEdgeOutput)
   }
@@ -1298,16 +2199,83 @@ class WorkspaceRpcApi extends RpcTarget {
    *  read-only `listBacklinks` just above. */
   async syncNoteReferences(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(SyncNoteReferencesInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to reconcile note mentions." }))
+        }
+        const referencedNodeIds = [...new Set(decoded.referencedNodeIds)].sort()
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to reconcile note mentions." }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const edges = yield* graph.syncNoteReferences(decoded.workspaceId, decoded.nodeId, decoded.referencedNodeIds)
-          return new SyncNoteReferencesOutput({ edges })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `sync-note-references:${decoded.requestId}`
+          const command: SyncNoteReferencesLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            nodeId: decoded.nodeId,
+            referencedNodeIds,
+            created: [],
+            removed: [],
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = syncNoteReferencesLedgerFingerprint(command)
+          let mutation: SyncNoteReferencesResult | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "syncNoteReferences",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.syncNoteReferences(decoded.workspaceId, decoded.nodeId, referencedNodeIds))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                mutation = exit.value
+                return new SyncNoteReferencesOutput({ edges: exit.value.edges })
+              },
+              encodeOutput: (output) => Schema.encodeSync(SyncNoteReferencesOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(SyncNoteReferencesOutput)(output),
+              appendCommand: () => {
+                if (mutation === undefined) throw new Error("syncNoteReferences completed without a mutation journal")
+                ledger.appendSyncNoteReferences({
+                  ...command,
+                  fingerprint,
+                  created: mutation.created,
+                  removed: mutation.removed
+                })
+              },
+              appendSideEffects: () => {
+                if (mutation === undefined) throw new Error("syncNoteReferences completed without a mutation journal")
+                if (mutation.created.length === 0 && mutation.removed.length === 0) return
+                const payload = {
+                  nodeId: decoded.nodeId,
+                  referencedNodeIds,
+                  created: mutation.created,
+                  removed: mutation.removed
+                }
+                ledger.appendEvent(requestIdentity, "sync-note-references", payload)
+                ledger.appendOutbox(requestIdentity, "sync-note-references", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered syncNoteReferences failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, SyncNoteReferencesOutput)
   }
@@ -1369,16 +2337,53 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async assignTag(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(AssignTagInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to assign a Supertag." }))
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) return Effect.fail(new ValidationError({ message: "A commit message is required to assign a Supertag." }))
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          yield* graph.assignTag(decoded.workspaceId, decoded.nodeId, decoded.tagId)
-          return new AssignTagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `assign-tag:${decoded.requestId}`
+          const command: AssignTagLedgerCommandInput = {
+            requestIdentity, requestId: decoded.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy,
+            nodeId: decoded.nodeId, tagId: decoded.tagId, commitMessage, attribution: decoded.attribution,
+            fingerprint: "", createdAt: new Date().toISOString()
+          }
+          const fingerprint = assignTagLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let changed: boolean | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "assignTag",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.assignTag(decoded.workspaceId, decoded.nodeId, decoded.tagId))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                changed = exit.value
+                return new AssignTagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId, changed: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(AssignTagOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(AssignTagOutput)(output),
+              appendCommand: () => ledger.appendAssignTag(ledgerCommand),
+              appendSideEffects: () => {
+                if (changed !== true) return
+                const payload = { nodeId: decoded.nodeId, tagId: decoded.tagId, changed: true }
+                ledger.appendEvent(requestIdentity, "assign-tag", payload)
+                ledger.appendOutbox(requestIdentity, "assign-tag", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered assignTag failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, AssignTagOutput)
   }
@@ -1388,16 +2393,53 @@ class WorkspaceRpcApi extends RpcTarget {
    *  (`"build"`): removing a node's tag membership is a structural graph mutation, not a read. */
   async unassignTag(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(UnassignTagInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to remove a Supertag." }))
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) return Effect.fail(new ValidationError({ message: "A commit message is required to remove a Supertag." }))
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          yield* graph.unassignTag(decoded.workspaceId, decoded.nodeId, decoded.tagId)
-          return new UnassignTagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `unassign-tag:${decoded.requestId}`
+          const command: UnassignTagLedgerCommandInput = {
+            requestIdentity, requestId: decoded.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy,
+            nodeId: decoded.nodeId, tagId: decoded.tagId, commitMessage, attribution: decoded.attribution,
+            fingerprint: "", createdAt: new Date().toISOString()
+          }
+          const fingerprint = unassignTagLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let changed: boolean | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "unassignTag",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.unassignTag(decoded.workspaceId, decoded.nodeId, decoded.tagId))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                changed = exit.value
+                return new UnassignTagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId, changed: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(UnassignTagOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(UnassignTagOutput)(output),
+              appendCommand: () => ledger.appendUnassignTag(ledgerCommand),
+              appendSideEffects: () => {
+                if (changed !== true) return
+                const payload = { nodeId: decoded.nodeId, tagId: decoded.tagId, changed: true }
+                ledger.appendEvent(requestIdentity, "unassign-tag", payload)
+                ledger.appendOutbox(requestIdentity, "unassign-tag", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered unassignTag failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, UnassignTagOutput)
   }
@@ -1406,22 +2448,85 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async defineTagField(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(DefineTagFieldInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to define a Supertag field." }))
+        }
+        const name = normalizeTagFieldName(decoded.name)
+        if (name.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A non-blank field name is required." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to define a Supertag field." }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const fieldDefinition = yield* graph.defineTagField(
-            decoded.workspaceId,
-            decoded.tagId,
-            decoded.name,
-            decoded.valueKind,
-            decoded.sortOrder
-          )
-          return new DefineTagFieldOutput({ fieldDefinition })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `define-tag-field:${decoded.requestId}`
+          const command: DefineTagFieldLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            tagId: decoded.tagId,
+            name,
+            valueKind: decoded.valueKind,
+            sortOrder: decoded.sortOrder,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = defineTagFieldLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          let fieldDefinitionId: string | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "defineTagField",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.defineTagField(
+                  decoded.workspaceId,
+                  decoded.tagId,
+                  name,
+                  decoded.valueKind,
+                  decoded.sortOrder
+                ))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                fieldDefinitionId = exit.value.id
+                return new DefineTagFieldOutput({ fieldDefinition: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(DefineTagFieldOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(DefineTagFieldOutput)(output),
+              appendCommand: () => ledger.appendDefineTagField(ledgerCommand),
+              appendSideEffects: () => {
+                if (fieldDefinitionId === undefined) throw new Error("defineTagField completed without a field identity")
+                const payload = {
+                  fieldDefinitionId,
+                  tagId: decoded.tagId,
+                  name,
+                  valueKind: decoded.valueKind,
+                  sortOrder: decoded.sortOrder
+                }
+                ledger.appendEvent(requestIdentity, "define-tag-field", payload)
+                ledger.appendOutbox(requestIdentity, "define-tag-field", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered defineTagField failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, DefineTagFieldOutput)
   }
@@ -1446,21 +2551,90 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async applySupertag(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(ApplySupertagInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        const fieldValues = decoded.fieldValues ?? []
+        const fieldIds = new Set<string>()
+        for (const fieldValue of fieldValues) {
+          if (fieldIds.has(fieldValue.fieldId)) {
+            return Effect.fail(new ValidationError({ message: `duplicate Supertag field ${fieldValue.fieldId}` }))
+          }
+          fieldIds.add(fieldValue.fieldId)
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "commitMessage must contain non-whitespace text" }))
+        }
+        return Effect.gen(function* () {
           const graph = yield* GraphService
-          const facts = yield* graph.applySupertag(
-            decoded.workspaceId,
-            decoded.nodeId,
-            decoded.tagId,
-            (decoded.fieldValues ?? []).map((fv) => ({ fieldId: fv.fieldId, value: fv.value }))
-          )
-          return new ApplySupertagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId, facts })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
+          const principal = currentUser?.email ?? "anonymous"
+          const requestIdentity = `apply-supertag:${decoded.requestId}`
+          const fingerprint = applySupertagLedgerFingerprint({
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal,
+            policy,
+            nodeId: decoded.nodeId,
+            tagId: decoded.tagId,
+            fieldValues,
+            commitMessage,
+            attribution: decoded.attribution
+          })
+          const command: ApplySupertagLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            fingerprint,
+            workspaceId: decoded.workspaceId,
+            principal,
+            policy,
+            nodeId: decoded.nodeId,
+            tagId: decoded.tagId,
+            fieldValues,
+            commitMessage,
+            attribution: decoded.attribution,
+            createdAt: new Date().toISOString()
+          }
+          let factIds: ReadonlyArray<string> = []
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "applySupertag",
+              mutate: () => {
+                const exit = Effect.runSyncExit(graph.applySupertag(
+                  decoded.workspaceId,
+                  decoded.nodeId,
+                  decoded.tagId,
+                  fieldValues.map((fv) => ({ fieldId: fv.fieldId, value: fv.value }))
+                ))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                factIds = exit.value.map((fact) => fact.id)
+                return new ApplySupertagOutput({ nodeId: decoded.nodeId, tagId: decoded.tagId, facts: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(ApplySupertagOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(ApplySupertagOutput)(output),
+              appendCommand: () => ledger.appendApplySupertag(command),
+              appendSideEffects: () => {
+                const payload = { nodeId: decoded.nodeId, tagId: decoded.tagId, factIds }
+                ledger.appendEvent(requestIdentity, "apply-supertag", payload)
+                ledger.appendOutbox(requestIdentity, "apply-supertag", payload)
+              }
+            })),
+            catch: (error): DomainError =>
+              error instanceof LedgerConflict || error instanceof ValidationError
+                ? new ValidationError({ message: error.message })
+                : isDomainError(error)
+                  ? error
+                  : new UnexpectedError({ message: `ledgered applySupertag failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, ApplySupertagOutput)
   }
@@ -1604,7 +2778,10 @@ class WorkspaceRpcApi extends RpcTarget {
           const agentEdit = yield* AgentEditService
           const { chat } = yield* agentEdit.getChat(decoded.chatId)
           yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
-          const { messages, changesSequences } = yield* agentEdit.sendChatMessage(decoded.chatId, decoded.text)
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
+          const context = currentUser === undefined ? undefined : { principal: currentUser.email, policy }
+          const { messages, changesSequences } = yield* agentEdit.sendChatMessage(decoded.chatId, decoded.text, context)
           return new SendChatMessageOutput({ messages, changesSequences })
         })
       )
@@ -1648,6 +2825,77 @@ class WorkspaceRpcApi extends RpcTarget {
     return runRpcProgram(this.#runtime, program, RevertChangesOutput)
   }
 
+  /** Public P5.2 decision boundary. The authenticated user is derived from the connection; the
+   * caller supplies only the immutable proposal id, decision, rationale, and evidence provenance.
+   * Proposal validation, target promotion/rejection, ledger command, event, outbox, and receipt
+   * all share one Durable Object transaction. */
+  async decideAgentChangeProposal(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(DecideAgentChangeProposalInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(
+            new Unauthorized({
+              message: "An authenticated user is required to decide an agent change proposal."
+            })
+          )
+        }
+        return Effect.gen(function* () {
+          const agentEdit = yield* AgentEditService
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `agent-change-decision:${decoded.requestId}`
+          const command = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            proposalId: decoded.proposalId,
+            decision: decoded.decision,
+            principal: currentUser.email,
+            provenance: decoded.provenance,
+            policy,
+            message: decoded.message,
+            payload: { proposalId: decoded.proposalId, decision: decoded.decision }
+          }
+          const fingerprint = agentChangeDecisionLedgerFingerprint(command)
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const replay = ledger.existing(requestIdentity, fingerprint)
+              if (replay !== undefined) return Schema.decodeUnknownSync(DecideAgentChangeProposalOutput)(replay.output)
+              const exit = Effect.runSyncExit(agentEdit.decideAgentChangeProposal({
+                proposalId: decoded.proposalId,
+                decision: decoded.decision
+              }))
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              const output = new DecideAgentChangeProposalOutput({
+                proposalId: decoded.proposalId,
+                state: exit.value
+              })
+              ledger.appendAgentChangeDecision({
+                ...command,
+                fingerprint,
+                createdAt: new Date().toISOString()
+              }, Schema.encodeSync(DecideAgentChangeProposalOutput)(output))
+              return output
+            }),
+            catch: (error): DomainError =>
+              error instanceof LedgerConflict || error instanceof ValidationError
+                ? new ValidationError({ message: error.message })
+                : error instanceof Unauthorized || error instanceof UnexpectedError
+                  ? error
+                  : new UnexpectedError({ message: `ledgered agent change decision failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+        })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, DecideAgentChangeProposalOutput)
+  }
+
   async listChatChanges(input: unknown): Promise<unknown> {
     const workspaceId = this.#workspaceId
     const currentUser = this.#currentUser
@@ -1683,6 +2931,44 @@ class WorkspaceRpcApi extends RpcTarget {
       )
     )
     return runRpcProgram(this.#runtime, program, ListPendingChangesOutput)
+  }
+
+  /** Read-only, privacy-safe audit history for the Today surface. This is intentionally a
+   * build-role view: it exposes commit messages that may describe agent work, while the response
+   * redacts raw principals and all internal ledger identifiers. It reports recorded command
+   * history only; direct mutation paths remain outside this transitional feed until migrated. */
+  async listRecentLedgerActivity(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(ListRecentLedgerActivityInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.map((decoded) => {
+        const actorFor = (principal: string): "you" | "workspace-member" | "anonymous" => {
+          if (principal === "anonymous") return "anonymous"
+          if (principal === currentUser?.email) return "you"
+          return "workspace-member"
+        }
+        // `IsoDateTimeString` accepts valid offset forms as well as canonical UTC strings. Normalize
+        // at the RPC boundary so SQLite's lexical timestamp comparison always compares instants,
+        // not representations with different offsets.
+        const ledgerWindow = {
+          from: decoded.from === undefined ? undefined : new Date(decoded.from).toISOString(),
+          to: decoded.to === undefined ? undefined : new Date(decoded.to).toISOString()
+        }
+        const entries = this.#ledger.listRecentActivity(decoded.limit ?? 8, ledgerWindow).flatMap((row) => {
+          const type = Schema.decodeUnknownOption(LedgerActivityType)(row.type)
+          if (type._tag === "None") return []
+          return [new LedgerActivityEntry({
+            occurredAt: Schema.decodeUnknownSync(IsoDateTimeString)(row.createdAt),
+            type: type.value,
+            actor: actorFor(row.principal),
+            message: row.message
+          })]
+        })
+        return new ListRecentLedgerActivityOutput({ entries })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, ListRecentLedgerActivityOutput)
   }
 
   // --- App Library (app-rpc.ts's six mainline/direct methods — see `apps-service-live.ts`'s own
@@ -2148,6 +3434,24 @@ class WorkspaceRpcApi extends RpcTarget {
     return runRpcProgram(this.#runtime, program, ListCalendarEventsOutput)
   }
 
+  async getTodayBrief(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(GetTodayBriefInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      // Keep the authorization boundary centralized at the RPC edge. CalendarService then applies
+      // the calendar-derived visibility policy and deliberately makes a denial look like no local
+      // retained data, rather than disclosing any binding or observer state.
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const calendar = yield* CalendarService
+          return yield* calendar.getTodayBrief(decoded, currentUser?.email)
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, GetTodayBriefOutput)
+  }
+
   async linkCalendarEventToNode(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
     const program = decodeRpcInput(LinkCalendarEventToNodeInput, input).pipe(
@@ -2166,16 +3470,69 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async createBookmark(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(CreateBookmarkInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to create a bookmark." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to create a bookmark." }))
+        }
+        return Effect.gen(function* () {
           const calendar = yield* CalendarService
-          const bookmark = yield* calendar.createBookmark(decoded.workspaceId, decoded.url, decoded.title)
-          return new CreateBookmarkOutput({ bookmark })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `create-bookmark:${decoded.requestId}`
+          const command: CreateBookmarkLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            url: decoded.url,
+            ...(decoded.title !== undefined ? { title: decoded.title } : {}),
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = createBookmarkLedgerFingerprint(command)
+          let bookmark: Bookmark | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "createBookmark",
+              mutate: () => {
+                const exit = Effect.runSyncExit(calendar.createBookmark(decoded.workspaceId, decoded.url, decoded.title))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                bookmark = exit.value
+                return new CreateBookmarkOutput({ bookmark: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(CreateBookmarkOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(CreateBookmarkOutput)(output),
+              appendCommand: () => {
+                if (bookmark === undefined) throw new Error("createBookmark completed without a bookmark identity")
+                ledger.appendCreateBookmark({ ...command, fingerprint }, bookmark)
+              },
+              appendSideEffects: () => {
+                if (bookmark === undefined) throw new Error("createBookmark completed without a bookmark identity")
+                const payload = { bookmarkId: bookmark.id }
+                ledger.appendEvent(requestIdentity, "create-bookmark", payload)
+                ledger.appendOutbox(requestIdentity, "create-bookmark", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createBookmark failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, CreateBookmarkOutput)
   }
@@ -2208,16 +3565,68 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async startMeeting(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(StartMeetingInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to start a meeting." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to start a meeting." }))
+        }
+        return Effect.gen(function* () {
           const meetings = yield* MeetingsService
-          const meeting = yield* meetings.startMeeting(decoded.workspaceId, decoded.title)
-          return new StartMeetingOutput({ meeting })
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `start-meeting:${decoded.requestId}`
+          const command: StartMeetingLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            title: decoded.title,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = startMeetingLedgerFingerprint(command)
+          let meeting: { readonly id: string; readonly title: string; readonly startedAt: string } | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "startMeeting",
+              mutate: () => {
+                const exit = Effect.runSyncExit(meetings.startMeeting(decoded.workspaceId, decoded.title))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                meeting = exit.value
+                return new StartMeetingOutput({ meeting: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(StartMeetingOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(StartMeetingOutput)(output),
+              appendCommand: () => {
+                if (meeting === undefined) throw new Error("startMeeting completed without a meeting identity")
+                ledger.appendStartMeeting({ ...command, fingerprint }, meeting)
+              },
+              appendSideEffects: () => {
+                if (meeting === undefined) throw new Error("startMeeting completed without a meeting identity")
+                const payload = { meetingId: meeting.id }
+                ledger.appendEvent(requestIdentity, "start-meeting", payload)
+                ledger.appendOutbox(requestIdentity, "start-meeting", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered startMeeting failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, StartMeetingOutput)
   }
@@ -2240,22 +3649,79 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async appendTranscriptSegment(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(AppendTranscriptSegmentInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to append a transcript segment." }))
+        }
+        const commitMessage = decoded.commitMessage.trim()
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to append a transcript segment." }))
+        }
+        return Effect.gen(function* () {
           const meetings = yield* MeetingsService
-          const segment = yield* meetings.appendTranscriptSegment(decoded.workspaceId, decoded.meetingId, {
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `append-transcript-segment:${decoded.requestId}`
+          const command: AppendTranscriptSegmentLedgerCommandInput = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            meetingId: decoded.meetingId,
             ...(decoded.speakerId !== undefined ? { speakerId: decoded.speakerId } : {}),
             text: decoded.text,
             startOffsetMs: decoded.startOffsetMs,
             endOffsetMs: decoded.endOffsetMs,
-            source: decoded.source
+            source: decoded.source,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = appendTranscriptSegmentLedgerFingerprint(command)
+          let segment: import("@athenaeum/domain").TranscriptSegmentRecord | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "appendTranscriptSegment",
+              mutate: () => {
+                const exit = Effect.runSyncExit(meetings.appendTranscriptSegment(decoded.workspaceId, decoded.meetingId, {
+                  ...(decoded.speakerId !== undefined ? { speakerId: decoded.speakerId } : {}),
+                  text: decoded.text,
+                  startOffsetMs: decoded.startOffsetMs,
+                  endOffsetMs: decoded.endOffsetMs,
+                  source: decoded.source
+                }))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                segment = exit.value
+                return new AppendTranscriptSegmentOutput({ segment: exit.value })
+              },
+              encodeOutput: (output) => Schema.encodeSync(AppendTranscriptSegmentOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(AppendTranscriptSegmentOutput)(output),
+              appendCommand: () => {
+                if (segment === undefined) throw new Error("appendTranscriptSegment completed without a segment identity")
+                ledger.appendTranscriptSegment({ ...command, fingerprint }, segment)
+              },
+              appendSideEffects: () => {
+                if (segment === undefined) throw new Error("appendTranscriptSegment completed without a segment identity")
+                const payload = { meetingId: decoded.meetingId, segmentId: segment.id }
+                ledger.appendEvent(requestIdentity, "append-transcript-segment", payload)
+                ledger.appendOutbox(requestIdentity, "append-transcript-segment", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered appendTranscriptSegment failed: ${error instanceof Error ? error.message : String(error)}` })
           })
-          return new AppendTranscriptSegmentOutput({ segment })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, AppendTranscriptSegmentOutput)
   }
@@ -2576,6 +4042,7 @@ class WorkspaceRpcApi extends RpcTarget {
 export class WorkspaceDurableObject extends DurableObject<Env> {
   readonly #runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>
   readonly #collections: WorkspaceCollections
+  readonly #pageCollections: PagesCollections
   readonly #workspaceId: EntityId
   readonly #sql: SqlStorage
   /**
@@ -2655,6 +4122,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     const tagFieldDefinitionsCollections = makeTagFieldDefinitionsCollections(ctx.storage)
     const syncFeedCollections = makeSyncFeedCollections(ctx.storage)
     this.#collections = nodesCollections
+    this.#pageCollections = pagesCollections
 
     // App Library backend-implementation stage: same "own small collections module" shape as
     // every other `make*Collections(ctx.storage)` call above/below — see `app-collections.ts`'s
@@ -2686,6 +4154,11 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       this.#sql
     ).pipe(Layer.provide(repositoriesLayer))
     const notesServiceLive = makeNotesServiceLive(pagesCollections, this.#sql).pipe(Layer.provide(repositoriesLayer))
+    const loroPageServiceLive = makeLoroPageServiceLive(
+      pagesCollections,
+      pageProposalCollections,
+      this.#sql
+    ).pipe(Layer.provide(repositoriesLayer))
     const pageProposalServiceLive = makePageProposalServiceLive(pageProposalCollections).pipe(Layer.provide(notesServiceLive))
     // Phase 3 spike (plan risk #4): the Automerge-fork-as-chat-branch mechanism. Depends on
     // `NotesService` itself (not the raw `pagesCollections`) — see chat-fork-service-live.ts's
@@ -2722,6 +4195,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       })
     )
     const agentEditCollections = makeAgentEditCollections(ctx.storage)
+    const agentChangeProposalCollections = makeAgentChangeProposalCollections(ctx.storage, this.#sql)
+    const agentLoroEditServiceLive = makeAgentLoroEditServiceLive(
+      this.#workspaceId,
+      this.#storage,
+      new LedgerService(this.#sql)
+    ).pipe(Layer.provide(loroPageServiceLive))
     const agentEditServiceLive = makeAgentEditServiceLive(
       this.#workspaceId,
       agentEditCollections,
@@ -2729,10 +4208,18 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       factsCollections,
       edgesCollections,
       appCollections,
+      agentChangeProposalCollections,
       this.#sql
     ).pipe(
       Layer.provide(
-        Layer.mergeAll(repositoriesLayer, graphServiceLive, notesServiceLive, chatForkServiceLive, modelClientLayer)
+        Layer.mergeAll(
+          repositoriesLayer,
+          graphServiceLive,
+          notesServiceLive,
+          chatForkServiceLive,
+          modelClientLayer,
+          agentLoroEditServiceLive
+        )
       )
     )
 
@@ -2902,7 +4389,9 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       repositoriesLayer,
       graphServiceLive,
       notesServiceLive,
+      loroPageServiceLive,
       chatForkServiceLive,
+      agentLoroEditServiceLive,
       pageProposalServiceLive,
       viewsServiceLive,
       agentEditServiceLive,
@@ -3287,6 +4776,56 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     return rows.map((row) => ({ hash: row.hash, linkId: row.linkId, alias: row.alias }))
   }
 
+  /**
+   * P5.1's only capture entrypoint. This is a `ctx.exports`-only trusted internal seam, never a
+   * Cap'n Web `WorkspaceRpcApi` method: it lets the eventual authorised command owner invoke one
+   * complete synchronous DO transaction, while tests exercise the actual transaction/rollback
+   * boundary without granting connected clients a reservation capability.
+   */
+  async debugCaptureAgentChangeProposal(input: unknown): Promise<unknown> {
+    const decoded = Schema.decodeUnknownSync(Schema.Struct({
+      chatId: EntityId,
+      operation: Schema.Literal("merge", "revert"),
+      rangeBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+      requestId: Schema.String.pipe(Schema.minLength(1)),
+      actor: Schema.String.pipe(Schema.minLength(1)),
+      provenance: Schema.String.pipe(Schema.minLength(1))
+    }))(input)
+    const program = AgentEditService.pipe(
+      Effect.flatMap((agentEdit) => Effect.try({
+        try: () => this.#storage.transactionSync(() => {
+          const exit = Effect.runSyncExit(agentEdit.captureProposalAndReserve(decoded))
+          if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+          return exit.value
+        }),
+        catch: (error): DomainError => error instanceof ValidationError || error instanceof UnexpectedError
+          ? error : new UnexpectedError({ message: `agent change capture transaction failed: ${error instanceof Error ? error.message : String(error)}` })
+      }))
+    )
+    const captured = await runOrThrowRpcError(this.#runtime, program)
+    return Schema.encodeSync(AgentChangeProposal)(captured)
+  }
+
+  /** Read-only `ctx.exports` inspection paired with `debugCaptureAgentChangeProposal`; no public
+   * client route or mutation-routing-manifest entry is added in P5.1. */
+  async debugGetAgentChangeProposal(requestId: string): Promise<unknown | null> {
+    const captured = await runOrThrowRpcError(
+      this.#runtime,
+      AgentEditService.pipe(Effect.flatMap((agentEdit) => agentEdit.capturedProposalForRequest(requestId)))
+    )
+    return captured === undefined ? null : Schema.encodeSync(AgentChangeProposal)(captured)
+  }
+
+  /** Test-only trusted caller for the real crash-reconciliation path. It deliberately remains
+   * outside `WorkspaceRpcApi`, where an arbitrary connected client could not trigger it. */
+  async debugReconcileAgentChanges(chatId: string): Promise<{ readonly reAdopted: number; readonly reaped: number }> {
+    const decodedChatId = Schema.decodeUnknownSync(EntityId)(chatId)
+    return runOrThrowRpcError(
+      this.#runtime,
+      AgentEditService.pipe(Effect.flatMap((agentEdit) => agentEdit.reconcilePendingChanges(decodedChatId)))
+    )
+  }
+
   // --- Phase 6 debug/test hooks (`ctx.exports`-only, never Cap'n Web-exposed — same access rule
   // as `debugListShareKeyRows`/`evictSessions` above) -------------------------------------------
 
@@ -3376,6 +4915,112 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       requestIdentity
     ).toArray()[0]
     return row === undefined ? null : { ...row, payload: JSON.parse(row.payload) }
+  }
+
+  async debugGetLedgerEvent(requestIdentity: string): Promise<unknown | null> {
+    const row = this.#sql.exec<{ kind: string; payload: string }>(
+      "SELECT kind, payload FROM ledger_events WHERE requestIdentity = ?",
+      requestIdentity
+    ).toArray()[0]
+    return row === undefined ? null : { kind: row.kind, payload: JSON.parse(row.payload) }
+  }
+
+  async debugGetLedgerOutboxIntent(requestIdentity: string): Promise<unknown | null> {
+    const row = this.#sql.exec<{ kind: string; payload: string }>(
+      "SELECT kind, payload FROM ledger_outbox_intents WHERE requestIdentity = ?",
+      requestIdentity
+    ).toArray()[0]
+    return row === undefined ? null : { kind: row.kind, payload: JSON.parse(row.payload) }
+  }
+
+  /** Test-only aggregate witness for routes which intentionally have no ledger request identity. */
+  async debugGetLedgerArtifactCounts(): Promise<{
+    readonly commands: number
+    readonly receipts: number
+    readonly events: number
+    readonly outboxIntents: number
+  }> {
+    const count = (table: string): number => this.#sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${table}`).one().count
+    return {
+      commands: count("ledger_commands"),
+      receipts: count("ledger_receipts"),
+      events: count("ledger_events"),
+      outboxIntents: count("ledger_outbox_intents")
+    }
+  }
+
+  /** Test-only corruption seam for proving durable Loro reload validation. It remains native-RPC
+   * only and updates the snapshot row plus its descriptor atomically, so the test isolates page
+   * contract validation rather than a torn-write failure. */
+  async debugReplaceLoroPageSnapshot(nodeId: string, snapshot: Uint8Array): Promise<void> {
+    const decodedNodeId = Schema.decodeUnknownSync(EntityId)(nodeId)
+    const pageCollections = this.#pageCollections
+    const storage = this.#storage
+    const program = Effect.gen(function* () {
+      const format = yield* pageCollections.pageDocumentFormats.get(decodedNodeId).pipe(
+        Effect.mapError(toUnexpectedError),
+        Effect.flatMap(decodePageDocumentFormatRow)
+      )
+      const current = yield* pageCollections.loroPageDocs.get(decodedNodeId).pipe(Effect.mapError(toUnexpectedError))
+      if (format?.activeFormat !== "loro-v1" || format.loro === undefined || current === undefined) {
+        return yield* Effect.fail(new ValidationError({ message: `page ${decodedNodeId} is not an active Loro page` }))
+      }
+      const loroDescriptor = format.loro
+      const snapshotSha256 = sha256HexSync(snapshot)
+      yield* Effect.try({
+        try: () =>
+          storage.transactionSync(() => {
+            const exit = Effect.runSyncExit(
+              Effect.all([
+                pageCollections.loroPageDocs.put({
+                  ...current,
+                  snapshot,
+                  snapshotSha256
+                }).pipe(Effect.mapError(toUnexpectedError)),
+                pageCollections.pageDocumentFormats.put({
+                  ...format,
+                  storageVersion: format.storageVersion + 1,
+                  loro: { ...loroDescriptor, snapshotSha256 }
+                }).pipe(Effect.mapError(toUnexpectedError))
+              ])
+            )
+            if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+          }),
+        catch: (error): DomainError =>
+          error instanceof ValidationError || error instanceof UnexpectedError
+            ? error
+            : new UnexpectedError({ message: `Loro page test snapshot replacement failed: ${String(error)}` })
+      })
+    })
+    await runOrThrowRpcError(this.#runtime, program)
+  }
+
+  /** Test-only corruption seam for proving that migrated pages validate their retained
+   * Automerge witness before trusting the Loro route. This deliberately bypasses schema decoding
+   * on write: the production collection is structural, so the service's read-side decoder is the
+   * boundary under test. It remains `ctx.exports`-only and is never added to WorkspaceRpcApi. */
+  async debugReplacePageDocumentFormat(nodeId: string, format: unknown): Promise<void> {
+    const decodedNodeId = Schema.decodeUnknownSync(EntityId)(nodeId)
+    if (format === null || typeof format !== "object" || Array.isArray(format)) {
+      throw new ValidationError({ message: "page document format test row must be an object" })
+    }
+    const row = { ...(format as Record<string, unknown>), nodeId: decodedNodeId } as PageDocumentFormatRow
+    const pageCollections = this.#pageCollections
+    const storage = this.#storage
+    const program = Effect.try({
+      try: () =>
+        storage.transactionSync(() => {
+          const exit = Effect.runSyncExit(
+            pageCollections.pageDocumentFormats.put(row).pipe(Effect.mapError(toUnexpectedError))
+          )
+          if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+        }),
+      catch: (error): DomainError =>
+        error instanceof ValidationError || error instanceof UnexpectedError
+          ? error
+          : new UnexpectedError({ message: `page document format test replacement failed: ${String(error)}` })
+    })
+    await runOrThrowRpcError(this.#runtime, program)
   }
 
   /**

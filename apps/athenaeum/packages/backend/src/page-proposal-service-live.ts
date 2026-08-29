@@ -2,7 +2,18 @@ import * as Automerge from "@automerge/automerge"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import { canonicalAutomergeHeadsHash, IsoDateTimeString, PageCommit, PageNotFound, PageProposal, PageProposalProvenance, type EntityId, UnexpectedError, ValidationError } from "@athenaeum/domain"
+import {
+  canonicalAutomergeHeadsHash,
+  IsoDateTimeString,
+  PageCommit,
+  PageFormatMismatch,
+  PageNotFound,
+  PageProposal,
+  PageProposalProvenance,
+  type EntityId,
+  UnexpectedError,
+  ValidationError
+} from "@athenaeum/domain"
 import * as Schema from "effect/Schema"
 import type { PageDoc } from "./notes-service-live.js"
 import { NotesService } from "./notes-service-live.js"
@@ -18,14 +29,14 @@ export class PageProposalService extends Context.Tag("@athenaeum/backend/PagePro
     readonly propose: (input: {
       workspaceId: EntityId; nodeId: EntityId; index: number; deleteCount: number; insertText: string;
       rationale: string; provenance: PageProposal["provenance"]
-    }) => Effect.Effect<PageProposal, ValidationError | PageNotFound | UnexpectedError>
+    }) => Effect.Effect<PageProposal, PageFormatMismatch | ValidationError | PageNotFound | UnexpectedError>
     readonly preview: (proposalId: EntityId) => Effect.Effect<{ proposal: PageProposal; text: string }, ValidationError | PageNotFound | UnexpectedError>
     /** Legacy chat-fork façade lookup. Only an open proposal is addressable through this path. */
     readonly findPendingChatFork: (chatId: string, nodeId: EntityId) => Effect.Effect<PageProposal, ValidationError | UnexpectedError>
     /** Acceptance lookup also resolves an already accepted proposal so retries can replay its receipt. */
     readonly findChatForkForAcceptance: (chatId: string, nodeId: EntityId) => Effect.Effect<PageProposal, ValidationError | UnexpectedError>
-    readonly applyEdit: (proposalId: EntityId, index: number, deleteCount: number, insertText: string) => Effect.Effect<PageProposal, ValidationError | UnexpectedError>
-    readonly accept: (proposalId: EntityId) => Effect.Effect<{ proposal: PageProposal; commit: PageCommit; page: import("@athenaeum/domain").Page; text: string; publish: () => void }, ValidationError | PageNotFound | UnexpectedError>
+    readonly applyEdit: (proposalId: EntityId, index: number, deleteCount: number, insertText: string, rationale?: string) => Effect.Effect<PageProposal, ValidationError | UnexpectedError>
+    readonly accept: (proposalId: EntityId) => Effect.Effect<{ proposal: PageProposal; commit: PageCommit; page: import("@athenaeum/domain").Page; text: string; publish: () => void }, PageFormatMismatch | ValidationError | PageNotFound | UnexpectedError>
     readonly revert: (proposalId: EntityId) => Effect.Effect<PageProposal, ValidationError | UnexpectedError>
   }
 >() {}
@@ -115,13 +126,15 @@ export const makePageProposalServiceLive = (collections: PageProposalCollections
         if (row === undefined) return yield* Effect.fail(new ValidationError({ message: `no durable proposal for chat ${chatId} on node ${nodeId}` }))
         return row.proposal
       }),
-      applyEdit: (proposalId, index, deleteCount, insertText) => Effect.gen(function* () {
+      applyEdit: (proposalId, index, deleteCount, insertText, rationale) => Effect.gen(function* () {
         const row = yield* get(proposalId)
         if (row.proposal.status !== "proposed") return yield* Effect.fail(new ValidationError({ message: `cannot edit a ${row.proposal.status} page proposal` }))
+        const nextRationale = rationale === undefined ? row.proposal.rationale : rationale.trim()
+        if (nextRationale.length === 0) return yield* Effect.fail(new ValidationError({ message: "proposal rationale must not be blank" }))
         const next = Automerge.change(Automerge.load<PageDoc>(row.proposal.proposalBytes), (draft) => {
           Automerge.splice(draft, ["text"], index, deleteCount, insertText)
         })
-        const proposal = new PageProposal({ ...row.proposal, proposalBytes: Automerge.save(next), proposalHeadsHash: headsHash(next), updatedAt: timestamp() })
+        const proposal = new PageProposal({ ...row.proposal, proposalBytes: Automerge.save(next), proposalHeadsHash: headsHash(next), rationale: nextRationale, updatedAt: timestamp() })
         yield* save({ ...row, proposal })
         return proposal
       }),

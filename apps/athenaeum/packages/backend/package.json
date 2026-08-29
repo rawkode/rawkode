@@ -11,7 +11,12 @@
     "build": "tsc",
     "clean": "rm -rf dist .wrangler",
     "test:run": "vitest run",
+    "test:loro-native": "node scripts/verify-loro-native.mjs",
     "test:mutation-routing-audit": "node scripts/verify-mutation-routing-manifest.mjs",
+    "test:authority-local-callback": "node scripts/verify-authority-local-callback.mjs",
+    "test:authority-local-callback-fixtures": "node scripts/test-authority-local-callback.mjs",
+    "test:authority-local-source-audit": "node scripts/test-authority-local-source-audit.mjs",
+    "test:protected-path-snapshot": "node scripts/test-protected-path-snapshot.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -19,7 +24,8 @@
     "@athenaeum/typed-storage-effect": "workspace:*",
     "@automerge/automerge": "catalog:",
     "capnweb": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "loro-crdt": "catalog:"
   },
   "devDependencies": {
     "@athenaeum/gatekeeper-google-calendar": "workspace:*",

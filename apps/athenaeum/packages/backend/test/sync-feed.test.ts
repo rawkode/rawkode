@@ -10,12 +10,19 @@ import {
   CreateNodeInput,
   CreateNodeOutput,
   EntityId,
+  HumanUiMutationAttribution,
   RotateEpochInput,
   RotateEpochOutput,
   SyncFeedInput,
   SyncFeedOutput
 } from "@athenaeum/domain"
-import { connectToWorkspace, freshWorkspaceId } from "./support.js"
+import { connectToWorkspace, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId } from "./support.js"
+
+const webFieldAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-supertag-field-editor"
+})
 
 describe("syncFeed: append-only structured-record feed, paged by cursor", () => {
   let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
@@ -88,7 +95,8 @@ describe("append: write-side idempotency (adversarial-review fix)", () => {
 
   it("a retried addFact with the same caller-supplied id produces one Fact and one feed entry, not two", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`sync-add-fact-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "N" })))
@@ -96,7 +104,7 @@ describe("append: write-side idempotency (adversarial-review fix)", () => {
 
     const factId = Schema.decodeUnknownSync(EntityId)(crypto.randomUUID())
     const input = Schema.encodeSync(AddFactInput)(
-      new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "status", value: "done", id: factId })
+      new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "status", value: "done", id: factId, requestId: "sync-fixed", commitMessage: "Update status.", attribution: webFieldAttribution() })
     )
 
     // Simulates a client retrying an addFact call whose response it never saw (e.g. a dropped
@@ -119,23 +127,26 @@ describe("append: write-side idempotency (adversarial-review fix)", () => {
     expect(factEntries).toHaveLength(1)
   })
 
-  it("two addFact calls without a caller-supplied id remain two distinct Facts (no id => no way to recognize a retry)", async () => {
+  it("two distinct addFact request ids without caller-supplied ids remain two distinct Facts", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    const { credential } = await devSignIn(`sync-add-fact-${crypto.randomUUID()}@example.com`)
+    workspaceStub = (await connectToWorkspaceWithSocketAs(workspaceId, credential)).stub
 
     const node = Schema.decodeUnknownSync(CreateNodeOutput)(
       await workspaceStub.createNode(Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "N" })))
     ).node
 
-    const input = Schema.encodeSync(AddFactInput)(
-      new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "status", value: "done" })
+    const firstInput = Schema.encodeSync(AddFactInput)(
+      new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "status", value: "done", requestId: "sync-generated-1", commitMessage: "Update status.", attribution: webFieldAttribution() })
     )
-    const first = Schema.decodeUnknownSync(AddFactOutput)(await workspaceStub.addFact(input))
-    const second = Schema.decodeUnknownSync(AddFactOutput)(await workspaceStub.addFact(input))
+    const secondInput = Schema.encodeSync(AddFactInput)(
+      new AddFactInput({ workspaceId, nodeId: node.id, predicateId: "status", value: "done", requestId: "sync-generated-2", commitMessage: "Update status.", attribution: webFieldAttribution() })
+    )
+    const first = Schema.decodeUnknownSync(AddFactOutput)(await workspaceStub.addFact(firstInput))
+    const second = Schema.decodeUnknownSync(AddFactOutput)(await workspaceStub.addFact(secondInput))
 
-    // Documents the deliberately-narrowed scope (see domain's sync.ts doc comment on
-    // `SyncFeedEntry.hash`): without a stable id, two calls are indistinguishable from two
-    // genuinely separate mutations, so both are real, separate Facts — not silently merged.
+    // A caller-owned request id is the semantic operation identity. Distinct request ids therefore
+    // remain distinct operations even when the server mints both fact ids.
     expect(second.fact.id).not.toBe(first.fact.id)
 
     const page = Schema.decodeUnknownSync(SyncFeedOutput)(

@@ -62,6 +62,8 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "SyncFeedEntry", swiftStructName: "SyncFeedEntry" },
   { tsExportName: "AutomergeSyncSession", swiftStructName: "AutomergeSyncSession" },
   { tsExportName: "RpcErrorEnvelope", swiftStructName: "RpcErrorEnvelope" },
+  { tsExportName: "AutomergePageDocumentDescriptor", swiftStructName: "AutomergePageDocumentDescriptor" },
+  { tsExportName: "LoroPageDocumentDescriptor", swiftStructName: "LoroPageDocumentDescriptor" },
 
   { tsExportName: "CreateNodeInput", swiftStructName: "CreateNodeInput" },
   { tsExportName: "CreateNodeOutput", swiftStructName: "CreateNodeOutput" },
@@ -112,6 +114,19 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "SyncFeedOutput", swiftStructName: "SyncFeedOutput" },
   { tsExportName: "RotateEpochInput", swiftStructName: "RotateEpochInput" },
   { tsExportName: "RotateEpochOutput", swiftStructName: "RotateEpochOutput" },
+
+  { tsExportName: "GetPageDocumentDescriptorInput", swiftStructName: "GetPageDocumentDescriptorInput" },
+  { tsExportName: "GetPageDocumentDescriptorOutput", swiftStructName: "GetPageDocumentDescriptorOutput" },
+  { tsExportName: "GetLegacyPageProjectionInput", swiftStructName: "GetLegacyPageProjectionInput" },
+  { tsExportName: "GetLegacyPageProjectionOutput", swiftStructName: "GetLegacyPageProjectionOutput" },
+  { tsExportName: "MigrateLegacyPageInput", swiftStructName: "MigrateLegacyPageInput" },
+  { tsExportName: "MigrateLegacyPageOutput", swiftStructName: "MigrateLegacyPageOutput" },
+  { tsExportName: "CreateLoroPageInput", swiftStructName: "CreateLoroPageInput" },
+  { tsExportName: "CreateLoroPageOutput", swiftStructName: "CreateLoroPageOutput" },
+  { tsExportName: "StartLoroPageSyncInput", swiftStructName: "StartLoroPageSyncInput" },
+  { tsExportName: "StartLoroPageSyncOutput", swiftStructName: "StartLoroPageSyncOutput" },
+  { tsExportName: "LoroPageSyncMessageInput", swiftStructName: "LoroPageSyncMessageInput" },
+  { tsExportName: "LoroPageSyncMessageOutput", swiftStructName: "LoroPageSyncMessageOutput" },
 
   // Phase 3 (`AgentEditService`): chat/changes/pending mirrors (native-driver stage).
   { tsExportName: "PendingMarker", swiftStructName: "PendingMarker" },
@@ -188,6 +203,7 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "Bookmark", swiftStructName: "Bookmark" },
   { tsExportName: "GoogleCalendarBindingConfig", swiftStructName: "GoogleCalendarBindingConfig" },
   { tsExportName: "GatekeeperBinding", swiftStructName: "GatekeeperBinding" },
+  { tsExportName: "GatekeeperBindingSummary", swiftStructName: "GatekeeperBindingSummary" },
 
   { tsExportName: "ConnectGoogleCalendarInput", swiftStructName: "ConnectGoogleCalendarInput" },
   { tsExportName: "ConnectGoogleCalendarOutput", swiftStructName: "ConnectGoogleCalendarOutput" },
@@ -197,6 +213,8 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "DisconnectGoogleCalendarOutput", swiftStructName: "DisconnectGoogleCalendarOutput" },
   { tsExportName: "SyncGoogleCalendarInput", swiftStructName: "SyncGoogleCalendarInput" },
   { tsExportName: "SyncGoogleCalendarOutput", swiftStructName: "SyncGoogleCalendarOutput" },
+  { tsExportName: "ListGatekeeperBindingsInput", swiftStructName: "ListGatekeeperBindingsInput" },
+  { tsExportName: "ListGatekeeperBindingsOutput", swiftStructName: "ListGatekeeperBindingsOutput" },
   { tsExportName: "ListCalendarEventsInput", swiftStructName: "ListCalendarEventsInput" },
   { tsExportName: "ListCalendarEventsOutput", swiftStructName: "ListCalendarEventsOutput" },
   { tsExportName: "LinkCalendarEventToNodeInput", swiftStructName: "LinkCalendarEventToNodeInput" },
@@ -204,7 +222,20 @@ const MIRRORED_CLASSES: ReadonlyArray<{ tsExportName: string; swiftStructName: s
   { tsExportName: "CreateBookmarkInput", swiftStructName: "CreateBookmarkInput" },
   { tsExportName: "CreateBookmarkOutput", swiftStructName: "CreateBookmarkOutput" },
   { tsExportName: "ListBookmarksInput", swiftStructName: "ListBookmarksInput" },
-  { tsExportName: "ListBookmarksOutput", swiftStructName: "ListBookmarksOutput" }
+  { tsExportName: "ListBookmarksOutput", swiftStructName: "ListBookmarksOutput" },
+
+  // Today Brief: deliberately privacy-safe calendar read projection.
+  { tsExportName: "TodayBriefPerson", swiftStructName: "TodayBriefPerson" },
+  { tsExportName: "TodayBriefEvent", swiftStructName: "TodayBriefEvent" },
+  { tsExportName: "TodayBriefCalendarHistory", swiftStructName: "TodayBriefCalendarHistory" },
+  { tsExportName: "GetTodayBriefInput", swiftStructName: "GetTodayBriefInput" },
+  { tsExportName: "GetTodayBriefOutput", swiftStructName: "GetTodayBriefOutput" },
+
+  // Standup publication: public workspace-read projection only.
+  { tsExportName: "StandupPublicationReference", swiftStructName: "StandupPublicationReference" },
+  { tsExportName: "StandupPublication", swiftStructName: "StandupPublication" },
+  { tsExportName: "ListStandupPublicationsInput", swiftStructName: "ListStandupPublicationsInput" },
+  { tsExportName: "ListStandupPublicationsOutput", swiftStructName: "ListStandupPublicationsOutput" }
 ]
 
 const KNOWN_LIMITATIONS = [
@@ -214,7 +245,8 @@ const KNOWN_LIMITATIONS = [
   "EntityId/IsoDateTimeString/WorkspaceEpoch (branded scalars, no fields) are out of scope for a field-name diff by construction.",
   "Role (sharing.ts's build/use Schema.Literal union) and ShareKeyHash (a branded scalar, like EntityId) are likewise out of scope for a field-name diff — Role is diffed nowhere automatically (same limitation as RelationCardinality etc., above); ShareKeyHash's Swift mirror is hand-verified against sharing.ts's own regex.",
   "PermissionEdge (sharing.ts's Schema.Union(UserEdge, ShareLinkEdge)) is not itself diffed — only its two member classes (UserEdge, ShareLinkEdge) are, individually, via MIRRORED_CLASSES; the Swift-side tagged-union Codable dispatch (Sharing.swift) is hand-verified against the TS union's shared `type` discriminant, same convention as ViewSpec.swift/RpcError.swift.",
-  "Phase 5 native stage additions follow the identical existing pattern, not a new gap: CalendarEventTime (calendar-event.ts's Schema.Union, hand-Codable in CalendarEvent.swift, same convention as PermissionEdge/ViewPredicate), CalendarEventStatus/GatekeeperKind (Schema.Literal unions, like RelationCardinality — diffed nowhere automatically), BookmarkUrl (a branded scalar, like ShareKeyHash/EntityId — out of scope for a field-name diff by construction), and GatekeeperBindingConfig (gatekeeper-binding.ts's Schema.Union(GoogleCalendarBindingConfig), one real member today — only that member is diffed via MIRRORED_CLASSES, same convention as PermissionEdge above)."
+  "Phase 5 native stage additions follow the identical existing pattern, not a new gap: CalendarEventTime (calendar-event.ts's Schema.Union, hand-Codable in CalendarEvent.swift, same convention as PermissionEdge/ViewPredicate), CalendarEventStatus/GatekeeperKind/TodayBriefHistoryStatus (Schema.Literal unions, like RelationCardinality — diffed nowhere automatically), BookmarkUrl/LocalDate/IanaTimeZone (branded scalars, like ShareKeyHash/EntityId — out of scope for a field-name diff by construction), and GatekeeperBindingConfig (gatekeeper-binding.ts's Schema.Union(GoogleCalendarBindingConfig), one real member today — only that member is diffed via MIRRORED_CLASSES, same convention as PermissionEdge above)."
+  ,"PageDocumentDescriptor is a presence-sensitive Schema.Union and is intentionally not field-diffed: its handwritten Swift decoder and negative fixture tests are authoritative for distinguishing omitted Automerge witnesses from explicit null or malformed mixed-format records."
 ]
 
 // --- Swift side: extract stored-property names per top-level struct ---------------------------

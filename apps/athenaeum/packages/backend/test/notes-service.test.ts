@@ -22,7 +22,8 @@ import {
   type EntityId
 } from "@athenaeum/domain"
 import { notesServiceSessionCapTestHook } from "../src/notes-service-live.js"
-import { connectToWorkspace, freshWorkspaceId } from "./support.js"
+import { pagePersistenceTestHook } from "../src/workspace-durable-object.js"
+import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
 
 describe("createPage / getPageText / applyPageEdit: real Automerge persistence", () => {
   let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
@@ -94,6 +95,106 @@ describe("createPage / getPageText / applyPageEdit: real Automerge persistence",
       await workspaceStub.createPage(Schema.encodeSync(CreatePageInput)(new CreatePageInput({ workspaceId, nodeId: node.id })))
     )
     expect(secondCreate.text).toBe("already here")
+  })
+})
+
+describe("page persistence publication boundaries", () => {
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+
+  afterEach(() => {
+    pagePersistenceTestHook.afterPrepareBeforeCommit = undefined
+    workspaceStub?.[Symbol.dispose]()
+    workspaceStub = undefined
+  })
+
+  it("does not publish an Automerge candidate or advance its session when the transaction rolls back", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspace(workspaceId)
+    const node = Schema.decodeUnknownSync(CreateNodeOutput)(
+      await workspaceStub.createNode(
+        Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Rollback note" }))
+      )
+    ).node
+    await workspaceStub.createPage(
+      Schema.encodeSync(CreatePageInput)(new CreatePageInput({ workspaceId, nodeId: node.id }))
+    )
+
+    // Warm the committed empty document into NotesService's cache before preparing the failed
+    // write. If the candidate leaked, the read below would incorrectly observe "after rollback".
+    const before = Schema.decodeUnknownSync(GetPageTextOutput)(
+      await workspaceStub.getPageText(
+        Schema.encodeSync(GetPageTextInput)(new GetPageTextInput({ workspaceId, nodeId: node.id }))
+      )
+    )
+    expect(before.text).toBe("")
+
+    pagePersistenceTestHook.afterPrepareBeforeCommit = () => {
+      throw new Error("page persistence failpoint")
+    }
+    const failed = await rejectionToDomainError(
+      workspaceStub.applyPageEdit(
+        Schema.encodeSync(ApplyPageEditInput)(
+          new ApplyPageEditInput({ workspaceId, nodeId: node.id, index: 0, deleteCount: 0, insertText: "after rollback" })
+        )
+      )
+    )
+    expect(failed._tag).toBe("UnexpectedError")
+
+    const stillBefore = Schema.decodeUnknownSync(GetPageTextOutput)(
+      await workspaceStub.getPageText(
+        Schema.encodeSync(GetPageTextInput)(new GetPageTextInput({ workspaceId, nodeId: node.id }))
+      )
+    )
+    expect(stillBefore.text).toBe("")
+
+    pagePersistenceTestHook.afterPrepareBeforeCommit = undefined
+    const retried = Schema.decodeUnknownSync(ApplyPageEditOutput)(
+      await workspaceStub.applyPageEdit(
+        Schema.encodeSync(ApplyPageEditInput)(
+          new ApplyPageEditInput({ workspaceId, nodeId: node.id, index: 0, deleteCount: 0, insertText: "after rollback" })
+        )
+      )
+    )
+    expect(retried.text).toBe("after rollback")
+  })
+
+  it("defers an Automerge reset-session deletion until the transaction succeeds", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspace(workspaceId)
+    const node = Schema.decodeUnknownSync(CreateNodeOutput)(
+      await workspaceStub.createNode(
+        Schema.encodeSync(CreateNodeInput)(new CreateNodeInput({ workspaceId, title: "Reset note" }))
+      )
+    ).node
+    await workspaceStub.createPage(
+      Schema.encodeSync(CreatePageInput)(new CreatePageInput({ workspaceId, nodeId: node.id }))
+    )
+    const sessionId = "page-reset-rollback"
+    await workspaceStub.startPageSync(
+      Schema.encodeSync(StartPageSyncInput)(new StartPageSyncInput({ workspaceId, nodeId: node.id, sessionId }))
+    )
+
+    pagePersistenceTestHook.afterPrepareBeforeCommit = () => {
+      throw new Error("page reset failpoint")
+    }
+    const failed = await rejectionToDomainError(
+      workspaceStub.pageSyncMessage(
+        Schema.encodeSync(PageSyncMessageInput)(
+          new PageSyncMessageInput({ workspaceId, nodeId: node.id, sessionId, ordinal: 1, message: new Uint8Array([1]) })
+        )
+      )
+    )
+    expect(failed._tag).toBe("UnexpectedError")
+
+    pagePersistenceTestHook.afterPrepareBeforeCommit = undefined
+    const reset = Schema.decodeUnknownSync(PageSyncMessageOutput)(
+      await workspaceStub.pageSyncMessage(
+        Schema.encodeSync(PageSyncMessageInput)(
+          new PageSyncMessageInput({ workspaceId, nodeId: node.id, sessionId, ordinal: 1, message: new Uint8Array([1]) })
+        )
+      )
+    )
+    expect(reset.reset).toBe(true)
   })
 })
 

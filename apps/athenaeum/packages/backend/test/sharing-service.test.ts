@@ -18,6 +18,7 @@ import {
   CreateTagInput,
   CreateWorkspaceInput,
   CreateWorkspaceOutput,
+  HumanUiMutationAttribution,
   ListCollaboratorsOutput,
   ListNodesInput,
   ListNodesOutput,
@@ -395,7 +396,18 @@ describe("SharingService: use/build role gating on representative pre-existing R
       try {
         const error = await rejectionToDomainError(
           useConn.stub.createTag(
-            Schema.encodeSync(CreateTagInput)(new CreateTagInput({ workspaceId, name: "should be denied", parentIds: [] }))
+            Schema.encodeSync(CreateTagInput)(new CreateTagInput({
+              workspaceId,
+              name: "should be denied",
+              parentIds: [],
+              requestId: `sharing-denied-tag-${crypto.randomUUID()}`,
+              commitMessage: "Attempt a denied Supertag definition.",
+              attribution: new HumanUiMutationAttribution({
+                version: "athenaeum.mutation-attribution.v1",
+                kind: "humanUi",
+                surface: "web-supertags-manager"
+              })
+            }))
           )
         )
         expect(error._tag).toBe("Unauthorized")

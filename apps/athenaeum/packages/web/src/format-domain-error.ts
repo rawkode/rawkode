@@ -22,8 +22,18 @@ export const formatDomainError = (error: DomainError): string => {
   switch (error._tag) {
     case "NodeNotFound":
       return `Node not found: ${error.nodeId}`
+    case "NodeAlreadyExists":
+      return `A node already exists with id ${error.nodeId}.`
     case "PageNotFound":
       return `Page not found for node: ${error.nodeId}`
+    case "PageFormatMismatch":
+      return `Page ${error.nodeId} uses ${error.actual}; this operation requires ${error.expected}.`
+    case "LoroContentConflict":
+      return "This note changed elsewhere. Your local draft is preserved; resolve the conflict before retrying."
+    case "LoroSemanticCommitRequired":
+      return `Loro page ${error.nodeId} must be changed through the semantic commit command.`
+    case "LoroRequestIdentityConflict":
+      return `Loro request ${error.requestId} was already used for a different change on page ${error.nodeId}.`
     case "TagNotFound":
       return `Tag not found: ${error.tagId}`
     case "FactNotFound":

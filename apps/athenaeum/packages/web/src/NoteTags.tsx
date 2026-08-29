@@ -1,11 +1,24 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { EntityId, ListTagsInput, RunViewInput, ViewSpec, type DomainError } from "@athenaeum/domain"
+import {
+  EntityId,
+  ListTagFieldsInput,
+  ListTagsInput,
+  RunViewInput,
+  ViewSpec,
+  type DomainError,
+  type JsonValue,
+  type ResolvedTagField
+} from "@athenaeum/domain"
 import { WorkspaceRpcClient, type WorkspaceRpcClientService } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
+import {
+  floatingAnchorRect,
+  type FloatingAnchorRect,
+  type FloatingAnchorRectSource
+} from "./floating-popover-position.js"
 
 // docs/supertag-centering-decisions.md §3, "Daily note gets its tags surfaced prominently":
 // "the note's own tag chips (`graph_node_tags` filtered by `nodeId`, via `runView` — same read
@@ -17,6 +30,43 @@ import { formatDomainError } from "./format-domain-error.js"
 export interface NoteTagChip {
   readonly tagId: EntityId
   readonly name: string
+}
+
+type SuccessfulTagSnapshot = {
+  readonly nodeId: EntityId
+  readonly tags: ReadonlyArray<NoteTagChip>
+}
+
+interface FactRow {
+  readonly predicateId: string
+  readonly value: string
+}
+
+/** Keep the chip row useful at a glance without turning it into a second editor. Empty values are
+ * omitted; a malformed fact degrades to no summary rather than leaking raw JSON or breaking the
+ * note surface. */
+const formatFieldValue = (value: JsonValue | undefined, field: ResolvedTagField): string | undefined => {
+  if (value === undefined || value === null) return undefined
+  if (field.field.valueKind === "checkbox") return typeof value === "boolean" ? (value ? "yes" : "no") : undefined
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : undefined
+  if (typeof value === "boolean") return value ? "yes" : "no"
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return undefined
+  }
+}
+
+const parseFactValue = (raw: string): JsonValue | undefined => {
+  try {
+    return JSON.parse(raw) as JsonValue
+  } catch {
+    return undefined
+  }
 }
 
 /** `graph_node_tags`'s real columns (`read-model.ts`: `graph_node_tags AS SELECT nodeId, tagId
@@ -63,37 +113,171 @@ export function NoteTags({
 }: {
   readonly nodeId: EntityId
   readonly refreshKey: number
-  readonly onSelectTag: (chip: NoteTagChip) => void
+  readonly onSelectTag: (
+    chip: NoteTagChip,
+    anchorRect: FloatingAnchorRect,
+    anchorRectSource: FloatingAnchorRectSource
+  ) => void
 }) {
+  // A retry belongs to this read-only presentation query. Keep the caller-owned refresh signal
+  // intact: it is how an accepted tag mutation elsewhere in the note refreshes this same list.
+  const [retryKey, setRetryKey] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const effect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => loadNoteTags(client, nodeId))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodeId, refreshKey]
+    [nodeId, refreshKey, retryKey]
   )
-  const state = useEffectQuery(effect, [nodeId, refreshKey])
-
-  if (state.status === "loading") return null
-  if (state.status === "failure") {
-    return <p className="error note-tags-error">{formatDomainError(state.error)}</p>
+  const state = useEffectQuery(effect, [nodeId, refreshKey, retryKey])
+  // `useEffectQuery` publishes loading from an effect, so a dependency change first renders its
+  // previous store value. Do not attribute that old result to a new node or refresh generation.
+  // The initial render owns its state; later scopes become current only after loading is visible.
+  const queryScopeKey = `${nodeId}:${refreshKey}:${retryKey}`
+  const queryScope = useRef<{ key: string; current: boolean } | undefined>(undefined)
+  if (queryScope.current === undefined) {
+    queryScope.current = { key: queryScopeKey, current: true }
+  } else if (queryScope.current.key !== queryScopeKey) {
+    queryScope.current = { key: queryScopeKey, current: false }
   }
+  if (state.status === "loading") queryScope.current.current = true
+  const stateIsCurrent = queryScope.current.current
+  const [successfulSnapshot, setSuccessfulSnapshot] = useState<SuccessfulTagSnapshot | undefined>(() =>
+    state.status === "success" ? { nodeId, tags: state.value } : undefined
+  )
+  useEffect(() => {
+    if (!stateIsCurrent || state.status !== "success") return
+    setSuccessfulSnapshot((current) =>
+      current?.nodeId === nodeId && current.tags === state.value
+        ? current
+        : { nodeId, tags: state.value }
+    )
+  }, [nodeId, state.status === "success" ? state.value : undefined, stateIsCurrent])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (state.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [state.status])
+  const retryTags = useCallback(() => {
+    if (retryClaim.current !== undefined || state.status === "loading") return
+    retryClaim.current = { sawLoading: false }
+    setRetryClaimed(true)
+    setRetryKey((key) => key + 1)
+  }, [state.status])
+  const cachedTags = successfulSnapshot?.nodeId === nodeId ? successfulSnapshot.tags : undefined
+  const visibleTags = stateIsCurrent && state.status === "success" ? state.value : cachedTags
+  const isLoading = !stateIsCurrent || state.status === "loading"
+  const isFailure = stateIsCurrent && state.status === "failure"
+  const isRetrying = retryClaimed || isLoading
 
   return (
-    <section className="note-tags" aria-label="Supertags on this note">
-      {state.value.length === 0 ? (
+    <section className="note-tags" aria-label="Supertags on this note" aria-busy={isLoading}>
+      {isLoading && (
+        <div className="note-tags-load-state" role="status">
+          <p>{cachedTags === undefined ? "Loading Supertags…" : "Refreshing Supertags…"}</p>
+        </div>
+      )}
+      {isFailure && (
+        <div className="note-tags-load-state" role="alert" aria-label="Supertags are unavailable">
+          <div>
+            <p className="note-tags-load-title">Supertags are unavailable</p>
+            <p>
+              {cachedTags === undefined
+                ? "Supertags could not be loaded. Nothing has been changed. Retry to check them again."
+                : "Supertags could not be refreshed. Your existing Supertags remain available. Retry to check them again."}
+            </p>
+          </div>
+          <button type="button" onClick={retryTags} disabled={isRetrying}>
+            {isRetrying ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      )}
+      {visibleTags !== undefined && (visibleTags.length === 0 ? (
         <p className="note-tags-empty">
           No Supertags yet — type <code>#</code> in the note to apply one.
         </p>
       ) : (
         <ul className="note-tags-list">
-          {state.value.map((chip) => (
+          {visibleTags.map((chip) => (
             <li key={chip.tagId}>
-              <button type="button" className="supertag-chip note-tags-chip" onClick={() => onSelectTag(chip)}>
-                #{chip.name}
-              </button>
+              <div className="note-tags-item">
+                <button
+                  type="button"
+                  className="supertag-chip note-tags-chip"
+                  onClick={(event) => {
+                    const element = event.currentTarget
+                    onSelectTag(
+                      chip,
+                      floatingAnchorRect(element.getBoundingClientRect()),
+                      () => floatingAnchorRect(element.getBoundingClientRect())
+                    )
+                  }}
+                >
+                  #{chip.name}
+                </button>
+                <NoteTagFieldSummary nodeId={nodeId} tagId={chip.tagId} tagName={chip.name} />
+              </div>
             </li>
           ))}
         </ul>
-      )}
+      ))}
     </section>
+  )
+}
+
+function NoteTagFieldSummary({
+  nodeId,
+  tagId,
+  tagName
+}: {
+  readonly nodeId: EntityId
+  readonly tagId: EntityId
+  readonly tagName: string
+}) {
+  const effect = useMemo(
+    () =>
+      WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) =>
+          Effect.gen(function* () {
+            const { fields } = yield* client.listTagFields(new ListTagFieldsInput({ workspaceId, tagId }))
+            if (fields.length === 0) return [] as ReadonlyArray<string>
+
+            const spec = new ViewSpec({
+              filter: { op: "eq", field: { kind: "column", column: "nodeId" }, value: nodeId },
+              view: "table",
+              visibleColumns: ["predicateId", "value"],
+              rowLimit: 500
+            })
+            const { rows } = yield* client.runView(
+              new RunViewInput({ workspaceId, viewName: "graph_facts", viewSpec: spec })
+            )
+            const facts = new Map(
+              (rows as ReadonlyArray<FactRow>).flatMap((row) => {
+                const value = parseFactValue(row.value)
+                return value === undefined ? [] : [[row.predicateId, value] as const]
+              })
+            )
+            return fields.flatMap((resolved) => {
+              const value = formatFieldValue(facts.get(resolved.field.id), resolved)
+              return value === undefined ? [] : [`${resolved.field.name}: ${value}`]
+            })
+          })
+        )
+      ),
+    [nodeId, tagId]
+  )
+  const state = useEffectQuery(effect, [nodeId, tagId])
+
+  if (state.status !== "success" || state.value.length === 0) return null
+  return (
+    <span className="note-tags-summary" aria-label={`Values for #${tagName}`}>
+      {state.value.join(" · ")}
+    </span>
   )
 }

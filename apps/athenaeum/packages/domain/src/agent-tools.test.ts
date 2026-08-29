@@ -54,9 +54,32 @@ describe("agent tool schemas", () => {
         binding: ChatBindingName.make("MY_NOTE"),
         index: 0,
         deleteCount: 0,
-        insertText: "hi"
+        insertText: "hi",
+        commitMessage: "Add greeting"
       })
     )
+    expect(
+      Schema.decodeUnknownSync(EditNoteToolInput)({
+        chatId: validUuid,
+        binding: "MY_NOTE",
+        index: 0,
+        deleteCount: 0,
+        insertText: "hi",
+        commitMessage: "  Add greeting  "
+      }).commitMessage
+    ).toBe("Add greeting")
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(EditNoteToolInput)({
+          chatId: validUuid,
+          binding: "MY_NOTE",
+          index: 0,
+          deleteCount: 0,
+          insertText: "hi",
+          commitMessage: " \t "
+        })
+      )
+    ).toBe(true)
     roundTrip(EditNoteToolOutput, new EditNoteToolOutput({ text: "hi", nodeId: EntityId.make(validUuid2) }))
   })
 

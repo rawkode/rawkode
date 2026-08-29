@@ -80,12 +80,21 @@ import {
   FactsRepository,
   GatekeeperBinding,
   GatekeeperNotConnected,
+  GetTodayBriefInput,
+  GetTodayBriefOutput,
+  IanaTimeZone,
   GoogleCalendarBindingConfig,
   IsoDateTimeString,
+  LocalDate,
   NodesRepository,
   Node as NodeEntity,
   OAuthExchangeFailed,
   ValidationError,
+  TodayBriefCalendarHistory,
+  TodayBriefEvent,
+  TodayBriefPerson,
+  canonicalJsonBytes,
+  sha256HexSync,
   type DomainError
 } from "@athenaeum/domain"
 import {
@@ -162,6 +171,23 @@ export interface CalendarServiceApi {
     to: IsoDateTimeString | undefined,
     callerEmail: string | undefined
   ) => Effect.Effect<ReadonlyArray<CalendarEvent>, DomainError>
+
+  /** Read-only local projection for the Today Brief. Visibility denial intentionally produces the
+   * same retained-data result as an empty local projection. */
+  readonly getTodayBrief: (
+    input: GetTodayBriefInput,
+    callerEmail: string | undefined
+  ) => Effect.Effect<GetTodayBriefOutput, never>
+
+  /** Resolves one privacy-safe retained event by its opaque occurrence key. This is an internal
+   * preparation primitive: callers receive display names only, never provider ids or addresses. */
+  readonly findTodayBriefEvent: (
+    workspaceId: EntityId,
+    localDate: LocalDate,
+    timeZone: IanaTimeZone,
+    occurrenceKey: string,
+    callerEmail: string | undefined
+  ) => Effect.Effect<TodayBriefEvent | undefined, DomainError>
 
   readonly linkEventToNode: (
     workspaceId: EntityId,
@@ -486,19 +512,32 @@ export const makeCalendarServiceLive = (
           return true
         })
 
-      /** Builds the workspace's current `attendee email -> Person nodeId` map once, by scanning
-       *  `FactsRepository` for `"email"` predicates — see this file's header comment for the
-       *  documented O(facts) cost. */
-      const loadEmailIndex = (workspaceId: EntityId): Effect.Effect<Map<string, EntityId>, DomainError> =>
+      /** Builds the workspace's current `attendee email -> unique Person nodeId` map once, by
+       * scanning `FactsRepository` for `"email"` predicates and revalidating each candidate's
+       * workspace and Person membership. Ambiguous or stale facts are retained as an explicit
+       * `null` entry so a sync cannot silently attach a new attendee to the wrong identity. */
+      const loadEmailIndex = (workspaceId: EntityId): Effect.Effect<Map<string, EntityId | null>, DomainError> =>
         factsRepository.list(workspaceId).pipe(
-          Effect.map((facts) => {
-            const map = new Map<string, EntityId>()
+          Effect.flatMap((facts) => {
+            const candidates = new Map<string, Set<EntityId>>()
             for (const fact of facts) {
-              if (fact.predicateId === attendeeEmailPredicate && typeof fact.value === "string") {
-                map.set(fact.value, fact.nodeId)
-              }
+              if (fact.predicateId !== attendeeEmailPredicate || typeof fact.value !== "string") continue
+              const email = normalizeEmail(fact.value)
+              const ids = candidates.get(email) ?? new Set<EntityId>()
+              ids.add(fact.nodeId)
+              candidates.set(email, ids)
             }
-            return map
+            return Effect.forEach(candidates, ([email, ids]) =>
+                Effect.forEach([...ids], (nodeId) => graph.hasTag(workspaceId, nodeId, BaseTagIds.Person).pipe(Effect.either)).pipe(
+                Effect.map((results) => {
+                  const verified = [...ids].filter((_, index) => {
+                    const result = results[index]
+                    return result?._tag === "Right" && result.right
+                  })
+                  return [email, verified.length === 1 ? verified[0]! : verified.length > 1 ? null : null] as const
+                })
+              )
+            ).pipe(Effect.map((entries) => new Map(entries)))
           })
         )
 
@@ -510,16 +549,17 @@ export const makeCalendarServiceLive = (
       const findOrCreatePersonNode = (
         workspaceId: EntityId,
         attendee: RemoteCalendarAttendee,
-        emailIndex: Map<string, EntityId>
-      ): Effect.Effect<EntityId, DomainError> =>
+        emailIndex: Map<string, EntityId | null>
+      ): Effect.Effect<EntityId | undefined, DomainError> =>
         Effect.gen(function* () {
-          const existing = emailIndex.get(attendee.email)
-          if (existing !== undefined) return existing
+          const normalizedEmail = normalizeEmail(attendee.email)
+          const existing = emailIndex.get(normalizedEmail)
+          if (existing !== undefined) return existing ?? undefined
 
           const node = new NodeEntity({
             id: crypto.randomUUID() as EntityId,
             workspaceId,
-            title: attendee.displayName ?? attendee.email,
+            title: attendee.displayName ?? normalizedEmail,
             createdAt: now()
           })
           yield* nodesRepository.put(node)
@@ -537,12 +577,12 @@ export const makeCalendarServiceLive = (
             id: crypto.randomUUID() as EntityId,
             nodeId: node.id,
             predicateId: attendeeEmailPredicate,
-            value: attendee.email
+            value: normalizedEmail
           })
           yield* factsRepository.put(fact)
           yield* syncFeed.append("fact", fact.id, "put", fact)
 
-          emailIndex.set(attendee.email, node.id)
+          emailIndex.set(normalizedEmail, node.id)
           return node.id
         })
 
@@ -553,7 +593,7 @@ export const makeCalendarServiceLive = (
       const upsertRemoteEvent = (
         workspaceId: EntityId,
         remote: RemoteCalendarEvent,
-        emailIndex: Map<string, EntityId>,
+        emailIndex: Map<string, EntityId | null>,
         masterCache: Map<string, EntityId>
       ): Effect.Effect<void, DomainError> =>
         Effect.gen(function* () {
@@ -561,15 +601,14 @@ export const makeCalendarServiceLive = (
           for (const attendee of remote.attendees ?? []) {
             // Best-effort: an attendee with a malformed email (rare, but Google does not itself
             // validate every historical row) is skipped rather than failing the whole sync.
-            const emailExit = yield* Effect.either(decodeEmail(attendee.email))
+            const emailExit = yield* Effect.either(decodeEmail(normalizeEmail(attendee.email)))
             if (emailExit._tag === "Left") continue
-            yield* findOrCreatePersonNode(workspaceId, attendee, emailIndex)
-            attendeeEntities.push(
-              new CalendarEventAttendee({
-                email: emailExit.right,
-                ...(attendee.displayName ? { displayName: attendee.displayName } : {})
-              })
-            )
+            const personNodeId = yield* findOrCreatePersonNode(workspaceId, attendee, emailIndex)
+            attendeeEntities.push(new CalendarEventAttendee({
+              email: emailExit.right,
+              ...(attendee.displayName ? { displayName: attendee.displayName } : {}),
+              ...(personNodeId === undefined ? {} : { personNodeId })
+            }))
           }
 
           let seriesId: string | undefined
@@ -718,6 +757,81 @@ export const makeCalendarServiceLive = (
           })
         })
 
+      const getTodayBrief: CalendarServiceApi["getTodayBrief"] = (input, callerEmail) => {
+        const { timeZone, from, to } = resolveTodayBriefWindow(input.localDate, input.timeZone)
+        return listEvents(input.workspaceId, from, to, callerEmail).pipe(
+          Effect.flatMap((events) => Effect.gen(function* () {
+            const emailIndex = yield* loadEmailIndex(input.workspaceId)
+            const projected = projectTodayBriefEvents(
+              events,
+              from,
+              to,
+              timeZone,
+              callerEmail,
+              (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId
+            )
+            return yield* Effect.forEach(projected, (event) =>
+              Effect.forEach(event.people, (person) => {
+                if (person.personNodeId === undefined) return Effect.succeed(person)
+                return graph.hasTag(input.workspaceId, person.personNodeId, BaseTagIds.Person).pipe(
+                  Effect.either,
+                  Effect.map((result) => result._tag === "Right" && result.right
+                    ? person
+                    : new TodayBriefPerson({ ...(person.displayName === undefined ? {} : { displayName: person.displayName }) }))
+                )
+              }).pipe(Effect.map((people) => new TodayBriefEvent({ ...event, people })))
+            )
+          })),
+          Effect.map((projected) => {
+            return new GetTodayBriefOutput({
+              localDate: input.localDate,
+              timeZone,
+              from,
+              to,
+              calendarHistory: new TodayBriefCalendarHistory({
+                // This only describes what was present in Athenaeum's already-retained local
+                // projection. It is deliberately not a claim about the external calendar.
+                status: projected.length > 0 ? "found" : "noneInRetainedData"
+              }),
+              events: projected
+            })
+          }),
+          // A projection-storage failure must not turn a read into a calendar-oracle. The bounded
+          // response says only that Athenaeum could not read its own retained projection.
+          Effect.catchAll(() =>
+            Effect.succeed(
+              new GetTodayBriefOutput({
+                localDate: input.localDate,
+                timeZone,
+                from,
+                to,
+                calendarHistory: new TodayBriefCalendarHistory({ status: "unavailable" }),
+                events: []
+              })
+            )
+          )
+        )
+      }
+
+      const findTodayBriefEvent: CalendarServiceApi["findTodayBriefEvent"] = (workspaceId, localDate, requestedTimeZone, occurrenceKey, callerEmail) =>
+        Effect.gen(function* () {
+          const visible = yield* isCalendarContentVisible(workspaceId, callerEmail)
+          if (!visible) return undefined
+          const { timeZone, from, to } = resolveTodayBriefWindow(localDate, requestedTimeZone)
+          const rows = yield* collections.calendarEvents.byWorkspaceId.get(workspaceId).pipe(Effect.mapError(toUnexpectedError))
+          const events = yield* Effect.forEach(rows, reviveCalendarEvent)
+          const emailIndex = yield* loadEmailIndex(workspaceId)
+          const projected = projectTodayBriefEvents(
+            events,
+            from,
+            to,
+            timeZone,
+            callerEmail,
+            (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId
+          )
+          return projected.find((event) => event.occurrenceKey === occurrenceKey)
+        })
+
       const linkEventToNode: CalendarServiceApi["linkEventToNode"] = (workspaceId, calendarEventId, nodeId) =>
         Effect.gen(function* () {
           yield* nodesRepository.get(nodeId)
@@ -778,6 +892,8 @@ export const makeCalendarServiceLive = (
         disconnect,
         sync,
         listEvents,
+        getTodayBrief,
+        findTodayBriefEvent,
         linkEventToNode,
         createBookmark,
         listBookmarks,
@@ -790,6 +906,153 @@ export const makeCalendarServiceLive = (
   )
 
 const eventTimeValue = (value: CalendarEventTime): string => (value.kind === "date" ? `${value.date}T00:00:00.000Z` : value.dateTime)
+
+/** Resolve midnight through the server's ICU data. The small fixed-point loop is important: a
+ * local day is not always 24 hours, and the offset at UTC midnight can differ from the offset at
+ * the local midnight being resolved. */
+const localMidnightToInstant = (localDate: string, timeZone: string): IsoDateTimeString => {
+  const [year, month, day] = localDate.split("-").map(Number)
+  const nominalUtc = Date.UTC(year!, month! - 1, day!)
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  })
+  let candidate = nominalUtc
+  let converged = false
+  for (let i = 0; i < 3; i++) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]))
+    const renderedAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second))
+    const next = nominalUtc - (renderedAsUtc - candidate)
+    if (next === candidate) {
+      converged = true
+      break
+    }
+    candidate = next
+  }
+  const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]))
+  const renderedDate = `${parts.year}-${parts.month}-${parts.day}`
+  if (!converged || renderedDate !== localDate || parts.hour !== "00" || parts.minute !== "00" || parts.second !== "00") {
+    throw new RangeError(`Local midnight does not exist for ${localDate} in ${timeZone}`)
+  }
+  return IsoDateTimeString.make(new Date(candidate).toISOString())
+}
+
+const nextLocalDate = (localDate: string): string => {
+  const [year, month, day] = localDate.split("-").map(Number)
+  const next = new Date(Date.UTC(year!, month! - 1, day! + 1))
+  return next.toISOString().slice(0, 10)
+}
+
+export const resolveTodayBriefWindow = (localDate: string, requestedTimeZone: string) => {
+  const timeZone = Intl.DateTimeFormat("en-GB", { timeZone: requestedTimeZone }).resolvedOptions().timeZone
+  return {
+    timeZone: timeZone as GetTodayBriefOutput["timeZone"],
+    from: localMidnightToInstant(localDate, timeZone),
+    to: localMidnightToInstant(nextLocalDate(localDate), timeZone)
+  }
+}
+
+const normalizeEmail = (value: string): string => value.trim().toLowerCase()
+
+const calendarEventInstant = (value: CalendarEventTime, timeZone: string): number =>
+  Date.parse(value.kind === "date" ? localMidnightToInstant(value.date, timeZone) : value.dateTime)
+
+const compareStableStrings = (left: string, right: string): number => (left === right ? 0 : left > right ? 1 : -1)
+
+/**
+ * Orders duplicate retained rows from older to newer canonical state. Equal sync instants use the
+ * documented status order tentative < confirmed < cancelled so cancellation tombstones win, then
+ * the immutable local row id as the stable final tie-breaker. This makes selection independent of
+ * storage or input iteration order.
+ */
+const compareCanonicalCalendarEvents = (left: CalendarEvent, right: CalendarEvent): number => {
+  const bySyncedAt = compareStableStrings(left.syncedAt, right.syncedAt)
+  if (bySyncedAt !== 0) return bySyncedAt
+
+  const statusOrder = { tentative: 0, confirmed: 1, cancelled: 2 } as const
+  const byStatus = statusOrder[left.status] - statusOrder[right.status]
+  return byStatus !== 0 ? byStatus : compareStableStrings(left.id, right.id)
+}
+
+const calendarEventOccurrenceKey = (event: CalendarEvent): string => sha256HexSync(canonicalJsonBytes({
+  version: 1,
+  providerEventId: event.providerEventId,
+  seriesId: event.seriesId ?? null,
+  occurrenceId: event.occurrenceId ?? null
+}))
+
+/** The projection is deliberately narrower than `CalendarEvent`: no provider id, recurrence
+ * metadata, linked node, attendee email, or sync timestamp is exposed. */
+export const projectTodayBriefEvents = (
+  events: ReadonlyArray<CalendarEvent>,
+  from: IsoDateTimeString,
+  to: IsoDateTimeString,
+  timeZone: string,
+  callerEmail: string | undefined,
+  personNodeIdValidator?: (attendee: CalendarEventAttendee) => boolean
+): ReadonlyArray<TodayBriefEvent> => {
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  const self = callerEmail === undefined ? undefined : normalizeEmail(callerEmail)
+  const canonical = new Map<string, CalendarEvent>()
+  for (const event of events) {
+    // A recurring master is a definition, not an occurrence in a person's day.
+    if (event.seriesId !== undefined && event.occurrenceId === undefined) continue
+    // A provider row is canonical for standalone events; a series + original occurrence identity
+    // is canonical for recurring instances even if a sync retry duplicated the materialized row.
+    // Resolve this before filtering cancelled rows: a newer cancellation tombstone must suppress
+    // the older confirmed row regardless of input order.
+    const key = event.occurrenceId === undefined ? event.providerEventId : `${event.seriesId ?? ""}:${event.occurrenceId}`
+    const existing = canonical.get(key)
+    if (existing === undefined || compareCanonicalCalendarEvents(event, existing) > 0) {
+      canonical.set(key, event)
+    }
+  }
+
+  return [...canonical.values()]
+    .filter((event) => {
+      if (event.status === "cancelled") return false
+      const startMs = calendarEventInstant(event.start, timeZone)
+      const endMs = calendarEventInstant(event.end, timeZone)
+      return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > fromMs && startMs < toMs
+    })
+    .sort((left, right) => {
+      const byStart = calendarEventInstant(left.start, timeZone) - calendarEventInstant(right.start, timeZone)
+      return byStart !== 0 ? byStart : left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
+    })
+    .map((event) => {
+      const seenPeople = new Set<string>()
+      const people: TodayBriefPerson[] = []
+      for (const attendee of event.attendees) {
+        const email = normalizeEmail(attendee.email)
+        if (email === self || seenPeople.has(email)) continue
+        seenPeople.add(email)
+        const displayName = attendee.displayName?.trim()
+        const personNodeId = attendee.personNodeId !== undefined &&
+          (personNodeIdValidator === undefined || personNodeIdValidator(attendee))
+          ? attendee.personNodeId
+          : undefined
+        people.push(new TodayBriefPerson({
+          ...(displayName === undefined || displayName.length === 0 ? {} : { displayName }),
+          ...(personNodeId === undefined ? {} : { personNodeId })
+        }))
+      }
+      return new TodayBriefEvent({
+        id: event.id,
+        occurrenceKey: calendarEventOccurrenceKey(event),
+        title: event.title,
+        start: IsoDateTimeString.make(new Date(calendarEventInstant(event.start, timeZone)).toISOString()),
+        end: IsoDateTimeString.make(new Date(calendarEventInstant(event.end, timeZone)).toISOString()),
+        people
+      })
+    })
+}
 
 const describeError = (cause: unknown): string =>
   cause instanceof Error ? cause.message : typeof cause === "object" && cause !== null && "message" in cause ? String((cause as { message: unknown }).message) : String(cause)

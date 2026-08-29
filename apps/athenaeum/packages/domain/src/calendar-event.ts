@@ -73,7 +73,9 @@ export class CalendarEventAttendee extends Schema.Class<CalendarEventAttendee>(
   "CalendarEventAttendee"
 )({
   email: Email,
-  displayName: Schema.optional(Schema.String)
+  displayName: Schema.optional(Schema.String),
+  /** Server-owned association; never accepted from a calendar provider. */
+  personNodeId: Schema.optional(EntityId)
 }) {}
 
 /** Google's own three documented event statuses (verified live against

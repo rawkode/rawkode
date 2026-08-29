@@ -1,4 +1,5 @@
 import Foundation
+import AthenaeumDomain
 
 // Phase 6 native stage ("Wire transcript segments to the backend's appendTranscriptSegment RPC
 // via the established AthenaeumRPC client pattern") — the native client for
@@ -17,9 +18,9 @@ import Foundation
 // All five methods below are `requireRoleForGovernedWorkspace`-gated server-side
 // (`startMeeting`/`endMeeting`/`appendTranscriptSegment` -> `"build"`, `getMeeting`/`listMeetings`
 // -> `"use"`) — confirmed by reading `workspace-durable-object.ts`'s own Phase 6 section, not assumed.
-// For an ungoverned (unshared) workspace this is a no-op exactly like every other governed-workspace check
-// in this codebase, so an anonymous `WorkspaceRPCClient` (no `bearerCredential`) works unchanged for a
-// fresh, unshared workspace — the same shape `WorkspaceRPCClient+Graph.swift`'s methods already have.
+// Ledgered `startMeeting` and `appendTranscriptSegment` additionally require an authenticated
+// connection even for an ungoverned workspace; `endMeeting` remains governed-role-only until its
+// own ledger migration.
 
 /// Mirrors `packages/domain/src/meeting.ts`'s `Meeting`.
 public struct RPCMeeting: Sendable, Equatable {
@@ -110,9 +111,31 @@ extension WorkspaceRPCClient {
     // MARK: - Meetings
 
     /// `role` gate: `"build"`. Creates a new `Meeting` row, `endedAt` unset (in progress).
-    public func startMeeting(title: String) async throws -> RPCMeeting {
-        let result = try await rpc("startMeeting", ["title": .string(title)])
+    public func startMeeting(
+        title: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCMeeting {
+        let result = try await rpc("startMeeting", [
+            "title": .string(title),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": meetingMutationAttributionValue(attribution)
+        ])
         return try RPCMeeting(result.field("meeting"))
+    }
+
+    private func meetingMutationAttributionValue(_ attribution: MutationAttribution) -> CapnWebValue {
+        var fields: [String: CapnWebValue] = [
+            "version": .string(attribution.version),
+            "kind": .string(attribution.kind)
+        ]
+        if let surface = attribution.surface { fields["surface"] = .string(surface) }
+        if let jobId = attribution.jobId { fields["jobId"] = .string(jobId) }
+        if let runId = attribution.runId { fields["runId"] = .string(runId) }
+        if let source = attribution.source { fields["source"] = .string(source) }
+        return .object(fields)
     }
 
     /// `role` gate: `"build"`. Sets `endedAt` on an in-progress meeting. `endedAt` is an ISO-8601
@@ -138,14 +161,27 @@ extension WorkspaceRPCClient {
         text: String,
         startOffsetMs: Int,
         endOffsetMs: Int,
-        source: String
+        source: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
     ) async throws -> RPCTranscriptSegmentRecord {
         var args: [String: CapnWebValue] = [
             "meetingId": .string(meetingId),
             "text": .string(text),
             "startOffsetMs": .int(startOffsetMs),
             "endOffsetMs": .int(endOffsetMs),
-            "source": .string(source)
+            "source": .string(source),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": .object([
+                "version": .string(attribution.version),
+                "kind": .string(attribution.kind),
+                "surface": attribution.surface.map(CapnWebValue.string) ?? .undefined,
+                "jobId": attribution.jobId.map(CapnWebValue.string) ?? .undefined,
+                "runId": attribution.runId.map(CapnWebValue.string) ?? .undefined,
+                "source": attribution.source.map(CapnWebValue.string) ?? .undefined
+            ])
         ]
         args["speakerId"] = speakerId.map(CapnWebValue.string) ?? .undefined
         let result = try await rpc("appendTranscriptSegment", args)

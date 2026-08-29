@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { EntityId, Node } from "./node.js"
+import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 
 // Wire schemas for the Phase 0 exit criterion's `createNode`/`listNodes` round trip (plan
 // §"Phased delivery": "one createNode/listNodes round trip, Workspace DO ⇄ web") plus the live
@@ -28,6 +29,17 @@ export class CreateNodeInput extends Schema.Class<CreateNodeInput>("CreateNodeIn
 
 export class CreateNodeOutput extends Schema.Class<CreateNodeOutput>("CreateNodeOutput")({
   node: Node
+}) {}
+
+/** Authenticated, attributable creation contract. The older CreateNodeInput remains a
+ * compatibility route and deliberately does not gain these required fields. */
+export class CreateNodeWithIntentInput extends Schema.Class<CreateNodeWithIntentInput>("CreateNodeWithIntentInput")({
+  workspaceId: EntityId,
+  title: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500)),
+  id: Schema.optional(EntityId),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class ListNodesInput extends Schema.Class<ListNodesInput>("ListNodesInput")({

@@ -8,9 +8,9 @@ export function WorkoutsRoute() {
   return (
     <div className="route-view route-view--light">
       <header className="route-heading">
-        <span className="route-heading-kicker">Read-only</span>
+        <span className="route-heading-kicker">Your activity</span>
         <h1>Workouts</h1>
-        <p>Imported from HealthKit — select a workout to review its exercise/set or split detail.</p>
+        <p>Keep your activity beside the rest of your life, with details ready to search and connect.</p>
       </header>
       <WorkoutsPanel />
     </div>

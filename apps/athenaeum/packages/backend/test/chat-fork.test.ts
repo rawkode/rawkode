@@ -44,7 +44,7 @@ import {
   SyncFeedOutput,
   type EntityId
 } from "@athenaeum/domain"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
 
 const CHAT_ID = "chat-1"
 
@@ -122,10 +122,20 @@ describe("ChatForkService: accept merges the fork into mainline", () => {
       )
     )
 
+    const native = workspaceDurableObjectStub(workspaceId)
+    const artifactsBefore = await native.debugGetLedgerArtifactCounts()
     const accepted = Schema.decodeUnknownSync(AcceptChatForkOutput)(
       await workspaceStub.acceptChatFork(Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId })))
     )
+    const artifactsAfterFirst = await native.debugGetLedgerArtifactCounts()
+    const replay = Schema.decodeUnknownSync(AcceptChatForkOutput)(
+      await workspaceStub.acceptChatFork(Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    )
     expect(accepted.text).toBe("Mainline content — agent addition")
+    expect(replay).toEqual(accepted)
+    expect(artifactsAfterFirst.events).toBe(artifactsBefore.events + 1)
+    expect(artifactsAfterFirst.outboxIntents).toBe(artifactsBefore.outboxIntents + 1)
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsAfterFirst)
 
     const mainline = Schema.decodeUnknownSync(GetPageTextOutput)(
       await workspaceStub.getPageText(Schema.encodeSync(GetPageTextInput)(new GetPageTextInput({ workspaceId, nodeId })))

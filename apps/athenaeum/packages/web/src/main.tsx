@@ -5,18 +5,21 @@ import { App } from "./App.js"
 import "./design-system/tokens.css"
 import "./design-system/fonts.css"
 import "./design-system/base.css"
+import "./design-system/primitives.css"
 import "./AppShell.css"
 import "./app.css"
 import "./design-system/variant-paper.css"
-import "./design-system/variant-study.css"
+import "./design-system/visual-variants.css"
 
-// Design-review prototypes (docs/design-review-2026-08-22.md): opt-in only.
-// Without ?variant=… the data-variant attribute is never set and both variant
-// stylesheets are fully inert, so the default app renders exactly as before.
-const variantParam = new URLSearchParams(window.location.search).get("variant")
-if (variantParam === "paper" || variantParam === "study") {
-  document.documentElement.dataset.variant = variantParam
-}
+import { applyTheme, getInitialTheme } from "./theme.js"
+import { bootstrapVisualVariant } from "./visual-variant.js"
+import { VisualVariantSynchronizer } from "./VisualVariantSynchronizer.js"
+
+// Apply the persisted/system choice before React paints the shell. This avoids a dark-to-paper
+// flash on launch and keeps the paper treatment an intentional, reversible mode rather than a
+// separate prototype URL.
+applyTheme(getInitialTheme())
+bootstrapVisualVariant()
 
 const rootEl = document.getElementById("root")
 if (!rootEl) throw new Error("#root element not found")
@@ -24,6 +27,7 @@ if (!rootEl) throw new Error("#root element not found")
 createRoot(rootEl).render(
   <StrictMode>
     <BrowserRouter>
+      <VisualVariantSynchronizer />
       <App />
     </BrowserRouter>
   </StrictMode>

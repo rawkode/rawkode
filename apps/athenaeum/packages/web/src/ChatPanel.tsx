@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
   AcceptChatForkInput,
-  ChatForkPreviewInput,
   CreateChatInput,
   GetChatInput,
   ListChatsInput,
@@ -26,6 +25,8 @@ import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { isModelUnavailable, setModelUnavailable, subscribeModelAvailability } from "./model-availability.js"
+import { chatTitleFromMessage } from "./chat-title.js"
+import { collectLegacyForkNodeIds, decodeToolLogEntry, loadLegacyForkPreviews } from "./chat-fork-routing.js"
 
 // Web-stage task ("Extend the web app... 1. A chat UI... 2. An accept/revert UI... 3. ...the chat
 // UI must clearly and correctly handle/display a 'model not configured' state"). Talks to the
@@ -79,65 +80,27 @@ const formatDomainError = (error: DomainError): string => {
   }
 }
 
-/** One dispatched tool call, decoded from a `"tool"`-role `ChatMessageRecord.content` (JSON
- *  stringified by `agent-edit-service-live.ts`'s `executeToolCall`: `{toolUseId, entityIds,
- *  result, isError}`) — see that file's `addChatMessage(chatId, "tool", JSON.stringify(...))`
- *  call. Decoded defensively (this is untrusted-shape JSON from the client's own point of view,
- *  even though the server always writes this exact shape) so a malformed row degrades to a
- *  fallback render instead of crashing the whole panel. */
-interface ToolLogEntry {
-  readonly toolUseId: string
-  readonly entityIds: ReadonlyArray<string>
-  readonly result: string
-  readonly isError: boolean
-}
+const namedChatCreationFailureMessage =
+  "We couldn’t confirm that this chat was created. The title is still here. Review your chats before taking another action."
 
-const decodeToolLogEntry = (content: string): ToolLogEntry | undefined => {
-  try {
-    const raw: unknown = JSON.parse(content)
-    if (
-      typeof raw === "object" &&
-      raw !== null &&
-      "toolUseId" in raw &&
-      "result" in raw &&
-      typeof (raw as { toolUseId: unknown }).toolUseId === "string" &&
-      typeof (raw as { result: unknown }).result === "string"
-    ) {
-      const r = raw as { toolUseId: string; result: string; entityIds?: unknown; isError?: unknown }
-      return {
-        toolUseId: r.toolUseId,
-        result: r.result,
-        entityIds: Array.isArray(r.entityIds) ? r.entityIds.filter((v): v is string => typeof v === "string") : [],
-        isError: r.isError === true
-      }
-    }
-  } catch {
-    // fall through to undefined below
-  }
-  return undefined
-}
+const firstMessageChatCreationFailureMessage =
+  "We couldn’t confirm that a chat was started. Your message is still here. Review your chats before taking another action."
 
-/**
- * Extracts the `nodeId` an `editNote` tool call forked, from that call's already-decoded
- * `ToolLogEntry.result` (a JSON-stringified `EditNoteToolOutput`, per
- * `agent-edit-service-live.ts`'s `executeToolCall` — `resultText: JSON.stringify(output)`).
- * `EditNoteToolOutput.nodeId` is the adversarial-review fix that makes this discoverable at all —
- * see that schema's own doc comment in `agent-tools.ts` for why it isn't carried via
- * `ToolLogEntry.entityIds` instead. Defensive like `decodeToolLogEntry` itself: a malformed/older
- * log entry degrades to `undefined` rather than throwing.
- */
-const decodeEditNoteNodeId = (entry: ToolLogEntry): EntityId | undefined => {
-  try {
-    const raw: unknown = JSON.parse(entry.result)
-    if (typeof raw === "object" && raw !== null && "nodeId" in raw) {
-      const nodeId = (raw as { nodeId: unknown }).nodeId
-      return typeof nodeId === "string" ? (nodeId as EntityId) : undefined
-    }
-  } catch {
-    // fall through to undefined below
-  }
-  return undefined
-}
+const firstMessageSendFailureMessage =
+  "The chat is open, but we couldn’t confirm that the first message was sent. Review the chat before taking another action."
+
+const activeChatSendFailureMessage =
+  "We couldn’t confirm that your message was sent. Your draft is still here. Review the chat before taking another action."
+
+const pendingChangesFailureMessage = (kind: "merge" | "revert"): string =>
+  kind === "merge"
+    ? "We couldn’t confirm that these changes were accepted. Review the pending changes before taking another action."
+    : "We couldn’t confirm that these changes were reverted. Review the pending changes before taking another action."
+
+const legacyForkDecisionFailureMessage = (kind: "accept" | "revert"): string =>
+  kind === "accept"
+    ? "We couldn’t confirm that this note edit was accepted. Review the pending note edit before taking another action."
+    : "We couldn’t confirm that this note edit was reverted. Review the pending note edit before taking another action."
 
 // --- Chat message log ---------------------------------------------------------------------------
 
@@ -159,9 +122,10 @@ function ChatMessageRow({
       )
     }
     const toolName = toolNameByCallId.get(entry.toolUseId) ?? "tool"
+    const toolStatus = entry.isError === true ? "✗" : entry.isError === false ? "✓" : "?"
     return (
-      <li className={`chat-message chat-message-tool${entry.isError ? " chat-message-tool-error" : ""}`}>
-        <span className="chat-message-role">{entry.isError ? "✗" : "✓"} {toolName}</span>
+      <li className={`chat-message chat-message-tool${entry.isError === true ? " chat-message-tool-error" : ""}`}>
+        <span className="chat-message-role">{toolStatus} {toolName}</span>
         <span className="chat-message-content">{entry.result}</span>
       </li>
     )
@@ -191,13 +155,15 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [messageText, setMessageText] = useState("")
   const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState<DomainError | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const isSendingRef = useRef(false)
   // Interaction pass (finding #18 / flows F4.1): the no-model state is no longer per-send local
   // state here — it lives in `model-availability.ts`'s persistent store and renders as a standing
   // banner at the panel level (`ChatPanel` below), so it survives navigation, chat switches, and
   // reloads instead of evaporating with this component's state.
   const [mergeRevertBusy, setMergeRevertBusy] = useState<"merge" | "revert" | null>(null)
   const [mergeRevertError, setMergeRevertError] = useState<string | null>(null)
+  const mergeRevertBusyRef = useRef<"merge" | "revert" | null>(null)
   // Adversarial-review fix: note-body (`editNote`) pending edits, reviewed/accepted/reverted via
   // `chatForkPreview`/`acceptChatFork`/`revertChatFork` — see this section's own comment further
   // down for why this is a second, separate mechanism from `mergeRevertBusy`/`mergeRevertError`
@@ -207,6 +173,7 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   // clicked should show a busy state.
   const [noteForkBusyKey, setNoteForkBusyKey] = useState<string | null>(null)
   const [noteForkError, setNoteForkError] = useState<string | null>(null)
+  const noteForkBusyNodeIdsRef = useRef(new Set<EntityId>())
 
   const chatEffect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getChat(new GetChatInput({ chatId })))),
@@ -240,6 +207,8 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
     event.preventDefault()
     const trimmed = messageText.trim()
     if (trimmed.length === 0) return
+    if (isSendingRef.current) return
+    isSendingRef.current = true
 
     setSending(true)
     setSendError(null)
@@ -250,6 +219,7 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
       )
     )
     fiber.addObserver((exit) => {
+      isSendingRef.current = false
       setSending(false)
       if (Exit.isSuccess(exit)) {
         // A successful turn is the one real "a model IS configured" signal available at this
@@ -276,7 +246,7 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           setMessageText("")
           setRefreshKey((k) => k + 1)
         } else {
-          setSendError(failure)
+          setSendError(activeChatSendFailureMessage)
           console.error(exit.cause.toString())
         }
       }
@@ -284,7 +254,8 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   }
 
   const runMergeOrRevert = (kind: "merge" | "revert", sequences: ReadonlyArray<number>) => {
-    if (sequences.length === 0) return
+    if (sequences.length === 0 || mergeRevertBusyRef.current !== null) return
+    mergeRevertBusyRef.current = kind
     setMergeRevertBusy(kind)
     setMergeRevertError(null)
 
@@ -309,14 +280,12 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
 
     const fiber = runtime.runFork(program)
     fiber.addObserver((exit) => {
+      mergeRevertBusyRef.current = null
       setMergeRevertBusy(null)
       if (Exit.isSuccess(exit)) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setMergeRevertError(
-          `Failed to ${kind === "merge" ? "accept" : "revert"} changes: ${formatDomainError(failure)}`
-        )
+        setMergeRevertError(pendingChangesFailureMessage(kind))
         console.error(exit.cause.toString())
       }
     })
@@ -346,40 +315,25 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
     return map
   }, [messages])
 
-  // --- Note-body (`editNote`) pending edits — the chat-fork mechanism ------------------------
+  // --- Explicit legacy note-body (`editNote`) pending edits — the chat-fork mechanism --------
   //
-  // Distinct node ids this chat has ever run `editNote` against, scanned out of the chat's own
-  // "tool"-role log entries (`decodeEditNoteNodeId`'s own doc comment explains the mechanism —
-  // `EditNoteToolOutput.nodeId`, an adversarial-review addition). This is a candidate set, not a
-  // "currently pending" set: a chat's history includes edits already accepted/reverted in earlier
-  // turns too, so every candidate is re-checked against the real, live `chatForkPreview` state
-  // below rather than assumed still active.
-  const forkNodeIds = useMemo(() => {
-    const ids = new Set<EntityId>()
-    for (const message of messages) {
-      if (message.role !== "tool") continue
-      const entry = decodeToolLogEntry(message.content)
-      if (entry === undefined || toolNameByCallId.get(entry.toolUseId) !== "editNote") continue
-      const nodeId = decodeEditNoteNodeId(entry)
-      if (nodeId !== undefined) ids.add(nodeId)
-    }
-    return [...ids]
-  }, [messages, toolNameByCallId])
+  // Distinct node ids this chat has successfully run `editNote` against, scanned out of the
+  // chat's own "tool"-role log entries (`decodeEditNoteNodeId` validates the output schema and
+  // EntityId at runtime). This is a candidate set, not a "currently pending" set: a chat's
+  // history includes edits already accepted/reverted in earlier turns too, so every candidate is
+  // re-checked against the durable page descriptor and live `chatForkPreview` state below rather
+  // than assumed still active.
+  const forkNodeIds = useMemo(() => collectLegacyForkNodeIds(messages, toolNameByCallId), [messages, toolNameByCallId])
   const forkNodeIdsKey = forkNodeIds.join(",")
 
-  // The live, authoritative "is this still forked" answer per candidate — `chatForkPreview` never
-  // falls back to mainline text (its own doc comment), so `forked: true` here means a real,
-  // currently-open fork this UI can act on right now.
+  // The durable format gate and live, authoritative "is this still forked" answer per candidate.
+  // `loadLegacyForkPreviews` never calls `chatForkPreview` for a Loro-active page, and
+  // `chatForkPreview` never falls back to mainline text (its own doc comment), so `forked: true`
+  // here means a real, currently-open legacy fork this UI can act on right now.
   const forksEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) =>
-          Effect.forEach(forkNodeIds, (nodeId) =>
-            client
-              .chatForkPreview(new ChatForkPreviewInput({ workspaceId, chatId, nodeId }))
-              .pipe(Effect.map((preview) => ({ nodeId, forked: preview.forked, text: preview.text })))
-          )
-        ),
+        Effect.flatMap((client) => loadLegacyForkPreviews(client, workspaceId, chatId, forkNodeIds)),
         Effect.map((previews) => previews.filter((preview) => preview.forked))
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,6 +343,8 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   const pendingForks = forksState.status === "success" ? forksState.value : []
 
   const runForkAction = (kind: "accept" | "revert", nodeId: EntityId) => {
+    if (noteForkBusyNodeIdsRef.current.has(nodeId)) return
+    noteForkBusyNodeIdsRef.current.add(nodeId)
     const key = `${kind}:${nodeId}`
     setNoteForkBusyKey(key)
     setNoteForkError(null)
@@ -406,14 +362,12 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
 
     const fiber = runtime.runFork(program)
     fiber.addObserver((exit) => {
+      noteForkBusyNodeIdsRef.current.delete(nodeId)
       setNoteForkBusyKey(null)
       if (Exit.isSuccess(exit)) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setNoteForkError(
-          `Failed to ${kind === "accept" ? "accept" : "revert"} note edit: ${formatDomainError(failure)}`
-        )
+        setNoteForkError(legacyForkDecisionFailureMessage(kind))
         console.error(exit.cause.toString())
       }
     })
@@ -423,7 +377,14 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
     <div className="chat-active">
       <ul className="chat-messages">
         {chatState.status === "loading" && <li>Loading…</li>}
-        {chatState.status === "failure" && <li className="error">{formatDomainError(chatState.error)}</li>}
+        {chatState.status === "failure" && (
+          <li className="chat-active-load-state" role="alert">
+            <p>This chat couldn’t be loaded. Your message composer remains available. Retry to check it again.</p>
+            <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>
+              Retry
+            </button>
+          </li>
+        )}
         {messages
           .filter((m) => m.role !== "tool" || decodeToolLogEntry(m.content) !== undefined)
           .map((message) => (
@@ -443,74 +404,98 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
-      {sendError !== null && <p className="error">{formatDomainError(sendError)}</p>}
+      {sendError !== null && (
+        <p className="error chat-send-error" role="alert">
+          {sendError}
+        </p>
+      )}
 
       {/* Structured pending records only (nodes/facts/edges via `mergeChanges`/`revertChanges`).
-          Note-body edits (`editNote`) are a deliberately separate mechanism — a per-chat
-          Automerge fork, accepted/reverted via `acceptChatFork`/`revertChatFork`
+          Explicit legacy note-body edits (`editNote` on an automerge-v1 page) are a deliberately
+          separate mechanism — a per-chat Automerge fork, accepted/reverted via
+          `acceptChatFork`/`revertChatFork`
           (chat-fork-rpc.ts), not this `pending`-flag/`changes`-sequence one (plan: "deliberately
           not folded into mergeChanges/revertChanges") — so they don't appear here; their own
           "Pending note edits" section below is the fork-preview UI this comment used to say was
           future work (adversarial-review fix). */}
-      <section className="chat-pending">
-        <h4>Pending changes {pendingCount > 0 && <span className="chat-pending-count">{pendingCount}</span>}</h4>
-        {pendingState.status === "loading" && <p>Loading…</p>}
-        {pendingState.status === "failure" && <p className="error">{formatDomainError(pendingState.error)}</p>}
-        {pendingState.status === "success" && pendingCount === 0 && (
-          <p className="chat-pending-empty">Nothing pending — accepted or reverted changes disappear from here.</p>
-        )}
-        {pendingCount > 0 && (
-          <>
-            <ul className="chat-pending-list">
-              {pendingNodes.map((n) => (
-                <li key={`node-${n.id}`}>
-                  <span className="chat-pending-kind">node</span> {n.title}
-                </li>
-              ))}
-              {pendingFacts.map((f) => (
-                <li key={`fact-${f.id}`}>
-                  <span className="chat-pending-kind">fact</span> {f.predicateId} on node {f.nodeId}
-                </li>
-              ))}
-              {pendingEdges.map((e) => (
-                <li key={`edge-${e.id}`}>
-                  <span className="chat-pending-kind">edge</span> {e.sourceNodeId} → {e.targetNodeId}
-                </li>
-              ))}
-            </ul>
-            <div className="chat-pending-actions">
-              <button
-                type="button"
-                onClick={() => runMergeOrRevert("merge", pendingSequences)}
-                disabled={mergeRevertBusy !== null}
-              >
-                {mergeRevertBusy === "merge" ? "Accepting…" : "Accept"}
-              </button>
-              <button
-                type="button"
-                className="chat-pending-revert"
-                onClick={() => runMergeOrRevert("revert", pendingSequences)}
-                disabled={mergeRevertBusy !== null}
-              >
-                {mergeRevertBusy === "revert" ? "Reverting…" : "Revert"}
-              </button>
+      {(pendingState.status !== "success" || pendingCount > 0) && (
+        <section className="chat-pending">
+          <h4>Pending changes {pendingCount > 0 && <span className="chat-pending-count">{pendingCount}</span>}</h4>
+          {pendingState.status === "loading" && (
+            <p role="status" aria-live="polite" aria-atomic="true">
+              Loading pending changes…
+            </p>
+          )}
+          {pendingState.status === "failure" && (
+            <div className="error chat-pending-load-state" role="alert">
+              <p>Pending changes couldn&rsquo;t be loaded. Nothing has been changed. Retry to review them.</p>
+              <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
             </div>
-            {mergeRevertError !== null && <p className="error">{mergeRevertError}</p>}
-          </>
-        )}
-      </section>
+          )}
+          {pendingCount > 0 && (
+            <>
+              <ul className="chat-pending-list">
+                {pendingNodes.map((n) => (
+                  <li key={`node-${n.id}`}>
+                    <span className="chat-pending-kind">node</span> {n.title}
+                  </li>
+                ))}
+                {pendingFacts.map((f) => (
+                  <li key={`fact-${f.id}`}>
+                    <span className="chat-pending-kind">fact</span> {f.predicateId} on node {f.nodeId}
+                  </li>
+                ))}
+                {pendingEdges.map((e) => (
+                  <li key={`edge-${e.id}`}>
+                    <span className="chat-pending-kind">edge</span> {e.sourceNodeId} → {e.targetNodeId}
+                  </li>
+                ))}
+              </ul>
+              <div className="chat-pending-actions">
+                <button
+                  type="button"
+                  onClick={() => runMergeOrRevert("merge", pendingSequences)}
+                  disabled={mergeRevertBusy !== null}
+                >
+                  {mergeRevertBusy === "merge" ? "Accepting…" : "Accept"}
+                </button>
+                <button
+                  type="button"
+                  className="chat-pending-revert"
+                  onClick={() => runMergeOrRevert("revert", pendingSequences)}
+                  disabled={mergeRevertBusy !== null}
+                >
+                  {mergeRevertBusy === "revert" ? "Reverting…" : "Revert"}
+                </button>
+              </div>
+              {mergeRevertError !== null && (
+                <p className="error chat-pending-action-error" role="alert">{mergeRevertError}</p>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
-      {/* Note-body edits (`editNote`) — the Phase 3 Automerge-fork mechanism (chat-fork-rpc.ts /
-          docs/automerge-fork-spike.md), deliberately separate from the structured-pending section
-          above (see that section's own comment). Only rendered once there's at least one
+      {/* Explicit legacy note-body forks (`editNote` on an automerge-v1 page) — deliberately
+          separate from the structured-pending section above. Loro edits are already ledgered and
+          never appear in this compatibility review card. Only rendered once there's at least one
           candidate to check, so an ordinary chat with no note edits shows nothing extra. */}
-      {forkNodeIds.length > 0 && (
+      {forkNodeIds.length > 0 && (forksState.status !== "success" || pendingForks.length > 0) && (
         <section className="chat-pending chat-note-forks">
           <h4>
             Pending note edits {pendingForks.length > 0 && <span className="chat-pending-count">{pendingForks.length}</span>}
           </h4>
-          {forksState.status === "loading" && <p>Loading…</p>}
-          {forksState.status === "failure" && <p className="error">{formatDomainError(forksState.error)}</p>}
+          {forksState.status === "loading" && (
+            <p role="status" aria-live="polite" aria-atomic="true">
+              Checking pending note edits…
+            </p>
+          )}
+          {forksState.status === "failure" && (
+            <div className="error chat-note-forks-load-state" role="alert">
+              <p>Pending note edits couldn&rsquo;t be checked. Nothing has been changed. Retry to review them.</p>
+              <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
+            </div>
+          )}
           {forksState.status === "success" && pendingForks.length === 0 && (
             <p className="chat-pending-empty">No note edits pending — accepted or reverted edits disappear from here.</p>
           )}
@@ -540,7 +525,9 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
               </div>
             )
           })}
-          {noteForkError !== null && <p className="error">{noteForkError}</p>}
+          {noteForkError !== null && (
+            <p className="error chat-note-fork-action-error" role="alert">{noteForkError}</p>
+          )}
         </section>
       )}
     </div>
@@ -551,6 +538,8 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
 
 export function ChatPanel() {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [listRetryClaimed, setListRetryClaimed] = useState(false)
+  const listRetryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   // Interaction pass (finding #18 / flows F4.1): standing "no model" banner state — read from the
   // persistent store (localStorage-backed, updated by `ActiveChatView`'s send outcomes) so it
   // survives navigation and reloads instead of living in one send's transient reply.
@@ -559,12 +548,37 @@ export function ChatPanel() {
   const [newChatTitle, setNewChatTitle] = useState("")
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const isCreatingNamedChatRef = useRef(false)
+  const [firstMessageText, setFirstMessageText] = useState("")
+  const [startingChat, setStartingChat] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
+  const isStartingFirstChatRef = useRef(false)
 
   const listChatsEffect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listChats(new ListChatsInput({ workspaceId })))),
     [refreshKey]
   )
   const chatsState = useEffectQuery(listChatsEffect, [refreshKey])
+  useEffect(() => {
+    const claim = listRetryClaim.current
+    if (claim === undefined) return
+    if (chatsState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // A retry-key render still contains the preceding failure result. Keep the claim until the
+    // chat catalog visibly enters loading, then release it only after that request settles.
+    if (!claim.sawLoading) return
+    listRetryClaim.current = undefined
+    setListRetryClaimed(false)
+  }, [chatsState.status])
+  const retryChats = useCallback(() => {
+    if (listRetryClaim.current !== undefined || chatsState.status === "loading") return
+    listRetryClaim.current = { sawLoading: false }
+    setListRetryClaimed(true)
+    setRefreshKey((key) => key + 1)
+  }, [chatsState.status])
+  const isRetryingChats = listRetryClaimed || chatsState.status === "loading"
 
   useEffect(() => {
     if (activeChatId !== null || chatsState.status !== "success" || chatsState.value.chats.length === 0) return
@@ -576,6 +590,8 @@ export function ChatPanel() {
     event.preventDefault()
     const trimmed = newChatTitle.trim()
     if (trimmed.length === 0) return
+    if (isCreatingNamedChatRef.current) return
+    isCreatingNamedChatRef.current = true
 
     setCreating(true)
     setCreateError(null)
@@ -584,16 +600,77 @@ export function ChatPanel() {
       WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.createChat(new CreateChatInput({ workspaceId, title: trimmed }))))
     )
     fiber.addObserver((exit) => {
+      isCreatingNamedChatRef.current = false
       setCreating(false)
       if (Exit.isSuccess(exit)) {
         setNewChatTitle("")
+        setStartError(null)
         setActiveChatId(exit.value.chat.id)
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
-        const failure = Cause.squash(exit.cause) as DomainError
-        setCreateError(`Failed to create chat: ${formatDomainError(failure)}`)
+        setCreateError(namedChatCreationFailureMessage)
         console.error(exit.cause.toString())
       }
+    })
+  }
+
+  const handleStartFromComposer = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmed = firstMessageText.trim()
+    if (trimmed.length === 0) return
+    if (isStartingFirstChatRef.current) return
+    isStartingFirstChatRef.current = true
+
+    setStartingChat(true)
+    setStartError(null)
+    const createFiber = runtime.runFork(
+      WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) =>
+          client.createChat(new CreateChatInput({ workspaceId, title: chatTitleFromMessage(trimmed) }))
+        )
+      )
+    )
+    createFiber.addObserver((createExit) => {
+      if (Exit.isInterrupted(createExit)) {
+        isStartingFirstChatRef.current = false
+        return
+      }
+      if (!Exit.isSuccess(createExit)) {
+        isStartingFirstChatRef.current = false
+        setStartingChat(false)
+        setStartError(firstMessageChatCreationFailureMessage)
+        console.error(createExit.cause.toString())
+        return
+      }
+
+      // Make the newly-created chat visible before sending. If the model is unavailable or the
+      // turn fails, the user still has the durable chat and its persisted user message to retry.
+      const chatId = createExit.value.chat.id
+      setActiveChatId(chatId)
+      setRefreshKey((k) => k + 1)
+      const sendFiber = runtime.runFork(
+        WorkspaceRpcClient.pipe(
+          Effect.flatMap((client) => client.sendChatMessage(new SendChatMessageInput({ chatId, text: trimmed })))
+        )
+      )
+      sendFiber.addObserver((sendExit) => {
+        isStartingFirstChatRef.current = false
+        setStartingChat(false)
+        if (Exit.isSuccess(sendExit)) {
+          setModelUnavailable(false)
+          setFirstMessageText("")
+        } else if (!Exit.isInterrupted(sendExit)) {
+          const failure = Cause.squash(sendExit.cause) as DomainError
+          if (isModelUnavailableError(failure)) {
+            setModelUnavailable(true)
+            setFirstMessageText("")
+          } else {
+            setStartError(firstMessageSendFailureMessage)
+            console.error(sendExit.cause.toString())
+          }
+        }
+        setRefreshKey((k) => k + 1)
+      })
     })
   }
 
@@ -614,15 +691,30 @@ export function ChatPanel() {
 
       <div className="chat-panel-body">
         <div className="chat-list">
-          {chatsState.status === "loading" && <p>Loading…</p>}
-          {chatsState.status === "failure" && <p className="error">{formatDomainError(chatsState.error)}</p>}
+          {chatsState.status === "loading" && (
+            <p role="status" aria-live="polite" aria-atomic="true">
+              Loading chats…
+            </p>
+          )}
+          {chatsState.status === "failure" && (
+            <div className="chat-list-load-state" role="alert">
+              <p>Chats couldn&rsquo;t be loaded. Try again to continue where you left off.</p>
+              <button type="button" onClick={retryChats} disabled={isRetryingChats}>
+                {isRetryingChats ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          )}
           <ul>
             {chats.map((chat) => (
               <li key={chat.id}>
                 <button
                   type="button"
                   className={`chat-list-item${chat.id === activeChatId ? " chat-list-item-active" : ""}`}
-                  onClick={() => setActiveChatId(chat.id)}
+                  aria-current={chat.id === activeChatId ? "true" : undefined}
+                  onClick={() => {
+                    setStartError(null)
+                    setActiveChatId(chat.id)
+                  }}
                 >
                   {chat.title}
                 </button>
@@ -631,25 +723,60 @@ export function ChatPanel() {
             {chats.length === 0 && chatsState.status === "success" && <li className="chat-list-empty">No chats yet.</li>}
           </ul>
 
-          <form onSubmit={handleCreate} className="chat-create-form">
-            <input
-              value={newChatTitle}
-              onChange={(event) => setNewChatTitle(event.target.value)}
-              placeholder="New chat title"
-              aria-label="New chat title"
-              disabled={creating}
-            />
-            <button type="submit" disabled={creating || newChatTitle.trim().length === 0}>
-              {creating ? "Creating…" : "New chat"}
-            </button>
-          </form>
-          {createError !== null && <p className="error">{createError}</p>}
+          <details className="chat-create-disclosure">
+            <summary>Start a named chat</summary>
+            <form onSubmit={handleCreate} className="chat-create-form">
+              <input
+                value={newChatTitle}
+                onChange={(event) => setNewChatTitle(event.target.value)}
+                placeholder="New chat title"
+                aria-label="New chat title"
+                disabled={creating}
+              />
+              <button type="submit" disabled={creating || newChatTitle.trim().length === 0}>
+                {creating ? "Creating…" : "New chat"}
+              </button>
+            </form>
+            {createError !== null && <p className="error" role="alert">{createError}</p>}
+          </details>
         </div>
 
+        {startError !== null && <p className="error chat-start-error" role="alert">{startError}</p>}
         {activeChatId !== null ? (
           <ActiveChatView key={activeChatId} chatId={activeChatId} />
         ) : (
-          <p className="chat-active-empty">Create a chat to get started.</p>
+          <section className="chat-active-empty" aria-labelledby="chat-first-message-title">
+            <div className="chat-first-message">
+              <span className="chat-first-message-eyebrow">Agent workspace</span>
+              <h3 id="chat-first-message-title">Start with the work</h3>
+              <p>
+                Send a request and Athenaeum will create and name the chat for you. You can rename or
+                organize it later.
+              </p>
+              <form onSubmit={handleStartFromComposer} className="chat-first-message-form">
+                <textarea
+                  value={firstMessageText}
+                  onChange={(event) => setFirstMessageText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault()
+                      event.currentTarget.form?.requestSubmit()
+                    }
+                  }}
+                  placeholder="What should Athenaeum help move forward?"
+                  aria-label="First message"
+                  rows={3}
+                  disabled={startingChat}
+                />
+                <div className="chat-first-message-actions">
+                  <span className="chat-first-message-hint">⌘↵ to begin</span>
+                  <button type="submit" disabled={startingChat || firstMessageText.trim().length === 0}>
+                    {startingChat ? "Starting…" : "Start working"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </section>
         )}
       </div>
     </section>

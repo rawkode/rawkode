@@ -1,10 +1,9 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
 import { GetAppInput, type EntityId } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { formatDomainError } from "./format-domain-error.js"
 import { AppRunFrame } from "./AppRunFrame.js"
 
 // Web stage, item 2: "An app launch view: clicking an app opens it, rendering its client.js in a
@@ -32,11 +31,40 @@ export function AppLaunchView({
   readonly onBack: () => void
   readonly onEdit: () => void
 }) {
+  const [retryGeneration, setRetryGeneration] = useState(0)
+  const [retryClaimed, setRetryClaimed] = useState(false)
+  const retryClaim = useRef<{ appId: EntityId; sawLoading: boolean } | undefined>(undefined)
   const appEffect = useMemo(
     () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getApp(new GetAppInput({ workspaceId, appId })))),
     [appId]
   )
-  const appState = useEffectQuery(appEffect, [appId])
+  const appState = useEffectQuery(appEffect, [appId, retryGeneration])
+  useEffect(() => {
+    const claim = retryClaim.current
+    if (claim === undefined) return
+    if (claim.appId !== appId) {
+      retryClaim.current = undefined
+      setRetryClaimed(false)
+      return
+    }
+    if (appState.status === "loading") {
+      claim.sawLoading = true
+      return
+    }
+    // The retry-generation render still contains the preceding failure. Keep the presentation
+    // claim until this app lookup visibly loads and then reaches its terminal result.
+    if (!claim.sawLoading) return
+    retryClaim.current = undefined
+    setRetryClaimed(false)
+  }, [appId, appState.status])
+  const retryApp = useCallback(() => {
+    if (retryClaim.current !== undefined || appState.status === "loading") return
+    retryClaim.current = { appId, sawLoading: false }
+    setRetryClaimed(true)
+    setRetryGeneration((generation) => generation + 1)
+  }, [appId, appState.status])
+  const isRetryingApp = retryClaimed || appState.status === "loading"
+  const appUnavailable = appState.status === "failure" && appState.error._tag !== "AppNotFound"
 
   return (
     <div className="app-launch-view">
@@ -52,16 +80,33 @@ export function AppLaunchView({
             <h2 className="app-launch-title">{appState.value.app.title}</h2>
           </>
         )}
-        <button type="button" className="app-launch-edit" onClick={onEdit}>
-          Edit code
-        </button>
+        {appState.status === "success" && (
+          <button type="button" className="app-launch-edit" onClick={onEdit}>
+            Edit code
+          </button>
+        )}
       </header>
 
-      {appState.status === "loading" && <p>Loading…</p>}
-      {appState.status === "failure" && (
-        <p className="error">
-          {appState.error._tag === "AppNotFound" ? "This App no longer exists." : formatDomainError(appState.error)}
+      {appState.status === "loading" && (
+        <p role="status" aria-live="polite" aria-atomic="true">
+          Loading…
         </p>
+      )}
+      {appState.status === "failure" && appState.error._tag === "AppNotFound" && (
+        <section className="app-launch-empty" role="alert">
+          <p>This App no longer exists.</p>
+        </section>
+      )}
+      {appUnavailable && (
+        <section className="app-launch-load-state" role="alert">
+          <div>
+            <p className="app-launch-load-title">This app couldn&rsquo;t be loaded.</p>
+            <p>Nothing was changed.</p>
+          </div>
+          <button type="button" onClick={retryApp} disabled={isRetryingApp}>
+            {isRetryingApp ? "Retrying…" : "Retry"}
+          </button>
+        </section>
       )}
 
       {appState.status === "success" && appState.value.app.clientCodeVersion === 0 && (

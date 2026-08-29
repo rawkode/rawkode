@@ -19,6 +19,7 @@ public final class DevSession: ObservableObject {
     @Published public private(set) var workspaces: [RPCWorkspaceCatalogEntry] = []
     @Published public private(set) var isLoadingWorkspaces = false
     @Published public private(set) var isSigningIn = false
+    @Published public private(set) var workspaceLoadErrorMessage: String?
     @Published public var errorMessage: String?
     @Published public private(set) var selectedWorkspaceId: EntityId?
 
@@ -57,14 +58,22 @@ public final class DevSession: ObservableObject {
             defaults.set(result.email, forKey: Self.emailDefaultsKey)
             await refreshWorkspaces()
         } catch {
-            errorMessage = "Sign-in failed: \(error)"
+            errorMessage = Self.signInFailureMessage(for: error)
         }
+    }
+
+    /// Sign-in transport failures can include credential-adjacent detail. The form retains its
+    /// email field, so direct the user to retry without presenting that raw diagnostic.
+    static func signInFailureMessage(for _: Error) -> String {
+        "We couldn’t sign you in. Your email is still here. Check the connection and try again."
     }
 
     public func signOut() {
         credential = nil
         email = nil
         workspaces = []
+        workspaceLoadErrorMessage = nil
+        errorMessage = nil
         selectedWorkspaceId = nil
         defaults.removeObject(forKey: Self.credentialDefaultsKey)
         defaults.removeObject(forKey: Self.emailDefaultsKey)
@@ -85,23 +94,40 @@ public final class DevSession: ObservableObject {
         defer { isLoadingWorkspaces = false }
         do {
             workspaces = try await client.listWorkspaces()
+            workspaceLoadErrorMessage = nil
             if selectedWorkspaceId == nil, let landingWorkspace = workspaces.first(where: { $0.isDefault }) ?? workspaces.first {
                 selectWorkspace(id: landingWorkspace.workspaceId)
             }
         } catch {
-            errorMessage = "Failed to load workspaces: \(error)"
+            workspaceLoadErrorMessage = Self.workspaceCatalogLoadFailureMessage(for: error)
         }
     }
 
-    public func createWorkspace(title: String) async {
-        guard let client = userClient() else { return }
+    /// Catalog transport failures can include workspace or credential-adjacent detail. Keep that
+    /// diagnostic out of the UI and retain the existing catalog until a retry succeeds.
+    static func workspaceCatalogLoadFailureMessage(for _: Error) -> String {
+        "Workspaces couldn’t be loaded. Nothing has been changed. Retry to check your workspace list."
+    }
+
+    @discardableResult
+    public func createWorkspace(title: String) async -> Bool {
+        guard let client = userClient() else { return false }
+        errorMessage = nil
         do {
             let workspace = try await client.createWorkspace(title: title)
             await refreshWorkspaces()
             selectWorkspace(id: workspace.workspaceId)
+            return true
         } catch {
-            errorMessage = "Failed to create workspace: \(error)"
+            errorMessage = Self.workspaceCreationFailureMessage(for: error)
+            return false
         }
+    }
+
+    /// A lost creation response cannot prove that the workspace was not recorded. Retain the
+    /// caller's draft title and direct them to inspect the catalog without exposing transport detail.
+    static func workspaceCreationFailureMessage(for _: Error) -> String {
+        "We couldn’t confirm that workspace creation completed. Your title is still here. Check your workspace list before trying again."
     }
 
     public func selectWorkspace(id: String) {
@@ -111,7 +137,7 @@ public final class DevSession: ObservableObject {
     }
 
     /// Deselects the active workspace (back to the switcher) without signing out — the "Switch workspace"
-    /// affordance `WorkspaceView` exposes.
+    /// affordance `WorkspaceCommandCenterView` exposes.
     public func deselectWorkspace() {
         selectedWorkspaceId = nil
         defaults.removeObject(forKey: Self.workspaceDefaultsKey)

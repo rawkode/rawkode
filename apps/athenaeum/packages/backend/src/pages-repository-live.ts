@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { TreeFormatter } from "effect/ParseResult"
-import { Page, PageNotFound, PagesRepository, UnexpectedError, type EntityId } from "@athenaeum/domain"
+import { Page, PageDocumentDescriptor, PageNotFound, PagesRepository, UnexpectedError, type EntityId } from "@athenaeum/domain"
 import { collection, createEffectTypedStorage, type Collection, type TypedStorageError } from "@athenaeum/typed-storage-effect"
 
 const pagesCollectionSchema = collection<Page>()({
@@ -28,20 +28,102 @@ export interface PageDocRow {
   readonly bytes: Uint8Array
 }
 
+interface PageDocumentFormatBase {
+  readonly nodeId: EntityId
+  readonly storageVersion: number
+}
+
+interface AutomergeFormatWitness {
+  readonly docId: string
+  readonly headsHash: string
+  readonly bytesSha256: string
+}
+
+interface LoroFormatWitness {
+  readonly schemaVersion: number
+  readonly snapshotSha256: string
+}
+
+/** The format-routing record is separate from `Page` so a native Loro page does not need a
+ * legacy `Page` row or Automerge blob. Missing rows mean the pre-migration default:
+ * `automerge-v1`. Keep this as a strict storage union so malformed combinations fail closed at
+ * the service boundary instead of being treated as a valid page format. */
+export type PageDocumentFormatRow =
+  | (PageDocumentFormatBase & {
+      readonly activeFormat: "automerge-v1"
+      readonly automerge: AutomergeFormatWitness
+      readonly loro?: undefined
+    })
+  | (PageDocumentFormatBase & {
+      readonly activeFormat: "loro-v1"
+      readonly automerge: AutomergeFormatWitness
+      readonly loro: LoroFormatWitness
+    })
+  | (PageDocumentFormatBase & {
+      readonly activeFormat: "loro-v1"
+      readonly automerge?: undefined
+      readonly loro: LoroFormatWitness
+    })
+
+/** Immutable copy of the exact legacy Automerge bytes captured at Loro activation. */
+export interface PageAutomergeSnapshotRow {
+  readonly nodeId: EntityId
+  readonly bytes: Uint8Array
+  readonly sha256: string
+  readonly capturedAt: string
+}
+
+/** Current durable Loro state. Snapshots are used for persistence; version-vector updates stay on
+ * the sync RPC wire. */
+export interface LoroPageDocRow {
+  readonly nodeId: EntityId
+  readonly snapshot: Uint8Array
+  readonly snapshotSha256: string
+  readonly schemaVersion: number
+  readonly updatedAt: string
+}
+
 const pageDocsCollectionSchema = collection<PageDocRow>()({
+  primaryKey: "nodeId"
+})
+
+const pageDocumentFormatsCollectionSchema = collection<PageDocumentFormatRow>()({
+  primaryKey: "nodeId"
+})
+
+const pageAutomergeSnapshotsCollectionSchema = collection<PageAutomergeSnapshotRow>()({
+  primaryKey: "nodeId"
+})
+
+const loroPageDocsCollectionSchema = collection<LoroPageDocRow>()({
   primaryKey: "nodeId"
 })
 
 export interface PagesCollections {
   readonly pages: Collection<Page, EntityId>
   readonly pageDocs: Collection<PageDocRow, EntityId>
+  readonly pageDocumentFormats: Collection<PageDocumentFormatRow, EntityId>
+  readonly pageAutomergeSnapshots: Collection<PageAutomergeSnapshotRow, EntityId>
+  readonly loroPageDocs: Collection<LoroPageDocRow, EntityId>
 }
 
 export const makePagesCollections = (storage: DurableObjectStorage): PagesCollections => {
   const typedStorage = createEffectTypedStorage(storage, {
-    collections: { pages: pagesCollectionSchema, pageDocs: pageDocsCollectionSchema }
+    collections: {
+      pages: pagesCollectionSchema,
+      pageDocs: pageDocsCollectionSchema,
+      pageDocumentFormats: pageDocumentFormatsCollectionSchema,
+      pageAutomergeSnapshots: pageAutomergeSnapshotsCollectionSchema,
+      loroPageDocs: loroPageDocsCollectionSchema
+    }
   })
-  return { pages: typedStorage.pages, pageDocs: typedStorage.pageDocs }
+  return {
+    pages: typedStorage.pages,
+    pageDocs: typedStorage.pageDocs,
+    pageDocumentFormats: typedStorage.pageDocumentFormats,
+    pageAutomergeSnapshots: typedStorage.pageAutomergeSnapshots,
+    loroPageDocs: typedStorage.loroPageDocs
+  }
 }
 
 export const toUnexpectedError = (error: TypedStorageError): UnexpectedError =>
@@ -49,8 +131,27 @@ export const toUnexpectedError = (error: TypedStorageError): UnexpectedError =>
     message:
       error._tag === "StorageError"
         ? error.message
-        : `index conflict: ${error.collection}.${error.index} (key ${error.key})`
+      : `index conflict: ${error.collection}.${error.index} (key ${error.key})`
   })
+
+/** Decode format-routing rows at the storage boundary as well as at the RPC boundary. The
+ * collection is intentionally structural (typed-storage does not own Effect Schemas), so a bad
+ * row must be rejected before service code branches on `activeFormat` or spreads witness fields.
+ */
+export const decodePageDocumentFormatRow = (
+  raw: unknown
+): Effect.Effect<PageDocumentFormatRow | undefined, UnexpectedError> =>
+  raw === undefined
+    ? Effect.succeed(undefined)
+    : Schema.decodeUnknown(PageDocumentDescriptor)(raw).pipe(
+        Effect.map((decoded) => decoded as PageDocumentFormatRow),
+        Effect.mapError(
+          (parseError) =>
+            new UnexpectedError({
+              message: `corrupt stored page document format: ${TreeFormatter.formatErrorSync(parseError)}`
+            })
+        )
+      )
 
 export const revivePage = (raw: unknown): Effect.Effect<Page, UnexpectedError> =>
   Schema.decodeUnknown(Page)(raw).pipe(

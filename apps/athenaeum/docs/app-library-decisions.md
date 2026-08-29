@@ -485,6 +485,12 @@ mintAppRunCredential                  → requireRoleForGovernedWorkspace(curren
 ### Client-side sandbox contract (`packages/web/src/AppLibraryPanel.tsx`, `app-sandbox-bootstrap.ts`)
 
 - Preview iframe: `sandbox="allow-scripts"`, `srcDoc`-loaded, no `allow-same-origin`.
+- The shared `AppRunFrame` wraps every client bundle in document-contract version 1: a viewport
+  meta tag, a full-height `#app-root`, reduced-motion/focus defaults, and a small set of semantic
+  `--athenaeum-*` CSS variables. `html[data-athenaeum-theme]` mirrors the shell's Paper/Dark
+  choice, so an App can feel native to the current workspace without reading the parent document.
+  The contract is inline and versioned in `app-sandbox-document.ts`; it grants no additional
+  origin, storage, messaging, or RPC capability.
 - `buildAppSandboxBootstrapScript(runBaseUrl, token): string` — renders the `window.fetch`
   rewrite as an inline `<script>` for the iframe's `srcDoc`, run before the App's own `client.js`.
 - `rewriteFetchTarget(runBaseUrl, token, urlStr): string | undefined` — the same logic as a plain,

@@ -64,9 +64,11 @@ extension CalendarEventTime: Codable {
 public struct CalendarEventAttendee: Codable, Hashable, Sendable {
     public let email: Email
     public let displayName: String?
-    public init(email: Email, displayName: String? = nil) {
+    public let personNodeId: EntityId?
+    public init(email: Email, displayName: String? = nil, personNodeId: EntityId? = nil) {
         self.email = email
         self.displayName = displayName
+        self.personNodeId = personNodeId
     }
 }
 

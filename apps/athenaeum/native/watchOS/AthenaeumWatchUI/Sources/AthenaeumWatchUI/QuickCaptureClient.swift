@@ -34,6 +34,7 @@ public struct QuickCapture: Sendable, Equatable {
 
 public enum QuickCaptureError: Error, Sendable, Equatable {
     case emptyText
+    case authenticationRequired
 }
 
 public actor QuickCaptureClient {
@@ -43,18 +44,33 @@ public actor QuickCaptureClient {
     static let quickCaptureTextPredicateId = "quick-capture-text"
 
     private let rpcClient: WorkspaceRPCClient
+    private let bearerCredential: String?
     public let workspaceId: EntityId
+    private struct PendingCapture: Sendable {
+        let normalizedText: String
+        let nodeId: String
+        let nodeRequestId: String
+        let tagRequestId: String
+        let factRequestId: String
+    }
+    private var pendingCapture: PendingCapture?
 
-    public init(rpcClient: WorkspaceRPCClient, workspaceId: EntityId) {
+    public init(rpcClient: WorkspaceRPCClient, workspaceId: EntityId, bearerCredential: String? = nil) {
         self.rpcClient = rpcClient
+        self.bearerCredential = bearerCredential
         self.workspaceId = workspaceId
     }
 
     /// Convenience initializer matching `AthenaeumViewModel`'s own `baseURL`/`workspaceId` defaulting
     /// shape, so the watch app's entry point needs no manual `WorkspaceRPCClient` wiring.
-    public init(baseURL: URL = WatchWorkspaceConfiguration.resolveBackendURL(), workspaceId: EntityId = WatchWorkspaceConfiguration.resolveWorkspaceId()) {
+    public init(
+        baseURL: URL = WatchWorkspaceConfiguration.resolveBackendURL(),
+        workspaceId: EntityId = WatchWorkspaceConfiguration.resolveWorkspaceId(),
+        bearerCredential: String? = WatchWorkspaceConfiguration.resolveBearerCredential()
+    ) {
         let workspaceURL = baseURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
-        self.rpcClient = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue)
+        self.rpcClient = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
+        self.bearerCredential = bearerCredential
         self.workspaceId = workspaceId
     }
 
@@ -65,9 +81,29 @@ public actor QuickCaptureClient {
     public func capture(text: String) async throws -> QuickCapture {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw QuickCaptureError.emptyText }
+        guard let bearerCredential, !bearerCredential.isEmpty else { throw QuickCaptureError.authenticationRequired }
 
         let title = Self.truncatedTitle(trimmed)
-        let remoteNode = try await rpcClient.createNode(title: title, id: nil)
+        // Freeze the complete node/tag/fact operation before the first network call. If the watch
+        // loses a response and the user retries the preserved draft, every ledger identity is
+        // replayed instead of creating a partial duplicate capture.
+        let operation = pendingCapture?.normalizedText == trimmed
+            ? pendingCapture!
+            : PendingCapture(
+                normalizedText: trimmed,
+                nodeId: UUID().uuidString.lowercased(),
+                nodeRequestId: UUID().uuidString.lowercased(),
+                tagRequestId: UUID().uuidString.lowercased(),
+                factRequestId: UUID().uuidString.lowercased()
+            )
+        pendingCapture = operation
+        let remoteNode = try await rpcClient.createNodeWithIntent(
+            title: title,
+            id: operation.nodeId,
+            requestId: operation.nodeRequestId,
+            commitMessage: "Capture dictated text as a task node.",
+            attribution: MutationAttribution(kind: "humanUi", surface: "watch-quick-capture")
+        )
         let node = Node(
             id: try EntityId(validating: remoteNode.id),
             workspaceId: try EntityId(validating: remoteNode.workspaceId),
@@ -75,12 +111,21 @@ public actor QuickCaptureClient {
             createdAt: try IsoDateTimeString(validating: remoteNode.createdAt)
         )
 
-        try await rpcClient.assignTag(nodeId: node.id.rawValue, tagId: BaseTagIds.task.rawValue)
+        try await rpcClient.assignTag(
+            nodeId: node.id.rawValue,
+            tagId: BaseTagIds.task.rawValue,
+            requestId: operation.tagRequestId,
+            commitMessage: "Mark the quick capture as a task.",
+            attribution: MutationAttribution(kind: "humanUi", surface: "watch-quick-capture")
+        )
 
         let remoteFact = try await rpcClient.addFact(
             nodeId: node.id.rawValue,
             predicateId: Self.quickCaptureTextPredicateId,
-            value: .string(trimmed)
+            value: .string(operation.normalizedText),
+            requestId: operation.factRequestId,
+            commitMessage: "Capture a quick note.",
+            attribution: MutationAttribution(kind: "humanUi", surface: "watch-quick-capture")
         )
         let fact = Fact(
             id: try EntityId(validating: remoteFact.id),
@@ -89,6 +134,7 @@ public actor QuickCaptureClient {
             value: try remoteFact.value.toWatchJSONValue()
         )
 
+        pendingCapture = nil
         return QuickCapture(node: node, fact: fact)
     }
 
