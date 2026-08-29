@@ -211,10 +211,19 @@ public struct DailyNoteView: View {
 
     private var compactNoteHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                noteTitle
-                Spacer(minLength: 0)
-                formatBadge
+            // A long legacy badge and a large accessibility date should never compete for
+            // the same line. Keep the usual compact rhythm when it fits, then stack the badge
+            // below the title before either element is clipped.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    noteTitle
+                    Spacer(minLength: 0)
+                    formatBadge
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    noteTitle
+                    formatBadge
+                }
             }
             dayNavigation
         }
