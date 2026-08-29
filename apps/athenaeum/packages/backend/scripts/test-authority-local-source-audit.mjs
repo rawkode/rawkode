@@ -63,5 +63,16 @@ assert.throws(
   () => auditLocalHandlerGraph({ "/entry.ts": "export const handler = () => { for (const Object of []) return Object.entries({}) }" }, ["/entry.ts"]),
   /may not shadow pure intrinsic/
 )
+for (const source of [
+  "const { 'constructor': C } = capability.readLocal; export const x = C('return globalThis')()",
+  "const { prototype: P } = capability.readLocal; export const x = P",
+  "const { __proto__: P } = capability.readLocal; export const x = P",
+  "const { call: C } = capability.readLocal; export const x = C",
+  "const { constructor } = capability.readLocal; export const x = constructor",
+  "export const handler = ({ 'bind': B }: Record<string, unknown>) => B",
+  "({ 'apply': A } = capability.readLocal); export const x = A",
+  "const { [key]: C } = capability.readLocal; export const x = C",
+  "({ [key]: C } = capability.readLocal); export const x = C"
+]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|computed/)
 assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "export { x } from './helper.js'", "/helper.ts": "const alias = fetch; export const x = alias" }, ["/entry.ts"]), /forbidden|unresolved/)
 console.log("authority local source audit fixtures verified")

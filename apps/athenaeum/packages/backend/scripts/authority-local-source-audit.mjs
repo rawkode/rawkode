@@ -79,6 +79,25 @@ const validatePureIntrinsicUses = (tree, file) => {
   visit(tree)
 }
 
+const staticPropertyName = (node) => ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined
+
+const validateObjectBindingKeys = (tree, file) => {
+  const validate = (name) => {
+    if (ts.isComputedPropertyName(name)) throw new Error(`computed local handler binding property is forbidden: ${file}`)
+    const key = staticPropertyName(name)
+    if (key === undefined || forbiddenProperties.has(key)) throw new Error(`forbidden local handler binding property: ${key ?? "<unknown>"} in ${file}`)
+  }
+  const visit = (node) => {
+    if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
+      const name = node.propertyName ?? (ts.isIdentifier(node.name) ? node.name : undefined)
+      if (name !== undefined) validate(name)
+    }
+    if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) validate(node.name)
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+}
+
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
 const normalizeRelative = (from, specifier) => {
@@ -109,6 +128,7 @@ const forbiddenSyntax = (source, file) => {
     }
     if (ts.isIdentifier(node) && forbiddenIdentifiers.has(node.text)) throw new Error(`forbidden local handler API: ${node.text}`)
     if (ts.isElementAccessExpression(node)) throw new Error(`computed local handler property access is forbidden: ${file}`)
+    if (ts.isComputedPropertyName(node)) throw new Error(`computed local handler property name is forbidden: ${file}`)
     if (ts.isPropertyAccessExpression(node) && forbiddenProperties.has(node.name.text)) throw new Error(`forbidden local handler property: ${node.name.text}`)
     if (ts.isIdentifier(node) && node.text === "Atomics") throw new Error("forbidden local handler API: Atomics")
     ts.forEachChild(node, visit)
@@ -116,6 +136,7 @@ const forbiddenSyntax = (source, file) => {
   visit(tree)
   validateNoIntrinsicShadowing(tree, file)
   validatePureIntrinsicUses(tree, file)
+  validateObjectBindingKeys(tree, file)
   validateClosedBindings(tree, file)
   return tree
 }
