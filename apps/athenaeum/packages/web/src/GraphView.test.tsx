@@ -31,6 +31,7 @@ vi.mock("react-router", () => ({
 }))
 
 import { GraphView } from "./GraphView.js"
+import { dailyNoteIdForDate } from "./daily-note-id.js"
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -282,5 +283,19 @@ describe("GraphView browse recovery", () => {
     expect(host.querySelector(".graph-view-count")?.textContent).toContain("1 node · tagged Person")
     expect(host.querySelector(".graph-view-col-action button")).toBeNull()
     expect(buttonNamed(host, "Refresh")?.disabled).toBe(false)
+  })
+
+  it("routes canonical daily-note rows directly to the date-addressed editor", async () => {
+    const dailyNoteId = dailyNoteIdForDate(new Date(2026, 7, 22))
+    const host = await mount({
+      status: "success",
+      value: {
+        rows: [{ id: dailyNoteId, title: "Daily Note — 2026-08-22", createdAt: "2026-08-22T10:00:00.000Z" }]
+      }
+    })
+
+    expect(host.querySelector<HTMLAnchorElement>(".graph-view-title-link")?.getAttribute("href")).toBe(
+      "/notes?date=2026-08-22"
+    )
   })
 })

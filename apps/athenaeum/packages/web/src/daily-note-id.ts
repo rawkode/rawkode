@@ -75,6 +75,12 @@ export const dateStampFromDailyNoteId = (id: string): string | undefined => {
   return parseDateStamp(stamp) === undefined ? undefined : stamp
 }
 
+/** Returns the canonical destination for an entity id that may represent a daily note. */
+export const destinationForNodeId = (nodeId: string): string => {
+  const dateStamp = dateStampFromDailyNoteId(nodeId)
+  return dateStamp === undefined ? `/node/${nodeId}` : `/notes?date=${dateStamp}`
+}
+
 /** `stamp` shifted by `deltaDays` whole days, in local time — drives the prev/next-day controls.
  *  Callers pass a stamp that already went through `parseDateStamp`, so the non-null assertion via
  *  fallback-to-today never fires in practice; it exists to keep this total rather than throwing. */

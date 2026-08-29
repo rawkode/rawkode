@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   dailyNoteIdForDate,
+  destinationForNodeId,
   dateStampFromDailyNoteId,
   localDateStamp,
   parseDateStamp,
@@ -41,6 +42,16 @@ describe("dateStampFromDailyNoteId", () => {
     expect(dateStampFromDailyNoteId("00000000-0000-0000-0000-000000000001")).toBeUndefined()
     // Reserved-family shape but an impossible embedded date.
     expect(dateStampFromDailyNoteId("00000000-0000-4000-8000-000099999999")).toBeUndefined()
+  })
+})
+
+describe("destinationForNodeId", () => {
+  it("opens canonical daily notes directly and preserves generic node routes otherwise", () => {
+    const dailyNoteId = dailyNoteIdForDate(new Date(2026, 7, 22))
+    expect(destinationForNodeId(dailyNoteId)).toBe("/notes?date=2026-08-22")
+    expect(destinationForNodeId("00000000-0000-4000-8000-000099999999")).toBe(
+      "/node/00000000-0000-4000-8000-000099999999"
+    )
   })
 })
 

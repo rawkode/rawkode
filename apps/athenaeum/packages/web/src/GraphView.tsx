@@ -7,6 +7,7 @@ import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
+import { destinationForNodeId } from "./daily-note-id.js"
 
 // Task item 3 ("At least one read-only graph view UI: render the result of a runView call... e.g.
 // 'all nodes tagged Person'"). Renders the real `graph_nodes` read-only view (`RunViewInput`'s
@@ -221,7 +222,7 @@ export function GraphView() {
                         StaticText — you could see a node existed and not open it (Flow 3's
                         `flow-3-graph-no-links.png`). Now a real link to the node view. */}
                     <td>
-                      <Link className="graph-view-title-link" to={`/node/${row.id}`}>
+                      <Link className="graph-view-title-link" to={destinationForNodeId(row.id)}>
                         {row.title}
                       </Link>
                     </td>

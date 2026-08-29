@@ -6,7 +6,7 @@ import type { DomainError } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
-import { dateStampFromDailyNoteId } from "./daily-note-id.js"
+import { destinationForNodeId } from "./daily-note-id.js"
 
 // Retrieval pass (design-review 2026-08-22 finding #1, "Search"): the review's Flow 3 verified
 // there was "no search input anywhere in the shell" while the backend has shipped a real,
@@ -22,11 +22,8 @@ const SEARCH_DEBOUNCE_MS = 250
 
 const EMPTY_SEARCH_OUTPUT = new SearchNodesOutput({ results: [] })
 
-/** Returns the canonical web destination for a search result. */
-export const searchResultDestination = (nodeId: string): string => {
-  const dateStamp = dateStampFromDailyNoteId(nodeId)
-  return dateStamp === undefined ? `/node/${nodeId}` : `/notes?date=${dateStamp}`
-}
+/** Compatibility name for retrieval callers; the pure mapping lives with the daily-note id scheme. */
+export const searchResultDestination = destinationForNodeId
 
 /** Shared retrieval state for the resident sidebar search and the transient command palette. */
 export function useNodeSearch(query: string, enabled = true) {
