@@ -176,6 +176,8 @@ import {
   ListBookmarksOutput,
   ListCalendarEventsInput,
   ListCalendarEventsOutput,
+  ListGatekeeperBindingsInput,
+  ListGatekeeperBindingsOutput,
   ListChatChangesInput,
   ListChatChangesOutput,
   ListCollaboratorsInput,
@@ -3432,6 +3434,24 @@ class WorkspaceRpcApi extends RpcTarget {
       )
     )
     return runRpcProgram(this.#runtime, program, ListCalendarEventsOutput)
+  }
+
+  async listGatekeeperBindings(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(ListGatekeeperBindingsInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      // Binding existence and mode are external-connection management metadata. Keep this behind
+      // the stronger management role even though the projection is deliberately redacted.
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const calendar = yield* CalendarService
+          const bindings = yield* calendar.listBindings(decoded.workspaceId)
+          return new ListGatekeeperBindingsOutput({ bindings })
+        })
+      )
+    )
+    return runRpcProgram(this.#runtime, program, ListGatekeeperBindingsOutput)
   }
 
   async getTodayBrief(input: unknown): Promise<unknown> {

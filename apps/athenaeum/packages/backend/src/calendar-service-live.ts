@@ -79,6 +79,7 @@ import {
   Fact,
   FactsRepository,
   GatekeeperBinding,
+  GatekeeperBindingSummary,
   GatekeeperNotConnected,
   GetTodayBriefInput,
   GetTodayBriefOutput,
@@ -160,6 +161,11 @@ export interface CalendarServiceApi {
   readonly disconnect: (workspaceId: EntityId, bindingId: EntityId) => Effect.Effect<boolean, DomainError>
 
   readonly sync: (workspaceId: EntityId, bindingId: EntityId) => Effect.Effect<{ readonly triggered: boolean }, DomainError>
+
+  /** Lists privacy-safe management projections of every Google Calendar binding for a workspace.
+   *  This reads only the local binding index: it never contacts the provider, refreshes OAuth
+   *  credentials, records observers, or appends to the sync feed. */
+  readonly listBindings: (workspaceId: EntityId) => Effect.Effect<ReadonlyArray<GatekeeperBindingSummary>, DomainError>
 
   /** `callerEmail` is `undefined` only for an anonymous caller on an UNGOVERNED workspace (a governed
    *  workspace's `requireRoleForGovernedWorkspace` gate already rejects an anonymous caller upstream, in
@@ -319,6 +325,22 @@ export const makeCalendarServiceLive = (
           Effect.mapError(toUnexpectedError),
           Effect.flatMap((rows) => Effect.forEach(rows, reviveGatekeeperBinding)),
           Effect.map((bindings) => bindings.filter((b) => b.gatekeeperKind === "google-calendar"))
+        )
+
+      const listBindings: CalendarServiceApi["listBindings"] = (workspaceId) =>
+        listCalendarBindingsForWorkspace(workspaceId).pipe(
+          Effect.map((bindings) => bindings
+            .filter((binding) => binding.config.kind === "google-calendar")
+            .map((binding) => new GatekeeperBindingSummary({
+              id: binding.id,
+              workspaceId: binding.workspaceId,
+              gatekeeperKind: binding.gatekeeperKind,
+              mode: binding.config.mode,
+              createdAt: binding.createdAt
+            }))
+            .sort((left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || String(left.id).localeCompare(String(right.id))
+            ))
         )
 
       const putObserverRecord = (record: CalendarObserverRecord): Effect.Effect<void, DomainError> =>
@@ -891,6 +913,7 @@ export const makeCalendarServiceLive = (
         completeOAuthCallback,
         disconnect,
         sync,
+        listBindings,
         listEvents,
         getTodayBrief,
         findTodayBriefEvent,

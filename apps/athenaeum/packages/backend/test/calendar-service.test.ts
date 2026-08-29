@@ -162,6 +162,9 @@ describe("CalendarService — connect/callback/disconnect", () => {
     const workspaceId = freshWorkspaceId()
     const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
 
+    const beforeCallback = (await stub.listGatekeeperBindings({ workspaceId })) as { bindings: ReadonlyArray<unknown> }
+    expect(beforeCallback.bindings).toEqual([])
+
     const connectResult = (await stub.connectGoogleCalendar({ workspaceId })) as { authorizationUrl: string; state: string }
     expect(connectResult.authorizationUrl).toContain("state=")
     expect(typeof connectResult.state).toBe("string")
@@ -177,11 +180,42 @@ describe("CalendarService — connect/callback/disconnect", () => {
     expect(callbackResult.binding.gatekeeperKind).toBe("google-calendar")
     expect(callbackResult.binding.boundBy).toBe(email)
 
+    const catalog = (await stub.listGatekeeperBindings({ workspaceId })) as {
+      bindings: ReadonlyArray<Record<string, unknown>>
+    }
+    expect(catalog.bindings).toHaveLength(1)
+    expect(catalog.bindings[0]).toEqual({
+      id: callbackResult.binding.id,
+      workspaceId,
+      gatekeeperKind: "google-calendar",
+      mode: "selected",
+      createdAt: expect.any(String)
+    })
+    expect(Object.keys(catalog.bindings[0]!).sort()).toEqual([
+      "createdAt",
+      "gatekeeperKind",
+      "id",
+      "mode",
+      "workspaceId"
+    ])
+    expect(catalog.bindings[0]).not.toHaveProperty("boundBy")
+    expect(catalog.bindings[0]).not.toHaveProperty("config")
+
     const disconnectResult = (await stub.disconnectGoogleCalendar({
       workspaceId,
       bindingId: callbackResult.binding.id
     })) as { disconnected: boolean }
     expect(disconnectResult.disconnected).toBe(true)
+
+    const afterDisconnect = (await stub.listGatekeeperBindings({ workspaceId })) as { bindings: ReadonlyArray<unknown> }
+    expect(afterDisconnect.bindings).toEqual([])
+
+    const otherWorkspace = freshWorkspaceId()
+    const { stub: otherStub } = await connectToWorkspaceWithSocketAs(otherWorkspace, credential)
+    const otherWorkspaceCatalog = (await otherStub.listGatekeeperBindings({ workspaceId: otherWorkspace })) as {
+      bindings: ReadonlyArray<unknown>
+    }
+    expect(otherWorkspaceCatalog.bindings).toEqual([])
   })
 
   it("rejects a callback whose state was minted for a different workspace", async () => {
@@ -696,6 +730,8 @@ describe("CalendarService — governed-workspace role gating (hard constraint)",
     expect(connectError._tag).toBe("Unauthorized")
     const listError = await rejectionToDomainError(anon.listCalendarEvents({ workspaceId }))
     expect(listError._tag).toBe("Unauthorized")
+    const bindingsError = await rejectionToDomainError(anon.listGatekeeperBindings({ workspaceId }))
+    expect(bindingsError._tag).toBe("Unauthorized")
     const bookmarksError = await rejectionToDomainError(anon.listBookmarks({ workspaceId }))
     expect(bookmarksError._tag).toBe("Unauthorized")
   })
@@ -709,6 +745,23 @@ describe("CalendarService — governed-workspace role gating (hard constraint)",
       bookmark: { id: string }
     }
     expect(typeof created.bookmark.id).toBe("string")
+  })
+
+  it("keeps the binding catalog behind the build role", async () => {
+    const ownerEmail = "binding-role-owner@example.test"
+    const readerEmail = "binding-role-reader@example.test"
+    const { credential: ownerCredential } = await devSignIn(ownerEmail)
+    const workspaceId = await createGovernedWorkspace(ownerEmail)
+    const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCredential)
+
+    const ownerCatalog = (await ownerStub.listGatekeeperBindings({ workspaceId })) as { bindings: ReadonlyArray<unknown> }
+    expect(ownerCatalog.bindings).toEqual([])
+
+    await ownerStub.addCollaborator({ workspaceId, profileId: readerEmail, role: "use" })
+    const { credential: readerCredential } = await devSignIn(readerEmail)
+    const { stub: readerStub } = await connectToWorkspaceWithSocketAs(workspaceId, readerCredential)
+    const readerError = await rejectionToDomainError(readerStub.listGatekeeperBindings({ workspaceId }))
+    expect(readerError._tag).toBe("Unauthorized")
   })
 
   // Task item 4's own explicit ask: "confirm a 'use'-only collaborator can read bookmarks but a
