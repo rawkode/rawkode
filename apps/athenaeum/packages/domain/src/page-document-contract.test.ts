@@ -125,6 +125,12 @@ describe("Loro page-document contracts", () => {
     }))).toBe(true)
   })
 
+  it("accepts only the exact iOS Supertags human surface", () => {
+    const encoded = { workspaceId: nodeId, nodeId, creationIntent: { requestId: "ios-supertags", commitMessage: "Apply a Supertag", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "ios-supertags" } } }
+    expect(Schema.decodeUnknownSync(CreateLoroPageInput)(encoded).creationIntent.attribution).toMatchObject({ surface: "ios-supertags" })
+    for (const surface of ["ios-supertag", "ios-supertags\n", "ios-supertags "]) expect(Either.isLeft(Schema.decodeUnknownEither(CreateLoroPageInput)({ ...encoded, creationIntent: { ...encoded.creationIntent, attribution: { ...encoded.creationIntent.attribution, surface } } }))).toBe(true)
+  })
+
   it("requires valid format, positive storage/schema versions, and required wire bytes", () => {
     expect(Schema.decodeUnknownSync(PageDocumentFormat)("automerge-v1")).toBe("automerge-v1")
     expect(Schema.decodeUnknownSync(PageDocumentFormat)("loro-v1")).toBe("loro-v1")

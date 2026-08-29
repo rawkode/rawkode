@@ -199,6 +199,13 @@ final class PageDocumentContractTests: XCTestCase {
         XCTAssertEqual(intent.requestId, "native-loro-request")
     }
 
+    func testIOSSupertagsSurfaceIsExactAndClosed() {
+        XCTAssertNoThrow(try LoroMutationIntentV1(requestId: "ios", commitMessage: "Apply a Supertag", attribution: .humanUi(surface: "ios-supertags")))
+        for value in ["ios-supertag", "ios-supertags ", " ios-supertags", "IOS-supertags"] {
+            XCTAssertThrowsError(try LoroMutationIntentV1(requestId: "ios", commitMessage: "Apply a Supertag", attribution: .humanUi(surface: value)))
+        }
+    }
+
     func testPageFormatMismatchEnvelopeRoundTripsExactly() {
         let error = DomainError.pageFormatMismatch(nodeId: "n1", expected: .loroV1, actual: .automergeV1)
         XCTAssertEqual(decodeRpcError(encodeRpcError(error)), error)

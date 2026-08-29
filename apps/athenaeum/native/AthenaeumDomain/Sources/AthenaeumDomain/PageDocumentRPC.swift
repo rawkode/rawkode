@@ -264,7 +264,7 @@ public enum LoroMutationWireError: Error, Equatable, Sendable {
     case workspaceMismatch
 }
 public enum LoroMutationWire {
-    public static let humanSurfaces: Set<String> = ["rich-text-editor", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "macos", "watch-quick-capture"]
+    public static let humanSurfaces: Set<String> = ["rich-text-editor", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "ios-supertags", "macos", "watch-quick-capture"]
     public static func isDigest(_ value: String) -> Bool { value.utf8.count == 64 && value.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) } }
 
     /// Byte-for-byte SHA-256 witness compatible with the backend's `sha256HexSync(bytes)`.

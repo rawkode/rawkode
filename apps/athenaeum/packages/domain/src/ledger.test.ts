@@ -140,6 +140,8 @@ describe("transitional ledger domain contract", () => {
     expect(Schema.decodeUnknownSync(MutationAttribution)(new HumanUiMutationAttribution({
       version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-backlinks"
     }))).toMatchObject({ kind: "humanUi", surface: "web-backlinks" })
+    expect(Schema.decodeUnknownSync(MutationAttribution)({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "ios-supertags" })).toMatchObject({ surface: "ios-supertags" })
+    for (const surface of ["ios-supertag", "IOS-supertags", "ios-supertags ", " ios-supertags"]) expect(() => Schema.decodeUnknownSync(MutationAttribution)({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface })).toThrow()
     expect(Schema.decodeUnknownSync(MutationAttribution)(new AgentJobMutationAttribution({
       version: "athenaeum.mutation-attribution.v1", kind: "agentJob", jobId: "employee-1", runId: "run-1"
     }))).toMatchObject({ kind: "agentJob" })
