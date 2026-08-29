@@ -122,6 +122,50 @@ const validateModuleState = (tree, file) => {
   }
 }
 
+const propertyWriteOperators = new Set([
+  ts.SyntaxKind.EqualsToken,
+  ts.SyntaxKind.PlusEqualsToken,
+  ts.SyntaxKind.MinusEqualsToken,
+  ts.SyntaxKind.AsteriskEqualsToken,
+  ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+  ts.SyntaxKind.SlashEqualsToken,
+  ts.SyntaxKind.PercentEqualsToken,
+  ts.SyntaxKind.LessThanLessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken
+])
+
+const containsPropertyTarget = (node) => {
+  const target = unparenthesized(node)
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) return true
+  let found = false
+  ts.forEachChild(target, (child) => { if (!found && containsPropertyTarget(child)) found = true })
+  return found
+}
+
+const validateNoStateCarriers = (tree, file) => {
+  const reject = (detail) => { throw new Error(`mutable local handler state carrier is forbidden (${detail}): ${file}`) }
+  const visit = (node) => {
+    if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) reject("class")
+    if (ts.isClassStaticBlockDeclaration(node)) reject("class static block")
+    if (ts.isPropertyDeclaration(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword)) reject("class static field")
+    if (ts.isEnumDeclaration(node)) reject("enum")
+    if (ts.isModuleDeclaration(node)) reject("namespace")
+    if (ts.isBinaryExpression(node) && propertyWriteOperators.has(node.operatorToken.kind) && containsPropertyTarget(node.left)) reject("property write")
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) && containsPropertyTarget(node.operand)) reject("property update")
+    if (ts.isDeleteExpression(node) && containsPropertyTarget(node.expression)) reject("property delete")
+    if ((ts.isForInStatement(node) || ts.isForOfStatement(node)) && containsPropertyTarget(node.initializer)) reject("property loop assignment")
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+}
+
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
 const normalizeRelative = (from, specifier) => {
@@ -140,6 +184,7 @@ const normalizeRelative = (from, specifier) => {
 const forbiddenSyntax = (source, file) => {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   if (tree.parseDiagnostics.length > 0) throw new Error(`unparseable local handler source: ${file}`)
+  validateNoStateCarriers(tree, file)
   validateModuleState(tree, file)
   const visit = (node) => {
     if (ts.isFunctionLike(node) && (node.asteriskToken !== undefined || node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword))) throw new Error(`suspending local handler function is forbidden: ${file}`)

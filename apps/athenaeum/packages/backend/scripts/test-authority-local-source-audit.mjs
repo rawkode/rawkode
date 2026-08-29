@@ -41,6 +41,21 @@ for (const source of [
   "const retained: unknown[] = []; export function handler() { return retained }"
 ]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /mutable module state/)
 for (const source of [
+  "const holder = () => {}; holder.retained = 'payload'; export { holder }",
+  "function holder() {}; holder.retained = 'payload'; export { holder }",
+  "const holder = () => {}; export function handler() { holder.retained = 'payload' }",
+  "const holder = () => {}; export function handler() { ({ retained: holder.retained } = { retained: 'payload' }) }",
+  "const holder = () => {}; export function handler() { holder.retained++ }",
+  "const holder = () => {}; export function handler() { delete holder.retained }",
+  "const holder = () => {}; export function handler() { for (holder.retained of []) {} }",
+  "class Holder {}",
+  "class Holder { static retained = 'payload' }",
+  "class Holder { static { const retained = 'payload' } }",
+  "export function handler() { class Holder {}; return Holder }",
+  "namespace Holder { export const retained = 'payload' }",
+  "enum Holder { Retained }"
+]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /state carrier/)
+for (const source of [
   "export function x() { return globalThis }",
   "export function x() { return Date.now() }",
   "export function x() { return Reflect.get({}, 'x') }",
