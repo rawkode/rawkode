@@ -12,15 +12,10 @@ import type { EntityId } from "@athenaeum/domain"
 // this addition, still real, still needed for the cross-tab case).
 export const CALENDAR_BINDING_CHANGED_EVENT = "athenaeum:calendarBindingChanged"
 
-// **Documented limitation** (see `CalendarPanel.tsx`'s header comment for the full rationale):
-// `gatekeeper-rpc.ts` has no "list this workspace's gatekeeper bindings" RPC method — only
-// `connectGoogleCalendar`/`googleCalendarOAuthCallback`/`disconnectGoogleCalendar`/
-// `syncGoogleCalendar` (which all take/return a `bindingId`, never enumerate one). So THIS
-// browser's record of "which binding did I connect for this workspace" is necessarily client-side
-// bookkeeping, not an authoritative server read — a different browser/device, or this same
-// browser with `localStorage` cleared, has no way to discover an already-connected binding's id
-// today. That is a real, documented Phase 5 gap (the next stage's obvious follow-up is a
-// `listGatekeeperBindings` RPC method), not a bug in this file.
+// The server's `listGatekeeperBindings` RPC is authoritative for connection state. This tiny
+// local record remains only as an immediate OAuth-callback hint and a recovery signal when the
+// catalog read is temporarily unavailable; `CalendarPanel` never treats it as proof that a
+// connection still exists and disables destructive disconnect until the server confirms the id.
 
 const keyFor = (workspaceId: EntityId): string => `athenaeum:calendarBinding:${workspaceId}`
 

@@ -11,8 +11,21 @@ const bindingStorageMock = vi.hoisted(() => ({
   loadCalendarBindingId: vi.fn(),
   clearCalendarBindingId: vi.fn()
 }))
+const catalogQueryMock = vi.hoisted(() => ({
+  state: {
+    status: "success",
+    value: { generation: 1, value: { bindings: [] } }
+  } as unknown,
+  dependencies: [] as ReadonlyArray<unknown>[]
+}))
 
 vi.mock("./runtime.js", () => ({ runtime: runtimeMock }))
+vi.mock("./use-effect-query.js", () => ({
+  useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
+    catalogQueryMock.dependencies.push([...dependencies])
+    return catalogQueryMock.state
+  }
+}))
 vi.mock("./calendar-binding-storage.js", () => ({
   CALENDAR_BINDING_CHANGED_EVENT: "calendar-binding-changed",
   loadCalendarBindingId: bindingStorageMock.loadCalendarBindingId,
@@ -49,9 +62,28 @@ const connectButton = (host: HTMLDivElement): HTMLButtonElement | undefined =>
 
 const disconnectButton = (host: HTMLDivElement): HTMLButtonElement | undefined =>
   [...host.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent === "Disconnect")
+    .find((button) => button.textContent?.startsWith("Disconnect"))
 
 const calendarBindingId = EntityId.make("00000000-0000-4000-8000-000000000005")
+const secondCalendarBindingId = EntityId.make("00000000-0000-4000-8000-000000000006")
+
+const catalogSuccess = (bindings: ReadonlyArray<unknown>, generation = 1) => ({
+  status: "success" as const,
+  value: { generation, value: { bindings } }
+})
+
+const catalogFailure = (generation = 1) => ({
+  status: "failure" as const,
+  error: { generation, error: new UnexpectedError({ message: "private catalog detail" }) }
+})
+
+const serverBinding = (id: EntityId, mode: "selected" | "allVisible" = "selected") => ({
+  id,
+  workspaceId: "00000000-0000-4000-8000-000000000010",
+  gatekeeperKind: "google-calendar",
+  mode,
+  createdAt: "2026-08-29T09:00:00.000Z"
+})
 
 beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
@@ -59,6 +91,8 @@ beforeEach(() => {
   bindingStorageMock.loadCalendarBindingId.mockReset()
   bindingStorageMock.loadCalendarBindingId.mockReturnValue(undefined)
   bindingStorageMock.clearCalendarBindingId.mockReset()
+  catalogQueryMock.state = catalogSuccess([], 1)
+  catalogQueryMock.dependencies = []
 })
 
 afterEach(() => {
@@ -152,38 +186,17 @@ describe("CalendarPanel connection custody", () => {
     expect(host.querySelector(".calendar-connect-unavailable")).toBeNull()
   })
 
-  it("keeps an uncertain disconnect generic and retains the local binding until it is confirmed", async () => {
-    let observe: ((exit: unknown) => void) | undefined
-    runtimeMock.runFork.mockImplementation(() => ({
-      addObserver: (observer: (exit: unknown) => void) => {
-        observe = observer
-      }
-    }))
+  it("does not allow destructive disconnect while the server catalog is unavailable", async () => {
     bindingStorageMock.loadCalendarBindingId.mockReturnValue(calendarBindingId)
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    const privateDetail = "private calendar disconnect provider detail"
+    catalogQueryMock.state = catalogFailure()
     const host = await mount()
 
-    await act(async () => {
-      disconnectButton(host)?.click()
-      await flush()
-    })
-    expect(runtimeMock.runFork).toHaveBeenCalledTimes(1)
-
-    await act(async () => {
-      observe?.(Exit.fail(new UnexpectedError({ message: privateDetail })))
-      await flush()
-    })
-
-    const alert = host.querySelector<HTMLElement>(".calendar-disconnect-unavailable")
+    expect(runtimeMock.runFork).not.toHaveBeenCalled()
+    const alert = host.querySelector<HTMLElement>(".calendar-catalog-unavailable")
     expect(alert?.getAttribute("role")).toBe("alert")
-    expect(alert?.textContent).toContain("We couldn’t confirm that your calendar was disconnected.")
-    expect(alert?.textContent).toContain("It may still be connected.")
-    expect(host.textContent).not.toContain(privateDetail)
-    expect(host.textContent).toContain("Google Calendar connected")
+    expect(alert?.textContent).toContain("could not confirm it")
+    expect(host.querySelector("button")?.textContent).toBe("Retry")
     expect(bindingStorageMock.clearCalendarBindingId).not.toHaveBeenCalled()
-    expect(disconnectButton(host)?.disabled).toBe(false)
-    expect(consoleError).toHaveBeenCalled()
   })
 
   it("clears the local calendar binding only after a confirmed disconnect", async () => {
@@ -194,11 +207,13 @@ describe("CalendarPanel connection custody", () => {
       }
     }))
     bindingStorageMock.loadCalendarBindingId.mockReturnValue(calendarBindingId)
+    catalogQueryMock.state = catalogSuccess([serverBinding(calendarBindingId)])
     const host = await mount()
 
     await act(async () => {
       disconnectButton(host)?.click()
       await flush()
+      catalogQueryMock.state = catalogSuccess([], 2)
       observe?.(Exit.succeed(undefined))
       await flush()
     })
@@ -207,5 +222,70 @@ describe("CalendarPanel connection custody", () => {
     expect(host.querySelector(".calendar-connected")).toBeNull()
     expect(connectButton(host)).toBeDefined()
     expect(host.querySelector(".calendar-disconnect-unavailable")).toBeNull()
+  })
+
+  it("uses the server catalog when this browser has no remembered binding", async () => {
+    catalogQueryMock.state = catalogSuccess([serverBinding(calendarBindingId)])
+    const host = await mount()
+
+    expect(host.textContent).toContain("Google Calendar connected")
+    expect(host.textContent).toContain("Selected calendar")
+    expect(host.textContent).toContain("Connect another account")
+    expect(host.textContent).not.toContain("in this browser")
+    expect(host.querySelector(".calendar-connect")).toBeNull()
+  })
+
+  it("supersedes stale local storage with a confirmed server catalog", async () => {
+    bindingStorageMock.loadCalendarBindingId.mockReturnValue(calendarBindingId)
+    catalogQueryMock.state = catalogSuccess([serverBinding(secondCalendarBindingId, "allVisible")])
+    const host = await mount()
+
+    expect(host.textContent).toContain("All visible calendars")
+    expect(host.textContent).not.toContain("in this browser")
+    expect(host.querySelector(".calendar-connect")).toBeNull()
+  })
+
+  it("renders a privacy-safe selector for multiple connections and keeps failed catalog reads non-destructive", async () => {
+    catalogQueryMock.state = catalogSuccess([
+      serverBinding(calendarBindingId),
+      serverBinding(secondCalendarBindingId, "allVisible")
+    ])
+    const host = await mount()
+    const selector = host.querySelector<HTMLSelectElement>("select[aria-label='Select Google Calendar connection']")
+    expect(selector).not.toBeNull()
+    expect(selector?.options).toHaveLength(2)
+    expect(host.textContent).not.toContain(calendarBindingId)
+    expect(host.textContent).not.toContain(secondCalendarBindingId)
+
+    catalogQueryMock.state = catalogFailure()
+    bindingStorageMock.loadCalendarBindingId.mockReturnValue(calendarBindingId)
+    const failedHost = await mount()
+    expect(failedHost.querySelector(".calendar-catalog-unavailable")?.textContent).toContain(
+      "could not confirm it"
+    )
+    expect(failedHost.querySelector("button")?.textContent).toBe("Retry")
+    expect(failedHost.textContent).not.toContain("private catalog detail")
+    expect(failedHost.textContent).not.toContain("Disconnect")
+  })
+
+  it("ignores an out-of-order catalog result after a callback refresh", async () => {
+    catalogQueryMock.state = catalogSuccess([serverBinding(calendarBindingId)], 1)
+    const host = await mount()
+    expect(host.textContent).toContain("Selected calendar")
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("calendar-binding-changed"))
+      await flush()
+    })
+    expect(host.textContent).toContain("Checking calendar connections")
+    expect(host.textContent).not.toContain("Selected calendar")
+
+    catalogQueryMock.state = catalogSuccess([serverBinding(secondCalendarBindingId, "allVisible")], 2)
+    await act(async () => {
+      for (const { root } of roots) root.render(<CalendarPanel />)
+      await flush()
+    })
+    expect(host.textContent).toContain("All visible calendars")
+    expect(host.textContent).not.toContain("Selected calendar")
   })
 })

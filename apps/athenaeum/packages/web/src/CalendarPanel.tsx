@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
   ConnectGoogleCalendarInput,
   DisconnectGoogleCalendarInput,
+  ListGatekeeperBindingsInput,
+  type GatekeeperBindingSummary,
   type EntityId
 } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { workspaceId } from "./workspace-id.js"
+import { useEffectQuery } from "./use-effect-query.js"
 import {
   CALENDAR_BINDING_CHANGED_EVENT,
   loadCalendarBindingId,
@@ -70,25 +73,97 @@ const calendarConnectFailureMessage =
 const calendarDisconnectFailureMessage =
   "We couldn’t confirm that your calendar was disconnected. It may still be connected. Review the connection before trying again."
 
+const calendarCatalogFailureMessage =
+  "We couldn’t confirm the calendar connections for this workspace. Retry before connecting another account."
+const calendarCatalogFallbackMessage =
+  "A calendar connection is remembered in this browser, but the workspace could not confirm it."
+
+type CatalogResult = {
+  readonly generation: number
+  readonly value: { readonly bindings: ReadonlyArray<GatekeeperBindingSummary> }
+}
+
+type CatalogFailure = {
+  readonly generation: number
+  readonly error: unknown
+}
+
+const bindingLabel = (binding: GatekeeperBindingSummary): string => {
+  const mode = binding.mode === "allVisible" ? "All visible calendars" : "Selected calendar"
+  let created: string = binding.createdAt
+  try {
+    created = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(binding.createdAt))
+  } catch {
+    // The server schema already guarantees an ISO timestamp. Keep the raw value only as a
+    // defensive fallback if a future decoder is relaxed.
+  }
+  return `${mode} · connected ${created}`
+}
+
 export function CalendarPanel() {
   const [connect, setConnect] = useState<ConnectState>({ status: "idle" })
-  const [bindingId, setBindingId] = useState<EntityId | undefined>(() => loadCalendarBindingId(workspaceId))
-  const [disconnectBusy, setDisconnectBusy] = useState(false)
+  const [localBindingId, setLocalBindingId] = useState<EntityId | undefined>(() => loadCalendarBindingId(workspaceId))
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+  const [selectedBindingId, setSelectedBindingId] = useState<EntityId | undefined>()
+  const [disconnectingBindingId, setDisconnectingBindingId] = useState<EntityId | undefined>()
   const [disconnectError, setDisconnectError] = useState<string | null>(null)
+
+  // `useEffectQuery` cancels its previous fiber, but a transport can still deliver an already
+  // queued result after a refresh. Carry a monotonic generation inside the value/error so an old
+  // catalog can never restore a stale binding after an OAuth callback or confirmed disconnect.
+  const catalogGeneration = useRef(0)
+  const catalogEffect = useMemo(() => {
+    const generation = catalogRefreshKey + 1
+    catalogGeneration.current = generation
+    const request = WorkspaceRpcClient.pipe(
+      Effect.flatMap((client) =>
+        client.listGatekeeperBindings(new ListGatekeeperBindingsInput({ workspaceId }))
+      )
+    )
+    return request.pipe(
+      Effect.map((value) => ({ generation, value } satisfies CatalogResult)),
+      Effect.mapError((error) => ({ generation, error } satisfies CatalogFailure))
+    )
+  }, [catalogRefreshKey])
+  const catalogState = useEffectQuery(catalogEffect, [catalogRefreshKey])
+  const currentCatalog: ReadonlyArray<GatekeeperBindingSummary> | undefined =
+    catalogState.status === "success" && catalogState.value.generation === catalogGeneration.current
+      ? catalogState.value.value.bindings
+      : undefined
+  const catalogFailed =
+    catalogState.status === "failure" && catalogState.error.generation === catalogGeneration.current
+  const catalogChecking = currentCatalog === undefined && !catalogFailed
+
+  useEffect(() => {
+    if (currentCatalog === undefined) return
+    setSelectedBindingId((previous) => {
+      if (previous !== undefined && currentCatalog.some((binding) => binding.id === previous)) return previous
+      if (localBindingId !== undefined && currentCatalog.some((binding) => binding.id === localBindingId)) {
+        return localBindingId
+      }
+      return currentCatalog[0]?.id
+    })
+  }, [currentCatalog, localBindingId])
 
   // Same-tab coherence with `CalendarOAuthCallback.tsx` — see `calendar-binding-storage.ts`'s own
   // header comment for the full rationale (`storage` never fires in the writing document itself).
-  // Without this, landing on the callback overlay (rendered above this component in the SAME
-  // mounted `Workspace`, per `App.tsx`) would leave this panel showing "Connect Google Calendar"
-  // until a manual reload, even though the connection just succeeded.
+  // The event is only a refresh hint: the server catalog remains the source of truth.
   useEffect(() => {
-    const refresh = () => setBindingId(loadCalendarBindingId(workspaceId))
+    const refresh = () => {
+      setLocalBindingId(loadCalendarBindingId(workspaceId))
+      setCatalogRefreshKey((key) => key + 1)
+    }
     window.addEventListener("storage", refresh)
     window.addEventListener(CALENDAR_BINDING_CHANGED_EVENT, refresh)
     return () => {
       window.removeEventListener("storage", refresh)
       window.removeEventListener(CALENDAR_BINDING_CHANGED_EVENT, refresh)
     }
+  }, [])
+
+  const retryCatalog = useCallback(() => {
+    setDisconnectError(null)
+    setCatalogRefreshKey((key) => key + 1)
   }, [])
 
   const handleConnect = () => {
@@ -110,9 +185,9 @@ export function CalendarPanel() {
     })
   }
 
-  const handleDisconnect = () => {
-    if (bindingId === undefined) return
-    setDisconnectBusy(true)
+  const handleDisconnect = (bindingId: EntityId) => {
+    if (currentCatalog === undefined || !currentCatalog.some((binding) => binding.id === bindingId)) return
+    setDisconnectingBindingId(bindingId)
     setDisconnectError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
@@ -120,11 +195,15 @@ export function CalendarPanel() {
       )
     )
     fiber.addObserver((exit) => {
-      setDisconnectBusy(false)
+      setDisconnectingBindingId(undefined)
       if (Exit.isSuccess(exit)) {
-        clearCalendarBindingId(workspaceId)
-        setBindingId(undefined)
+        if (localBindingId === bindingId) {
+          clearCalendarBindingId(workspaceId)
+          setLocalBindingId(undefined)
+        }
+        setSelectedBindingId(undefined)
         setConnect({ status: "idle" })
+        setCatalogRefreshKey((key) => key + 1)
       } else if (!Exit.isInterrupted(exit)) {
         setDisconnectError(calendarDisconnectFailureMessage)
         console.error(exit.cause.toString())
@@ -132,21 +211,49 @@ export function CalendarPanel() {
     })
   }
 
+  const confirmedBindings = currentCatalog ?? []
+  const selectedBinding = confirmedBindings.find((binding) => binding.id === selectedBindingId)
+  const hasConfirmedConnections = currentCatalog !== undefined && confirmedBindings.length > 0
+  const hasLocalFallback = catalogFailed && localBindingId !== undefined
+  const disconnectBusy = disconnectingBindingId !== undefined
+
   return (
     <section className="calendar-panel">
       <h2>Google Calendar</h2>
 
-      {bindingId !== undefined ? (
+      {hasConfirmedConnections ? (
         <div className="calendar-connected">
           <div className="calendar-connected-status" role="status">
             <span className="calendar-status-dot" aria-hidden="true" />
             <div>
               <strong>Google Calendar connected</strong>
               <p className="calendar-connected-hint">
-                This connection is ready for the workspace in this browser.
+                {confirmedBindings.length === 1
+                  ? "This connection is available to the workspace."
+                  : `${confirmedBindings.length} connections are available to the workspace.`}
               </p>
             </div>
           </div>
+          {confirmedBindings.length > 1 && (
+            <label className="calendar-binding-selector">
+              <span>Select a connection</span>
+              <select
+                value={selectedBindingId ?? ""}
+                onChange={(event) => setSelectedBindingId(event.target.value as EntityId)}
+                aria-label="Select Google Calendar connection"
+                disabled={disconnectBusy}
+              >
+                {confirmedBindings.map((binding) => (
+                  <option key={binding.id} value={binding.id}>
+                    {bindingLabel(binding)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {selectedBinding !== undefined && (
+            <p className="calendar-connected-hint">{bindingLabel(selectedBinding)}</p>
+          )}
           {disconnectError !== null && (
             <section
               className="calendar-disconnect-unavailable"
@@ -156,9 +263,59 @@ export function CalendarPanel() {
               <p>{disconnectError}</p>
             </section>
           )}
-          <button type="button" onClick={handleDisconnect} disabled={disconnectBusy}>
-            {disconnectBusy ? "Disconnecting…" : "Disconnect"}
+          <button
+            type="button"
+            onClick={() => selectedBinding !== undefined && handleDisconnect(selectedBinding.id)}
+            disabled={disconnectBusy || selectedBinding === undefined}
+          >
+            {disconnectBusy ? "Disconnecting…" : "Disconnect selected"}
           </button>
+          <div className="calendar-connection-actions">
+            {connect.status !== "ready" && (
+              <button type="button" onClick={handleConnect} disabled={connect.status === "busy"}>
+                {connect.status === "busy" ? "Connecting…" : "Connect another account"}
+              </button>
+            )}
+            {connect.status === "failure" && (
+              <div className="calendar-connect-unavailable" role="alert">
+                <strong>Calendar connection unavailable</strong>
+                <p>{calendarConnectFailureMessage}</p>
+              </div>
+            )}
+            {connect.status === "ready" && (
+              <div className="calendar-redirect-ready">
+                <p><strong>Continue in Google</strong></p>
+                <p>Review Athenaeum’s access request, then return here to finish connecting.</p>
+                <a
+                  className="calendar-redirect-link"
+                  href={connect.authorizationUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Continue to Google →
+                </a>
+                <button type="button" onClick={() => setConnect({ status: "idle" })}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : catalogChecking ? (
+        <div className="calendar-catalog-checking" role="status">
+          <strong>Checking calendar connections…</strong>
+          <p>Refreshing the workspace’s server-authoritative connection list.</p>
+        </div>
+      ) : catalogFailed ? (
+        <div className="calendar-catalog-unavailable" role="alert">
+          <strong>Calendar connections unavailable</strong>
+          <p>{hasLocalFallback ? calendarCatalogFallbackMessage : calendarCatalogFailureMessage}</p>
+          {hasLocalFallback && (
+            <p className="calendar-connected-hint">
+              A connection remembered by this browser has not been confirmed by the workspace.
+            </p>
+          )}
+          <button type="button" onClick={retryCatalog}>Retry</button>
         </div>
       ) : (
         <div className="calendar-connect">
