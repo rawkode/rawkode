@@ -112,6 +112,19 @@ in
         (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin) {
           home.pointerCursor.enable = true;
         })
+        (lib.mkIf (config.rawkOS.stylix.enable && isDarwin) {
+          # Several Stylix targets (x11, gtk, ...) auto-enable on every
+          # platform and unconditionally set `home.pointerCursor.<backend>.enable
+          # = true`, even though only the (correctly Linux-gated) cursor
+          # target actually supplies `home.pointerCursor.name`/`package`. On
+          # Darwin that leaves `home.pointerCursor.enable` implicitly true
+          # (via home-manager's legacy auto-detection) with no name/package
+          # defined, so evaluation fails with "home.pointerCursor.name was
+          # accessed but has no value defined". Cursor theming is meaningless
+          # on Darwin anyway, so force it off rather than chase every target
+          # that touches a `home.pointerCursor.*` sub-option.
+          home.pointerCursor.enable = lib.mkForce false;
+        })
         (lib.mkIf (osClass != "nixos" && config.rawkOS.stylix.enable) (mkStylixConfig {
           inherit lib pkgs;
         }))
