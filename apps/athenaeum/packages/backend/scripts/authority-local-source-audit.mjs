@@ -2,8 +2,20 @@ import ts from "typescript"
 import { AUTHORITY_PURE_INTRINSICS } from "../src/authority-pure-intrinsics.mjs"
 
 const forbiddenIdentifiers = new Set(["Promise", "WebSocket", "fetch", "caches", "Effect", "env", "crypto", "setTimeout", "setInterval", "queueMicrotask", "eval", "Function", "require", "globalThis", "window", "document", "process"])
-const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env", "constructor", "prototype"])
+const forbiddenProperties = new Set(["fetch", "waitUntil", "caches", "crypto", "subtle", "storage", "stub", "env", "constructor", "prototype", "__proto__", "getPrototypeOf", "setPrototypeOf", "getOwnPropertyDescriptor", "getOwnPropertyDescriptors", "getOwnPropertyNames", "getOwnPropertySymbols", "defineProperty", "defineProperties", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "caller", "callee", "arguments", "apply", "bind", "call"])
 const allowedIntrinsics = new Set(AUTHORITY_PURE_INTRINSICS)
+/**
+ * Pure globals are not values in local commands: a handler may only invoke one of these exact
+ * static methods. This prevents aliases/enumeration/reflection from recovering constructors.
+ */
+const allowedIntrinsicReceiverMethods = Object.freeze({
+  Array: new Set(["isArray"]),
+  JSON: new Set(["parse", "stringify"]),
+  Math: new Set(["abs", "ceil", "floor", "max", "min", "round", "trunc"]),
+  Number: new Set(["isFinite", "isInteger", "isNaN", "parseFloat", "parseInt"]),
+  Object: new Set(["entries", "freeze", "hasOwn", "keys", "values"]),
+  String: new Set(["fromCharCode", "fromCodePoint"])
+})
 
 const bindName = (scope, node) => {
   if (ts.isIdentifier(node)) scope.add(node.text)
@@ -39,6 +51,34 @@ const validateClosedBindings = (tree, file) => {
   walk(tree, new Set())
 }
 
+const isBindingName = (node) => {
+  const parent = node.parent
+  return (ts.isVariableDeclaration(parent) || ts.isParameter(parent) || ts.isBindingElement(parent) || ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent) || ts.isClassDeclaration(parent) || ts.isClassExpression(parent) || ts.isEnumDeclaration(parent) || ts.isTypeAliasDeclaration(parent) || ts.isInterfaceDeclaration(parent) || ts.isModuleDeclaration(parent) || ts.isImportClause(parent) || ts.isNamespaceImport(parent) || ts.isImportSpecifier(parent)) && parent.name === node
+}
+
+const validateNoIntrinsicShadowing = (tree, file) => {
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && allowedIntrinsics.has(node.text) && isBindingName(node)) throw new Error(`local handler may not shadow pure intrinsic: ${node.text} in ${file}`)
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+}
+
+const validatePureIntrinsicUses = (tree, file) => {
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && allowedIntrinsics.has(node.text) && !declarationName(node)) {
+      const access = node.parent
+      const methods = allowedIntrinsicReceiverMethods[node.text]
+      const call = ts.isPropertyAccessExpression(access) ? access.parent : undefined
+      if (!ts.isPropertyAccessExpression(access) || access.expression !== node || methods === undefined || !methods.has(access.name.text) || !ts.isCallExpression(call) || call.expression !== access || access.questionDotToken !== undefined || call.questionDotToken !== undefined) {
+        throw new Error(`forbidden local handler intrinsic use: ${node.text} in ${file}`)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+}
+
 const literalModuleSpecifier = (declaration) => declaration.moduleSpecifier && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : undefined
 const isRuntimeModuleDeclaration = (node) => !((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly))
 const normalizeRelative = (from, specifier) => {
@@ -68,12 +108,14 @@ const forbiddenSyntax = (source, file) => {
       if (ts.isIdentifier(node.expression) && forbiddenIdentifiers.has(node.expression.text)) throw new Error(`forbidden local handler API: ${node.expression.text}`)
     }
     if (ts.isIdentifier(node) && forbiddenIdentifiers.has(node.text)) throw new Error(`forbidden local handler API: ${node.text}`)
+    if (ts.isElementAccessExpression(node)) throw new Error(`computed local handler property access is forbidden: ${file}`)
     if (ts.isPropertyAccessExpression(node) && forbiddenProperties.has(node.name.text)) throw new Error(`forbidden local handler property: ${node.name.text}`)
-    if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) && forbiddenProperties.has(node.argumentExpression.text)) throw new Error(`forbidden local handler property: ${node.argumentExpression.text}`)
     if (ts.isIdentifier(node) && node.text === "Atomics") throw new Error("forbidden local handler API: Atomics")
     ts.forEachChild(node, visit)
   }
   visit(tree)
+  validateNoIntrinsicShadowing(tree, file)
+  validatePureIntrinsicUses(tree, file)
   validateClosedBindings(tree, file)
   return tree
 }

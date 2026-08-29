@@ -32,6 +32,10 @@ assert.throws(
   /forbidden/,
   "reserved ambient spellings remain forbidden even when locally shadowed"
 )
+assert.doesNotThrow(
+  () => auditLocalHandlerGraph({ "/entry.ts": "export const x = Object.keys(JSON.parse('{\\\"safe\\\":true}'))" }, ["/entry.ts"]),
+  "curated JSON/Object calls remain available for trusted data"
+)
 for (const source of [
   "export const x = globalThis",
   "export const x = Date.now()",
@@ -42,5 +46,22 @@ for (const source of [
   "export const x = eval('1')",
   "export const x = Function('return 1')"
 ]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|unresolved/)
+for (const source of [
+  "export const x = Object.getPrototypeOf({})",
+  "export const x = Object.getOwnPropertyDescriptor({}, 'constructor')",
+  "const key = 'get' + 'PrototypeOf'; export const x = Object[key]({})",
+  "const entries = Object.entries; export const x = entries({})",
+  "export const x = Object.entries(Object)",
+  "export const x = Object.values(Object)",
+  "export const x = Array.isArray(Array)"
+]) assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": source }, ["/entry.ts"]), /forbidden|computed/)
+assert.throws(
+  () => auditLocalHandlerGraph({ "/entry.ts": "export const handler = (Object: unknown) => Object.entries({})" }, ["/entry.ts"]),
+  /may not shadow pure intrinsic/
+)
+assert.throws(
+  () => auditLocalHandlerGraph({ "/entry.ts": "export const handler = () => { for (const Object of []) return Object.entries({}) }" }, ["/entry.ts"]),
+  /may not shadow pure intrinsic/
+)
 assert.throws(() => auditLocalHandlerGraph({ "/entry.ts": "export { x } from './helper.js'", "/helper.ts": "const alias = fetch; export const x = alias" }, ["/entry.ts"]), /forbidden|unresolved/)
 console.log("authority local source audit fixtures verified")
