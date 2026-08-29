@@ -244,7 +244,8 @@ public struct DailyNoteView: View {
     /// Keep the comma attached to the day when the localized full date needs a compact wrap.
     /// The spoken/accessibility label deliberately remains the ordinary localized string.
     private var noteDateDisplayLabel: String {
-        noteDateLabel.replacingOccurrences(of: ", ", with: ",\u{00a0}")
+        guard let separator = noteDateLabel.range(of: ", ") else { return noteDateLabel }
+        return noteDateLabel.replacingCharacters(in: separator, with: ",\u{00a0}")
     }
 
     private var isToday: Bool {
@@ -272,53 +273,82 @@ public struct DailyNoteView: View {
     }
 
     private var dayNavigation: some View {
-        HStack(spacing: 4) {
-            Button {
-                editorFocused = false
-                model.showPreviousDay()
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
-            .accessibilityLabel("Previous day")
-            .help("Previous day")
-
-            DatePicker(
-                "Jump to date",
-                selection: Binding(
-                    get: { model.selectedDate },
-                    set: { newDate in
-                        editorFocused = false
-                        model.showDate(newDate)
-                    }
-                ),
-                displayedComponents: .date
-            )
-            .labelsHidden()
-            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
-            .accessibilityLabel("Selected daily note date")
-
-            Button {
-                editorFocused = false
-                model.showNextDay()
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
-            .accessibilityLabel("Next day")
-            .help("Next day")
-
-            if !isToday {
-                Button("Today") {
-                    editorFocused = false
-                    model.showToday()
+        ViewThatFits(in: .horizontal) {
+            dayNavigationRow
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    previousDayButton
+                    nextDayButton
+                    Spacer(minLength: 0)
+                    todayButton
                 }
-                .buttonStyle(.borderless)
-                .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
-                .accessibilityHint("Return to today’s daily note")
+                selectedDatePicker
             }
+        }
+    }
+
+    private var dayNavigationRow: some View {
+        HStack(spacing: 4) {
+            previousDayButton
+            selectedDatePicker
+            nextDayButton
+            todayButton
+        }
+    }
+
+    private var previousDayButton: some View {
+        Button {
+            editorFocused = false
+            model.showPreviousDay()
+        } label: {
+            Image(systemName: "chevron.left")
+        }
+        .buttonStyle(.borderless)
+        .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+        .accessibilityLabel("Previous day")
+        .help("Previous day")
+    }
+
+    private var selectedDatePicker: some View {
+        DatePicker(
+            "Jump to date",
+            selection: Binding(
+                get: { model.selectedDate },
+                set: { newDate in
+                    editorFocused = false
+                    model.showDate(newDate)
+                }
+            ),
+            displayedComponents: .date
+        )
+        .labelsHidden()
+        .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+        .accessibilityLabel("Selected daily note date")
+    }
+
+    private var nextDayButton: some View {
+        Button {
+            editorFocused = false
+            model.showNextDay()
+        } label: {
+            Image(systemName: "chevron.right")
+        }
+        .buttonStyle(.borderless)
+        .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+        .accessibilityLabel("Next day")
+        .help("Next day")
+    }
+
+    @ViewBuilder
+    private var todayButton: some View {
+        if !isToday {
+            Button("Today") {
+                editorFocused = false
+                model.showToday()
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.isNavigating || model.isLoroRecoveryInProgress)
+            .accessibilityHint("Return to today’s daily note")
         }
     }
 
