@@ -8,11 +8,13 @@ const fixture = mkdtempSync(join(tmpdir(), "athenaeum-authority-callback-"))
 const root = join(fixture, "src")
 mkdirSync(root, { recursive: true })
 const files = {
-  "authority-local-command-registry.ts": `import type { LocalMutationCapability } from "./workspace-local-mutation-capability.js"\nimport { AUTHORITY_LOCAL_COMMANDS } from "./authority-local-commands.js"\nexport const authorityLocalCommandRegistry = Object.freeze({ get: (kind: string) => AUTHORITY_LOCAL_COMMANDS.find((entry) => entry.kind === kind)?.handler })`,
-  "authority-local-commands.ts": `export const AUTHORITY_LOCAL_COMMANDS = [] as const`,
-  "workspace-local-mutation-capability.ts": `export type LocalMutationCapability = Readonly<Record<string, never>>`,
-  "workspace-mutation-authority-internal.ts": `export const executeMutationAuthorityWithRegistry = () => undefined`,
-  "workspace-mutation-authority.ts": `import { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal"\nexport const executeUnwiredMutationAuthority = executeMutationAuthorityWithRegistry`
+  "authority-local-command-registry.ts": `import { AUTHORITY_LOCAL_COMMANDS } from "./authority-local-commands.js"\nexport const authorityLocalCommandRegistry = AUTHORITY_LOCAL_COMMANDS`,
+  "authority-local-commands.ts": `export const AUTHORITY_LOCAL_COMMANDS = Object.freeze([])`,
+  "authority-trusted-data-token.ts": `export const token = 1`,
+  "workspace-local-mutation-capability.ts": `import { token } from "./authority-trusted-data-token.js"\nexport const capability = token`,
+  "authority-kernel-contract.ts": `import { domain } from "@athenaeum/domain"\nexport const contract = domain`,
+  "workspace-mutation-authority-internal.ts": `import { domain } from "@athenaeum/domain"\nimport { token } from "./authority-trusted-data-token.js"\nimport { capability } from "./workspace-local-mutation-capability.js"\nimport { contract } from "./authority-kernel-contract.js"\nexport const executeMutationAuthorityWithRegistry = () => [domain, token, capability, contract]`,
+  "workspace-mutation-authority.ts": `import { authorityLocalCommandRegistry } from "./authority-local-command-registry.js"\nimport { executeMutationAuthorityWithRegistry } from "./workspace-mutation-authority-internal"\nexport * from "./authority-kernel-contract.js"\nexport const executeUnwiredMutationAuthority = [authorityLocalCommandRegistry, executeMutationAuthorityWithRegistry]`
 }
 for (const [name, source] of Object.entries(files)) writeFileSync(join(root, name), source)
 
