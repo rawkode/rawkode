@@ -2,13 +2,17 @@
 
 ## Project Structure & Module Organization
 
-- Root flake (`flake.nix`) drives everything via flake-parts; inputs are pinned in `flake.lock`.
+- Root flake (`flake.nix`) drives everything via flake-parts; inputs are pinned in `flake.lock`. Modules are auto-imported with import-tree — no manual import lists.
+- `lib/` — the composition layer: `mkMachine` (builds nixos/darwin configurations from manifests), `mkUser`, `mkApp`, `mkCapability`, `capabilityResolver`, `machineManifest` (validation).
 - Core code lives under `modules/` and is grouped by area:
-  - `modules/machines/<name>/manifest.nix` — typed machine composition and host-local overrides.
-  - `modules/capabilities/*` — reusable high-level behavior bundles.
-  - `modules/nixos/*` and `modules/home/*` — system and Home Manager modules.
-  - `modules/macos/*` — focused nix-darwin modules.
-  - Assets: `modules/packages/wallpapers/`.
+  - `modules/machines/<name>/manifest.nix` — typed machine composition (platform, capabilities, traits, users) and host-local overrides.
+  - `modules/capabilities/*` — `mkCapability` bundles referenced by manifests (foundation, desktop, development, …).
+  - `modules/apps/*` and `modules/development/*` — `mkApp` definitions; one file yields home/nixos/darwin modules plus an `appBundles` entry.
+  - `modules/config/*` — NixOS system config (hardware under `modules/config/hardware/`, security, networking, system).
+  - `modules/linux/*` — Linux desktop environment (gnome, niri, ironbar, …).
+  - `modules/users/*`, `modules/shells/*`, `modules/vcs/*` — user definitions via `mkUser` and their programs.
+  - `modules/checks/*` — flake checks (treefmt, manifest contract).
+  - `modules/coreweave/` — work-machine specifics.
 
 ## Build, Test, and Development Commands
 
@@ -28,7 +32,7 @@
 - Nix formatting uses `nixfmt-rfc-style`; run `nix fmt` before committing.
 - EditorConfig: LF endings, final newline, trim whitespace, indent with tabs (width 2).
 - File naming: kebab-case for files/dirs; use `default.nix` inside module directories.
-- Keep modules small, composable, and placed under the closest matching subtree (e.g., `modules/nixos/networking/…`).
+- Keep modules small, composable, and placed under the closest matching subtree (e.g., `modules/config/networking/…`).
 
 ## Testing Guidelines
 
@@ -45,5 +49,5 @@
 ## Security & Configuration Tips
 
 - Do not commit secrets or machine-specific credentials.
-- Hardware changes belong under `modules/nixos/hardware/…`; prefer opt-in via traits or capabilities.
+- Hardware changes belong under `modules/config/hardware/…`; prefer opt-in via traits or capabilities.
 - When unsure, add a focused module or capability rather than baking reusable settings into machines.
