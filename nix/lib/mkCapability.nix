@@ -1,4 +1,3 @@
-_:
 let
   noopModule = _: { };
 

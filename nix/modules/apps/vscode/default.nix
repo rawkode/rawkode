@@ -1,6 +1,6 @@
-{ lib, ... }:
+_:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  mkApp = import ../../../lib/mkApp.nix;
 in
 mkApp {
   name = "visual-studio-code";
@@ -12,22 +12,31 @@ mkApp {
 
   # Linux: use the standard VS Code package via home-manager
   linux.home =
-    { pkgs, ... }:
     {
-      programs.vscode = {
-        enable = true;
-        package = pkgs.vscode;
+      lib,
+      options,
+      pkgs,
+      ...
+    }:
+    {
+      programs = {
+        vscode = {
+          enable = true;
+          package = pkgs.vscode;
+        };
+      }
+      # Only when the niri home module is present (headless machines lack it).
+      // lib.optionalAttrs (options ? programs && options.programs ? niri) {
+        niri.settings.window-rules = [
+          {
+            matches = [
+              { app-id = "code"; }
+            ];
+            open-focused = true;
+            opacity = 0.95;
+          }
+        ];
       };
-
-      programs.niri.settings.window-rules = [
-        {
-          matches = [
-            { app-id = "code"; }
-          ];
-          open-focused = true;
-          opacity = 0.95;
-        }
-      ];
 
       home.file.".vscode/argv.json".text = builtins.toJSON {
         password-store = "gnome-libsecret";

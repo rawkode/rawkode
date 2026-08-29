@@ -24,7 +24,6 @@
 #   - flake.nixosModules.${name}  (linux.system)
 #   - flake.darwinModules.${name} (darwin.system)
 #   - flake.appBundles.${name}    (bundle with home/nixos/darwin modules)
-_:
 let
   noopModule = _: { };
 

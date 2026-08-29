@@ -90,7 +90,6 @@ let
         darwin = "/Users/${username}";
         linux = "/home/${username}";
       },
-      apps ? [ ],
       defaultCapabilities ? [ ],
       disabledCapabilities ? [ ],
       extraImports ? [ ],
@@ -110,19 +109,13 @@ let
       identity = {
         inherit username;
         name = if name != null then name else username;
-        email = if email != null then email else "${username}@localhost";
+        email = if email != null then email else throw "mkUser '${username}' requires an email";
         inherit signingKey;
       };
-
-      legacyAppHomeImports = map (app: app.home) apps;
-      legacyAppDarwinImports = map (app: app.darwin) apps;
-      legacyAppNixosImports = map (app: app.nixos) apps;
 
       homeModule =
         {
           lib,
-          pkgs,
-          system,
           isDarwin,
           machine ? null,
           ...
@@ -139,51 +132,39 @@ let
           };
 
           platformExtraImports = if isDarwin then darwinExtraImports else linuxExtraImports;
-
-          baseConfig = {
-            home = {
-              inherit username;
-              homeDirectory = if isDarwin then homeDirectory.darwin else homeDirectory.linux;
-              inherit stateVersion;
-
-              sessionVariables = {
-                EDITOR = preferences.editor;
-                SUDO_EDITOR = preferences.editor;
-                SYSTEMD_EDITOR = preferences.editor;
-                VISUAL = preferences.editor;
-              };
-            };
-
-            programs.home-manager.enable = true;
-
-            nixpkgs.config.allowUnfree = true;
-
-            manual.manpages.enable = false;
-
-            targets.darwin = lib.mkIf isDarwin {
-              copyApps.enable = false;
-              linkApps.enable = true;
-            };
-
-            imports = legacyAppHomeImports ++ capabilityHomeImports ++ extraImports ++ platformExtraImports;
-          };
-
-          extraConfig = resolveConfig homeExtraConfig {
-            inherit
-              lib
-              system
-              isDarwin
-              pkgs
-              machine
-              ;
-          };
-          extraConfigImports = extraConfig.imports or [ ];
-          extraConfigBody = builtins.removeAttrs extraConfig [ "imports" ];
         in
-        baseConfig
-        // extraConfigBody
-        // {
-          imports = baseConfig.imports ++ extraConfigImports;
+        {
+          home = {
+            inherit username;
+            homeDirectory = if isDarwin then homeDirectory.darwin else homeDirectory.linux;
+            inherit stateVersion;
+
+            sessionVariables = {
+              EDITOR = preferences.editor;
+              SUDO_EDITOR = preferences.editor;
+              SYSTEMD_EDITOR = preferences.editor;
+              VISUAL = preferences.editor;
+            };
+          };
+
+          programs.home-manager.enable = true;
+
+          nixpkgs.config.allowUnfree = true;
+
+          manual.manpages.enable = false;
+
+          targets.darwin = lib.mkIf isDarwin {
+            copyApps.enable = false;
+            linkApps.enable = true;
+          };
+
+          # homeExtraConfig is a regular home-manager module (attrset or function);
+          # importing it lets the module system merge it instead of clobbering.
+          imports =
+            capabilityHomeImports
+            ++ extraImports
+            ++ platformExtraImports
+            ++ lib.optional (homeExtraConfig != null) homeExtraConfig;
         };
 
       nixosHomeModule =
@@ -286,8 +267,7 @@ let
           imports = [
             nixosHomeModule
             nixosUserModule
-          ]
-          ++ legacyAppNixosImports;
+          ];
         };
 
       flake.darwinModules."users-${username}" =
@@ -296,8 +276,7 @@ let
           imports = [
             darwinHomeModule
             darwinUserModule
-          ]
-          ++ legacyAppDarwinImports;
+          ];
         };
 
       flake.homeConfigurations = homeConfigurations;

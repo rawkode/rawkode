@@ -43,10 +43,8 @@
           ];
         };
 
-        bootspec = {
-          enable = true;
-          enableValidation = true;
-        };
+        # Bootspec is now always generated; only validation remains configurable.
+        bootspec.enableValidation = true;
 
         loader = {
           efi.canTouchEfiVariables = true;

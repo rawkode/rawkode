@@ -84,78 +84,52 @@ let
       inherit inputs machine;
     };
 
-  mkNixosConfiguration =
-    {
-      machine,
-      manifest,
-      traits,
-    }:
-    inputs.nixpkgs.lib.nixosSystem {
-      inherit (manifest) system;
-      modules =
-        traitImportsFor {
-          kind = "nixos";
-          inherit traits;
-          selected = manifest.traits or [ ];
-        }
-        ++ capabilityResolver.resolveMachineCapabilityImports {
-          kind = "nixos";
-          inherit machine;
-        }
-        ++ userImportsFor {
-          kind = "nixos";
-          users = usersFor manifest;
-        }
-        ++ [
-          (mkNetworkingModule {
-            platform = "nixos";
-            inherit machine;
-          })
-        ]
-        ++ localModulesFor manifest;
-      specialArgs = commonSpecialArgs { inherit machine; };
+  platformImpl = {
+    nixos = {
+      kind = "nixos";
+      mkSystem = args: inputs.nixpkgs.lib.nixosSystem args;
     };
-
-  mkDarwinConfiguration =
-    {
-      machine,
-      manifest,
-      traits,
-    }:
-    inputs.nix-darwin.lib.darwinSystem {
-      inherit (manifest) system;
-      modules =
-        traitImportsFor {
-          kind = "darwin";
-          inherit traits;
-          selected = manifest.traits or [ ];
-        }
-        ++ capabilityResolver.resolveMachineCapabilityImports {
-          kind = "darwin";
-          inherit machine;
-        }
-        ++ userImportsFor {
-          kind = "darwin";
-          users = usersFor manifest;
-        }
-        ++ [
-          (mkNetworkingModule {
-            platform = "darwin";
-            inherit machine;
-          })
-        ]
-        ++ localModulesFor manifest;
-      specialArgs = commonSpecialArgs { inherit machine; };
+    darwin = {
+      kind = "darwin";
+      mkSystem = args: inputs.nix-darwin.lib.darwinSystem args;
     };
+  };
 
   mkConfiguration =
-    args@{ manifest, ... }:
-    if manifest.platform == "nixos" then
-      mkNixosConfiguration args
-    else if manifest.platform == "darwin" then
-      mkDarwinConfiguration args
-    else
-      throw "Unknown machine platform '${manifest.platform}'";
+    {
+      machine,
+      manifest,
+      traits,
+    }:
+    let
+      impl =
+        platformImpl.${manifest.platform} or (throw "Unknown machine platform '${manifest.platform}'");
+    in
+    impl.mkSystem {
+      inherit (manifest) system;
+      modules =
+        traitImportsFor {
+          inherit (impl) kind;
+          inherit traits;
+          selected = manifest.traits or [ ];
+        }
+        ++ capabilityResolver.resolveMachineCapabilityImports {
+          inherit (impl) kind;
+          inherit machine;
+        }
+        ++ userImportsFor {
+          inherit (impl) kind;
+          users = usersFor manifest;
+        }
+        ++ [
+          (mkNetworkingModule {
+            inherit (manifest) platform;
+            inherit machine;
+          })
+        ]
+        ++ localModulesFor manifest;
+      specialArgs = commonSpecialArgs { inherit machine; };
+    };
 
   configsForPlatform =
     {
@@ -257,9 +231,4 @@ in
         darwinPackages
         ;
     };
-
-  inherit
-    mkNixosConfiguration
-    mkDarwinConfiguration
-    ;
 }

@@ -2,8 +2,8 @@
 { inputs, lib, ... }:
 let
   mkUser = import ../../lib/mkUser.nix { inherit inputs lib; };
-  mkApp = import ../../lib/mkApp.nix { inherit lib; };
-  mkCapability = import ../../lib/mkCapability.nix { inherit lib; };
+  mkApp = import ../../lib/mkApp.nix;
+  mkCapability = import ../../lib/mkCapability.nix;
   mkMachine = import ../../lib/mkMachine.nix { inherit inputs lib; };
 
   # Library functions (also exported via extraSpecialArgs in mkUser)
@@ -26,6 +26,6 @@ in
     };
   };
 
-  # Export mkApp for use in modules via: (import ../../lib/mkApp.nix { inherit lib; })
+  # Export mkApp for use in modules via: (import ../../lib/mkApp.nix)
   # This allows modules to use mkApp without going through the functor
 }

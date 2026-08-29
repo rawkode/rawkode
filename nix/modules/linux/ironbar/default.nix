@@ -1,6 +1,6 @@
-{ lib, ... }:
+_:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  mkApp = import ../../../lib/mkApp.nix;
 
   main_bar = {
     anchor_to_edges = true;

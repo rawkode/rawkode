@@ -1,7 +1,7 @@
 # Fish shell configuration
-{ lib, ... }:
+_:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  mkApp = import ../../../lib/mkApp.nix;
 
   # Helper to disable stylix fish theming (we use our own)
   mkStylixFishDisable =

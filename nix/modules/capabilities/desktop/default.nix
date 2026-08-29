@@ -1,6 +1,6 @@
 { inputs, lib, ... }:
 let
-  mkCapability = import ../../../lib/mkCapability.nix { inherit lib; };
+  mkCapability = import ../../../lib/mkCapability.nix;
 in
 mkCapability {
   name = "desktop";
