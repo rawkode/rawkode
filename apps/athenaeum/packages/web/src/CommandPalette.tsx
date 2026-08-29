@@ -97,6 +97,35 @@ export function CommandPalette({
 
   const activeId = hasOptions ? `command-palette-option-${selectedIndex}` : undefined
 
+  const renderEntry = (entry: PaletteEntry, index: number) => {
+    const label = entry.kind === "command" ? entry.command.label : entry.result.title
+    const hint = entry.kind === "command" ? entry.command.hint : entry.result.snippet
+    return (
+      <button
+        key={entry.kind === "command" ? entry.command.id : entry.result.nodeId}
+        id={`command-palette-option-${index}`}
+        type="button"
+        role="option"
+        aria-selected={selectedIndex === index}
+        className={`command-palette-option${selectedIndex === index ? " command-palette-option-selected" : ""}`}
+        onMouseEnter={() => setSelectedIndex(index)}
+        onClick={() => navigateEntry(entry)}
+      >
+        <span className="command-palette-option-icon" aria-hidden="true">
+          {entry.kind === "command" ? entry.command.icon : "⌕"}
+        </span>
+        <span className="command-palette-option-copy">
+          <span className="command-palette-option-label">{label}</span>
+          {hint.length > 0 && <span className="command-palette-option-hint">{hint}</span>}
+        </span>
+        {entry.kind === "result" && <span className="command-palette-option-kind">note</span>}
+      </button>
+    )
+  }
+
+  const commandEntries = entries.flatMap((entry, index) => entry.kind === "command" ? [{ entry, index }] : [])
+  const noteEntries = entries.flatMap((entry, index) => entry.kind === "result" ? [{ entry, index }] : [])
+
   const focusableControls = (): HTMLElement[] =>
     Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])
 
@@ -199,32 +228,24 @@ export function CommandPalette({
           </p>
         )}
         {hasOptions && (
-          <div id="command-palette-options" className="command-palette-options" role="listbox" aria-label="Destinations">
-            {entries.map((entry, index) => {
-              const label = entry.kind === "command" ? entry.command.label : entry.result.title
-              const hint = entry.kind === "command" ? entry.command.hint : entry.result.snippet
-              return (
-                <button
-                  key={entry.kind === "command" ? entry.command.id : entry.result.nodeId}
-                  id={`command-palette-option-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={selectedIndex === index}
-                  className={`command-palette-option${selectedIndex === index ? " command-palette-option-selected" : ""}`}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  onClick={() => navigateEntry(entry)}
-                >
-                  <span className="command-palette-option-icon" aria-hidden="true">
-                    {entry.kind === "command" ? entry.command.icon : "⌕"}
-                  </span>
-                  <span className="command-palette-option-copy">
-                    <span className="command-palette-option-label">{label}</span>
-                    {hint.length > 0 && <span className="command-palette-option-hint">{hint}</span>}
-                  </span>
-                  {entry.kind === "result" && <span className="command-palette-option-kind">note</span>}
-                </button>
-              )
-            })}
+          <div
+            id="command-palette-options"
+            className="command-palette-options"
+            role="listbox"
+            aria-label="Destinations and notes"
+          >
+            {commandEntries.length > 0 && (
+              <div className="command-palette-group" role="group" aria-label="Destinations">
+                <div className="command-palette-group-label" aria-hidden="true">Destinations</div>
+                {commandEntries.map(({ entry, index }) => renderEntry(entry, index))}
+              </div>
+            )}
+            {noteEntries.length > 0 && (
+              <div className="command-palette-group" role="group" aria-label="Notes">
+                <div className="command-palette-group-label" aria-hidden="true">Notes</div>
+                {noteEntries.map(({ entry, index }) => renderEntry(entry, index))}
+              </div>
+            )}
           </div>
         )}
         <div className="command-palette-footer">

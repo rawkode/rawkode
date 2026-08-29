@@ -87,6 +87,25 @@ describe("CommandPalette search freshness", () => {
     expect(hints).toContain("⌘K / Ctrl K")
   })
 
+  it("labels destination and note groups without changing flat keyboard order", async () => {
+    queryStateMock.current = {
+      status: "success" as const,
+      value: new SearchNodesOutput({
+        results: [new SearchResultEntry({ nodeId: staleNodeId, title: "Today planning", snippet: "A matching note" })]
+      })
+    }
+    const { host, input } = await mount()
+    await searchFor(input, "today")
+
+    const listbox = host.querySelector<HTMLElement>('[role="listbox"]')
+    expect(listbox?.getAttribute("aria-label")).toBe("Destinations and notes")
+    expect(Array.from(host.querySelectorAll<HTMLElement>('[role="group"]')).map((group) => group.getAttribute("aria-label")))
+      .toEqual(["Destinations", "Notes"])
+    expect(Array.from(host.querySelectorAll<HTMLElement>('[role="option"]')).map((option) => option.id))
+      .toEqual(["command-palette-option-0", "command-palette-option-1"])
+    expect(host.querySelector('[role="group"][aria-label="Notes"] .command-palette-option-kind')?.textContent).toBe("note")
+  })
+
   it("removes a prior query's result during debounce so Arrow/Enter cannot navigate it", async () => {
     const { host, input, onClose } = await mount()
     await searchFor(input, "archival phrase")
