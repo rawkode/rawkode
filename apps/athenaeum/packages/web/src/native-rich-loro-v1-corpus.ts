@@ -311,9 +311,9 @@ export const buildNativeRichLoroV1Corpus = (): NativeRichLoroV1Corpus => {
     ),
     eligible(
       "supertag-reference-surrounding-edit",
-      document(paragraph(text("Review "), text("#Project", [em, supertagRef]), text(" scope"))),
-      document(paragraph(text("Review the "), text("#Project", [em, supertagRef]), text(" scope today."))),
-      [{ kind: "replace-document", document: full(document(paragraph(text("Review the "), text("#Project", [em, supertagRef]), text(" scope today.")))) }]
+      document(paragraph(text("Review "), text("Project", [em, supertagRef]), text(" scope"))),
+      document(paragraph(text("Review the "), text("Project", [em, supertagRef]), text(" scope today."))),
+      [{ kind: "replace-document", document: full(document(paragraph(text("Review the "), text("Project", [em, supertagRef]), text(" scope today.")))) }]
     )
   ]
   const link = document(paragraph(text("link", [schema.marks.link.create({ href: "https://example.com", title: null })])))

@@ -1016,8 +1016,11 @@ public actor LoroPageDocumentStore {
 
     private func configureNativeRichStyles(_ doc: LoroDoc) {
         let styles = StyleConfigMap.defaultRichTextConfig()
-        styles.insert(key: "strong", value: styles.get(key: "bold")!)
-        styles.insert(key: "em", value: styles.get(key: "italic")!)
+        // The canonical value form records exact mark spans. A mark that expands at either edge
+        // would silently apply formatting to surrounding Web-authored prose on a native rewrite.
+        styles.insert(key: "strong", value: StyleConfig(expand: .none))
+        styles.insert(key: "em", value: StyleConfig(expand: .none))
+        styles.insert(key: "code", value: StyleConfig(expand: .none))
         styles.insert(key: "entityRef", value: StyleConfig(expand: .none))
         styles.insert(key: "supertagRef", value: StyleConfig(expand: .none))
         doc.configTextStyle(textStyle: styles)
