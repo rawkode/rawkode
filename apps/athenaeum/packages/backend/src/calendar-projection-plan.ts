@@ -20,6 +20,29 @@ export interface CalendarRemoteEventPlan {
 
 const normalizedEmail = (email: string): string => email.trim().toLowerCase()
 
+/** Google emits originalStartTime as either an all-day date or a date-time. Normalize a valid
+ * instant so equivalent timezone spellings retain the same recurring occurrence identity; keep
+ * malformed legacy fixture values verbatim rather than fabricating a different occurrence. */
+const normalizedOriginalStartTime = (time: RemoteCalendarEvent["start"]): unknown => {
+  if (time.kind === "date") return { kind: "date", date: time.date }
+  const parsed = Date.parse(time.dateTime)
+  return {
+    kind: "dateTime",
+    dateTime: Number.isFinite(parsed) ? new Date(parsed).toISOString() : time.dateTime
+  }
+}
+
+const stableSourceEventIdentity = (workspaceId: EntityId, bindingId: EntityId, remote: RemoteCalendarEvent): Record<string, unknown> =>
+  remote.recurringEventId === undefined
+    ? { kind: "standalone", workspaceId, bindingId, providerEventId: remote.id }
+    : {
+        kind: "occurrence",
+        workspaceId,
+        bindingId,
+        recurringEventId: remote.recurringEventId,
+        originalStartTime: normalizedOriginalStartTime(remote.originalStartTime ?? remote.start)
+      }
+
 /** Digest inputs deliberately include raw private provider values only before hashing. The
  * resulting plan can safely feed durable event/outbox payloads. */
 export const planCalendarRemoteEvent = (
@@ -29,9 +52,10 @@ export const planCalendarRemoteEvent = (
 ): CalendarRemoteEventPlan => {
   const attendeeEmails = [...new Set((remote.attendees ?? []).map((attendee) => normalizedEmail(attendee.email)).filter(Boolean))].sort()
   const workflowVersion = "calendar-relationship-concierge.v1"
-  const sourceEventKeyDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, bindingId, providerEventId: remote.id }))
+  const sourceEventKeyDigest = sha256HexSync(canonicalJsonBytes(stableSourceEventIdentity(workspaceId, bindingId, remote)))
   const sourceRevisionDigest = sha256HexSync(canonicalJsonBytes({
     workspaceId, bindingId, providerEventId: remote.id, recurringEventId: remote.recurringEventId ?? null,
+    originalStartTime: remote.recurringEventId === undefined ? null : normalizedOriginalStartTime(remote.originalStartTime ?? remote.start),
     updatedAt: remote.updatedAt ?? null,
     title: remote.title, start: remote.start, end: remote.end, status: remote.status,
     attendees: attendeeEmails, workflowVersion
@@ -69,9 +93,7 @@ export const planCalendarRemoteEventWithSecret = async (
     attendeeDigestSecret,
     canonicalJsonBytes({
       domain: "athenaeum.calendar-source-event.v1",
-      workspaceId,
-      bindingId,
-      providerEventId: remote.id
+      ...stableSourceEventIdentity(workspaceId, bindingId, remote)
     })
   )
   const sourceRevisionDigest = await hmacSha256Hex(
@@ -82,6 +104,7 @@ export const planCalendarRemoteEventWithSecret = async (
       bindingId,
       providerEventId: remote.id,
       recurringEventId: remote.recurringEventId ?? null,
+      originalStartTime: remote.recurringEventId === undefined ? null : normalizedOriginalStartTime(remote.originalStartTime ?? remote.start),
       updatedAt: remote.updatedAt ?? null,
       title: remote.title,
       start: remote.start,
