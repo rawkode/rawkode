@@ -1,5 +1,6 @@
 import XCTest
 @testable import AthenaeumAppUI
+import AthenaeumCore
 import AthenaeumDomain
 @testable import AthenaeumRPC
 #if os(macOS)
@@ -334,15 +335,17 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertFalse(message.contains("credential=not-for-display"))
     }
 
-    func testEntityPagePreviewRetryIsLimitedToGenericFailedReads() {
+    func testEntityPagePreviewRetryIsLimitedToStaleOrGenericFailedReads() {
         XCTAssertEqual(
             WorkspaceEntityPagePreviewPresentation.failureMessage,
             "Page content is unavailable right now."
         )
         XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .idle))
         XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .loading))
-        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .loaded("Page body")))
-        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .unavailable))
+        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .loadedContent(.legacy("Page body"))))
+        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .missing))
+        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: .unsupported))
+        XCTAssertTrue(WorkspaceEntityPagePreviewPresentation.canRetry(state: .stale))
         XCTAssertTrue(WorkspaceEntityPagePreviewPresentation.canRetry(state: .failed))
     }
 
@@ -404,6 +407,171 @@ final class WorkspaceRouteTests: XCTestCase {
                 retryingNodeId: retryingNodeId
             )
         )
+    }
+
+    func testPageDescriptorWitnessPreservesConcreteStorageVariant() throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let automerge = AutomergePageDocumentDescriptor(
+            docId: node.rawValue,
+            headsHash: "legacy-heads",
+            bytesSha256: String(repeating: "a", count: 64)
+        )
+        let loro = LoroPageDocumentDescriptor(
+            schemaVersion: 1,
+            snapshotSha256: String(repeating: "b", count: 64)
+        )
+
+        let legacy = WorkspacePageDescriptorWitness(
+            .legacy(nodeId: node, storageVersion: 1, automerge: automerge)
+        )
+        let migrated = WorkspacePageDescriptorWitness(
+            .migratedLoro(nodeId: node, storageVersion: 2, automerge: automerge, loro: loro)
+        )
+        let native = WorkspacePageDescriptorWitness(
+            .nativeLoro(nodeId: node, storageVersion: 2, loro: loro)
+        )
+
+        XCTAssertEqual(legacy.variant, .legacy)
+        XCTAssertEqual(legacy.activeFormat, .automergeV1)
+        XCTAssertNil(legacy.schemaVersion)
+        XCTAssertNil(legacy.snapshotSHA256)
+        XCTAssertEqual(migrated.variant, .migratedLoro)
+        XCTAssertEqual(native.variant, .nativeLoro)
+        XCTAssertNotEqual(migrated, native)
+        XCTAssertEqual(migrated.schemaVersion, 1)
+        XCTAssertEqual(migrated.snapshotSHA256, String(repeating: "b", count: 64))
+    }
+
+    func testEntityPagePreviewLoaderPublishesFencedLoroContent() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let descriptor = nativePageDescriptor(node)
+        let projection = loroProjection(node, text: "A useful companion update")
+        var descriptorReadCount = 0
+        var legacyReadCount = 0
+        var loroReadCount = 0
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { requestedNode in
+                XCTAssertEqual(requestedNode, node)
+                descriptorReadCount += 1
+                return descriptor
+            },
+            readLegacy: { _, _, _ in
+                legacyReadCount += 1
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            },
+            readLoro: { requestedNode in
+                XCTAssertEqual(requestedNode, node)
+                loroReadCount += 1
+                return DailyNoteLoroProjectionState(projection)
+            }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .loadedContent(.loro(DailyNoteLoroProjectionState(projection))))
+        XCTAssertEqual(descriptorReadCount, 2, "the descriptor must be witnessed before and after the read")
+        XCTAssertEqual(legacyReadCount, 0)
+        XCTAssertEqual(loroReadCount, 1)
+    }
+
+    func testEntityPagePreviewLoaderPublishesLegacyTextOnlyAfterPostReadFence() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let descriptor = legacyPageDescriptor(node)
+        var descriptorReadCount = 0
+        var receivedSession = false
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in
+                descriptorReadCount += 1
+                return descriptor
+            },
+            readLegacy: { requestedNode, requestedDescriptor, _ in
+                XCTAssertEqual(requestedNode, node)
+                XCTAssertEqual(requestedDescriptor, descriptor)
+                receivedSession = true
+                return DailyNoteLegacyReadOnlyState(text: "Legacy companion text", descriptor: descriptor)
+            },
+            readLoro: { _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .loadedContent(.legacy("Legacy companion text")))
+        XCTAssertEqual(descriptorReadCount, 2)
+        XCTAssertTrue(receivedSession)
+    }
+
+    func testEntityPagePreviewLoaderRejectsDescriptorABAAsStale() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let first = nativePageDescriptor(node, snapshot: "b")
+        let changed = nativePageDescriptor(node, snapshot: "c")
+        let projection = loroProjection(node, text: "Old companion update", snapshot: "b")
+        var descriptors = [first, changed]
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in
+                defer { descriptors.removeFirst() }
+                return descriptors[0]
+            },
+            readLegacy: { _, _, _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            },
+            readLoro: { _ in DailyNoteLoroProjectionState(projection) }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .stale)
+        XCTAssertTrue(WorkspaceEntityPagePreviewPresentation.canRetry(state: loader.state))
+    }
+
+    func testEntityPagePreviewLoaderClassifiesProjectionAndDescriptorFailuresSafely() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let descriptor = nativePageDescriptor(node)
+        let malformedLoader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in descriptor },
+            readLegacy: { _, _, _ in throw WorkspaceEntityPagePreviewLoadError.unsupported },
+            readLoro: { _ in throw LoroPageProjectionError.malformedKnownContent }
+        )
+        await malformedLoader.load(nodeId: node)
+        XCTAssertEqual(malformedLoader.state, .unsupported)
+
+        let missingLoader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in throw AthenaeumDomainError.pageNotFound(nodeId: "private-node") },
+            readLegacy: { _, _, _ in throw WorkspaceEntityPagePreviewLoadError.unsupported },
+            readLoro: { _ in throw WorkspaceEntityPagePreviewLoadError.unsupported }
+        )
+        await missingLoader.load(nodeId: node)
+        XCTAssertEqual(missingLoader.state, .missing)
+        XCTAssertEqual(
+            WorkspaceEntityPagePreviewPresentation.missingMessage,
+            "No page document is attached to this entity yet."
+        )
+        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.missingMessage.contains(node.rawValue))
+    }
+
+    func testEntityPagePreviewLoaderIgnoresLateOlderNodeCompletion() async throws {
+        let first = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let latest = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440001")
+        let reader = DeferredPageProjectionReader()
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { requestedNode in self.nativePageDescriptor(requestedNode) },
+            readLegacy: { _, _, _ in throw WorkspaceEntityPagePreviewLoadError.unsupported },
+            readLoro: { requestedNode in try await reader.read(requestedNode) }
+        )
+
+        let firstLoad = Task { @MainActor in await loader.load(nodeId: first) }
+        await waitForProjectionReader(reader, toStart: first)
+        let latestLoad = Task { @MainActor in await loader.load(nodeId: latest) }
+        await waitForProjectionReader(reader, toStart: latest)
+
+        reader.resume(latest, with: .success(DailyNoteLoroProjectionState(loroProjection(latest, text: "Latest update"))))
+        await latestLoad.value
+        XCTAssertEqual(loader.state, .loadedContent(.loro(DailyNoteLoroProjectionState(loroProjection(latest, text: "Latest update")))))
+
+        reader.resume(first, with: .success(DailyNoteLoroProjectionState(loroProjection(first, text: "Stale update"))))
+        await firstLoad.value
+        XCTAssertEqual(loader.state, .loadedContent(.loro(DailyNoteLoroProjectionState(loroProjection(latest, text: "Latest update")))))
     }
 
     func testDirectEntityLoaderVerifiesTheRequestedIdentityBeforeComposingAPreview() async throws {
@@ -516,6 +684,64 @@ final class WorkspaceRouteTests: XCTestCase {
         }
         XCTFail("Timed out waiting for deferred direct entity read")
     }
+
+    private func waitForProjectionReader(
+        _ reader: DeferredPageProjectionReader,
+        toStart nodeId: EntityId
+    ) async {
+        for _ in 0..<100 {
+            if reader.isWaiting(for: nodeId) {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for deferred page projection read")
+    }
+
+    private func nativePageDescriptor(
+        _ nodeId: EntityId,
+        storageVersion: Int = 1,
+        snapshot: Character = "b"
+    ) -> PageDocumentDescriptor {
+        .nativeLoro(
+            nodeId: nodeId,
+            storageVersion: storageVersion,
+            loro: .init(schemaVersion: 1, snapshotSha256: String(repeating: snapshot, count: 64))
+        )
+    }
+
+    private func legacyPageDescriptor(_ nodeId: EntityId) -> PageDocumentDescriptor {
+        .legacy(
+            nodeId: nodeId,
+            storageVersion: 1,
+            automerge: .init(
+                docId: nodeId.rawValue,
+                headsHash: "legacy-heads",
+                bytesSha256: String(repeating: "a", count: 64)
+            )
+        )
+    }
+
+    private func loroProjection(
+        _ nodeId: EntityId,
+        text: String,
+        snapshot: Character = "b"
+    ) -> LoroPageProjection {
+        let snapshotSHA256 = String(repeating: snapshot, count: 64)
+        return LoroPageProjection(
+            root: .document([.paragraph([.text(text, marks: [])])]),
+            route: .init(
+                nodeId: nodeId,
+                format: .loroV1,
+                storageVersion: 1,
+                schemaVersion: 1,
+                snapshotSHA256: snapshotSHA256
+            ),
+            replica: .init(snapshotSHA256: snapshotSHA256, versionVectorSHA256: String(repeating: "d", count: 64)),
+            schemaVersion: 1,
+            isDirty: false
+        )
+    }
 }
 
 private actor DeferredDirectEntityReader {
@@ -534,6 +760,29 @@ private actor DeferredDirectEntityReader {
     func resume(
         _ nodeId: EntityId,
         with result: Result<WorkspaceDirectEntityNode, Error>
+    ) {
+        guard let continuation = continuations.removeValue(forKey: nodeId) else { return }
+        continuation.resume(with: result)
+    }
+}
+
+@MainActor
+private final class DeferredPageProjectionReader {
+    private var continuations: [EntityId: CheckedContinuation<DailyNoteLoroProjectionState, Error>] = [:]
+
+    func read(_ nodeId: EntityId) async throws -> DailyNoteLoroProjectionState {
+        try await withCheckedThrowingContinuation { continuation in
+            continuations[nodeId] = continuation
+        }
+    }
+
+    func isWaiting(for nodeId: EntityId) -> Bool {
+        continuations[nodeId] != nil
+    }
+
+    func resume(
+        _ nodeId: EntityId,
+        with result: Result<DailyNoteLoroProjectionState, Error>
     ) {
         guard let continuation = continuations.removeValue(forKey: nodeId) else { return }
         continuation.resume(with: result)

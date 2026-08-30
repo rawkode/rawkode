@@ -213,6 +213,11 @@ public final class AthenaeumViewModel: ObservableObject {
     }
     public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight }
 
+    /// The command center may open a direct entity from Today while this same model owns the
+    /// workspace's local store, Loro document store, and per-node operation gate.  Expose the
+    /// existing read-only seam without creating a second sync owner for those previews.
+    var readOnlyPageOperations: any DailyNotePageOperations { pageOperations }
+
     /// Claims the completion before presentation can move focus or announce it. This makes a
     /// delayed DailyNote mount and an ordinary observation update converge on one delivery.
     public func consumePreparationCompletion() -> PrepareMeetingInDailyNoteOutput? {

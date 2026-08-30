@@ -601,7 +601,7 @@ public struct WorkspaceCommandCenterView: View {
             }
         case .search(let id):
             if let result = host.searchRows.first(where: { $0.id == id }) {
-                SearchResultDetailView(result: result, client: host.readClient, onClose: nil)
+                SearchResultDetailView(result: result, pageOperations: host.pageOperations, onClose: nil)
             } else {
                 EmptyStateView(title: "Search result unavailable", systemImage: "exclamationmark.triangle", message: "This result is no longer available.")
             }
@@ -624,7 +624,7 @@ public struct WorkspaceCommandCenterView: View {
             if let node = host.model?.graphRows.first(where: { $0.id == id }) {
                 GraphNodeDetailView(
                     node: node,
-                    client: host.readClient,
+                    pageOperations: host.pageOperations,
                     sourceSection: .graph,
                     onClose: nil
                 )
@@ -635,18 +635,21 @@ public struct WorkspaceCommandCenterView: View {
             WorkspaceDirectEntityDetailView(
                 destination: .entity(entityNodeId),
                 client: host.readClient,
+                pageOperations: host.pageOperations,
                 onClose: nil
             )
         case .person(let personNodeId):
             WorkspaceDirectEntityDetailView(
                 destination: .person(personNodeId),
                 client: host.readClient,
+                pageOperations: host.pageOperations,
                 onClose: nil
             )
         case .employeeUpdate(let employeeUpdateNodeId):
             WorkspaceDirectEntityDetailView(
                 destination: .employeeUpdate(employeeUpdateNodeId),
                 client: host.readClient,
+                pageOperations: host.pageOperations,
                 onClose: nil
             )
         }
@@ -688,19 +691,20 @@ public struct WorkspaceCommandCenterView: View {
         if let result = selectedSearchResult {
             SearchResultDetailView(
                 result: result,
-                client: host.readClient,
+                pageOperations: host.pageOperations,
                 onClose: { selectedSearchNodeId = nil }
             )
         } else if let destination = selectedDirectEntityDestination {
             WorkspaceDirectEntityDetailView(
                 destination: destination,
                 client: host.readClient,
+                pageOperations: host.pageOperations,
                 onClose: { selectedDirectEntityDestination = nil }
             )
         } else if let node = selectedGraphNode {
             GraphNodeDetailView(
                 node: node,
-                client: host.readClient,
+                pageOperations: host.pageOperations,
                 sourceSection: selection,
                 onClose: { selectedGraphNodeId = nil }
             )
@@ -952,7 +956,7 @@ public struct WorkspaceCommandCenterView: View {
 
 private struct SearchResultDetailView: View {
     let result: AthenaeumViewModel.SearchRow
-    let client: WorkspaceRPCClient
+    let pageOperations: (any DailyNotePageOperations)?
     let onClose: (() -> Void)?
 
     var body: some View {
@@ -985,7 +989,7 @@ private struct SearchResultDetailView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .padding(.top, 8)
-            EntityPagePreview(nodeId: result.id, client: client)
+            EntityPagePreview(nodeId: result.id, pageOperations: pageOperations)
         }
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .topLeading)
         .padding(32)
@@ -994,7 +998,7 @@ private struct SearchResultDetailView: View {
 
 private struct GraphNodeDetailView: View {
     let node: AthenaeumViewModel.GraphNodeRow
-    let client: WorkspaceRPCClient
+    let pageOperations: (any DailyNotePageOperations)?
     let sourceSection: WorkspaceSection
     let onClose: (() -> Void)?
 
@@ -1031,7 +1035,7 @@ private struct GraphNodeDetailView: View {
             }
             .foregroundStyle(.secondary)
             Divider()
-            EntityPagePreview(nodeId: node.id, client: client)
+            EntityPagePreview(nodeId: node.id, pageOperations: pageOperations)
         }
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .topLeading)
         .padding(32)
@@ -1165,6 +1169,7 @@ final class WorkspaceDirectEntityLoader: ObservableObject {
 private struct WorkspaceDirectEntityDetailView: View {
     let destination: WorkspaceDirectEntityDestination
     let client: WorkspaceRPCClient
+    let pageOperations: (any DailyNotePageOperations)?
     let onClose: (() -> Void)?
     @StateObject private var loader: WorkspaceDirectEntityLoader
     @State private var isRetrying = false
@@ -1172,10 +1177,12 @@ private struct WorkspaceDirectEntityDetailView: View {
     init(
         destination: WorkspaceDirectEntityDestination,
         client: WorkspaceRPCClient,
+        pageOperations: (any DailyNotePageOperations)?,
         onClose: (() -> Void)?
     ) {
         self.destination = destination
         self.client = client
+        self.pageOperations = pageOperations
         self.onClose = onClose
         _loader = StateObject(
             wrappedValue: WorkspaceDirectEntityLoader(readNode: { requestedNodeId in
@@ -1213,7 +1220,7 @@ private struct WorkspaceDirectEntityDetailView: View {
                 Text(node.title)
                     .font(.largeTitle.bold())
                     .textSelection(.enabled)
-                EntityPagePreview(nodeId: node.id.rawValue, client: client)
+                EntityPagePreview(nodeId: node.id.rawValue, pageOperations: pageOperations)
                     .id(node.id)
             case .loaded:
                 ProgressView(presentation.loadingTitle)
@@ -1260,24 +1267,127 @@ private struct WorkspaceDirectEntityDetailView: View {
     }
 }
 
+/// Exact route identity captured before a read begins and compared after it completes.  The
+/// concrete descriptor variant matters: migrated and native Loro pages must not alias merely
+/// because their active format, storage revision, and snapshot hash happen to match.
+struct WorkspacePageDescriptorWitness: Equatable, Sendable {
+    enum Variant: String, Equatable, Sendable {
+        case legacy
+        case migratedLoro
+        case nativeLoro
+    }
+
+    let variant: Variant
+    let nodeId: EntityId
+    let activeFormat: PageDocumentFormat
+    let storageVersion: Int
+    let schemaVersion: Int?
+    let snapshotSHA256: String?
+
+    init(_ descriptor: PageDocumentDescriptor) {
+        nodeId = descriptor.nodeId
+        activeFormat = descriptor.activeFormat
+        storageVersion = descriptor.storageVersion
+        switch descriptor {
+        case .legacy:
+            variant = .legacy
+            schemaVersion = nil
+            snapshotSHA256 = nil
+        case .migratedLoro(_, _, _, let loro):
+            variant = .migratedLoro
+            schemaVersion = loro.schemaVersion
+            snapshotSHA256 = loro.snapshotSha256
+        case .nativeLoro(_, _, let loro):
+            variant = .nativeLoro
+            schemaVersion = loro.schemaVersion
+            snapshotSHA256 = loro.snapshotSha256
+        }
+    }
+}
+
+enum WorkspaceEntityPagePreviewContent: Equatable {
+    case loro(DailyNoteLoroProjectionState)
+    case legacy(String)
+
+    var isEmpty: Bool {
+        switch self {
+        case .legacy(let text):
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .loro(let state):
+            return !WorkspaceEntityPagePreviewContent.hasVisibleText(state.projection.root)
+        }
+    }
+
+    private static func hasVisibleText(_ node: LoroPageProjectionNode) -> Bool {
+        switch node {
+        case .text(let value, _): return !value.isEmpty
+        case .document(let children), .paragraph(let children), .heading(_, let children):
+            return children.contains(where: hasVisibleText)
+        case .unsupported:
+            // Unsupported content is still content. It must not be mistaken for an empty page.
+            return true
+        }
+    }
+}
+
 enum WorkspaceEntityPagePreviewLoadState: Equatable {
     case idle
     case loading
-    case loaded(String)
-    case unavailable
+    case loadedEmpty
+    case loadedContent(WorkspaceEntityPagePreviewContent)
+    case missing
+    case unsupported
+    case stale
     case failed
 }
 
+enum WorkspaceEntityPagePreviewLoadError: Error, Equatable {
+    case stale
+    case unsupported
+    case workspaceUnavailable
+    case invalidNode
+}
+
 enum WorkspaceEntityPagePreviewPresentation {
+    static let missingMessage = "No page document is attached to this entity yet."
+    static let unsupportedMessage = "This page format cannot be previewed safely here."
+    static let staleMessage = "This page changed while it was opening. Retry to inspect the latest version."
     static let failureMessage = "Page content is unavailable right now."
 
-    static func canRetry(state: WorkspaceEntityPagePreviewLoadState) -> Bool {
-        state == .failed
+    static func state(for error: Error) -> WorkspaceEntityPagePreviewLoadState {
+        if let error = error as? WorkspaceEntityPagePreviewLoadError {
+            switch error {
+            case .stale: return .stale
+            case .unsupported, .invalidNode: return .unsupported
+            case .workspaceUnavailable: return .failed
+            }
+        }
+        if let error = error as? AthenaeumDomainError {
+            switch error {
+            case .pageNotFound: return .missing
+            case .pageFormatMismatch: return .unsupported
+            default: return .failed
+            }
+        }
+        if let error = error as? LoroPageProjectionError {
+            switch error {
+            case .malformedKnownContent, .limitExceeded: return .unsupported
+            case .pageNotPublished: return .failed
+            }
+        }
+        if let error = error as? WorkspaceSyncClientError {
+            switch error {
+            case .invalidLoroDescriptor: return .stale
+            case .pageNotFoundLocally, .missingLoroCreationIntent, .invalidLoroSyncResponse, .invalidNodeCreationInput: return .failed
+            }
+        }
+        return .failed
     }
 
-    /// The retry marker belongs to the view because it only closes the gap before SwiftUI
-    /// renders the existing loading state. Page reads, routing, and their RPC inputs remain
-    /// unchanged.
+    static func canRetry(state: WorkspaceEntityPagePreviewLoadState) -> Bool {
+        state == .failed || state == .stale
+    }
+
     static func canStartRetry(
         state: WorkspaceEntityPagePreviewLoadState,
         retryingNodeId: String?
@@ -1297,18 +1407,118 @@ enum WorkspaceEntityPagePreviewPresentation {
     }
 }
 
+/// A main-actor, format-aware read-only loader.  It receives the existing workspace page
+/// operations seam instead of constructing a preview-local sync client or document store.
+@MainActor
+final class WorkspaceEntityPagePreviewLoader: ObservableObject {
+    @Published private(set) var state: WorkspaceEntityPagePreviewLoadState = .idle
+
+    private let readDescriptor: (EntityId) async throws -> PageDocumentDescriptor
+    private let readLegacy: (EntityId, PageDocumentDescriptor, SyncSessionHandle) async throws -> DailyNoteLegacyReadOnlyState
+    private let readLoro: (EntityId) async throws -> DailyNoteLoroProjectionState
+    private var generation = 0
+
+    init(
+        readDescriptor: @escaping (EntityId) async throws -> PageDocumentDescriptor,
+        readLegacy: @escaping (EntityId, PageDocumentDescriptor, SyncSessionHandle) async throws -> DailyNoteLegacyReadOnlyState,
+        readLoro: @escaping (EntityId) async throws -> DailyNoteLoroProjectionState
+    ) {
+        self.readDescriptor = readDescriptor
+        self.readLegacy = readLegacy
+        self.readLoro = readLoro
+    }
+
+    func markUnsupported() {
+        state = .unsupported
+    }
+
+    /// Route changes and retries increment the same generation. A late completion is ignored,
+    /// so node A can never replace node B's page preview.
+    func load(nodeId: EntityId) async {
+        generation &+= 1
+        let activeGeneration = generation
+        state = .loading
+        do {
+            let descriptor = try await readDescriptor(nodeId)
+            guard descriptor.nodeId == nodeId else { throw WorkspaceEntityPagePreviewLoadError.stale }
+            let selectedWitness = WorkspacePageDescriptorWitness(descriptor)
+            let content: WorkspaceEntityPagePreviewContent
+
+            switch descriptor {
+            case .legacy:
+                let projection = try await readLegacy(nodeId, descriptor, SyncSessionHandle())
+                guard WorkspacePageDescriptorWitness(projection.descriptor) == selectedWitness else {
+                    throw WorkspaceEntityPagePreviewLoadError.stale
+                }
+                switch projection.content {
+                case .plainText(let text): content = .legacy(text)
+                case .richTextUnsupported, .tooLarge:
+                    throw WorkspaceEntityPagePreviewLoadError.unsupported
+                }
+                let confirmed = try await readDescriptor(nodeId)
+                guard WorkspacePageDescriptorWitness(confirmed) == selectedWitness else {
+                    throw WorkspaceEntityPagePreviewLoadError.stale
+                }
+            case .migratedLoro, .nativeLoro:
+                guard selectedWitness.activeFormat == .loroV1,
+                      let schemaVersion = selectedWitness.schemaVersion,
+                      let snapshotSHA256 = selectedWitness.snapshotSHA256
+                else { throw WorkspaceEntityPagePreviewLoadError.unsupported }
+                let projection = try await readLoro(nodeId)
+                let route = projection.projection.route
+                guard route.nodeId == nodeId,
+                      route.format == .loroV1,
+                      route.storageVersion == selectedWitness.storageVersion,
+                      route.schemaVersion == schemaVersion,
+                      route.snapshotSHA256 == snapshotSHA256
+                else { throw WorkspaceEntityPagePreviewLoadError.stale }
+                let confirmed = try await readDescriptor(nodeId)
+                guard WorkspacePageDescriptorWitness(confirmed) == selectedWitness else {
+                    throw WorkspaceEntityPagePreviewLoadError.stale
+                }
+                content = .loro(projection)
+            }
+
+            guard activeGeneration == generation else { return }
+            state = content.isEmpty ? .loadedEmpty : .loadedContent(content)
+        } catch {
+            guard activeGeneration == generation else { return }
+            state = WorkspaceEntityPagePreviewPresentation.state(for: error)
+        }
+    }
+}
+
 private struct EntityPagePreview: View {
     let nodeId: String
-    let client: WorkspaceRPCClient
-    @State private var state: WorkspaceEntityPagePreviewLoadState = .idle
+    let pageOperations: (any DailyNotePageOperations)?
+    @StateObject private var loader: WorkspaceEntityPagePreviewLoader
     @State private var retryingNodeId: String?
+
+    init(nodeId: String, pageOperations: (any DailyNotePageOperations)?) {
+        self.nodeId = nodeId
+        self.pageOperations = pageOperations
+        _loader = StateObject(wrappedValue: WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { id in
+                guard let pageOperations else { throw WorkspaceEntityPagePreviewLoadError.workspaceUnavailable }
+                return try await pageOperations.descriptor(nodeId: id)
+            },
+            readLegacy: { id, descriptor, session in
+                guard let pageOperations else { throw WorkspaceEntityPagePreviewLoadError.workspaceUnavailable }
+                return try await pageOperations.legacyPageProjection(nodeId: id, descriptor: descriptor, session: session)
+            },
+            readLoro: { id in
+                guard let pageOperations else { throw WorkspaceEntityPagePreviewLoadError.workspaceUnavailable }
+                return try await pageOperations.syncLoroProjection(nodeId: id)
+            }
+        ))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Page content", systemImage: "doc.text")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
-            switch state {
+            switch loader.state {
             case .idle, .loading:
                 ProgressView(
                     WorkspaceEntityPagePreviewPresentation.loadingTitle(
@@ -1317,79 +1527,115 @@ private struct EntityPagePreview: View {
                     )
                 )
                     .foregroundStyle(.secondary)
-            case .loaded(let text):
-                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("This entity has an empty page.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ScrollView {
+            case .loadedEmpty:
+                Text("This entity has an empty page.")
+                    .foregroundStyle(.secondary)
+            case .loadedContent(let content):
+                ScrollView {
+                    switch content {
+                    case .legacy(let text):
                         Text(text)
                             .font(.body)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    case .loro(let state):
+                        ReadOnlyLoroProjectionView(node: state.projection.root)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 280)
                 }
-            case .unavailable:
-                Text("No page document is attached to this entity yet.")
+                .frame(maxHeight: 280)
+            case .missing:
+                Text(WorkspaceEntityPagePreviewPresentation.missingMessage)
                     .foregroundStyle(.secondary)
+            case .unsupported:
+                Text(WorkspaceEntityPagePreviewPresentation.unsupportedMessage)
+                    .foregroundStyle(.secondary)
+            case .stale:
+                previewRecovery(
+                    message: WorkspaceEntityPagePreviewPresentation.staleMessage,
+                    retryLabel: retryingNodeId == nodeId ? "Retrying page…" : "Retry page"
+                )
             case .failed:
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(WorkspaceEntityPagePreviewPresentation.failureMessage, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                    if WorkspaceEntityPagePreviewPresentation.canRetry(state: state) {
-                        Button(
-                            retryingNodeId == nodeId ? "Retrying page…" : "Retry page"
-                        ) {
-                            retryPage()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(
-                            !WorkspaceEntityPagePreviewPresentation.canStartRetry(
-                                state: state,
-                                retryingNodeId: retryingNodeId
-                            )
-                        )
-                        .accessibilityHint("Retries the page content read for this entity.")
-                    }
-                }
+                previewRecovery(
+                    message: WorkspaceEntityPagePreviewPresentation.failureMessage,
+                    retryLabel: retryingNodeId == nodeId ? "Retrying page…" : "Retry page"
+                )
             }
         }
         .task(id: nodeId) {
-            await loadPage()
+            guard let id = try? EntityId(validating: nodeId) else {
+                loader.markUnsupported()
+                return
+            }
+            await loader.load(nodeId: id)
+        }
+    }
+
+    @ViewBuilder
+    private func previewRecovery(message: String, retryLabel: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.secondary)
+            Button(retryLabel) { retryPage() }
+                .buttonStyle(.bordered)
+                .disabled(
+                    !WorkspaceEntityPagePreviewPresentation.canStartRetry(
+                        state: loader.state,
+                        retryingNodeId: retryingNodeId
+                    )
+                )
+                .accessibilityHint("Retries the page content read for this entity.")
         }
     }
 
     private func retryPage() {
         guard WorkspaceEntityPagePreviewPresentation.canStartRetry(
-            state: state,
+            state: loader.state,
             retryingNodeId: retryingNodeId
-        ) else { return }
-
+        ), let id = try? EntityId(validating: nodeId) else { return }
         let retryNodeId = nodeId
         retryingNodeId = retryNodeId
-        Task {
-            await loadPage()
+        Task { @MainActor in
+            await loader.load(nodeId: id)
             retryingNodeId = WorkspaceEntityPagePreviewPresentation.retryingNodeId(
                 afterCompleting: retryNodeId,
                 retryingNodeId: retryingNodeId
             )
         }
     }
+}
 
-    private func loadPage() async {
-        state = .loading
-        do {
-            let page = try await client.getPageText(nodeId: nodeId)
-            state = .loaded(page.text)
-        } catch let error as AthenaeumDomainError {
-            if case .pageNotFound = error {
-                state = .unavailable
-            } else {
-                state = .failed
-            }
-        } catch {
-            state = .failed
+/// Value-only SwiftUI rendering for a synchronized Loro projection.  It deliberately has no
+/// editor, sync plugin, mutation callback, or entity/tag action; text remains selectable.
+private struct ReadOnlyLoroProjectionView: View {
+    let node: LoroPageProjectionNode
+
+    var body: some View { render(node) }
+
+    private func render(_ node: LoroPageProjectionNode) -> AnyView {
+        switch node {
+        case .document(let children):
+            return AnyView(VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) }
+            }.accessibilityElement(children: .contain).accessibilityLabel("Read-only Loro page"))
+        case .paragraph(let children):
+            return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) } })
+        case .heading(_, let children):
+            return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) } }
+                .font(.title3.weight(.semibold)))
+        case .text(let value, let marks):
+            var text = Text(value)
+            if marks.contains(.strong) { text = text.bold() }
+            if marks.contains(.emphasis) { text = text.italic() }
+            if marks.contains(.code) { text = text.font(.system(.body, design: .monospaced)) }
+            if marks.contains(.link) { text = text.foregroundColor(.accentColor).underline() }
+            let presentation = LoroProjectionTextPresentation(marks: marks)
+            return AnyView(HStack(spacing: 0) {
+                if presentation.allowsTextSelection { text.textSelection(.enabled) } else { text.textSelection(.disabled) }
+                if let suffix = presentation.visibleSuffix { Text(suffix).foregroundStyle(.secondary) }
+            }.accessibilityLabel(presentation.accessibilityLabel ?? value))
+        case .unsupported:
+            return AnyView(Text("Unsupported content").foregroundStyle(.secondary).italic().accessibilityLabel("Unsupported read-only content"))
         }
     }
 }
@@ -1578,6 +1824,10 @@ private final class WorkspaceCommandCenterHost: ObservableObject {
     private var didStart = false
 
     var readClient: WorkspaceRPCClient { searchClient }
+    /// Direct entity previews borrow the exact page-operation object owned by the daily-note
+    /// model. This keeps Loro leases, local replicas, and legacy witnesses on one workspace
+    /// custody path instead of creating a second preview-local sync owner.
+    var pageOperations: (any DailyNotePageOperations)? { model?.readOnlyPageOperations }
 
     init(baseURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         agentModel = AgentEditViewModel(
