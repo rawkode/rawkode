@@ -1413,6 +1413,25 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertFalse(viewModel.contains("self.nativeLoroEditingEnabled = nativeLoroEditingEnabled ?? false"))
     }
 
+    func testDailyNoteKeepsContextualProjectionMountedBetweenEditorAndResolvedSecondaries() throws {
+        let source = try appUISource(named: "DailyNoteView.swift")
+        let body = try operationBody(
+            in: source,
+            startingAt: "public var body: some View {",
+            endingBefore: "private var hasResolvedDailyNote"
+        )
+
+        XCTAssertEqual(body.components(separatedBy: "if let contextualView").count - 1, 1)
+        let statusIndex = try XCTUnwrap(body.range(of: "switch model.status")?.lowerBound)
+        let contextIndex = try XCTUnwrap(body.range(of: "if let contextualView")?.lowerBound)
+        let standupIndex = try XCTUnwrap(body.range(of: "DailyStandupView(")?.lowerBound)
+        let backlinksIndex = try XCTUnwrap(body.range(of: "BacklinksView(model: model)")?.lowerBound)
+
+        XCTAssertLessThan(statusIndex, contextIndex)
+        XCTAssertLessThan(contextIndex, standupIndex)
+        XCTAssertLessThan(standupIndex, backlinksIndex)
+    }
+
     private func liveDailyNoteOperationsSource() throws -> String {
         let package = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // AthenaeumAppUITests

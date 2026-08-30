@@ -394,12 +394,6 @@ export function DailyNote({
           </nav>
         </header>
 
-        {dailyContext !== undefined && (
-          <div className="daily-note-context">
-            {dailyContext}
-          </div>
-        )}
-
         <div
           className={`daily-note-canvas daily-note-canvas-${state.status}`}
           aria-busy={state.status === "loading"}
@@ -498,6 +492,12 @@ export function DailyNote({
             </>
           )}
         </div>
+
+        {dailyContext !== undefined && (
+          <div className="daily-note-context">
+            {dailyContext}
+          </div>
+        )}
       </div>
 
       {state.status === "success" && (

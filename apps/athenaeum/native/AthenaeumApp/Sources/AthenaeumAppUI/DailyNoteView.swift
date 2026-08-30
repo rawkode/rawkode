@@ -100,11 +100,6 @@ public struct DailyNoteView: View {
         VStack(alignment: .leading, spacing: 12) {
             noteHeader
 
-            if let contextualView {
-                contextualView
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             switch model.status {
             case .loading:
                 ProgressView("Resolving \(isToday ? "today’s note" : "the daily note")…")
@@ -148,6 +143,17 @@ public struct DailyNoteView: View {
                     ProgressView("Preparing daily note…")
                 }
                 statusLine
+            }
+
+            // Keep this projection mounted while a note is loading or recovering. It owns an
+            // independent TodayBrief model, so placing it outside the status switch prevents
+            // transient note state from hiding or remounting the calendar context.
+            if let contextualView {
+                contextualView
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if hasResolvedDailyNote {
                 if DailyNoteStandupPresentation.shouldShowEmployeeUpdates(
                     hasConfiguration: standupConfiguration != nil
                 ), let standupConfiguration {
@@ -188,6 +194,15 @@ public struct DailyNoteView: View {
         .onChange(of: model.selectedDate) { _ in
             editorFocused = false
             hasAutofocused = false
+        }
+    }
+
+    private var hasResolvedDailyNote: Bool {
+        switch model.status {
+        case .loading, .error(_):
+            return false
+        default:
+            return true
         }
     }
 

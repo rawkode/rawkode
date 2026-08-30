@@ -706,8 +706,8 @@
 }
 
 /* The calendar projection is one live child of the note, rather than a second copy hidden in a
-   responsive rail. On constrained surfaces it sits between the note header and writing canvas so
-   the day can inform the first sentence; the wide layout below promotes that same child to a rail. */
+   responsive rail. On constrained surfaces the note header and writing canvas come first, then
+   this context child; the wide layout below promotes that same child to a rail. */
 .daily-note-context {
   min-width: 0;
 }
@@ -2167,7 +2167,7 @@
   }
 
   /* Let the header, canvas, and context participate in the note grid while keeping the compact
-     DOM order (header → context → canvas) for narrow layouts. */
+     DOM order (header → canvas → context) for narrow layouts. */
   .daily-note-editor {
     display: contents;
     width: auto;

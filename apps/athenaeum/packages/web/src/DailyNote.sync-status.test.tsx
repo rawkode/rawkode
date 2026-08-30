@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { act } from "react"
+import { act, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -53,13 +53,20 @@ const successState = () => ({
   }
 })
 
-const mount = async (todayBriefTargetId?: string): Promise<HTMLDivElement> => {
+const mount = async (todayBriefTargetId?: string, dailyContext?: ReactNode): Promise<HTMLDivElement> => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   roots.push({ root, host })
   await act(async () => {
-    root.render(<DailyNote date={date} onNavigateDate={vi.fn()} todayBriefTargetId={todayBriefTargetId} />)
+    root.render(
+      <DailyNote
+        date={date}
+        onNavigateDate={vi.fn()}
+        todayBriefTargetId={todayBriefTargetId}
+        dailyContext={dailyContext}
+      />
+    )
     await flush()
   })
   return host
@@ -94,6 +101,22 @@ describe("DailyNote sync status", () => {
     const link = host.querySelector<HTMLAnchorElement>(".daily-note-brief-jump")
     expect(link?.textContent).toBe("Today’s brief")
     expect(link?.getAttribute("href")).toBe("#today-brief")
+  })
+
+  it("keeps the writing canvas before the single contextual brief", async () => {
+    const host = await mount(undefined, <div data-testid="daily-context">Calendar context</div>)
+    const editor = host.querySelector<HTMLElement>(".daily-note-editor")
+    const header = editor?.querySelector<HTMLElement>(".daily-note-header")
+    const canvas = editor?.querySelector<HTMLElement>(".daily-note-canvas")
+    const context = editor?.querySelector<HTMLElement>(".daily-note-context")
+
+    expect(editor).not.toBeNull()
+    expect(editor?.querySelectorAll(".daily-note-context")).toHaveLength(1)
+    expect(context?.querySelector("[data-testid='daily-context']")?.textContent).toBe("Calendar context")
+
+    const children = editor ? Array.from(editor.children) : []
+    expect(children.indexOf(header!)).toBeLessThan(children.indexOf(canvas!))
+    expect(children.indexOf(canvas!)).toBeLessThan(children.indexOf(context!))
   })
 
   it("keeps idle and synced states silent without reserving a status row", async () => {
