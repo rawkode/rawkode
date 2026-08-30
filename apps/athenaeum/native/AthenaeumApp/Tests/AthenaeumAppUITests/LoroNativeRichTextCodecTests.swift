@@ -3,11 +3,13 @@ import AppKit
 import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
+import AthenaeumDomain
 
 final class LoroNativeRichTextCodecTests: XCTestCase {
     private let marksKey = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
     private let blockKey = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
     private let terminalEmptyDocumentKey = NSAttributedString.Key("dev.athenaeum.rich.terminal-empty-document.v1")
+    private let referenceKey = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
 
     func testRichRoundTripPreservesHeadingsAndEveryMarkSubset() throws {
         let document = richDocument()
@@ -37,6 +39,35 @@ final class LoroNativeRichTextCodecTests: XCTestCase {
         source.addAttributes([marksKey: "strong", blockKey: "paragraph"], range: NSRange(location: 2, length: 2))
         let document = try LoroNativeRichTextCodec.decode(source)
         XCTAssertEqual(document.semantic.blocks, [.paragraph([.init(text: "abcd", marks: [.strong])])])
+    }
+
+    func testTypedReferenceMarkerRoundTripsWithoutCoalescingReferenceSpans() throws {
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(
+            kind: .entity,
+            id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"),
+            label: "Alice"
+        )
+        let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "),
+            .init(text: "Alice", marks: [.strong], reference: reference),
+            .init(text: " today")
+        ])]))
+
+        let rendered = try LoroNativeRichTextCodec.attributedString(for: document)
+        XCTAssertNotNil(rendered.attribute(referenceKey, at: 5, effectiveRange: nil))
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(rendered), document)
+    }
+
+    func testReferenceMarkerRejectsForgedAndMalformedAttributedPayloads() throws {
+        for value: Any in ["10000000-0000-4000-8000-000000000001", ["nodeId": "10000000-0000-4000-8000-000000000001", "label": "Alice"]] {
+            let source = NSMutableAttributedString(string: "Alice")
+            source.addAttributes([blockKey: "paragraph", referenceKey: value], range: NSRange(location: 0, length: source.length))
+            XCTAssertThrowsError(try LoroNativeRichTextCodec.decode(source))
+        }
+
+        let separator = NSMutableAttributedString(string: "a\nb")
+        separator.addAttribute(referenceKey, value: "forged", range: NSRange(location: 1, length: 1))
+        XCTAssertThrowsError(try LoroNativeRichTextCodec.decode(separator))
     }
 
     func testPlainPasteIsAcceptedButMixedMarkersAreRejectedAtomically() throws {

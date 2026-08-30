@@ -19,11 +19,32 @@ enum LoroNativeRichTextCodec {
     /// no markers is accepted as paragraph blocks, so ordinary paste has deterministic semantics.
     private enum Attribute {
         static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+        static let reference = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
         static let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
         static let separatorBefore = NSAttributedString.Key("dev.athenaeum.rich.separator-before.v1")
         static let separatorAfter = NSAttributedString.Key("dev.athenaeum.rich.separator-after.v1")
         static let terminalEmptyDocument = NSAttributedString.Key("dev.athenaeum.rich.terminal-empty-document.v1")
-        static let allowed: Set<NSAttributedString.Key> = [marks, block, separatorBefore, separatorAfter, terminalEmptyDocument]
+        static let allowed: Set<NSAttributedString.Key> = [marks, reference, block, separatorBefore, separatorAfter, terminalEmptyDocument]
+    }
+
+    /// TextKit storage is not a wire format.  This typed, in-process marker prevents untrusted
+    /// attributed paste from manufacturing an id-bearing reference with a dictionary or string.
+    private final class ReferenceMarker: NSObject {
+        let reference: LoroCanonicalSemanticValueV1.InlineReference
+
+        init(reference: LoroCanonicalSemanticValueV1.InlineReference) { self.reference = reference }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            (object as? ReferenceMarker)?.reference == reference
+        }
+
+        override var hash: Int {
+            var hasher = Hasher()
+            hasher.combine(reference.id)
+            hasher.combine(reference.label)
+            hasher.combine(reference.kind == .entity ? 0 : 1)
+            return hasher.finalize()
+        }
     }
 
     enum Error: Swift.Error, Equatable, Sendable {
@@ -58,6 +79,9 @@ enum LoroNativeRichTextCodec {
                 var attributes: [NSAttributedString.Key: Any] = [Attribute.block: blockMarker]
                 if !run.marks.isEmpty {
                     attributes[Attribute.marks] = marksMarker(run.marks)
+                }
+                if let reference = run.reference {
+                    attributes[Attribute.reference] = ReferenceMarker(reference: reference)
                 }
                 result.append(NSAttributedString(string: run.text, attributes: attributes))
             }
@@ -159,21 +183,31 @@ enum LoroNativeRichTextCodec {
             if case let .heading(level, _) = block, !(1...3).contains(level) {
                 throw Error.invalidSemanticDocument
             }
-            var previous: [LoroCanonicalSemanticValueV1.Mark]?
+            var previous: (marks: [LoroCanonicalSemanticValueV1.Mark], reference: LoroCanonicalSemanticValueV1.InlineReference?)?
             for run in runs {
                 runCount += 1
                 utf8Bytes += run.text.lengthOfBytes(using: .utf8)
+                if let reference = run.reference { utf8Bytes += reference.label.lengthOfBytes(using: .utf8) }
                 guard !run.text.isEmpty,
                       !run.text.contains("\n"),
                       !run.text.contains("\r"),
                       run.marks == canonicalMarks.filter(run.marks.contains),
                       Set(run.marks.map(\.rawValue)).count == run.marks.count,
-                      previous != run.marks,
                       runCount <= limits.maxTextRuns,
                       utf8Bytes <= limits.maxUTF8Bytes,
                       run.marks.count <= limits.maxMarks
                 else { throw Error.invalidSemanticDocument }
-                previous = run.marks
+                if let reference = run.reference {
+                    guard !reference.label.isEmpty,
+                          !reference.label.contains("\n"),
+                          !reference.label.contains("\r"),
+                          reference.label.lengthOfBytes(using: .utf8) <= 500,
+                          reference.label == run.text
+                    else { throw Error.invalidSemanticDocument }
+                }
+                guard previous == nil || previous!.marks != run.marks || previous!.reference != run.reference
+                else { throw Error.invalidSemanticDocument }
+                previous = (run.marks, run.reference)
             }
         }
         return semantic
@@ -220,6 +254,22 @@ enum LoroNativeRichTextCodec {
         return decoded
     }
 
+    private static func decodeReference(
+        _ value: Any?,
+        text: String
+    ) throws -> LoroCanonicalSemanticValueV1.InlineReference? {
+        guard let value else { return nil }
+        guard let marker = value as? ReferenceMarker else { throw Error.malformedMarker("reference") }
+        let reference = marker.reference
+        guard !reference.label.isEmpty,
+              !reference.label.contains("\n"),
+              !reference.label.contains("\r"),
+              reference.label.lengthOfBytes(using: .utf8) <= 500,
+              reference.label == text
+        else { throw Error.malformedMarker("reference") }
+        return reference
+    }
+
     private static func decodeRuns(in attributed: NSAttributedString, range: NSRange) throws -> [LoroCanonicalSemanticValueV1.TextRun] {
         guard range.length > 0 else { return [] }
         var result: [LoroCanonicalSemanticValueV1.TextRun] = []
@@ -232,10 +282,13 @@ enum LoroNativeRichTextCodec {
                 let text = attributed.attributedSubstring(from: subrange).string
                 guard !text.isEmpty, !text.contains("\n") else { throw Error.malformedMarker("run text") }
                 let marks = try decodeMarks(attributes[Attribute.marks])
-                if let previous = result.last, previous.marks == marks {
+                let reference = try decodeReference(attributes[Attribute.reference], text: text)
+                // The label is the exact text of one reference span, so reference spans can
+                // never coalesce without corrupting that snapshot.
+                if let previous = result.last, previous.reference == nil, reference == nil, previous.marks == marks {
                     result[result.index(before: result.endIndex)] = .init(text: previous.text + text, marks: marks)
                 } else {
-                    result.append(.init(text: text, marks: marks))
+                    result.append(.init(text: text, marks: marks, reference: reference))
                 }
             } catch {
                 failure = error as? Error ?? .invalidSemanticDocument
@@ -261,7 +314,7 @@ enum LoroNativeRichTextCodec {
                     if let value = rawValue as? String { candidates.append(value) }
                     else { malformedContentMarker = true }
                 } else { sawMissingContentMarker = true }
-                if attributes[Attribute.marks] != nil, attributes[Attribute.block] == nil {
+                if (attributes[Attribute.marks] != nil || attributes[Attribute.reference] != nil), attributes[Attribute.block] == nil {
                     sawMarksWithoutBlock = true
                 }
             }
@@ -290,7 +343,7 @@ enum LoroNativeRichTextCodec {
                 throw Error.unsupportedAttribute(key.rawValue)
             }
             if attributed.string.utf16[at: offset] == 10 {
-                if attributes[Attribute.marks] != nil || attributes[Attribute.block] != nil {
+                if attributes[Attribute.marks] != nil || attributes[Attribute.reference] != nil || attributes[Attribute.block] != nil {
                     throw Error.malformedMarker("separator")
                 } else {
                     let before = attributes[Attribute.separatorBefore]

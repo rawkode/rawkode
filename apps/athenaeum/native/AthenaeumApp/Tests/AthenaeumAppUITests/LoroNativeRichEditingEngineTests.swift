@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
+import AthenaeumDomain
 
 final class LoroNativeRichEditingEngineTests: XCTestCase {
     func testReplaceIsLosslessAndPublishesCanonicalSemanticValue() {
@@ -80,11 +81,48 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         XCTAssertEqual(engine.admittedDocument, source)
     }
 
+    func testReferenceEditingIsAtomicWhileBoundaryInsertionStaysOutside() throws {
+        let source = referenceParagraph()
+        var engine = LoroNativeRichEditingEngine(document: source)
+
+        XCTAssertEqual(engine.replace(utf16Range: NSRange(location: 6, length: 0), withPlainText: "x"), .rejected(.invalidEdit))
+        XCTAssertEqual(engine.replace(utf16Range: NSRange(location: 5, length: 1), withPlainText: "A"), .rejected(.invalidEdit))
+        XCTAssertEqual(engine.admittedDocument, source)
+
+        guard case let .publish(boundary, _) = engine.replace(utf16Range: NSRange(location: 5, length: 0), withPlainText: "dear ") else {
+            return XCTFail("expected boundary insertion")
+        }
+        XCTAssertEqual(boundary.semantic.blocks, [.paragraph([
+            .init(text: "Meet dear "),
+            .init(text: "Alice", reference: reference()),
+            .init(text: " today")
+        ])])
+    }
+
+    func testReferenceAllowsOnlyFullSpanDeletion() {
+        var engine = LoroNativeRichEditingEngine(document: referenceParagraph())
+        XCTAssertEqual(engine.replace(utf16Range: NSRange(location: 6, length: 2), withPlainText: ""), .rejected(.invalidEdit))
+        guard case let .publish(deleted, _) = engine.replace(utf16Range: NSRange(location: 5, length: 5), withPlainText: "") else {
+            return XCTFail("expected full-span deletion")
+        }
+        XCTAssertEqual(deleted.semantic.blocks, [.paragraph([.init(text: "Meet  today")])])
+    }
+
     private func paragraph(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph(text.isEmpty ? [] : [.init(text: text, marks: marks)])]))
     }
 
     private func heading(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.heading(level: 1, runs: text.isEmpty ? [] : [.init(text: text, marks: marks)])]))
+    }
+
+    private func reference() -> LoroCanonicalSemanticValueV1.InlineReference {
+        .init(kind: .entity, id: try! EntityId(validating: "10000000-0000-4000-8000-000000000001"), label: "Alice")
+    }
+
+    private func referenceParagraph() -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "), .init(text: "Alice", reference: reference()), .init(text: " today")
+        ])]))
     }
 }

@@ -3,9 +3,11 @@ import AppKit
 import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
+import AthenaeumDomain
 
 final class LoroNativeRichTextEditorTests: XCTestCase {
     private let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+    private let referenceKey = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
     private let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
 
     func testRenderedStorageContainsOnlyCodecMarkersAndRoundTripsRichDocument() throws {
@@ -13,7 +15,7 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         let editor = LoroNativeRichTextEditorController(document: document, isEditable: true)
         let storage = editor.testingStorage()
         storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
-            XCTAssertTrue(Set(attributes.keys).isSubset(of: [marks, block, .init("dev.athenaeum.rich.separator-before.v1"), .init("dev.athenaeum.rich.separator-after.v1")]))
+            XCTAssertTrue(Set(attributes.keys).isSubset(of: [marks, referenceKey, block, .init("dev.athenaeum.rich.separator-before.v1"), .init("dev.athenaeum.rich.separator-after.v1")]))
             XCTAssertNil(attributes[.font]); XCTAssertNil(attributes[.paragraphStyle]); XCTAssertNil(attributes[.foregroundColor])
         }
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(storage), document)
@@ -100,6 +102,25 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
             .paragraph([]), .paragraph([.init(text: "first")]), .paragraph([]), .paragraph([.init(text: "last")]), .paragraph([])
         ])
         XCTAssertEqual(published.count, 1)
+    }
+
+    func testReferencePasteAndReplacementFailClosedWithoutChangingTheMacEditor() {
+        var published = 0
+        let source = referenceParagraph()
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true, onDocumentChange: { _ in published += 1 })
+
+        editor.testingPastePlainText("x", at: NSRange(location: 6, length: 0))
+        editor.testingReplace(NSRange(location: 5, length: 1), with: "A")
+
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertEqual(published, 0)
+    }
+
+    func testReferenceActivationIsTypedAndDoesNotExposeAProjectionIdentifier() {
+        var opened: LoroCanonicalSemanticValueV1.InlineReference?
+        let editor = LoroNativeRichTextEditorController(document: referenceParagraph(), isEditable: true, onOpenReference: { opened = $0 })
+        editor.testingOpenReference(reference())
+        XCTAssertEqual(opened, reference())
     }
 
     func testDisabledDelegateVetoIsSynchronousAndDoesNotPublish() {
@@ -307,6 +328,16 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
             .heading(level: 1, runs: [.init(text: "title", marks: [.code, .strong])]),
             .paragraph([.init(text: "body", marks: [.emphasis])])
         ]))
+    }
+
+    private func reference() -> LoroCanonicalSemanticValueV1.InlineReference {
+        .init(kind: .entity, id: try! EntityId(validating: "10000000-0000-4000-8000-000000000001"), label: "Alice")
+    }
+
+    private func referenceParagraph() -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "), .init(text: "Alice", reference: reference()), .init(text: " today")
+        ])]))
     }
 }
 #endif

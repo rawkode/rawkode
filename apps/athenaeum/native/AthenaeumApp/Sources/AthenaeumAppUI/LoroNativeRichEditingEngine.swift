@@ -164,8 +164,8 @@ struct LoroNativeRichEditingEngine {
                 else {
                     let scalars = run.text.unicodeScalars
                     let splitIndex = scalars.index(scalars.startIndex, offsetBy: remaining)
-                    prefix.append(.init(text: String(scalars[..<splitIndex]), marks: run.marks))
-                    suffix.append(.init(text: String(scalars[splitIndex...]), marks: run.marks))
+                    prefix.append(.init(text: String(scalars[..<splitIndex]), marks: run.marks, reference: run.reference))
+                    suffix.append(.init(text: String(scalars[splitIndex...]), marks: run.marks, reference: run.reference))
                     remaining = 0
                 }
             }
@@ -189,6 +189,20 @@ struct LoroNativeRichEditingEngine {
         let originalRuns = runs(in: original)
         let localStart = scalarRange.location - starts[blockIndex]
         let localEnd = scalarEnd - starts[blockIndex]
+        // References are semantic atoms: edge insertion stays ordinary prose, but a span cannot
+        // be split or replaced.  Deleting its whole span is the one destructive operation that
+        // is meaningful without dereferencing its immutable id/label snapshot.
+        var referenceStart = 0
+        for run in originalRuns {
+            let referenceEnd = referenceStart + run.text.unicodeScalars.count
+            defer { referenceStart = referenceEnd }
+            guard run.reference != nil else { continue }
+            if localStart == localEnd {
+                guard !(referenceStart < localStart && localStart < referenceEnd) else { return nil }
+            } else if localStart < referenceEnd && localEnd > referenceStart {
+                guard replacement.isEmpty, localStart <= referenceStart, localEnd >= referenceEnd else { return nil }
+            }
+        }
         let prefix = split(originalRuns, at: localStart).0
         let suffix = split(originalRuns, at: localEnd).1
         var traversed = 0
@@ -212,7 +226,7 @@ struct LoroNativeRichEditingEngine {
     private static func coalesced(_ runs: [LoroCanonicalSemanticValueV1.TextRun]) -> [LoroCanonicalSemanticValueV1.TextRun] {
         runs.reduce(into: []) { result, run in
             guard !run.text.isEmpty else { return }
-            if let last = result.last, last.marks == run.marks {
+            if let last = result.last, last.reference == nil, run.reference == nil, last.marks == run.marks {
                 result[result.count - 1] = .init(text: last.text + run.text, marks: last.marks)
             } else {
                 result.append(run)

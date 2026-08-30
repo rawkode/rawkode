@@ -14,12 +14,15 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    /// Semantic activation stays typed; routing belongs to the parent workspace surface.
+    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
 
     func makeCoordinator() -> LoroNativeRichTextEditorController {
         LoroNativeRichTextEditorController(document: state.document, isEditable: isEditable,
                                            onDocumentChange: onDocumentChange,
                                            onSelectionChange: onSelectionChange,
-                                           onRejectedInput: onRejectedInput)
+                                           onRejectedInput: onRejectedInput,
+                                           onOpenReference: onOpenReference)
     }
 
     func makeNSView(context: Context) -> NSScrollView { context.coordinator.makeScrollView() }
@@ -37,6 +40,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 
     private enum Marker {
         static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+        static let reference = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
         static let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
         static let separatorBefore = NSAttributedString.Key("dev.athenaeum.rich.separator-before.v1")
         static let separatorAfter = NSAttributedString.Key("dev.athenaeum.rich.separator-after.v1")
@@ -65,13 +69,15 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (Rejection) -> Void
+    private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     init(document: LoroNativeRichDocumentV1, isEditable: Bool,
          onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
          onSelectionChange: @escaping (LoroNativeRichTextCodec.ScalarSelection) -> Void = { _ in },
-         onRejectedInput: @escaping (Rejection) -> Void = { _ in }) {
+         onRejectedInput: @escaping (Rejection) -> Void = { _ in },
+         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }) {
         engine = .init(document: document); isEditableInput = isEditable
-        self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput
+        self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput; self.onOpenReference = onOpenReference
         textView = GuardedRichTextView(frame: .zero)
         super.init()
         textView.controller = self
@@ -196,6 +202,9 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
     func testingStorage() -> NSAttributedString { semanticStorage.copy() as! NSAttributedString }
     func testingReplace(_ range: NSRange, with string: String) { _ = replace(range: range, withPlainText: string) }
+    /// Exercises the same plain-text-only admission path as `paste(_:)` without a global pasteboard.
+    func testingPastePlainText(_ string: String, at range: NSRange) { _ = replace(range: range, withPlainText: string) }
+    func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
     func testingSelect(_ range: NSRange) { textView.setSelectedRange(range) }
     func testingHandleFormattingShortcut(
         charactersIgnoringModifiers: String?,

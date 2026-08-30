@@ -13,6 +13,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    /// Semantic activation stays typed; routing belongs to the parent workspace surface.
+    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
 
     func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
         .init(
@@ -20,7 +22,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             isEditable: isEditable,
             onDocumentChange: onDocumentChange,
             onSelectionChange: onSelectionChange,
-            onRejectedInput: onRejectedInput
+            onRejectedInput: onRejectedInput,
+            onOpenReference: onOpenReference
         )
     }
 
@@ -43,6 +46,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
 final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegate, UITextPasteDelegate, UITextDropDelegate {
     private enum Marker {
         static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+        static let reference = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
         static let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
     }
 
@@ -59,19 +63,22 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     init(
         document: LoroNativeRichDocumentV1,
         isEditable: Bool,
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void = { _ in },
-        onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in }
+        onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in },
+        onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
     ) {
         engine = .init(document: document)
         isEditableInput = isEditable
         self.onDocumentChange = onDocumentChange
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
+        self.onOpenReference = onOpenReference
         super.init()
         textView.richController = self
         textView.delegate = self
@@ -201,6 +208,9 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     // representable part of daily-note product admission.
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
     func testingReplace(_ range: NSRange, with text: String) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
+    /// Exercises the same plain-text-only admission path as `paste(_:)` without UIPasteboard.
+    func testingPastePlainText(_ text: String, at range: NSRange) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
+    func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
     func testingBeginComposition(range: NSRange) { beginComposition(range: range) }
     func testingChangeComposition(_ text: String) { updateComposition(text) }
     func testingFinalizeComposition(_ text: String) { finalizeComposition(text) }

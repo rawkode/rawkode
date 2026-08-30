@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
+import AthenaeumDomain
 
 @MainActor
 final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
@@ -73,12 +74,38 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published, [persisted])
     }
 
+    func testReferencePasteAndActivationStayAtTheTypedUIKitBoundary() {
+        let source = referenceParagraph()
+        var opened: LoroCanonicalSemanticValueV1.InlineReference?
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onOpenReference: { opened = $0 }
+        )
+
+        controller.testingPastePlainText("x", at: NSRange(location: 6, length: 0))
+        controller.testingOpenReference(reference())
+
+        XCTAssertEqual(controller.testingDocument(), source)
+        XCTAssertEqual(opened, reference())
+    }
+
     private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
     }
 
     private func heading(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark]) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.heading(level: 1, runs: [.init(text: text, marks: marks)])]))
+    }
+
+    private func reference() -> LoroCanonicalSemanticValueV1.InlineReference {
+        .init(kind: .supertag, id: try! EntityId(validating: "10000000-0000-4000-8000-000000000002"), label: "Project")
+    }
+
+    private func referenceParagraph() -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "), .init(text: "Project", reference: reference())
+        ])]))
     }
 }
 #endif
