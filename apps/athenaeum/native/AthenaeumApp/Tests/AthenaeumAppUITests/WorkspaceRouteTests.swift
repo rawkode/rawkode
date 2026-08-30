@@ -85,6 +85,13 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertEqual(WorkspaceIOSHomePresentation.dailyNoteTitle, "Daily note")
     }
 
+    func testTodayCompositionKeepsTheNoteFirstAndStacksBeforeItCompressesWriting() {
+        XCTAssertEqual(TodayWorkspaceComposition.mode(availableWidth: 1_000, isAccessibilitySize: false), .horizontal)
+        XCTAssertEqual(TodayWorkspaceComposition.mode(availableWidth: 800, isAccessibilitySize: false), .stacked)
+        XCTAssertEqual(TodayWorkspaceComposition.mode(availableWidth: 1_000, isAccessibilitySize: true), .stacked)
+        XCTAssertEqual(TodayWorkspaceComposition.minimumHorizontalWidth, 864)
+    }
+
     func testIOSHomeMakesTodayPrimaryAndKeepsSupportingSurfacesBrowsable() throws {
         let localDate = try LocalDate(validating: "2026-08-27")
 

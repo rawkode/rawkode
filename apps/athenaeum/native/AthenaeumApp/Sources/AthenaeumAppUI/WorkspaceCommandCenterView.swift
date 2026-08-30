@@ -4,6 +4,84 @@ import AthenaeumDomain
 import AthenaeumRPC
 import AthenaeumCore
 
+/// The Today note is the primary work surface. Keep the calendar brief beside it only when both
+/// remain useful at a desktop reading width; the same two subviews are laid out vertically when
+/// the window or Dynamic Type would otherwise compress prose or actions.
+enum TodayWorkspaceComposition {
+    enum Mode: Equatable {
+        case horizontal
+        case stacked
+    }
+
+    static let minimumHorizontalWidth: CGFloat = 864
+
+    static func mode(availableWidth: CGFloat?, isAccessibilitySize: Bool) -> Mode {
+        guard !isAccessibilitySize else { return .stacked }
+        guard let availableWidth else { return .horizontal }
+        return availableWidth >= minimumHorizontalWidth ? .horizontal : .stacked
+    }
+}
+
+private struct TodayNoteBriefLayout: Layout {
+    let isAccessibilitySize: Bool
+    private let spacing: CGFloat = 24
+    private let preferredNoteWidth: CGFloat = 600
+    private let minimumBriefWidth: CGFloat = 280
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Void
+    ) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let availableWidth = proposal.width
+        switch TodayWorkspaceComposition.mode(availableWidth: availableWidth, isAccessibilitySize: isAccessibilitySize) {
+        case .horizontal:
+            let widths = horizontalWidths(totalWidth: availableWidth ?? TodayWorkspaceComposition.minimumHorizontalWidth)
+            let note = subviews[0].sizeThatFits(.init(width: widths.note, height: proposal.height))
+            let brief = subviews[1].sizeThatFits(.init(width: widths.brief, height: proposal.height))
+            return .init(width: availableWidth ?? widths.note + spacing + widths.brief, height: max(note.height, brief.height))
+        case .stacked:
+            let note = subviews[0].sizeThatFits(.init(width: availableWidth, height: proposal.height))
+            let brief = subviews[1].sizeThatFits(.init(width: availableWidth, height: proposal.height))
+            return .init(
+                width: availableWidth ?? max(note.width, brief.width),
+                height: note.height + spacing + brief.height
+            )
+        }
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Void
+    ) {
+        guard subviews.count == 2 else { return }
+        switch TodayWorkspaceComposition.mode(availableWidth: bounds.width, isAccessibilitySize: isAccessibilitySize) {
+        case .horizontal:
+            let widths = horizontalWidths(totalWidth: bounds.width)
+            subviews[0].place(at: bounds.origin, proposal: .init(width: widths.note, height: bounds.height))
+            subviews[1].place(
+                at: .init(x: bounds.minX + widths.note + spacing, y: bounds.minY),
+                proposal: .init(width: widths.brief, height: bounds.height)
+            )
+        case .stacked:
+            let noteSize = subviews[0].sizeThatFits(.init(width: bounds.width, height: nil))
+            subviews[0].place(at: bounds.origin, proposal: .init(width: bounds.width, height: noteSize.height))
+            subviews[1].place(
+                at: .init(x: bounds.minX, y: bounds.minY + noteSize.height + spacing),
+                proposal: .init(width: bounds.width, height: nil)
+            )
+        }
+    }
+
+    private func horizontalWidths(totalWidth: CGFloat) -> (note: CGFloat, brief: CGFloat) {
+        let note = min(preferredNoteWidth, max(totalWidth - spacing - minimumBriefWidth, 0))
+        return (note, max(totalWidth - spacing - note, 0))
+    }
+}
+
 /// The native workspace shell keeps the daily note primary while giving every supporting tool a
 /// stable destination. The old workspace was one long scroll of unrelated surfaces, which made a
 /// morning note, graph inspection, agent review, and voice capture compete for the same attention.
@@ -20,6 +98,9 @@ public struct WorkspaceCommandCenterView: View {
     @State private var selectedGraphNodeId: String?
     @State private var selectedDirectEntityDestination: WorkspaceDirectEntityDestination?
     @State private var selectedReferencedTagId: EntityId?
+    #if os(macOS)
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    #endif
     #if !os(macOS)
     @State private var iOSPath = NavigationPath()
     @State private var showingIOSBrowse = false
@@ -458,7 +539,7 @@ public struct WorkspaceCommandCenterView: View {
         switch section ?? selection {
         case .today:
             #if os(macOS)
-            HStack(alignment: .top, spacing: 24) {
+            TodayNoteBriefLayout(isAccessibilitySize: dynamicTypeSize.isAccessibilitySize) {
                 DailyNoteView(
                     model: model,
                     standupBackendURL: session.backendURL,
