@@ -33,6 +33,37 @@ export class CreateTagOutput extends Schema.Class<CreateTagOutput>("CreateTagOut
   tag: Tag
 }) {}
 
+/** An edit-safe catalog read. `revision` is issued from persisted canonical tag state and must
+ * be echoed by a later update; clients never derive or invent it. */
+export class TagRead extends Schema.Class<TagRead>("TagRead")({
+  tag: Tag,
+  revision: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))
+}) {}
+
+export class GetTagInput extends Schema.Class<GetTagInput>("GetTagInput")({
+  workspaceId: EntityId,
+  tagId: EntityId
+}) {}
+
+export class GetTagOutput extends Schema.Class<GetTagOutput>("GetTagOutput")({
+  tag: TagRead
+}) {}
+
+export class UpdateTagInput extends Schema.Class<UpdateTagInput>("UpdateTagInput")({
+  workspaceId: EntityId,
+  tagId: EntityId,
+  expectedRevision: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  name: Schema.String.pipe(Schema.minLength(1)),
+  parentIds: Schema.Array(EntityId),
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+export class UpdateTagOutput extends Schema.Class<UpdateTagOutput>("UpdateTagOutput")({
+  tag: TagRead
+}) {}
+
 export class AddFactInput extends Schema.Class<AddFactInput>("AddFactInput")({
   workspaceId: EntityId,
   nodeId: EntityId,

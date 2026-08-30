@@ -35,6 +35,8 @@ import {
   type TagFieldValueKind,
   TagsRepository,
   UnexpectedError,
+  tagNameKey,
+  tagRevision,
   type DomainError,
   type EntityId
 } from "@athenaeum/domain"
@@ -44,6 +46,7 @@ import { reviveTag, toUnexpectedError as tagsToUnexpectedError } from "./tags-re
 import type { TagsCollections } from "./tags-repository-live.js"
 import { recomputeAndPersistTagClosure, type TagClosureCollections, type TagClosureRow } from "./tag-closure.js"
 import { SyncFeedService } from "./sync-feed-service-live.js"
+import { isLedgerMutationCapability, type LedgerMutationCapability, type LedgerMutationScope } from "./ledger-mutation-capability.js"
 import { nodeTagRowId, nodeTagsToUnexpectedError, type NodeTagsCollections } from "./node-tags-live.js"
 import {
   reviveTagFieldDefinition,
@@ -69,6 +72,26 @@ import {
  *  source node." (`one-to-many`/`many-to-many` place no such cap on the source side.) */
 const isMaxOneFromSource = (cardinality: RelationCardinality): boolean =>
   cardinality === "one-to-one" || cardinality === "many-to-one"
+
+const validateTagDag = (tags: ReadonlyArray<Tag>): Effect.Effect<void, DomainError> =>
+  Effect.gen(function* () {
+    const byId = new Map(tags.map((tag) => [tag.id, tag]))
+    for (const tag of tags) {
+      if (new Set(tag.parentIds).size !== tag.parentIds.length) return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must be unique." }))
+      for (const parentId of tag.parentIds) if (parentId === tag.id || !byId.has(parentId)) {
+        return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must exist and cannot include itself." }))
+      }
+    }
+    const visiting = new Set<EntityId>(); const visited = new Set<EntityId>()
+    const visit = (id: EntityId): boolean => {
+      if (visiting.has(id)) return false
+      if (visited.has(id)) return true
+      visiting.add(id)
+      for (const parentId of byId.get(id)!.parentIds) if (!visit(parentId)) return false
+      visiting.delete(id); visited.add(id); return true
+    }
+    for (const tag of tags) if (!visit(tag.id)) return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must form a DAG." }))
+  })
 
 export interface SyncNoteReferencesResult {
   readonly edges: ReadonlyArray<Edge>
@@ -105,6 +128,9 @@ export class GraphService extends Context.Tag("@athenaeum/backend/GraphService")
       name: string,
       parentIds: ReadonlyArray<EntityId>
     ) => Effect.Effect<Tag, DomainError>
+    /** Ledger-only mutation primitive. A capability can only be minted by LedgerService during
+     * a non-replay executeV2 callback; callers cannot construct or reuse one. */
+    readonly updateTag: (capability: LedgerMutationCapability, scope: LedgerMutationScope, workspaceId: EntityId, tagId: EntityId, expectedRevision: string, name: string, parentIds: ReadonlyArray<EntityId>) => Effect.Effect<Tag, DomainError>
     readonly addFact: (
       workspaceId: EntityId,
       nodeId: EntityId,
@@ -341,6 +367,11 @@ export const makeGraphServiceLive = (
             // parent id fails closed as `TagNotFound` rather than silently creating a dangling
             // DAG edge the closure computation would then just ignore.
             yield* Effect.forEach(parentIds, (parentId) => tagsRepository.get(parentId), { discard: true })
+            const beforeRaw = yield* tagsCollections.tags.list().pipe(Effect.mapError(tagsToUnexpectedError))
+            const beforeTags = yield* Effect.forEach(beforeRaw, reviveTag)
+            if (beforeTags.some((candidate) => tagNameKey(candidate.name) === tagNameKey(name))) {
+              return yield* Effect.fail(new UnexpectedError({ message: "A Supertag with that name already exists." }))
+            }
 
             const tag = new Tag({
               id: crypto.randomUUID() as EntityId,
@@ -352,8 +383,7 @@ export const makeGraphServiceLive = (
             yield* upsertTag(sql, tag)
             yield* replaceTagParents(sql, tag.id, tag.parentIds)
 
-            const existingRaw = yield* tagsCollections.tags.list().pipe(Effect.mapError(tagsToUnexpectedError))
-            const allTags = yield* Effect.forEach(existingRaw, reviveTag)
+            const allTags = [...beforeTags, tag]
             yield* recomputeAndPersistTagClosure(tagClosureCollections, allTags)
             const closureRows = yield* tagClosureCollections.tagClosure.list().pipe(
               Effect.mapError((error) =>
@@ -366,6 +396,31 @@ export const makeGraphServiceLive = (
 
             yield* syncFeed.append("tag", tag.id, "put", tag)
             return tag
+          }),
+
+        updateTag: (capability, scope, workspaceId, tagId, expectedRevision, name, parentIds) =>
+          Effect.gen(function* () {
+            if (!isLedgerMutationCapability(capability, scope) || scope.type !== "updateTag" || scope.workspaceId !== workspaceId || scope.targetKind !== "tag" || scope.targetId !== tagId) {
+              return yield* Effect.fail(new UnexpectedError({ message: "Supertag updates require the matching ledger command." }))
+            }
+            const current = yield* tagsRepository.get(tagId)
+            if (current.builtin) return yield* Effect.fail(new UnexpectedError({ message: "Built-in Supertags cannot be edited." }))
+            if (tagRevision(current) !== expectedRevision) return yield* Effect.fail(new UnexpectedError({ message: "This Supertag changed elsewhere. Reload it before saving." }))
+            const existingRaw = yield* tagsCollections.tags.list().pipe(Effect.mapError(tagsToUnexpectedError))
+            const allTags = yield* Effect.forEach(existingRaw, reviveTag)
+            const collision = allTags.find((candidate) => candidate.id !== tagId && tagNameKey(candidate.name) === tagNameKey(name))
+            if (collision !== undefined && tagNameKey(name) !== tagNameKey(current.name)) return yield* Effect.fail(new UnexpectedError({ message: "A Supertag with that name already exists." }))
+            const next = new Tag({ id: current.id, name, parentIds: [...parentIds], builtin: current.builtin })
+            const prospective = allTags.map((candidate) => candidate.id === tagId ? next : candidate)
+            yield* validateTagDag(prospective)
+            yield* tagsRepository.put(next)
+            yield* upsertTag(sql, next)
+            yield* replaceTagParents(sql, next.id, next.parentIds)
+            yield* recomputeAndPersistTagClosure(tagClosureCollections, prospective)
+            const closureRows = yield* tagClosureCollections.tagClosure.list().pipe(Effect.mapError(tagsToUnexpectedError))
+            yield* replaceAllTagClosure(sql, closureRows)
+            yield* syncFeed.append("tag", next.id, "put", next)
+            return next
           }),
 
         addFact: addFactImpl,

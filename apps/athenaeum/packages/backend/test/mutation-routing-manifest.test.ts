@@ -17,7 +17,7 @@ describe("Workspace mutation routing manifest", () => {
     expect(WORKSPACE_MUTATION_ROUTING.loroPageSyncMessage).toBe("direct")
     expect(Object.entries(WORKSPACE_MUTATION_ROUTING).filter(([, route]) => route === "ledger")).toEqual([
       ["createNode", "ledger"], ["createNodeWithIntent", "ledger"], ["createLoroPage", "ledger"], ["acceptChatFork", "ledger"], ["acceptPageProposal", "ledger"],
-      ["addFact", "ledger"], ["createRelationDefinition", "ledger"], ["createEdge", "ledger"], ["createTag", "ledger"], ["syncNoteReferences", "ledger"], ["assignTag", "ledger"], ["unassignTag", "ledger"], ["defineTagField", "ledger"],
+      ["addFact", "ledger"], ["createRelationDefinition", "ledger"], ["createEdge", "ledger"], ["createTag", "ledger"], ["updateTag", "ledger"], ["syncNoteReferences", "ledger"], ["assignTag", "ledger"], ["unassignTag", "ledger"], ["defineTagField", "ledger"],
       ["applySupertag", "ledger"], ["decideAgentChangeProposal", "ledger"], ["migrateLegacyPage", "ledger"], ["commitLoroPageContent", "ledger"], ["prepareMeetingInDailyNote", "ledger"], ["linkCalendarEventToNode", "ledger"], ["createBookmark", "ledger"], ["startMeeting", "ledger"], ["appendTranscriptSegment", "ledger"]
     ])
   })

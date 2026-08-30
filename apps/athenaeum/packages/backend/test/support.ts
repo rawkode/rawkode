@@ -57,6 +57,8 @@ export interface WorkspaceApi {
   revertChatFork(input: unknown): Promise<unknown>
 
   createTag(input: unknown): Promise<unknown>
+  getTag(input: unknown): Promise<unknown>
+  updateTag(input: unknown): Promise<unknown>
   addFact(input: unknown): Promise<unknown>
   createRelationDefinition(input: unknown): Promise<unknown>
   createEdge(input: unknown): Promise<unknown>

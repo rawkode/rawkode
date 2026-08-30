@@ -58,6 +58,10 @@ import {
   CreateShareLinkOutput,
   CreateTagInput,
   CreateTagOutput,
+  GetTagInput,
+  GetTagOutput,
+  UpdateTagInput,
+  UpdateTagOutput,
   DefineTagFieldInput,
   DefineTagFieldOutput,
   ListTagClosureInput,
@@ -224,6 +228,8 @@ interface WorkspaceApi {
   createRelationDefinition(input: unknown): Promise<unknown>
   createEdge(input: unknown): Promise<unknown>
   createTag(input: unknown): Promise<unknown>
+  getTag(input: unknown): Promise<unknown>
+  updateTag(input: unknown): Promise<unknown>
   listTags(input: unknown): Promise<unknown>
   listTagClosure(input: unknown): Promise<unknown>
   addFact(input: unknown): Promise<unknown>
@@ -391,6 +397,8 @@ export interface WorkspaceRpcClientService {
   ) => Effect.Effect<CreateRelationDefinitionOutput, DomainError>
   readonly createEdge: (input: CreateEdgeInput) => Effect.Effect<CreateEdgeOutput, DomainError>
   readonly createTag: (input: CreateTagInput) => Effect.Effect<CreateTagOutput, DomainError>
+  readonly getTag: (input: GetTagInput) => Effect.Effect<GetTagOutput, DomainError>
+  readonly updateTag: (input: UpdateTagInput) => Effect.Effect<UpdateTagOutput, DomainError>
   readonly listTags: (input: ListTagsInput) => Effect.Effect<ListTagsOutput, DomainError>
   readonly listTagClosure: (input: ListTagClosureInput) => Effect.Effect<ListTagClosureOutput, DomainError>
   readonly addFact: (input: AddFactInput) => Effect.Effect<AddFactOutput, DomainError>
@@ -647,6 +655,12 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
 
         createTag: (input) =>
           callForValue(CreateTagOutput, () => workspaceStub.createTag(Schema.encodeSync(CreateTagInput)(input))),
+
+        getTag: (input) =>
+          callForValue(GetTagOutput, () => workspaceStub.getTag(Schema.encodeSync(GetTagInput)(input))),
+
+        updateTag: (input) =>
+          callForValue(UpdateTagOutput, () => workspaceStub.updateTag(Schema.encodeSync(UpdateTagInput)(input))),
 
         listTags: (input) =>
           callForValue(ListTagsOutput, () => workspaceStub.listTags(Schema.encodeSync(ListTagsInput)(input))),

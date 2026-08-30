@@ -4,13 +4,15 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
   CreateTagInput,
+  GetTagInput,
   HumanUiMutationAttribution,
   ListTagFieldsInput,
   ListTagsInput,
   type DomainError,
   type EntityId,
   type ResolvedTagField,
-  type Tag
+  type Tag,
+  UpdateTagInput
 } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient, type WorkspaceRpcClientService } from "./rpc-client.js"
@@ -286,24 +288,81 @@ function TagFieldsList({ tagId, tagsById }: { readonly tagId: EntityId; readonly
 function TagDetail({
   tag,
   tags,
-  tagsById
+  tagsById,
+  onUpdated
 }: {
   readonly tag: Tag
   readonly tags: ReadonlyArray<Tag>
   readonly tagsById: ReadonlyMap<string, Tag>
+  readonly onUpdated: (tagId: EntityId) => void
 }) {
+  const [draft, setDraft] = useState<{ readonly revision: string; readonly name: string; readonly parentIds: ReadonlySet<EntityId> } | undefined>()
+  const [editError, setEditError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const requestId = useRef<string | undefined>(undefined)
   const parents = tag.parentIds.flatMap((id) => {
     const parent = tagsById.get(id)
     return parent === undefined ? [] : [parent]
   })
   const children = tags.filter((candidate) => candidate.parentIds.includes(tag.id))
+  const startEdit = () => {
+    if (busy || tag.builtin) return
+    setEditError(null)
+    runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getTag(new GetTagInput({ workspaceId, tagId: tag.id })))))
+      .addObserver((exit) => {
+        if (Exit.isSuccess(exit)) setDraft({ revision: exit.value.tag.revision, name: exit.value.tag.tag.name, parentIds: new Set(exit.value.tag.tag.parentIds) })
+        else if (!Exit.isInterrupted(exit)) setEditError("We couldn’t load the latest schema. Retry before editing.")
+      })
+  }
+  const toggleParent = (id: EntityId) => setDraft((current) => {
+    if (current === undefined) return current
+    const parentIds = new Set(current.parentIds)
+    if (parentIds.has(id)) parentIds.delete(id); else parentIds.add(id)
+    return { ...current, parentIds }
+  })
+  const save = () => {
+    if (draft === undefined || busy) return
+    const currentRequestId = requestId.current ?? crypto.randomUUID()
+    requestId.current = currentRequestId
+    setBusy(true); setEditError(null)
+    runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.updateTag(new UpdateTagInput({
+      workspaceId, tagId: tag.id, expectedRevision: draft.revision, name: draft.name, parentIds: [...draft.parentIds], requestId: currentRequestId,
+      commitMessage: `Update the ${draft.name.trim() || tag.name} Supertag schema.`,
+      attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager" })
+    })))))
+      .addObserver((exit) => {
+        setBusy(false)
+        if (Exit.isSuccess(exit)) { requestId.current = undefined; setDraft(undefined); onUpdated(tag.id) }
+        else if (!Exit.isInterrupted(exit)) {
+          const message = exit.cause.toString().includes("changed elsewhere")
+            ? "This Supertag changed elsewhere. Your draft is still here; reload the latest version or retry after reconciling it."
+            : "We couldn’t save this schema. Your draft is still here; retry or reload the latest version."
+          setEditError(message)
+        }
+      })
+  }
 
   return (
     <div className="supertags-detail">
       <header className="supertags-detail-header">
         <span className="supertag-chip">#{tag.name}</span>
         {tag.builtin && <span className="supertags-detail-badge">Base Tag</span>}
+        {!tag.builtin && draft === undefined && <button type="button" onClick={startEdit}>Edit</button>}
       </header>
+
+      {draft !== undefined && (
+        <section className="supertags-edit-form" aria-label={`Edit ${tag.name} Supertag`}>
+          <label>Name <input value={draft.name} disabled={busy} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+          <fieldset disabled={busy}><legend>Parents</legend>
+            {tags.filter((candidate) => candidate.id !== tag.id).map((candidate) => <label key={candidate.id}>
+              <input type="checkbox" checked={draft.parentIds.has(candidate.id)} onChange={() => toggleParent(candidate.id)} /> #{candidate.name}
+            </label>)}
+          </fieldset>
+          <button type="button" onClick={save} disabled={busy || trimmedEmpty(draft.name)}>{busy ? "Saving…" : "Save"}</button>
+          <button type="button" onClick={() => { requestId.current = undefined; setDraft(undefined); setEditError(null) }} disabled={busy}>Cancel</button>
+          {editError !== null && <div className="error" role="alert"><p>{editError}</p><button type="button" onClick={save} disabled={busy}>Retry save</button><button type="button" onClick={startEdit} disabled={busy}>Reload latest</button></div>}
+        </section>
+      )}
 
       <dl className="supertags-detail-meta">
         <div>
@@ -431,7 +490,7 @@ export function SupertagsManager() {
         )}
       </div>
 
-      {selectedTag !== undefined && <TagDetail tag={selectedTag} tags={tags} tagsById={tagsById} />}
+      {selectedTag !== undefined && <TagDetail tag={selectedTag} tags={tags} tagsById={tagsById} onUpdated={(tagId) => { setSelectedTagId(tagId); setRefreshKey((key) => key + 1) }} />}
     </section>
   )
 }

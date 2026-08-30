@@ -135,6 +135,11 @@ import {
   CreateRelationDefinitionOutput,
   CreateTagInput,
   CreateTagOutput,
+  GetTagInput,
+  GetTagOutput,
+  TagRead,
+  UpdateTagInput,
+  UpdateTagOutput,
   DefineTagFieldInput,
   DefineTagFieldOutput,
   DisconnectGoogleCalendarInput,
@@ -293,6 +298,8 @@ import {
   UnexpectedError,
   ValidationError,
   normalizeCreateTagName,
+  normalizeTagName,
+  tagRevision,
   normalizeTagFieldName,
   sha256HexSync,
   canonicalJsonBytes,
@@ -407,6 +414,7 @@ import {
   applySupertagLedgerFingerprint,
   createEdgeLedgerFingerprint,
   createTagLedgerFingerprint,
+  updateTagLedgerFingerprint,
   ensureLoroPageLedgerFingerprint,
   commitLoroPageContentLedgerFingerprint,
   prepareMeetingInDailyNoteLedgerFingerprint,
@@ -424,6 +432,7 @@ import {
   type AssignTagLedgerCommandInput,
   type CreateEdgeLedgerCommandInput,
   type CreateTagLedgerCommandInput,
+  type UpdateTagLedgerCommandInput,
   type EnsureLoroPageLedgerCommandInput,
   type CommitLoroPageContentLedgerCommandInput,
   type CreateRelationDefinitionLedgerCommandInput,
@@ -2124,6 +2133,84 @@ class WorkspaceRpcApi extends RpcTarget {
       })
     )
     return runRpcProgram(this.#runtime, program, CreateTagOutput)
+  }
+
+  /** The only externally reachable Supertag update route. It derives authority, creates the
+   * ledger-bound capability, and performs the projection inside one WorkspaceDO transaction. */
+  async updateTag(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(UpdateTagInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to update a Supertag definition." }))
+        const name = normalizeTagName(decoded.name)
+        const commitMessage = decoded.commitMessage.trim()
+        if (name.length === 0 || commitMessage.length === 0) return Effect.fail(new ValidationError({ message: "A name and commit message are required to update a Supertag definition." }))
+        return Effect.gen(function* () {
+          const graph = yield* GraphService
+          const sharing = yield* SharingService
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `update-tag:${decoded.requestId}`
+          const command: UpdateTagLedgerCommandInput = {
+            requestIdentity, requestId: decoded.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy,
+            tagId: decoded.tagId, expectedRevision: decoded.expectedRevision, name, parentIds: decoded.parentIds,
+            commitMessage, attribution: decoded.attribution, fingerprint: "", createdAt: new Date().toISOString()
+          }
+          const fingerprint = updateTagLedgerFingerprint(command)
+          const ledgerCommand = { ...command, fingerprint }
+          const scope = { type: "updateTag", workspaceId: decoded.workspaceId, targetKind: "tag", targetId: decoded.tagId, fingerprint } as const
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "updateTag",
+              mutationScope: { workspaceId: decoded.workspaceId, targetKind: "tag", targetId: decoded.tagId },
+              mutate: (capability) => {
+                const exit = Effect.runSyncExit(graph.updateTag(capability, scope, decoded.workspaceId, decoded.tagId, decoded.expectedRevision, name, decoded.parentIds))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                return new UpdateTagOutput({ tag: new TagRead({ tag: exit.value, revision: tagRevision(exit.value) }) })
+              },
+              encodeOutput: (output) => Schema.encodeSync(UpdateTagOutput)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(UpdateTagOutput)(output),
+              appendCommand: () => ledger.appendUpdateTag(ledgerCommand),
+              appendCustody: () => ledger.appendCustody({
+                requestIdentity, fingerprint, type: "updateTag", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: "You", targetKind: "tag", targetId: decoded.tagId
+              }),
+              validateReplayCustody: () => ledger.validateCustody({
+                requestIdentity, fingerprint, type: "updateTag", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: "You", targetKind: "tag", targetId: decoded.tagId
+              }),
+              appendSideEffects: () => {
+                const payload = { tagId: decoded.tagId, revision: tagRevision({ id: decoded.tagId, name, parentIds: decoded.parentIds }) }
+                ledger.appendEvent(requestIdentity, "update-tag", payload)
+                ledger.appendOutbox(requestIdentity, "update-tag", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered updateTag failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+        })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, UpdateTagOutput)
+  }
+
+  async getTag(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const program = decodeRpcInput(GetTagInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const graph = yield* GraphService
+        const tag = (yield* graph.listTags(decoded.workspaceId)).find((candidate) => candidate.id === decoded.tagId)
+        if (tag === undefined) return yield* Effect.fail(new ValidationError({ message: "Supertag not found." }))
+        return new GetTagOutput({ tag: new TagRead({ tag, revision: tagRevision(tag) }) })
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, GetTagOutput)
   }
 
   async addFact(input: unknown): Promise<unknown> {

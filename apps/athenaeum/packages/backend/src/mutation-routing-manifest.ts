@@ -16,7 +16,7 @@ export const WORKSPACE_MUTATION_ROUTING = {
   createPage: "direct", createLoroPage: "ledger", applyPageEdit: "direct", startPageSync: "direct", pageSyncMessage: "direct",
   forkChatEdit: "direct", applyChatForkEdit: "direct", acceptChatFork: "ledger", revertChatFork: "direct",
   proposePageEdit: "direct", acceptPageProposal: "ledger", revertPageProposal: "direct",
-  addFact: "ledger", createRelationDefinition: "ledger", createEdge: "ledger", createTag: "ledger",
+  addFact: "ledger", createRelationDefinition: "ledger", createEdge: "ledger", createTag: "ledger", updateTag: "ledger",
   syncNoteReferences: "ledger", assignTag: "ledger", unassignTag: "ledger", defineTagField: "ledger", applySupertag: "ledger",
   rotateEpoch: "direct", createChat: "direct", sendChatMessage: "direct", mergeChanges: "direct", revertChanges: "direct", decideAgentChangeProposal: "ledger",
   createApp: "direct", updateAppCode: "direct", deleteApp: "direct",

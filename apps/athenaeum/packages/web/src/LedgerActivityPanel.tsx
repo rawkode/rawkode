@@ -81,6 +81,7 @@ const typeLabel = (type: LedgerActivityEntry["type"]): string => {
     case "prepareMeetingInDailyNote": return "Prepared a meeting in the daily note"
     case "migrateLegacyPage": return "Migrated a legacy note"
     case "createTag": return "Created a Supertag definition"
+    case "updateTag": return "Updated a Supertag definition"
     case "defineTagField": return "Added a field to a Supertag definition"
     case "assignTag": return "Requested a Supertag membership"
     case "unassignTag": return "Requested removal of a Supertag membership"

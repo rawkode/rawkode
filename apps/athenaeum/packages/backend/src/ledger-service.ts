@@ -14,6 +14,8 @@ import {
   CreateEdgeLedgerPayload,
   CreateTagLedgerCommand,
   CreateTagLedgerPayload,
+  UpdateTagLedgerCommand,
+  UpdateTagLedgerPayload,
   EnsureLoroPageLedgerCommand,
   EnsureLoroPageLedgerPayload,
   CommitLoroPageContentLedgerCommand,
@@ -39,12 +41,14 @@ import {
   assignTagCommitMessage,
   createEdgeCommitMessage,
   createTagCommitMessage,
+  updateTagCommitMessage,
   unassignTagCommitMessage,
   acceptChatForkCommitMessage,
   createNodeCommitMessage,
   sha256HexSync,
   CREATE_EDGE_MESSAGE_DERIVATION_VERSION,
   CREATE_TAG_MESSAGE_DERIVATION_VERSION,
+  UPDATE_TAG_MESSAGE_DERIVATION_VERSION,
   ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
   COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION,
   PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION,
@@ -89,6 +93,8 @@ import {
   EntityId
 } from "@athenaeum/domain"
 import * as Schema from "effect/Schema"
+import { issueLedgerMutationCapability, type LedgerMutationCapability } from "./ledger-mutation-capability.js"
+import type { LedgerMutationScope } from "./ledger-mutation-capability.js"
 
 /** Test-only synchronous failpoint. Production leaves this unset; tests use it to prove that
  * graph writes, command rows, receipts, events, and outbox rows all roll back together. */
@@ -202,6 +208,14 @@ export interface CreateTagLedgerCommandInput {
   readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
   readonly workspaceId: string; readonly principal: string; readonly policy: string
   readonly name: string; readonly parentIds: ReadonlyArray<string>
+  readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
+  readonly createdAt: string
+}
+
+export interface UpdateTagLedgerCommandInput {
+  readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
+  readonly workspaceId: string; readonly principal: string; readonly policy: string
+  readonly tagId: string; readonly expectedRevision: string; readonly name: string; readonly parentIds: ReadonlyArray<string>
   readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
   readonly createdAt: string
 }
@@ -330,7 +344,12 @@ export interface ExecuteLedgerV2Input<T> {
   readonly requestIdentity: string
   readonly fingerprint: string
   readonly type: string
-  readonly mutate: () => T
+  /** Required only by capability-gated internal projections. The ledger binds this scope to the
+   * command fingerprint before it invokes `mutate`; replay never mints a capability. */
+  readonly mutationScope?: Omit<LedgerMutationScope, "type" | "fingerprint">
+  /** First execution receives an unforgeable capability. Legacy zero-argument callbacks remain
+   * assignable; replay never invokes this callback or issues a capability. */
+  readonly mutate: (capability: LedgerMutationCapability) => T
   readonly encodeOutput: (output: T) => unknown
   readonly decodeOutput: (output: unknown) => T
   readonly appendCommand: () => void
@@ -350,6 +369,7 @@ export type LedgerCustodyType =
   | "createNodeWithIntent"
   | "addFact"
   | "assignTag"
+  | "updateTag"
   | "calendarProjection"
 
 interface BaseLedgerCustodyInput {
@@ -370,9 +390,10 @@ interface BaseLedgerCustodyInput {
 
 export type LedgerCustodyInput =
   | (BaseLedgerCustodyInput & {
-      readonly type: Exclude<LedgerCustodyType, "calendarProjection">
+      readonly type: Exclude<LedgerCustodyType, "calendarProjection" | "updateTag">
       readonly targetKind: "node"
     })
+  | (BaseLedgerCustodyInput & { readonly type: "updateTag"; readonly targetKind: "tag" })
   | (BaseLedgerCustodyInput & {
       readonly type: "calendarProjection"
       readonly targetKind: "calendarEvent"
@@ -385,9 +406,9 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "calendarProjection"].includes(input.type) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "calendarProjection"].includes(input.type) ||
     !["user", "employee", "system"].includes(input.actorKind) ||
-    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.targetKind !== "node") ||
+    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.targetKind !== "node") ||
     Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
     throw new LedgerConflict("invalid ledger custody shape")
   }
@@ -524,6 +545,15 @@ export const createTagLedgerFingerprint = (
   attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
   messageDerivationVersion: CREATE_TAG_MESSAGE_DERIVATION_VERSION
 }))
+
+export const updateTagLedgerFingerprint = (command: Omit<UpdateTagLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity">): string =>
+  sha256HexSync(canonicalJsonBytes({
+    version: LEDGER_COMMAND_VERSION, type: "updateTag", requestId: command.requestId,
+    workspaceId: command.workspaceId, principal: command.principal, policy: command.policy,
+    tagId: command.tagId, expectedRevision: command.expectedRevision, name: command.name, parentIds: command.parentIds,
+    commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+    messageDerivationVersion: UPDATE_TAG_MESSAGE_DERIVATION_VERSION
+  }))
 
 /** The fingerprint is built from normalized intent and the authoritative principal/policy. The
  * outcome is intentionally excluded: it is a durable first-execution fact, not caller input. */
@@ -858,7 +888,13 @@ export class LedgerService {
       input.validateReplayCustody?.()
       return input.decodeOutput(replay.output)
     }
-    const output = input.mutate()
+    const output = input.mutate(issueLedgerMutationCapability({
+      type: input.type,
+      workspaceId: input.mutationScope?.workspaceId ?? "",
+      targetKind: input.mutationScope?.targetKind ?? "",
+      targetId: input.mutationScope?.targetId ?? "",
+      fingerprint: input.fingerprint
+    }))
     ledgerExecuteTestHook.afterMutation?.()
     input.appendCommand()
     input.appendCustody?.()
@@ -884,7 +920,7 @@ export class LedgerService {
       requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
       actorKind: "user" | "employee" | "system"; actorLabel: string
       employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
-      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent"; targetId: string
+      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag"; targetId: string
     }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
       employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
       FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
@@ -907,7 +943,9 @@ export class LedgerService {
     }
     const normalized: LedgerCustodyInput = row.type === "calendarProjection" && row.targetKind === "calendarEvent"
       ? { ...normalizedBase, type: "calendarProjection", targetKind: "calendarEvent" }
-      : row.type !== "calendarProjection" && row.targetKind === "node"
+      : row.type === "updateTag" && row.targetKind === "tag"
+        ? { ...normalizedBase, type: "updateTag", targetKind: "tag" }
+      : row.type !== "calendarProjection" && row.type !== "updateTag" && row.targetKind === "node"
         ? { ...normalizedBase, type: row.type, targetKind: "node" }
         : (() => { throw new LedgerConflict("request identity has missing or mismatched custody") })()
     try { assertLedgerCustodyShape(normalized) } catch {
@@ -1157,6 +1195,22 @@ export class LedgerService {
       message: createTagCommitMessage(),
       payload,
       createdAt: command.createdAt
+    })
+    this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
+      persisted.version, persisted.type, persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
+      persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt)
+  }
+
+  appendUpdateTag(command: UpdateTagLedgerCommandInput): void {
+    const payload = Schema.decodeUnknownSync(UpdateTagLedgerPayload)({
+      tagId: command.tagId, expectedRevision: command.expectedRevision, name: command.name, parentIds: command.parentIds,
+      commitMessage: command.commitMessage, attribution: command.attribution
+    })
+    const persisted = Schema.decodeUnknownSync(UpdateTagLedgerCommand)({
+      version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint, type: "updateTag",
+      workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy,
+      messageDerivationVersion: UPDATE_TAG_MESSAGE_DERIVATION_VERSION, message: updateTagCommitMessage(), payload, createdAt: command.createdAt
     })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,

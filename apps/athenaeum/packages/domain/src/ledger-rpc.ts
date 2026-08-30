@@ -14,6 +14,7 @@ export const LedgerActivityType = Schema.Literal(
   "addFact",
   "createEdge",
   "createTag",
+  "updateTag",
   "defineTagField",
   "assignTag",
   "unassignTag",

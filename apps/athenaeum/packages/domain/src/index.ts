@@ -16,6 +16,7 @@ export {
   ADD_FACT_MESSAGE_DERIVATION_VERSION,
   CREATE_EDGE_MESSAGE_DERIVATION_VERSION,
   CREATE_TAG_MESSAGE_DERIVATION_VERSION,
+  UPDATE_TAG_MESSAGE_DERIVATION_VERSION,
   DEFINE_TAG_FIELD_MESSAGE_DERIVATION_VERSION,
   ASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
   UNASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
@@ -48,6 +49,8 @@ export {
   CreateEdgeLedgerPayload,
   CreateTagLedgerCommand,
   CreateTagLedgerPayload,
+  UpdateTagLedgerCommand,
+  UpdateTagLedgerPayload,
   EnsureLoroPageLedgerCommand,
   EnsureLoroPageLedgerPayload,
   CommitLoroPageContentLedgerCommand,
@@ -102,6 +105,7 @@ export {
   assignTagCommitMessage,
   createEdgeCommitMessage,
   createTagCommitMessage,
+  updateTagCommitMessage,
   defineTagFieldCommitMessage,
   unassignTagCommitMessage,
   syncNoteReferencesCommitMessage,
@@ -110,7 +114,10 @@ export {
   linkCalendarEventToNodeCommitMessage,
   appendTranscriptSegmentCommitMessage,
   startMeetingCommitMessage,
-  normalizeCreateTagName
+  normalizeCreateTagName,
+  normalizeTagName,
+  tagNameKey,
+  tagRevision
 } from "./ledger.js"
 export {
   ActorContexts,
@@ -238,6 +245,11 @@ export {
   CreateRelationDefinitionOutput,
   CreateTagInput,
   CreateTagOutput,
+  GetTagInput,
+  GetTagOutput,
+  TagRead,
+  UpdateTagInput,
+  UpdateTagOutput,
   DefineTagFieldInput,
   DefineTagFieldOutput,
   ListBacklinksInput,

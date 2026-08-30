@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema"
 import { BookmarkUrl } from "./bookmark.js"
 import { JsonValue } from "./json-value.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
+import { canonicalJsonBytes, sha256HexSync } from "./canonical-hash.js"
 
 /**
  * Transitional, workspace-local command ledger contract. It is deliberately a domain contract,
@@ -22,6 +23,7 @@ export const APPLY_SUPERTAG_MESSAGE_DERIVATION_VERSION = "apply-supertag.v1" as 
 export const ADD_FACT_MESSAGE_DERIVATION_VERSION = "add-fact.v1" as const
 export const CREATE_EDGE_MESSAGE_DERIVATION_VERSION = "create-edge.v1" as const
 export const CREATE_TAG_MESSAGE_DERIVATION_VERSION = "create-tag.v1" as const
+export const UPDATE_TAG_MESSAGE_DERIVATION_VERSION = "update-tag.v1" as const
 export const DEFINE_TAG_FIELD_MESSAGE_DERIVATION_VERSION = "define-tag-field.v1" as const
 export const ASSIGN_TAG_MESSAGE_DERIVATION_VERSION = "assign-tag.v1" as const
 export const UNASSIGN_TAG_MESSAGE_DERIVATION_VERSION = "unassign-tag.v1" as const
@@ -130,6 +132,15 @@ export class CreateEdgeLedgerPayload extends Schema.Class<CreateEdgeLedgerPayloa
  * name and ordered parent ids are the exact values persisted by the public route; caller rationale
  * and asserted attribution remain private command data. */
 export class CreateTagLedgerPayload extends Schema.Class<CreateTagLedgerPayload>("CreateTagLedgerPayload")({
+  name: Schema.String.pipe(Schema.minLength(1)),
+  parentIds: Schema.Array(EntityId),
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+export class UpdateTagLedgerPayload extends Schema.Class<UpdateTagLedgerPayload>("UpdateTagLedgerPayload")({
+  tagId: EntityId,
+  expectedRevision: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
   name: Schema.String.pipe(Schema.minLength(1)),
   parentIds: Schema.Array(EntityId),
   commitMessage: MutationCommitMessage,
@@ -365,6 +376,7 @@ export const addFactCommitMessage = (): string => "Updated a workspace fact."
 export const createEdgeCommitMessage = (): string => "Created a relationship between workspace nodes."
 /** Public activity label for a schema mutation; caller rationale remains private in the payload. */
 export const createTagCommitMessage = (): string => "Created a Supertag definition."
+export const updateTagCommitMessage = (): string => "Updated a Supertag definition."
 /** Privacy-safe public label for adding a schema field; caller rationale remains private. */
 export const defineTagFieldCommitMessage = (): string => "Added a field to a Supertag definition."
 /** Privacy-safe public labels describe the requested operation, not private caller rationale. */
@@ -386,7 +398,13 @@ export const startMeetingCommitMessage = (): string => "Started a meeting."
 /** Canonical public-route normalization. Internal GraphService callers retain their existing
  * exact-name behavior; the public createTag RPC uses this once for mutation, output, payload,
  * fingerprint, and side-effect metadata so retries cannot disagree with the stored tag. */
-export const normalizeCreateTagName = (name: string): string => name.trim().replace(/\s+/g, " ")
+export const normalizeTagName = (name: string): string => name.normalize("NFKC").trim().replace(/\s+/gu, " ")
+export const normalizeCreateTagName = normalizeTagName
+export const tagNameKey = (name: string): string => normalizeTagName(name).toLocaleLowerCase("en-US")
+/** Stable server-issued optimistic-concurrency token; parent order is deliberately normalized
+ * for revision purposes while the persisted `Tag.parentIds` retains the caller's order. */
+export const tagRevision = (tag: { readonly id: string; readonly name: string; readonly parentIds: ReadonlyArray<string> }): string =>
+  sha256HexSync(canonicalJsonBytes({ version: "tag-revision.v1", tagId: tag.id, normalizedName: normalizeTagName(tag.name), parentIds: [...tag.parentIds].sort() }))
 
 export class CreateNodeLedgerCommand extends Schema.Class<CreateNodeLedgerCommand>("CreateNodeLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),
@@ -526,6 +544,14 @@ export class CreateTagLedgerCommand extends Schema.Class<CreateTagLedgerCommand>
   message: Schema.String.pipe(Schema.minLength(1)),
   payload: CreateTagLedgerPayload,
   createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+export class UpdateTagLedgerCommand extends Schema.Class<UpdateTagLedgerCommand>("UpdateTagLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("updateTag"), workspaceId: EntityId,
+  principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"), policy: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(UPDATE_TAG_MESSAGE_DERIVATION_VERSION), message: Schema.String.pipe(Schema.minLength(1)),
+  payload: UpdateTagLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
 export class EnsureLoroPageLedgerCommand extends Schema.Class<EnsureLoroPageLedgerCommand>("EnsureLoroPageLedgerCommand")({
@@ -713,6 +739,7 @@ export const LedgerCommand = Schema.Union(
   AddFactLedgerCommand,
   CreateEdgeLedgerCommand,
   CreateTagLedgerCommand,
+  UpdateTagLedgerCommand,
   EnsureLoroPageLedgerCommand,
   CommitLoroPageContentLedgerCommand,
   PrepareMeetingInDailyNoteLedgerCommand,
