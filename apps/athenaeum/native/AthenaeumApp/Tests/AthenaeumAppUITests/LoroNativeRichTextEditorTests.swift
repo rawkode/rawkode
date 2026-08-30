@@ -119,7 +119,8 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
     func testReferenceActivationIsTypedAndDoesNotExposeAProjectionIdentifier() {
         var opened: LoroCanonicalSemanticValueV1.InlineReference?
         let editor = LoroNativeRichTextEditorController(document: referenceParagraph(), isEditable: true, onOpenReference: { opened = $0 })
-        editor.testingOpenReference(reference())
+        XCTAssertFalse(editor.testingOpenReference(atUTF16Offset: 1), "ordinary text is not intercepted")
+        XCTAssertTrue(editor.testingOpenReference(atUTF16Offset: 6), "the native hit resolves only the typed marker")
         XCTAssertEqual(opened, reference())
     }
 

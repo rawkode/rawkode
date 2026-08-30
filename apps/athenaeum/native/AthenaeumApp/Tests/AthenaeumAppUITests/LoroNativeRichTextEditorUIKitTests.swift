@@ -84,7 +84,8 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         )
 
         controller.testingPastePlainText("x", at: NSRange(location: 6, length: 0))
-        controller.testingOpenReference(reference())
+        XCTAssertFalse(controller.testingOpenReference(atUTF16Offset: 1))
+        XCTAssertTrue(controller.testingOpenReference(atUTF16Offset: 6))
 
         XCTAssertEqual(controller.testingDocument(), source)
         XCTAssertEqual(opened, reference())

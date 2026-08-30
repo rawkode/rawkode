@@ -14,7 +14,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     /// Semantic activation stays typed; routing belongs to the parent workspace surface.
-    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
+    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
         .init(
@@ -43,7 +43,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
 /// invariants: the engine is the only semantic authority; non-plain ingress is rejected before it
 /// can publish; and parent replacement waits for marked composition to be committed or cancelled.
 @MainActor
-final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegate, UITextPasteDelegate, UITextDropDelegate {
+final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegate, UITextPasteDelegate, UITextDropDelegate, UIGestureRecognizerDelegate {
     private enum Marker {
         static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
         static let reference = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
@@ -51,6 +51,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private let textView = GuardedUIKitRichTextView(frame: .zero, textContainer: nil)
+    private let referenceTap = UITapGestureRecognizer()
     private var engine: LoroNativeRichEditingEngine
     private var rendering = false
     private var pendingComposition = false
@@ -95,6 +96,11 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.smartInsertDeleteType = .no
         textView.autocorrectionType = .no
         textView.textDragInteraction?.isEnabled = false
+        referenceTap.addTarget(self, action: #selector(handleReferenceTap(_:)))
+        referenceTap.delegate = self
+        referenceTap.cancelsTouchesInView = false
+        referenceTap.delaysTouchesBegan = false
+        textView.addGestureRecognizer(referenceTap)
         render(document, preserving: nil)
     }
 
@@ -211,6 +217,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     /// Exercises the same plain-text-only admission path as `paste(_:)` without UIPasteboard.
     func testingPastePlainText(_ text: String, at range: NSRange) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
     func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
+    @discardableResult
+    func testingOpenReference(atUTF16Offset offset: Int) -> Bool { openReference(atUTF16Offset: offset) }
     func testingBeginComposition(range: NSRange) { beginComposition(range: range) }
     func testingChangeComposition(_ text: String) { updateComposition(text) }
     func testingFinalizeComposition(_ text: String) { finalizeComposition(text) }
@@ -315,6 +323,37 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {
         try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: textView.selectedRange, in: textView.attributedText ?? NSAttributedString())
+    }
+
+    @discardableResult
+    private func openReference(atUTF16Offset offset: Int) -> Bool {
+        guard !pendingComposition,
+              let rendered = textView.attributedText,
+              let reference = LoroNativeRichTextCodec.reference(atUTF16Offset: offset, in: rendered)
+        else { return false }
+        onOpenReference(reference)
+        return true
+    }
+
+    @objc private func handleReferenceTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        let point = recognizer.location(in: textView)
+        let index = textView.layoutManager.characterIndex(for: point, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        _ = openReference(atUTF16Offset: index)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === referenceTap, !hasMarkedText else { return false }
+        let point = touch.location(in: textView)
+        let index = textView.layoutManager.characterIndex(for: point, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        return textView.attributedText.map { LoroNativeRichTextCodec.reference(atUTF16Offset: index, in: $0) != nil } ?? false
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === referenceTap
     }
 
     private func utf16Range(for textRange: UITextRange) -> NSRange? {

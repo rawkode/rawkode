@@ -15,7 +15,7 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     /// Semantic activation stays typed; routing belongs to the parent workspace surface.
-    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
+    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     func makeCoordinator() -> LoroNativeRichTextEditorController {
         LoroNativeRichTextEditorController(document: state.document, isEditable: isEditable,
@@ -205,6 +205,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     /// Exercises the same plain-text-only admission path as `paste(_:)` without a global pasteboard.
     func testingPastePlainText(_ string: String, at range: NSRange) { _ = replace(range: range, withPlainText: string) }
     func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
+    @discardableResult
+    func testingOpenReference(atUTF16Offset offset: Int) -> Bool { openReference(atUTF16Offset: offset) }
     func testingSelect(_ range: NSRange) { textView.setSelectedRange(range) }
     func testingHandleFormattingShortcut(
         charactersIgnoringModifiers: String?,
@@ -273,6 +275,15 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func replace(range: NSRange, withPlainText replacement: String) -> Bool {
         apply(engine.replace(utf16Range: range, withPlainText: replacement))
+    }
+
+    @discardableResult
+    fileprivate func openReference(atUTF16Offset offset: Int) -> Bool {
+        guard !pendingComposition,
+              let reference = LoroNativeRichTextCodec.reference(atUTF16Offset: offset, in: semanticStorage)
+        else { return false }
+        onOpenReference(reference)
+        return true
     }
 
     @discardableResult
@@ -400,6 +411,17 @@ private final class GuardedRichTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+    override func mouseDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command,
+           let layoutManager,
+           let textContainer {
+            let point = convert(event.locationInWindow, from: nil)
+            let index = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+            if controller?.openReference(atUTF16Offset: index) == true { return }
+        }
+        super.mouseDown(with: event)
     }
     override func paste(_ sender: Any?) { controller?.paste(.general) }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.reject(.attributedPaste); return false }

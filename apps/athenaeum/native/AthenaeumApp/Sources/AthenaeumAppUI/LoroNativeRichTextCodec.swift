@@ -173,6 +173,20 @@ enum LoroNativeRichTextCodec {
         )
     }
 
+    /// Resolves only this codec's private, typed marker for a native interaction host.  It never
+    /// decodes generic attributed input, so an untrusted id-bearing string or map cannot become
+    /// an activation target.
+    static func reference(atUTF16Offset offset: Int, in attributed: NSAttributedString) -> LoroCanonicalSemanticValueV1.InlineReference? {
+        var range = NSRange(location: NSNotFound, length: 0)
+        guard offset >= 0, offset < attributed.length,
+              let marker = attributed.attribute(Attribute.reference, at: offset, effectiveRange: &range) as? ReferenceMarker,
+              range.location != NSNotFound
+        else { return nil }
+        return (try? decodeReference(marker, text: attributed.attributedSubstring(from: range).string)) == nil
+            ? nil
+            : marker.reference
+    }
+
     private static func canonical(_ semantic: LoroCanonicalSemanticValueV1) throws -> LoroCanonicalSemanticValueV1 {
         let limits = LoroPageProjectionLimits()
         guard !semantic.blocks.isEmpty, semantic.blocks.count <= limits.maxChildren else { throw Error.invalidSemanticDocument }
