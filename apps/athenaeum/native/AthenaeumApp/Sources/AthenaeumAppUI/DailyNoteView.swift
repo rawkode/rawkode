@@ -62,10 +62,11 @@ enum DailyNoteNavigationProgressPresentation {
 public struct DailyNoteView: View {
     @ObservedObject var model: AthenaeumViewModel
     private let standupConfiguration: StandupConfiguration?
-    /// A single contextual projection (currently the calendar brief) can be inserted between the
-    /// note header and editor on compact surfaces. The command center owns the projection's
+    /// A single contextual projection (currently the calendar brief) can be inserted after the
+    /// note/editor content on compact surfaces. The command center owns the projection's
     /// client/model; this type-erased slot only controls composition and never fetches data.
     private let contextualView: AnyView?
+    private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
@@ -76,6 +77,7 @@ public struct DailyNoteView: View {
         self.model = model
         self.standupConfiguration = nil
         self.contextualView = nil
+        self.onOpenEmployeeUpdate = nil
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -85,7 +87,8 @@ public struct DailyNoteView: View {
         standupBackendURL: URL,
         standupWorkspaceId: EntityId,
         standupBearerCredential: String?,
-        contextualView: AnyView? = nil
+        contextualView: AnyView? = nil,
+        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil
     ) {
         self.model = model
         self.standupConfiguration = StandupConfiguration(
@@ -94,6 +97,7 @@ public struct DailyNoteView: View {
             bearerCredential: standupBearerCredential
         )
         self.contextualView = contextualView
+        self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
     }
 
     public var body: some View {
@@ -162,7 +166,8 @@ public struct DailyNoteView: View {
                         workspaceId: standupConfiguration.workspaceId,
                         bearerCredential: standupConfiguration.bearerCredential,
                         dailyNoteId: model.dailyNoteId,
-                        includeLedger: isToday
+                        includeLedger: isToday,
+                        onOpenEmployeeUpdate: onOpenEmployeeUpdate
                     )
                     // The loader closure captures the resolved note identity. Key the subtree so
                     // SwiftUI cannot retain yesterday's StateObject when day navigation changes

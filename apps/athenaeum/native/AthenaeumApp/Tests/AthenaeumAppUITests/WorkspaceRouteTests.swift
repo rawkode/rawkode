@@ -20,6 +20,41 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertNotEqual(WorkspaceRoute.personID(personNodeId), .graph(personNodeId.rawValue))
     }
 
+    func testEmployeeUpdateRouteIsDistinctAndRetainsItsValidatedEntityID() throws {
+        let nodeId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+
+        XCTAssertEqual(WorkspaceRoute.employeeUpdateID(nodeId), .employeeUpdate(nodeId))
+        XCTAssertNotEqual(WorkspaceRoute.employeeUpdateID(nodeId), .person(nodeId))
+        XCTAssertEqual(WorkspaceDirectEntityDestination.employeeUpdate(nodeId).nodeId, nodeId)
+        XCTAssertEqual(WorkspaceDirectEntityDestination.employeeUpdate(nodeId).presentation, .employeeUpdate)
+    }
+
+    func testEmployeeUpdatePresentationKeepsMissingAndFailureCopyPrivateSafe() {
+        XCTAssertEqual(
+            WorkspaceDirectEntityPresentation.employeeUpdate.missingMessage,
+            "This employee update is no longer available in this workspace."
+        )
+        XCTAssertEqual(
+            WorkspaceDirectEntityPresentation.employeeUpdate.failureMessage,
+            "Employee update details are unavailable right now."
+        )
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.employeeUpdate.missingMessage.contains("provider-private-node"))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.employeeUpdate.failureMessage.contains("token=secret"))
+    }
+
+    func testBothDailyNoteConstructionSitesForwardEmployeeUpdateOpening() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/WorkspaceCommandCenterView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertEqual(source.components(separatedBy: "DailyNoteView(").count - 1, 2)
+        XCTAssertEqual(source.components(separatedBy: "onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) }").count - 1, 2)
+    }
+
     func testSidebarKeepsCoreWorkSurfacesSeparateFromBrowseDestinations() {
         XCTAssertEqual(WorkspaceSection.coreSections, [.today, .supertags])
         XCTAssertEqual(WorkspaceSection.browseSections.first, .brief)
@@ -222,7 +257,7 @@ final class WorkspaceRouteTests: XCTestCase {
             return loaded
         }
 
-        await loader.load(personNodeId: requested)
+        await loader.load(nodeId: requested)
 
         XCTAssertEqual(loader.state, .loaded(loaded))
         XCTAssertTrue(
@@ -236,7 +271,7 @@ final class WorkspaceRouteTests: XCTestCase {
         let mismatchedLoader = WorkspaceDirectEntityLoader { _ in
             WorkspaceDirectEntityNode(id: unexpected, title: "Wrong person")
         }
-        await mismatchedLoader.load(personNodeId: requested)
+        await mismatchedLoader.load(nodeId: requested)
 
         XCTAssertEqual(mismatchedLoader.state, .failed)
         XCTAssertFalse(
@@ -251,8 +286,8 @@ final class WorkspaceRouteTests: XCTestCase {
                 for: requested
             )
         )
-        XCTAssertEqual(WorkspaceDirectEntityPresentation.failureMessage, "Person details are unavailable right now.")
-        XCTAssertFalse(WorkspaceDirectEntityPresentation.failureMessage.contains(requested.rawValue))
+        XCTAssertEqual(WorkspaceDirectEntityPresentation.person.failureMessage, "Person details are unavailable right now.")
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.person.failureMessage.contains(requested.rawValue))
     }
 
     func testDirectEntityLoaderKeepsMissingAndGenericFailuresDistinctAndSafe() async throws {
@@ -261,7 +296,7 @@ final class WorkspaceRouteTests: XCTestCase {
             throw AthenaeumDomainError.nodeNotFound(nodeId: "provider-private-node")
         }
 
-        await missingLoader.load(personNodeId: requested)
+        await missingLoader.load(nodeId: requested)
 
         XCTAssertEqual(missingLoader.state, .notFound)
         XCTAssertFalse(
@@ -271,16 +306,16 @@ final class WorkspaceRouteTests: XCTestCase {
             )
         )
         XCTAssertFalse(WorkspaceDirectEntityPresentation.canRetry(state: missingLoader.state))
-        XCTAssertFalse(WorkspaceDirectEntityPresentation.missingMessage.contains("provider-private-node"))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.person.missingMessage.contains("provider-private-node"))
 
         let genericLoader = WorkspaceDirectEntityLoader { _ in
             throw NSError(domain: "private.workspace.backend", code: 500, userInfo: [NSLocalizedDescriptionKey: "token=secret"])
         }
-        await genericLoader.load(personNodeId: requested)
+        await genericLoader.load(nodeId: requested)
 
         XCTAssertEqual(genericLoader.state, .failed)
         XCTAssertTrue(WorkspaceDirectEntityPresentation.canRetry(state: genericLoader.state))
-        XCTAssertFalse(WorkspaceDirectEntityPresentation.failureMessage.contains("token=secret"))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.person.failureMessage.contains("token=secret"))
     }
 
     func testDirectEntityLoaderIgnoresALateOlderRouteCompletion() async throws {
@@ -291,9 +326,9 @@ final class WorkspaceRouteTests: XCTestCase {
             try await reader.read(nodeId)
         }
 
-        let firstLoad = Task { await loader.load(personNodeId: first) }
+        let firstLoad = Task { await loader.load(nodeId: first) }
         await waitForReader(reader, toStart: first)
-        let latestLoad = Task { await loader.load(personNodeId: latest) }
+        let latestLoad = Task { await loader.load(nodeId: latest) }
         await waitForReader(reader, toStart: latest)
 
         await reader.resume(

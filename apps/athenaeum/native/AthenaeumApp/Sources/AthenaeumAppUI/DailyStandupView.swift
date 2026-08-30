@@ -219,13 +219,15 @@ public struct DailyStandupView: View {
     @State private var isRefreshInFlight = false
     @State private var isShowingAllEntries = false
     private let dailyNoteId: EntityId?
+    private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
 
     public init(
         backendURL: URL,
         workspaceId: EntityId,
         bearerCredential: String?,
         dailyNoteId: EntityId? = nil,
-        includeLedger: Bool = true
+        includeLedger: Bool = true,
+        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil
     ) {
         _model = StateObject(
             wrappedValue: DailyStandupViewModel(
@@ -238,6 +240,7 @@ public struct DailyStandupView: View {
         )
         self.dailyNoteId = dailyNoteId
         self.includeLedger = includeLedger
+        self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
     }
 
     private let includeLedger: Bool
@@ -296,7 +299,10 @@ public struct DailyStandupView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(publications, id: \.id) { publication in
-                        EmployeeUpdateRow(publication: publication)
+                        EmployeeUpdateRow(
+                            publication: publication,
+                            onOpen: onOpenEmployeeUpdate
+                        )
                     }
                 }
             }
@@ -470,8 +476,18 @@ private struct DailyStandupEntryRow: View {
     }
 }
 
+enum EmployeeUpdatePresentation {
+    static func canOpenCompanion(
+        status: StandupPublicationCompanionStatus,
+        hasOpenAction: Bool
+    ) -> Bool {
+        hasOpenAction && (status == .verifiedOriginal || status == .modified)
+    }
+}
+
 private struct EmployeeUpdateRow: View {
     let publication: StandupPublication
+    let onOpen: ((EntityId) -> Void)?
 
     private var statusLabel: String {
         switch publication.companionStatus {
@@ -484,20 +500,33 @@ private struct EmployeeUpdateRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(publication.originalText)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Employee: \(publication.microEmployeeLabel) · Job: \(publication.jobLabel)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("Workflow: \(publication.workflowLabel) · Schedule: \(publication.scheduleLabel)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(statusLabel)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(publication.originalText)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Employee: \(publication.microEmployeeLabel) · Job: \(publication.jobLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Workflow: \(publication.workflowLabel) · Schedule: \(publication.scheduleLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(statusLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+
+            if EmployeeUpdatePresentation.canOpenCompanion(
+                status: publication.companionStatus,
+                hasOpenAction: onOpen != nil
+            ), let onOpen {
+                Button("Open update") {
+                    onOpen(publication.childNodeId)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityHint("Opens this employee update's companion page.")
+            }
         }
-        .accessibilityElement(children: .combine)
     }
 }
 

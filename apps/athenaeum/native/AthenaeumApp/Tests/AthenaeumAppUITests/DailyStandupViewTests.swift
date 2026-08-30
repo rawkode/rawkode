@@ -27,6 +27,22 @@ private actor EmployeePublicationCallCounter {
 
 @MainActor
 final class DailyStandupViewTests: XCTestCase {
+    func testEmployeeUpdateOpenActionRequiresHealthyCompanionAndCallback() {
+        let statuses: [StandupPublicationCompanionStatus] = [
+            .verifiedOriginal, .modified, .missing, .unavailable
+        ]
+
+        for status in statuses {
+            XCTAssertEqual(
+                EmployeeUpdatePresentation.canOpenCompanion(status: status, hasOpenAction: true),
+                status == .verifiedOriginal || status == .modified
+            )
+            XCTAssertFalse(
+                EmployeeUpdatePresentation.canOpenCompanion(status: status, hasOpenAction: false)
+            )
+        }
+    }
+
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresControls() {
         var isRefreshInFlight = false
 
