@@ -31,6 +31,12 @@ const projectTag = new Tag({
   parentIds: [parentTag.id],
   builtin: false
 })
+const otherTag = new Tag({
+  id: EntityId.make("00000000-0000-4000-8000-000000000003"),
+  name: "Delivery",
+  parentIds: [],
+  builtin: false
+})
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -56,6 +62,9 @@ const mount = async (): Promise<HTMLDivElement> => {
 const projectButton = (host: HTMLElement): HTMLButtonElement | undefined =>
   [...host.querySelectorAll<HTMLButtonElement>(".supertags-list-item-button")]
     .find((button) => button.textContent?.includes("#Research"))
+const otherButton = (host: HTMLElement): HTMLButtonElement | undefined =>
+  [...host.querySelectorAll<HTMLButtonElement>(".supertags-list-item-button")]
+    .find((button) => button.textContent?.includes("#Delivery"))
 
 const setInput = (input: HTMLInputElement, value: string): void => {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
@@ -66,7 +75,7 @@ const setInput = (input: HTMLInputElement, value: string): void => {
 beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   runtimeMock.runFork.mockReset()
-  queryStateMock.tags = [parentTag, projectTag]
+  queryStateMock.tags = [parentTag, projectTag, otherTag]
 })
 
 afterEach(() => {
@@ -162,5 +171,23 @@ describe("SupertagsManager schema editing", () => {
       await flush()
     })
     expect(host.querySelector(".supertags-edit-form")).toBeNull()
+  })
+
+  it("does not carry a failed edit from one selected Supertag into another", async () => {
+    const observers: Array<(exit: unknown) => void> = []
+    runtimeMock.runFork.mockImplementation(() => ({ addObserver: (observer: (exit: unknown) => void) => observers.push(observer) }))
+    const host = await mount()
+    await act(async () => { projectButton(host)?.click(); await flush(); host.querySelector<HTMLButtonElement>(".supertags-detail-header button")?.click(); await flush() })
+    await act(async () => { observers[0]?.(Exit.succeed({ tag: { tag: projectTag, revision: "a".repeat(64) } })); await flush() })
+    const input = host.querySelector<HTMLInputElement>(".supertags-edit-form input:not([type='checkbox'])")!
+    setInput(input, "Research draft")
+    await act(async () => { host.querySelector<HTMLButtonElement>(".supertags-edit-form button")?.click(); await flush(); observers[1]?.(Exit.fail(new UnexpectedError({ message: "save failed" }))); await flush() })
+    expect(host.textContent).toContain("Your draft is still here")
+
+    await act(async () => { otherButton(host)?.click(); await flush() })
+    expect(host.querySelector(".supertags-edit-form")).toBeNull()
+    expect(host.querySelector(".supertags-detail [role='alert']")).toBeNull()
+    expect(host.textContent).not.toContain("Research draft")
+    expect(host.querySelector(".supertag-chip")?.textContent).toContain("#Delivery")
   })
 })

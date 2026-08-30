@@ -327,6 +327,16 @@ function TagDetail({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const request = useRef<TagEditRequest | undefined>(undefined)
+  // TagFieldsList deliberately keeps its own retry/cache state across selection. Reset only the
+  // schema-editor lifecycle so a failed draft, request id, error, or revision can never become
+  // actionable for the newly selected tag.
+  useEffect(() => {
+    request.current = undefined
+    setDraft(undefined)
+    setEditError(null)
+    setLoading(false)
+    setBusy(false)
+  }, [tag.id])
   const parents = tag.parentIds.flatMap((id) => {
     const parent = tagsById.get(id)
     return parent === undefined ? [] : [parent]
