@@ -209,14 +209,23 @@ export function DailyStandup({ standup = emptyStandup }: { readonly standup?: Da
 }
 
 function StandupSummary({ summary }: { readonly summary: DailyStandupSummary }) {
-  const parts = [
-    `${summary.total} ${summary.total === 1 ? "change" : "changes"}`,
-    summary.byYou > 0 ? `${summary.byYou} by you` : undefined,
-    summary.byWorkspaceMembers > 0 ? `${summary.byWorkspaceMembers} by workspace members` : undefined,
-    summary.byAnonymous > 0 ? `${summary.byAnonymous} automated` : undefined
-  ].filter((part): part is string => part !== undefined)
+  const items = [
+    { value: summary.total, label: summary.total === 1 ? "change" : "changes", tone: "total" },
+    summary.byYou > 0 ? { value: summary.byYou, label: "by you", tone: "you" } : undefined,
+    summary.byWorkspaceMembers > 0 ? { value: summary.byWorkspaceMembers, label: "by workspace members", tone: "workspace" } : undefined,
+    summary.byAnonymous > 0 ? { value: summary.byAnonymous, label: "automated", tone: "automated" } : undefined
+  ].filter((item): item is { readonly value: number; readonly label: string; readonly tone: string } => item !== undefined)
 
-  return <p className="ledger-activity-summary" aria-label="Daily standup summary">{parts.join(" · ")}</p>
+  return (
+    <div className="ledger-activity-summary" role="list" aria-label="Daily standup summary">
+      {items.map((item) => (
+        <span key={item.tone} className={`ledger-activity-summary-item ledger-activity-summary-item-${item.tone}`} role="listitem">
+          <strong className="ledger-activity-summary-value">{item.value}</strong>
+          {" "}<span className="ledger-activity-summary-label">{item.label}</span>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 /** Kept as a compatibility export for surfaces that still use the old contextual name. */

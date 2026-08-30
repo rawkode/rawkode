@@ -685,21 +685,74 @@ private struct EmployeeUpdateRow: View {
 private struct DailyStandupSummaryView: View {
     let summary: DailyStandupSummary
 
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("\(summary.total) \(summary.total == 1 ? "change" : "changes")")
-            if summary.byYou > 0 { Text("\(summary.byYou) by you") }
-            if summary.byWorkspaceMembers > 0 { Text("\(summary.byWorkspaceMembers) by workspace members") }
-            if summary.byAutomatedActors > 0 { Text("\(summary.byAutomatedActors) automated") }
+    fileprivate struct Item: Identifiable {
+        let id: String
+        let value: String
+        let label: String
+    }
+
+    private var items: [Item] {
+        var values = [
+            Item(
+                id: "total",
+                value: "\(summary.total)",
+                label: summary.total == 1 ? "change" : "changes"
+            )
+        ]
+        if summary.byYou > 0 {
+            values.append(Item(id: "you", value: "\(summary.byYou)", label: "by you"))
         }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.secondary)
-        .accessibilityElement(children: .combine)
+        if summary.byWorkspaceMembers > 0 {
+            values.append(Item(id: "workspace", value: "\(summary.byWorkspaceMembers)", label: "workspace members"))
+        }
+        if summary.byAutomatedActors > 0 {
+            values.append(Item(id: "automated", value: "\(summary.byAutomatedActors)", label: "automated"))
+        }
+        return values
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items) { item in
+                    DailyStandupSummaryChip(item: item, isPrimary: item.id == "total")
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(summary.accessibilityLabel)
     }
 }
 
-private extension DailyStandupSummary {
+private struct DailyStandupSummaryChip: View {
+    let item: DailyStandupSummaryView.Item
+    let isPrimary: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(item.value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(isPrimary ? Color.primary : Color.accentColor)
+            Text(item.label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            isPrimary ? Color.primary.opacity(0.07) : Color.accentColor.opacity(0.07),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isPrimary ? Color.primary.opacity(0.16) : Color.accentColor.opacity(0.16), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.value) \(item.label)")
+    }
+}
+
+extension DailyStandupSummary {
     var accessibilityLabel: String {
         var parts = ["\(total) \(total == 1 ? "change" : "changes")"]
         if byYou > 0 { parts.append("\(byYou) by you") }

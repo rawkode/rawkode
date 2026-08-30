@@ -2357,9 +2357,45 @@
 }
 
 .ledger-activity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ledger-activity-summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
   color: var(--color-text-muted);
   font-family: var(--font-data);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+}
+
+.ledger-activity-summary-item-total {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.ledger-activity-summary-item-you,
+.ledger-activity-summary-item-automated {
+  color: var(--color-accent);
+}
+
+.ledger-activity-summary-value {
+  color: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ledger-activity-summary-label {
+  color: var(--color-text-faint);
 }
 
 .ledger-activity-list {

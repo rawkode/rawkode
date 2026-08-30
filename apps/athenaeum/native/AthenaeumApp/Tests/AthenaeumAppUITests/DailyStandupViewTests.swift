@@ -228,6 +228,32 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(DailyStandupPresentation.additionalEntryCount(entries), 0)
     }
 
+    func testSummaryAccessibilityStillNamesEachActorBucket() throws {
+        let summary = DailyStandupSummary(
+            entries: [
+                RPCLedgerActivityEntry(
+                    occurredAt: try IsoDateTimeString(validating: "2026-08-27T09:30:00.000Z"),
+                    type: .createNodeWithIntent,
+                    actor: .you,
+                    message: "Captured a priority."
+                ),
+                RPCLedgerActivityEntry(
+                    occurredAt: try IsoDateTimeString(validating: "2026-08-27T09:31:00.000Z"),
+                    type: .commitLoroPageContent,
+                    actor: .workspaceMember,
+                    message: "Recorded a meeting outcome."
+                )
+            ]
+        )
+
+        XCTAssertEqual(summary.total, 2)
+        XCTAssertEqual(summary.byYou, 1)
+        XCTAssertEqual(summary.byWorkspaceMembers, 1)
+        XCTAssertTrue(summary.accessibilityLabel.contains("2 changes"))
+        XCTAssertTrue(summary.accessibilityLabel.contains("1 by you"))
+        XCTAssertTrue(summary.accessibilityLabel.contains("1 by workspace members"))
+    }
+
     func testRefreshLoadsRecordedWork() async throws {
         let entry = RPCLedgerActivityEntry(
             occurredAt: try IsoDateTimeString(validating: "2026-08-26T09:30:00.000Z"),
