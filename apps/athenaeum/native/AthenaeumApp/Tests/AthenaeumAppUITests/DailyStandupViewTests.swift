@@ -151,6 +151,21 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
     }
 
+    func testAttentionStripUsesStackedLayoutForAccessibilityTypeAndKeepsReviewSpokenLabelSafe() throws {
+        let publication = try makePublication(
+            id: "00000000-0000-4000-8000-000000000330",
+            resultKind: .blocked
+        )
+        let disclosure = try XCTUnwrap(WorkforceAttentionPresentation.snapshot([publication]).displayed.first)
+
+        XCTAssertEqual(WorkforceAttentionLayout.mode(isAccessibilitySize: false), .inline)
+        XCTAssertEqual(WorkforceAttentionLayout.mode(isAccessibilitySize: true), .stacked)
+        XCTAssertEqual(
+            WorkforceAttentionLayout.reviewAccessibilityLabel(for: disclosure),
+            "Review Blocked update from Executive for Daily standup"
+        )
+    }
+
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresControls() {
         var isRefreshInFlight = false
 

@@ -3952,6 +3952,25 @@
   font-size: var(--text-xs);
 }
 
+/* Mirror the native strip's narrow-window fall-back: keep actions reachable and let verbose
+   employee/job labels consume vertical space instead of forcing horizontal overflow. */
+@media (max-width: 40rem) {
+  .workforce-attention-strip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .workforce-attention-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .workforce-attention-list li > span:nth-child(2) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
 .employee-updates-heading,
 .employee-update-labels {
   display: flex;

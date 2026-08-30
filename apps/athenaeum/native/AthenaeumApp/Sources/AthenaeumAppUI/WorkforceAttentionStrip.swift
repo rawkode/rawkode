@@ -75,40 +75,108 @@ enum WorkforceAttentionPresentation {
     }
 }
 
+/// Keep the ordinary strip compact, but never make a large-type user negotiate a compressed
+/// multi-action row. `ViewThatFits` handles narrow windows; this mode forces the same safe
+/// vertical composition for accessibility Dynamic Type before SwiftUI attempts compression.
+enum WorkforceAttentionLayout {
+    enum Mode: Equatable {
+        case inline
+        case stacked
+    }
+
+    static func mode(isAccessibilitySize: Bool) -> Mode {
+        isAccessibilitySize ? .stacked : .inline
+    }
+
+    static func reviewAccessibilityLabel(for disclosure: WorkforceAttentionPresentation.Disclosure) -> String {
+        "Review \(disclosure.outcome.rawValue) update from \(disclosure.employee) for \(disclosure.job)"
+    }
+}
+
 struct WorkforceAttentionStrip: View {
     @ObservedObject var model: DailyStandupViewModel
     let onOpen: ((EntityId) -> Void)?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         if case .loaded(let publications) = model.employeeState, !publications.isEmpty {
             let snapshot = WorkforceAttentionPresentation.snapshot(publications)
-            HStack(spacing: 10) {
-                Label(snapshot.isClear ? "Clear" : "Attention", systemImage: snapshot.isClear ? "checkmark.circle" : "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(snapshot.isClear ? Color.secondary : Color.orange)
-                Text(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                ForEach(Array(snapshot.displayed.enumerated()), id: \.offset) { index, disclosure in
-                    Text("\(disclosure.outcome.rawValue) · \(disclosure.employee) · \(disclosure.job)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if disclosure.isReviewAvailable, let destination = disclosure.destination, let onOpen {
-                        Button("Review \(index + 1)") { onOpen(destination) }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Review \(disclosure.outcome.rawValue) update from \(disclosure.employee) for \(disclosure.job)")
-                    }
-                }
-                if let remainder = WorkforceAttentionPresentation.remainderTitle(snapshot.remainder) {
-                    Text(remainder).font(.caption).foregroundStyle(.secondary)
-                }
-            }
+            attentionContent(snapshot)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(.orange.opacity(0.08), in: Capsule())
             .accessibilityElement(children: .contain)
             .accessibilityLabel(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
+        }
+    }
+
+    @ViewBuilder
+    private func attentionContent(_ snapshot: WorkforceAttentionPresentation.Snapshot) -> some View {
+        if WorkforceAttentionLayout.mode(isAccessibilitySize: dynamicTypeSize.isAccessibilitySize) == .stacked {
+            stackedContent(snapshot)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                inlineContent(snapshot)
+                stackedContent(snapshot)
+            }
+        }
+    }
+
+    private func inlineContent(_ snapshot: WorkforceAttentionPresentation.Snapshot) -> some View {
+        HStack(spacing: 10) {
+            statusSummary(snapshot)
+            Spacer(minLength: 0)
+            ForEach(Array(snapshot.displayed.enumerated()), id: \.offset) { index, disclosure in
+                disclosureRow(disclosure, index: index, compact: true)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            if let remainder = WorkforceAttentionPresentation.remainderTitle(snapshot.remainder) {
+                Text(remainder).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func stackedContent(_ snapshot: WorkforceAttentionPresentation.Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            statusSummary(snapshot)
+            ForEach(Array(snapshot.displayed.enumerated()), id: \.offset) { index, disclosure in
+                disclosureRow(disclosure, index: index, compact: false)
+            }
+            if let remainder = WorkforceAttentionPresentation.remainderTitle(snapshot.remainder) {
+                Text(remainder).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func statusSummary(_ snapshot: WorkforceAttentionPresentation.Snapshot) -> some View {
+        HStack(spacing: 8) {
+            Label(snapshot.isClear ? "Clear" : "Attention", systemImage: snapshot.isClear ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(snapshot.isClear ? Color.secondary : Color.orange)
+            Text(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func disclosureRow(
+        _ disclosure: WorkforceAttentionPresentation.Disclosure,
+        index: Int,
+        compact: Bool
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(disclosure.outcome.rawValue) · \(disclosure.employee) · \(disclosure.job)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: compact, vertical: false)
+            if !compact { Spacer(minLength: 0) }
+            if disclosure.isReviewAvailable, let destination = disclosure.destination, let onOpen {
+                Button(compact ? "Review \(index + 1)" : "Review") { onOpen(destination) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(WorkforceAttentionLayout.reviewAccessibilityLabel(for: disclosure))
+                    .accessibilityHint("Opens this employee update's companion page.")
+            }
         }
     }
 }
