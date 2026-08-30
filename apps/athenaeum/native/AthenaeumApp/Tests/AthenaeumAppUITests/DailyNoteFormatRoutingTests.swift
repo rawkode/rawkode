@@ -29,6 +29,12 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
             "We couldn’t resolve this daily note. Retry to continue loading this date safely."
         )
         XCTAssertFalse(presentation.contains(privateMessage))
+        XCTAssertEqual(DailyNoteFailurePresentation.title, "Daily note is unavailable")
+        XCTAssertEqual(DailyNoteFailurePresentation.retryLabel, "Retry loading this note")
+        XCTAssertEqual(
+            DailyNoteFailurePresentation.accessibilityLabel(for: privateMessage),
+            "Daily note is unavailable. We couldn’t resolve this daily note. Retry to continue loading this date safely."
+        )
     }
 
     func testPreparationAnnouncementUsesTheStableAccessibleMessage() {

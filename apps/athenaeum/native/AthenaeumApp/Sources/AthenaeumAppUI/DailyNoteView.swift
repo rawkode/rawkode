@@ -21,8 +21,15 @@ public struct LoroProjectionTextPresentation: Equatable, Sendable {
 /// Route, edit, and sync catches retain their raw diagnostic in the view model, but that text can
 /// contain transport or credential-adjacent detail. The canvas presents one safe recovery message.
 enum DailyNoteFailurePresentation {
+    static let title = "Daily note is unavailable"
+    static let retryLabel = "Retry loading this note"
+
     static func message(for _: String) -> String {
         "We couldn’t resolve this daily note. Retry to continue loading this date safely."
+    }
+
+    static func accessibilityLabel(for rawMessage: String) -> String {
+        "\(title). \(message(for: rawMessage))"
     }
 }
 
@@ -117,17 +124,7 @@ public struct DailyNoteView: View {
             case .loading:
                 ProgressView("Resolving \(isToday ? "today’s note" : "the daily note")…")
             case .error(let message):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(DailyNoteFailurePresentation.message(for: message))
-                        .foregroundStyle(.red)
-                    Button("Retry loading this note") {
-                        editorFocused = false
-                        hasAutofocused = false
-                        model.retryCurrentNote()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(model.isLoroRecoveryInProgress)
-                }
+                dailyNoteFailureCard(message)
             default:
                 switch model.pagePresentation {
                 case .loroProjectedReadOnly(let state):
@@ -233,6 +230,33 @@ public struct DailyNoteView: View {
         default:
             return true
         }
+    }
+
+    private func dailyNoteFailureCard(_ rawMessage: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(DailyNoteFailurePresentation.title, systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Text(DailyNoteFailurePresentation.message(for: rawMessage))
+                .foregroundStyle(.secondary)
+            Button(DailyNoteFailurePresentation.retryLabel) {
+                editorFocused = false
+                hasAutofocused = false
+                model.retryCurrentNote()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.isLoroRecoveryInProgress)
+            .accessibilityHint("Retries loading the selected daily note.")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.orange.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(DailyNoteFailurePresentation.accessibilityLabel(for: rawMessage))
     }
 
     private func focusEditorIfNeeded() {
