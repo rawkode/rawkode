@@ -3,6 +3,9 @@ import Combine
 import AthenaeumDomain
 import AthenaeumRPC
 import AthenaeumCore
+#if os(macOS)
+import AppKit
+#endif
 
 /// The Today note is the primary work surface. Keep the calendar brief beside it only when both
 /// remain useful at a desktop reading width; the same two subviews are laid out vertically when
@@ -21,6 +24,189 @@ enum TodayWorkspaceComposition {
         return availableWidth >= minimumHorizontalWidth ? .horizontal : .stacked
     }
 }
+
+/// Recall is a presentation concern over the existing single search lane. The generation fence
+/// makes a deferred focus request inert when a newer shortcut has superseded it.
+enum WorkspaceRecallPresentation {
+    enum Phase: Equatable {
+        case revealThenFocus
+        case focus
+    }
+
+    struct Request: Equatable {
+        let generation: Int
+        let phase: Phase
+        let query: String
+        let selectedResultID: String?
+    }
+
+    static func request(
+        generation: Int,
+        sidebarIsVisible: Bool,
+        query: String,
+        selectedResultID: String?
+    ) -> Request {
+        .init(
+            generation: generation,
+            phase: sidebarIsVisible ? .focus : .revealThenFocus,
+            query: query,
+            selectedResultID: selectedResultID
+        )
+    }
+
+    static func mayApplyDeferredFocus(requestGeneration: Int, currentGeneration: Int) -> Bool {
+        requestGeneration == currentGeneration
+    }
+}
+
+/// The macOS bridge retries only while its request is still current. This is kept independent of
+/// AppKit so the ownership and retry contract can be verified without a hosted SwiftUI window.
+enum SidebarSearchFocusPresentation {
+    static let maximumAttempts = 8
+    static let searchFieldIdentifier = "athenaeum.workspace.sidebar-search"
+    static let searchPrompt = "Search notes"
+
+    enum Disposition: Equatable {
+        case retry
+        case complete
+        case stale
+        case exhausted
+    }
+
+    static func disposition(
+        requestGeneration: Int,
+        activeGeneration: Int,
+        attempt: Int,
+        didFocus: Bool
+    ) -> Disposition {
+        guard requestGeneration == activeGeneration else { return .stale }
+        guard !didFocus else { return .complete }
+        return attempt + 1 < maximumAttempts ? .retry : .exhausted
+    }
+
+    static func acceptsSearchField(
+        isInSidebarColumn: Bool,
+        identifier: String?,
+        placeholder: String?
+    ) -> Bool {
+        guard isInSidebarColumn else { return false }
+        return identifier == searchFieldIdentifier || placeholder == searchPrompt
+    }
+}
+
+#if os(macOS)
+/// macOS 13 predates SwiftUI's searchable presentation/focus APIs. SwiftUI still owns the query
+/// and split visibility; this tiny bridge only asks the sidebar's existing NSSearchField to become
+/// first responder after the sidebar has been installed.
+struct SidebarSearchFocusBridge: NSViewRepresentable {
+    let requestGeneration: Int
+    @Binding var activeGeneration: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let coordinator = context.coordinator
+        guard requestGeneration > 0,
+              requestGeneration != coordinator.completedGeneration,
+              requestGeneration != coordinator.pendingGeneration
+        else { return }
+        coordinator.pendingGeneration = requestGeneration
+        scheduleFocus(from: view, requestGeneration: requestGeneration, activeGeneration: $activeGeneration, coordinator: coordinator, attempt: 0)
+    }
+
+    private func scheduleFocus(
+        from view: NSView,
+        requestGeneration: Int,
+        activeGeneration: Binding<Int>,
+        coordinator: Coordinator,
+        attempt: Int
+    ) {
+        DispatchQueue.main.async {
+            guard coordinator.pendingGeneration == requestGeneration else { return }
+            guard activeGeneration.wrappedValue == requestGeneration else {
+                coordinator.pendingGeneration = nil
+                return
+            }
+            let searchField = Self.sidebarSearchField(from: view)
+            let didFocus = searchField.flatMap { field in
+                field.window.map { $0.makeFirstResponder(field) }
+            } ?? false
+            switch SidebarSearchFocusPresentation.disposition(
+                requestGeneration: requestGeneration,
+                activeGeneration: activeGeneration.wrappedValue,
+                attempt: attempt,
+                didFocus: didFocus
+            ) {
+            case .complete:
+                coordinator.completedGeneration = requestGeneration
+                coordinator.pendingGeneration = nil
+            case .retry:
+                self.scheduleFocus(
+                    from: view,
+                    requestGeneration: requestGeneration,
+                    activeGeneration: activeGeneration,
+                    coordinator: coordinator,
+                    attempt: attempt + 1
+                )
+            case .stale, .exhausted:
+                if coordinator.pendingGeneration == requestGeneration {
+                    coordinator.pendingGeneration = nil
+                }
+            }
+        }
+    }
+
+    /// Search only the direct NavigationSplitView child that owns this background view. A detail
+    /// search field therefore cannot win merely because it is elsewhere in the window hierarchy.
+    static func sidebarSearchField(from view: NSView) -> NSSearchField? {
+        guard let sidebarColumn = sidebarColumnHost(from: view) else { return nil }
+        let fields = searchFields(in: sidebarColumn)
+        if let marked = fields.first(where: {
+            SidebarSearchFocusPresentation.acceptsSearchField(
+                isInSidebarColumn: true,
+                identifier: $0.identifier?.rawValue,
+                placeholder: $0.placeholderString
+            ) && $0.identifier?.rawValue == SidebarSearchFocusPresentation.searchFieldIdentifier
+        }) {
+            return marked
+        }
+        guard let promptMatched = fields.first(where: {
+            SidebarSearchFocusPresentation.acceptsSearchField(
+                isInSidebarColumn: true,
+                identifier: $0.identifier?.rawValue,
+                placeholder: $0.placeholderString
+            )
+        }) else { return nil }
+        promptMatched.identifier = NSUserInterfaceItemIdentifier(SidebarSearchFocusPresentation.searchFieldIdentifier)
+        return promptMatched
+    }
+
+    private static func sidebarColumnHost(from view: NSView) -> NSView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate.superview is NSSplitView { return candidate }
+            current = candidate.superview
+        }
+        return nil
+    }
+
+    private static func searchFields(in view: NSView) -> [NSSearchField] {
+        var fields: [NSSearchField] = []
+        if let field = view as? NSSearchField { fields.append(field) }
+        for subview in view.subviews {
+            fields.append(contentsOf: searchFields(in: subview))
+        }
+        return fields
+    }
+
+    final class Coordinator {
+        var pendingGeneration: Int?
+        var completedGeneration = 0
+    }
+}
+#endif
 
 private struct TodayNoteBriefLayout: Layout {
     let isAccessibilitySize: Bool
@@ -100,6 +286,9 @@ public struct WorkspaceCommandCenterView: View {
     @State private var selectedReferencedTagId: EntityId?
     #if os(macOS)
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var recallRequestGeneration = 0
+    @State private var sidebarSearchFocusRequest = 0
     #endif
     #if !os(macOS)
     @State private var iOSPath = NavigationPath()
@@ -129,7 +318,7 @@ public struct WorkspaceCommandCenterView: View {
 
     #if os(macOS)
     private var macOSShell: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
                 if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Section("Search") {
@@ -203,6 +392,12 @@ public struct WorkspaceCommandCenterView: View {
             }
             .listStyle(.sidebar)
             .searchable(text: $searchQuery, placement: .sidebar, prompt: "Search notes")
+            .background(
+                SidebarSearchFocusBridge(
+                    requestGeneration: sidebarSearchFocusRequest,
+                    activeGeneration: $recallRequestGeneration
+                )
+            )
             .onChange(of: searchQuery) { value in
                 selectedSearchNodeId = nil
                 host.search(query: value)
@@ -217,6 +412,13 @@ public struct WorkspaceCommandCenterView: View {
             }
             .navigationTitle("Athenaeum")
             .toolbar {
+                ToolbarItem {
+                    Button("Search workspace", systemImage: "magnifyingglass") {
+                        openWorkspaceRecall()
+                    }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .help("Search workspace")
+                }
                 ToolbarItem {
                     Button {
                         showingWorkspaceSwitcher = true
@@ -234,6 +436,30 @@ public struct WorkspaceCommandCenterView: View {
         .sheet(isPresented: $showingWorkspaceSwitcher) {
             WorkspaceSwitcherView(session: session)
                 .frame(minWidth: 360, minHeight: 420)
+        }
+    }
+
+    private func openWorkspaceRecall() {
+        recallRequestGeneration += 1
+        let request = WorkspaceRecallPresentation.request(
+            generation: recallRequestGeneration,
+            sidebarIsVisible: columnVisibility != .detailOnly,
+            query: searchQuery,
+            selectedResultID: selectedSearchNodeId
+        )
+        // Preserve the existing query/results/selection: recall only makes the real sidebar search
+        // available and focuses it. A yielded main-actor turn lets NavigationSplitView install a
+        // previously hidden sidebar before the macOS 13 bridge asks its existing field to focus.
+        if request.phase == .revealThenFocus {
+            columnVisibility = .all
+        }
+        Task { @MainActor in
+            await Task.yield()
+            guard WorkspaceRecallPresentation.mayApplyDeferredFocus(
+                requestGeneration: request.generation,
+                currentGeneration: recallRequestGeneration
+            ) else { return }
+            sidebarSearchFocusRequest = request.generation
         }
     }
     #else

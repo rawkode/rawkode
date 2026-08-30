@@ -50,6 +50,18 @@ const routeLabel = (pathname: string, search: string): string => {
 const isEditableShortcutTarget = (target: EventTarget | null): boolean =>
   target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') !== null
 
+const isDailyNoteRecallShortcutTarget = (target: EventTarget | null): boolean =>
+  target instanceof Element && target.closest('[data-athenaeum-daily-note-editor="true"][contenteditable="true"]') !== null
+
+const isMarkedDailyNoteEditorTarget = (target: EventTarget | null): boolean =>
+  target instanceof Element && target.closest('[data-athenaeum-daily-note-editor="true"]') !== null
+
+const isBarePrimaryRecallShortcut = (event: globalThis.KeyboardEvent): boolean =>
+  event.key.toLowerCase() === "k" &&
+  event.metaKey !== event.ctrlKey &&
+  !event.altKey &&
+  !event.shiftKey
+
 export function AppShell({
   session,
   activeWorkspaceId,
@@ -125,6 +137,10 @@ export function AppShell({
     setPaletteOpen(true)
   }
 
+  // Recall from active daily-note prose is intentionally non-disruptive: it must not close an
+  // already-open agent/sidebar surface or discard the user's in-progress work behind the palette.
+  const openPaletteFromDailyNote = () => setPaletteOpen(true)
+
   // Keep the advertised Cmd/Ctrl+K behavior useful from either state. Opening the palette
   // still clears competing drawers; invoking the same shortcut again returns to the work
   // surface instead of leaving a no-op command behind a modal dialog.
@@ -147,14 +163,23 @@ export function AppShell({
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
       const shortcutKey = event.key.toLowerCase()
       const isModifierShortcut = event.metaKey || event.ctrlKey
+      const isDailyNoteRecall = isBarePrimaryRecallShortcut(event) && isDailyNoteRecallShortcutTarget(event.target)
       // Daily-note and chat writing surfaces own their editing shortcuts. The palette keeps its
       // advertised Cmd/Ctrl+K toggle while its own search field is focused.
-      if (isModifierShortcut && isEditableShortcutTarget(event.target) && !(paletteOpen && shortcutKey === "k")) return
+      if (
+        isModifierShortcut &&
+        (isMarkedDailyNoteEditorTarget(event.target) || isEditableShortcutTarget(event.target)) &&
+        !isDailyNoteRecall &&
+        !(paletteOpen && shortcutKey === "k")
+      ) return
 
       if (isModifierShortcut && shortcutKey === "j") {
         event.preventDefault()
         toggleChat()
-      } else if (isModifierShortcut && shortcutKey === "k") {
+      } else if (isDailyNoteRecall) {
+        event.preventDefault()
+        openPaletteFromDailyNote()
+      } else if (isBarePrimaryRecallShortcut(event)) {
         event.preventDefault()
         togglePalette()
       } else if (event.key === "Escape" && paletteOpen) {

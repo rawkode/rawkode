@@ -21,6 +21,7 @@ import { richTextSchemaAdapter } from "./rich-text/schema.js"
 import { CheckpointedLoroWriter, type FrozenLoroIntent } from "./checkpointed-loro-writer.js"
 import { LoroSemanticCustodyRegistry } from "./loro-semantic-custody.js"
 import editorSource from "./LoroRichNoteEditor.tsx?raw"
+import legacyEditorSource from "./RichNoteEditor.tsx?raw"
 
 const testDescriptor = (storageVersion = 1, byte = "a") => ({
   nodeId: "00000000-0000-4000-8000-000000000002",
@@ -867,6 +868,8 @@ describe("Loro editor React navigation lifecycle", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       const oldView = binding!.view!
       const before = oldView.state.doc.textContent
+      expect(oldView.dom.getAttribute("contenteditable")).toBe("true")
+      expect(oldView.dom.getAttribute("data-athenaeum-daily-note-editor")).toBe("true")
       runtimeConnectionIdentityMock.current = Object.freeze({})
 
       await act(async () => {
@@ -875,6 +878,7 @@ describe("Loro editor React navigation lifecycle", () => {
 
       expect(oldView.editable).toBe(false)
       expect(oldView.dom.getAttribute("contenteditable")).toBe("false")
+      expect(oldView.dom.getAttribute("data-athenaeum-daily-note-editor")).toBeNull()
 
       const beforeInput = new Event("beforeinput", { bubbles: true, cancelable: true })
       expect(oldView.dom.dispatchEvent(beforeInput)).toBe(false)
@@ -889,6 +893,14 @@ describe("Loro editor React navigation lifecycle", () => {
       await act(async () => { root.unmount() })
       vi.useRealTimers()
     }
+  })
+
+  it("marks actual legacy and Loro ProseMirror roots rather than their React containers", () => {
+    expect(legacyEditorSource).toContain('view.dom.setAttribute("data-athenaeum-daily-note-editor", "true")')
+    expect(editorSource).toContain('currentView.dom.setAttribute("data-athenaeum-daily-note-editor", "true")')
+    expect(editorSource).toContain('currentView.dom.removeAttribute("data-athenaeum-daily-note-editor")')
+    expect(legacyEditorSource).not.toContain('className="daily-note-body rich-note-editor" data-athenaeum-daily-note-editor')
+    expect(editorSource).not.toContain('className="daily-note-body rich-note-editor"\n        data-athenaeum-daily-note-editor')
   })
 
   it("drains A after navigation without letting delayed A success mutate the active B editor", async () => {

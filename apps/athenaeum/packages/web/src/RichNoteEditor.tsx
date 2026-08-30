@@ -152,6 +152,9 @@ export function RichNoteEditor({
     view.dom.setAttribute("role", "textbox")
     view.dom.setAttribute("aria-label", "Daily note editor")
     view.dom.setAttribute("aria-multiline", "true")
+    // This is the actual ProseMirror contenteditable, rather than the React container. The shell
+    // uses the marker to distinguish a daily-note recall shortcut from other editable controls.
+    view.dom.setAttribute("data-athenaeum-daily-note-editor", "true")
     updateEditorEmptyState(view)
     support.seedProjectionBaselines(pmDoc)
 

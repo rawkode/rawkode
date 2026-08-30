@@ -2,6 +2,9 @@ import XCTest
 @testable import AthenaeumAppUI
 import AthenaeumDomain
 @testable import AthenaeumRPC
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 final class WorkspaceRouteTests: XCTestCase {
@@ -90,6 +93,137 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertEqual(TodayWorkspaceComposition.mode(availableWidth: 800, isAccessibilitySize: false), .stacked)
         XCTAssertEqual(TodayWorkspaceComposition.mode(availableWidth: 1_000, isAccessibilitySize: true), .stacked)
         XCTAssertEqual(TodayWorkspaceComposition.minimumHorizontalWidth, 864)
+    }
+
+    func testWorkspaceRecallRevealsAHiddenSidebarWithoutResettingSearchState() {
+        let request = WorkspaceRecallPresentation.request(
+            generation: 4,
+            sidebarIsVisible: false,
+            query: "Athenaeum roadmap",
+            selectedResultID: "result-2"
+        )
+
+        XCTAssertEqual(request.phase, .revealThenFocus)
+        XCTAssertEqual(request.generation, 4)
+        XCTAssertEqual(request.query, "Athenaeum roadmap")
+        XCTAssertEqual(request.selectedResultID, "result-2")
+        XCTAssertTrue(WorkspaceRecallPresentation.mayApplyDeferredFocus(requestGeneration: 4, currentGeneration: 4))
+    }
+
+    func testWorkspaceRecallRepeatedShortcutRefocusesAndFencesAnOlderDeferredRequest() {
+        let first = WorkspaceRecallPresentation.request(
+            generation: 7,
+            sidebarIsVisible: false,
+            query: "people I met",
+            selectedResultID: "person-result"
+        )
+        let repeatRequest = WorkspaceRecallPresentation.request(
+            generation: 8,
+            sidebarIsVisible: true,
+            query: first.query,
+            selectedResultID: first.selectedResultID
+        )
+
+        XCTAssertEqual(repeatRequest.phase, .focus)
+        XCTAssertEqual(repeatRequest.query, "people I met")
+        XCTAssertEqual(repeatRequest.selectedResultID, "person-result")
+        XCTAssertFalse(WorkspaceRecallPresentation.mayApplyDeferredFocus(requestGeneration: first.generation, currentGeneration: repeatRequest.generation))
+        XCTAssertTrue(WorkspaceRecallPresentation.mayApplyDeferredFocus(requestGeneration: repeatRequest.generation, currentGeneration: repeatRequest.generation))
+    }
+
+    func testMacOSRecallBridgeDefersAndGenerationFencesSidebarSearchFocus() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/WorkspaceCommandCenterView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("struct SidebarSearchFocusBridge: NSViewRepresentable"))
+        XCTAssertTrue(source.contains("SidebarSearchFocusPresentation.disposition("))
+        XCTAssertTrue(source.contains("DispatchQueue.main.async"))
+        XCTAssertTrue(source.contains("guard activeGeneration.wrappedValue == requestGeneration"))
+        XCTAssertTrue(source.contains("$0.makeFirstResponder(field)"))
+        XCTAssertTrue(source.contains("requestGeneration: sidebarSearchFocusRequest"))
+    }
+
+    func testSidebarSearchFocusRetriesUntilTheCurrentRequestFocusesThenConsumesIt() {
+        XCTAssertEqual(
+            SidebarSearchFocusPresentation.disposition(
+                requestGeneration: 5,
+                activeGeneration: 5,
+                attempt: 0,
+                didFocus: false
+            ),
+            .retry
+        )
+        XCTAssertEqual(
+            SidebarSearchFocusPresentation.disposition(
+                requestGeneration: 5,
+                activeGeneration: 5,
+                attempt: 1,
+                didFocus: true
+            ),
+            .complete
+        )
+        XCTAssertEqual(
+            SidebarSearchFocusPresentation.disposition(
+                requestGeneration: 5,
+                activeGeneration: 6,
+                attempt: 1,
+                didFocus: true
+            ),
+            .stale
+        )
+        XCTAssertEqual(
+            SidebarSearchFocusPresentation.disposition(
+                requestGeneration: 5,
+                activeGeneration: 5,
+                attempt: SidebarSearchFocusPresentation.maximumAttempts - 1,
+                didFocus: false
+            ),
+            .exhausted
+        )
+    }
+
+    func testSidebarSearchFocusCustodyRejectsDetailSearchAndMarksOnlySidebarSearch() {
+        XCTAssertTrue(
+            SidebarSearchFocusPresentation.acceptsSearchField(
+                isInSidebarColumn: true,
+                identifier: nil,
+                placeholder: SidebarSearchFocusPresentation.searchPrompt
+            )
+        )
+        XCTAssertFalse(
+            SidebarSearchFocusPresentation.acceptsSearchField(
+                isInSidebarColumn: false,
+                identifier: SidebarSearchFocusPresentation.searchFieldIdentifier,
+                placeholder: SidebarSearchFocusPresentation.searchPrompt
+            )
+        )
+
+        #if os(macOS)
+        let split = NSSplitView()
+        let sidebar = NSView()
+        let detail = NSView()
+        split.addSubview(sidebar)
+        split.addSubview(detail)
+        let bridgeAnchor = NSView()
+        let sidebarSearch = NSSearchField()
+        sidebarSearch.placeholderString = SidebarSearchFocusPresentation.searchPrompt
+        let detailSearch = NSSearchField()
+        detailSearch.placeholderString = SidebarSearchFocusPresentation.searchPrompt
+        sidebar.addSubview(bridgeAnchor)
+        sidebar.addSubview(sidebarSearch)
+        detail.addSubview(detailSearch)
+
+        let selected = SidebarSearchFocusBridge.sidebarSearchField(from: bridgeAnchor)
+
+        XCTAssertTrue(selected === sidebarSearch)
+        XCTAssertEqual(sidebarSearch.identifier?.rawValue, SidebarSearchFocusPresentation.searchFieldIdentifier)
+        XCTAssertNil(detailSearch.identifier)
+        #endif
     }
 
     func testIOSHomeMakesTodayPrimaryAndKeepsSupportingSurfacesBrowsable() throws {

@@ -371,6 +371,16 @@ export const createLoroEditorBinding = (options: {
     !semanticReadOnly &&
     options.isAttachmentActive?.() !== false &&
     loroSyncPluginKey.getState(state)?.snapshot === null
+  const syncDailyNoteRecallMarker = (currentView: EditorView): void => {
+    // The marker belongs on the actual PM contenteditable, not the React wrapper. A stale or
+    // semantically read-only attachment must not be allowed to invoke workspace recall as though
+    // it were an active writing surface.
+    if (currentView.dom.getAttribute("contenteditable") === "true") {
+      currentView.dom.setAttribute("data-athenaeum-daily-note-editor", "true")
+    } else {
+      currentView.dom.removeAttribute("data-athenaeum-daily-note-editor")
+    }
+  }
   const lockStaleView = (currentView: EditorView): void => {
     if (options.isAttachmentActive?.() !== false) return
     // `editable` is a dynamic predicate, but ProseMirror only reflects it into the DOM during a
@@ -378,6 +388,7 @@ export const createLoroEditorBinding = (options: {
     // contenteditable surface cannot accept input after a runtime/attachment scope switch.
     semanticReadOnly = true
     currentView.setProps({ editable })
+    syncDailyNoteRecallMarker(currentView)
   }
   const rebind = (): void => {
     view?.destroy()
@@ -428,6 +439,7 @@ export const createLoroEditorBinding = (options: {
           return
         }
         currentView.updateState(currentView.state.apply(transaction))
+        syncDailyNoteRecallMarker(currentView)
         updateEditorEmptyState(currentView)
         if (!isHumanLoroDocumentTransaction(transaction)) return
         support!.scheduleReferenceSync(currentView)
@@ -472,6 +484,7 @@ export const createLoroEditorBinding = (options: {
     editorView.dom.setAttribute("role", "textbox")
     editorView.dom.setAttribute("aria-label", "Daily note editor")
     editorView.dom.setAttribute("aria-multiline", "true")
+    syncDailyNoteRecallMarker(editorView)
     updateEditorEmptyState(editorView)
     support.seedProjectionBaselines(editorView.state.doc)
     if (options.autoFocus === true) {
@@ -485,6 +498,7 @@ export const createLoroEditorBinding = (options: {
     setSemanticReadOnly: (readOnly: boolean) => {
       semanticReadOnly = readOnly
       view?.setProps({ editable })
+      if (view !== undefined) syncDailyNoteRecallMarker(view)
     },
     dispose: () => {
       support?.dispose()

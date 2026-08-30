@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { act, type ReactNode } from "react"
+import { act, useEffect, useRef, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -21,12 +21,16 @@ vi.mock("./design-system/Drawer.js", () => ({
 }))
 
 vi.mock("./CommandPalette.js", () => ({
-  CommandPalette: ({ open }: { readonly open: boolean }) => (
-    <>
+  CommandPalette: ({ open }: { readonly open: boolean }) => {
+    const inputRef = useRef<HTMLInputElement>(null)
+    useEffect(() => {
+      if (open) inputRef.current?.focus()
+    }, [open])
+    return <>
       <output data-command-palette-state>{open ? "open" : "closed"}</output>
-      {open && <input data-command-palette-input aria-label="Palette search" />}
+      {open && <input ref={inputRef} data-command-palette-input aria-label="Palette search" />}
     </>
-  )
+  }
 }))
 
 vi.mock("react-router", () => ({
@@ -47,10 +51,16 @@ vi.mock("react-router", () => ({
   ),
   Outlet: () => (
     <div data-route-outlet>
-      <textarea data-route-composer aria-label="Draft message" />
-      <div contentEditable role="textbox" data-route-editor aria-label="Daily note editor" suppressContentEditableWarning>
-        <span data-route-editor-child>Draft note</span>
+      <textarea data-route-composer aria-label="Draft message" defaultValue="Keep this draft" />
+      <div data-route-editor-wrapper>
+        <div contentEditable="true" role="textbox" data-athenaeum-daily-note-editor="true" data-route-editor aria-label="Daily note editor" suppressContentEditableWarning>
+          <span data-route-editor-child>Draft note</span>
+        </div>
+        <div contentEditable="true" data-route-editor-sibling suppressContentEditableWarning>Sibling control</div>
       </div>
+      <div contentEditable="true" data-route-generic-editor suppressContentEditableWarning>Generic control</div>
+      <div contentEditable="false" data-athenaeum-daily-note-editor="true" data-route-read-only-editor>Read-only note</div>
+      <input data-route-input aria-label="Other input" />
     </div>
   ),
   useLocation: () => routeLocation
@@ -111,9 +121,10 @@ const pressPaletteShortcut = async (modifier: "metaKey" | "ctrlKey"): Promise<vo
 const pressShortcutOn = async (
   target: HTMLElement,
   key: string,
-  modifier: "metaKey" | "ctrlKey"
+  modifier: "metaKey" | "ctrlKey",
+  options: Pick<KeyboardEventInit, "altKey" | "shiftKey" | "metaKey" | "ctrlKey"> = {}
 ): Promise<KeyboardEvent> => {
-  const event = new KeyboardEvent("keydown", { key, [modifier]: true, bubbles: true, cancelable: true })
+  const event = new KeyboardEvent("keydown", { key, [modifier]: true, bubbles: true, cancelable: true, ...options })
   await act(async () => {
     target.dispatchEvent(event)
     await flush()
@@ -207,7 +218,7 @@ describe("AppShell command palette shortcut", () => {
     expect(paletteState()).toBe("closed")
   })
 
-  it.each(["metaKey", "ctrlKey"] as const)("does not hijack %s shortcuts from a writing control", async (modifier) => {
+  it.each(["metaKey", "ctrlKey"] as const)("opens recall from a marked nested daily-note descendant without disturbing drafts or drawers", async (modifier) => {
     const host = await mount()
     const paletteState = () => host.querySelector<HTMLOutputElement>("[data-command-palette-state]")?.textContent
     const composer = host.querySelector<HTMLTextAreaElement>("[data-route-composer]")
@@ -216,12 +227,68 @@ describe("AppShell command palette shortcut", () => {
     expect(composer).not.toBeNull()
     expect(editorChild).not.toBeNull()
 
-    const paletteEvent = await pressShortcutOn(composer as HTMLTextAreaElement, "k", modifier)
-    expect(paletteEvent.defaultPrevented).toBe(false)
-    expect(paletteState()).toBe("closed")
+    const openAgent = host.querySelector<HTMLButtonElement>(".shell-chat-toggle")
+    await act(async () => { openAgent?.click(); await flush() })
+    expect(host.querySelector("[data-drawer='athenaeum-agent-chat']")?.getAttribute("data-open")).toBe("true")
+    // At desktop widths the navigation drawer is resident, which is the state the editor recall
+    // must preserve rather than treating palette invocation as a route/surface transition.
+    expect(host.querySelector("[data-drawer='athenaeum-workspace-navigation']")?.getAttribute("data-open")).toBe("true")
 
-    const chatEvent = await pressShortcutOn(editorChild as HTMLElement, "j", modifier)
-    expect(chatEvent.defaultPrevented).toBe(false)
+    const paletteEvent = await pressShortcutOn(editorChild as HTMLElement, "k", modifier)
+    expect(paletteEvent.defaultPrevented).toBe(true)
+    expect(paletteState()).toBe("open")
+    expect(document.activeElement).toBe(host.querySelector("[data-command-palette-input]"))
+    expect(composer?.value).toBe("Keep this draft")
+    expect(host.querySelector("[data-drawer='athenaeum-agent-chat']")?.getAttribute("data-open")).toBe("true")
+    expect(host.querySelector("[data-drawer='athenaeum-workspace-navigation']")?.getAttribute("data-open")).toBe("true")
+  })
+
+  it.each(["metaKey", "ctrlKey"] as const)("does not hijack %s from unmarked or non-bare editable controls", async (modifier) => {
+    const host = await mount()
+    const paletteState = () => host.querySelector<HTMLOutputElement>("[data-command-palette-state]")?.textContent
+    const targets = [
+      host.querySelector<HTMLElement>("[data-route-composer]"),
+      host.querySelector<HTMLElement>("[data-route-editor-sibling]"),
+      host.querySelector<HTMLElement>("[data-route-generic-editor]"),
+      host.querySelector<HTMLElement>("[data-route-read-only-editor]"),
+      host.querySelector<HTMLElement>("[data-route-input]")
+    ]
+
+    for (const target of targets) {
+      expect(target).not.toBeNull()
+      const event = await pressShortcutOn(target as HTMLElement, "k", modifier)
+      expect(event.defaultPrevented).toBe(false)
+      expect(paletteState()).toBe("closed")
+    }
+
+    const markedChild = host.querySelector<HTMLElement>("[data-route-editor-child]")
+    const altEvent = await pressShortcutOn(markedChild as HTMLElement, "k", modifier, { altKey: true })
+    const shiftEvent = await pressShortcutOn(markedChild as HTMLElement, "k", modifier, { shiftKey: true })
+    const bothPrimaryEvent = await pressShortcutOn(markedChild as HTMLElement, "k", modifier, {
+      ...(modifier === "metaKey" ? { ctrlKey: true } : { metaKey: true })
+    })
+    expect(altEvent.defaultPrevented).toBe(false)
+    expect(shiftEvent.defaultPrevented).toBe(false)
+    expect(bothPrimaryEvent.defaultPrevented).toBe(false)
+    expect(paletteState()).toBe("closed")
+  })
+
+  it("keeps toolbar palette invocation clearing a competing chat drawer", async () => {
+    const host = await mount()
+    const openAgent = host.querySelector<HTMLButtonElement>(".shell-chat-toggle")
+    const openSearch = host.querySelector<HTMLButtonElement>(".shell-search-toggle")
+
+    await act(async () => {
+      openAgent?.click()
+      await flush()
+    })
+    expect(host.querySelector("[data-drawer='athenaeum-agent-chat']")?.getAttribute("data-open")).toBe("true")
+
+    await act(async () => {
+      openSearch?.click()
+      await flush()
+    })
+    expect(host.querySelector("[data-command-palette-state]")?.textContent).toBe("open")
     expect(host.querySelector("[data-drawer='athenaeum-agent-chat']")?.getAttribute("data-open")).toBe("false")
   })
 
