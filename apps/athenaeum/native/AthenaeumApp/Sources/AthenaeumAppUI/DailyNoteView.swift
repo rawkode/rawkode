@@ -439,11 +439,13 @@ public struct DailyNoteView: View {
 
     private var noteTitle: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(isToday ? "Today" : "Daily note")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(1.2)
+            if !isToday {
+                Text("Daily note")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(1.2)
+            }
             Text(noteDateDisplayLabel)
                 .font(.system(.largeTitle, design: .serif).weight(.semibold))
                 .lineLimit(2)
@@ -473,11 +475,9 @@ public struct DailyNoteView: View {
     private var formatBadge: some View {
         switch model.pagePresentation {
         case .loroReadOnly, .loroProjectedReadOnly, .loroPlainEditable, .loroRichEditable, .retainedLocalChangeConflict:
-            Label("Loro", systemImage: "checkmark.seal")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
-                .help("Loro is authoritative for this page.")
-                .accessibilityLabel("Loro. Loro is authoritative for this page.")
+            // Loro is the ordinary editing path; implementation detail stays out of the calm
+            // header. Recovery controls and sync status still expose actionable custody state.
+            EmptyView()
         case .automergeEditable, .automergeRichTextReadOnly, .legacyMigrationRequired:
             Label("Legacy Automerge", systemImage: "archivebox")
                 .font(.caption.weight(.semibold))

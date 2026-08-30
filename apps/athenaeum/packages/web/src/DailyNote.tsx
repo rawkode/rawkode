@@ -336,17 +336,17 @@ export function DailyNote({
   return (
     <section className="daily-note">
       <div className="daily-note-editor">
-        <header className="daily-note-header">
+        <header className={`daily-note-header${isToday ? " daily-note-header-today" : ""}`}>
           <h1 aria-label={`Daily note for ${fullDateLabel}`}>
-            <span className="daily-note-title">Daily note</span>
+            {!isToday && <span className="daily-note-title">Daily note</span>}
             <time dateTime={dateStamp}>{fullDateLabel}</time>
           </h1>
-          {pageFormat !== undefined && (
+          {pageFormat?.tone === "legacy" && (
             <span
               className={`daily-note-format daily-note-format-${pageFormat.tone}`}
               title={pageFormat.description}
               aria-label={pageFormat.description}
-              data-page-format={pageFormat.tone === "authoritative" ? "loro-v1" : "automerge-v1"}
+              data-page-format="automerge-v1"
             >
               <span className="daily-note-format-dot" aria-hidden="true" />
               {pageFormat.label}

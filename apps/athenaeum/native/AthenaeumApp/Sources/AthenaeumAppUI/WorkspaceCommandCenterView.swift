@@ -936,14 +936,14 @@ public struct WorkspaceCommandCenterView: View {
             selectedGraphNodeId = nil
             selectedDirectEntityDestination = .entity(reference.id)
             #else
-            iOSPath.append(.entity(reference.id))
+            iOSPath.append(WorkspaceRoute.entityID(reference.id))
             #endif
         case .supertag:
             selectedReferencedTagId = reference.id
             #if os(macOS)
             selection = .supertags
             #else
-            iOSPath.append(.section(.supertags))
+            iOSPath.append(WorkspaceRoute.section(.supertags))
             #endif
         }
     }

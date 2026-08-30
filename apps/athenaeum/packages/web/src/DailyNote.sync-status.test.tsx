@@ -53,7 +53,11 @@ const successState = () => ({
   }
 })
 
-const mount = async (todayBriefTargetId?: string, dailyContext?: ReactNode): Promise<HTMLDivElement> => {
+const mount = async (
+  todayBriefTargetId?: string,
+  dailyContext?: ReactNode,
+  noteDate: Date = date
+): Promise<HTMLDivElement> => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
@@ -61,7 +65,7 @@ const mount = async (todayBriefTargetId?: string, dailyContext?: ReactNode): Pro
   await act(async () => {
     root.render(
       <DailyNote
-        date={date}
+        date={noteDate}
         onNavigateDate={vi.fn()}
         todayBriefTargetId={todayBriefTargetId}
         dailyContext={dailyContext}
@@ -95,6 +99,16 @@ afterEach(() => {
 })
 
 describe("DailyNote sync status", () => {
+  it("keeps Today as the shell identity and hides ordinary implementation chrome", async () => {
+    const host = await mount(undefined, undefined, new Date())
+    const header = host.querySelector<HTMLElement>(".daily-note-header")
+
+    expect(header?.classList.contains("daily-note-header-today")).toBe(true)
+    expect(header?.querySelector(".daily-note-title")).toBeNull()
+    expect(header?.querySelector(".daily-note-format")).toBeNull()
+    expect(header?.querySelector("time")).not.toBeNull()
+  })
+
   it("offers a current-day jump to the brief when the route provides a target", async () => {
     const host = await mount("today-brief")
 

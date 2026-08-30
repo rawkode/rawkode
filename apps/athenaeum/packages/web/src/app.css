@@ -735,6 +735,15 @@
   font-weight: 600;
 }
 
+.daily-note-header.daily-note-header-today h1 time {
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .daily-note-header h1 time {
   color: var(--color-text-muted);
   font-family: var(--font-data);

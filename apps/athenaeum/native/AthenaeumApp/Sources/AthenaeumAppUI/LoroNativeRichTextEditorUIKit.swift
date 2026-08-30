@@ -330,19 +330,13 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private func applyTemporaryPresentation() {
-        // UIKit's legacy layout manager has no temporary-attribute surface. Keep its typography
-        // on the view (not `textStorage`), so marker attributes remain the sole semantic value.
+        // UIKit's current TextKit layout manager has no temporary-attribute surface. Keep its
+        // typography on the view (not `textStorage`), so marker attributes remain the sole
+        // semantic value. Reference hit testing still reads the typed marker directly; the
+        // native rich editor can add a platform-specific visual treatment when UIKit exposes a
+        // non-semantic presentation hook again.
         textView.font = .preferredFont(forTextStyle: .body)
         textView.textColor = .label
-        let all = NSRange(location: 0, length: textView.textStorage.length)
-        textView.layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
-        textView.layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: all)
-        let referenceKey = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
-        textView.textStorage.enumerateAttribute(referenceKey, in: all) { value, range, _ in
-            guard value != nil else { return }
-            textView.layoutManager.addTemporaryAttribute(.foregroundColor, value: textView.tintColor ?? .systemBlue, forCharacterRange: range)
-            textView.layoutManager.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: range)
-        }
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {
