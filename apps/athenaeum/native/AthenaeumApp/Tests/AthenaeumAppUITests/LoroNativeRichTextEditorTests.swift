@@ -213,6 +213,20 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(published, 0)
     }
 
+    func testParentReplacementDuringMarkedTextIsAppliedOnlyAfterSynchronousCancellation() {
+        let source = paragraph("today")
+        let nextDay = paragraph("tomorrow")
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true)
+        editor.testingSetMarkedText("draft", selectedRange: NSRange(location: 5, length: 0), replacementRange: NSRange(location: 5, length: 0))
+
+        // A date/navigation-like update must not decode or lose marked text. The controller
+        // queues the parent document, then cancellation reconciles it from the engine boundary.
+        editor.update(document: nextDay, isEditable: false)
+
+        XCTAssertEqual(editor.testingDocument(), nextDay)
+        XCTAssertEqual(editor.testingDisplayedString(), "tomorrow")
+    }
+
     func testMultilineInsertionSplitsExistingMarkedHeadingWithoutMarkerOnSeparator() throws {
         let editor = LoroNativeRichTextEditorController(document: richDocument(), isEditable: true)
         editor.testingReplace(NSRange(location: 4, length: 0), with: "\nnext")

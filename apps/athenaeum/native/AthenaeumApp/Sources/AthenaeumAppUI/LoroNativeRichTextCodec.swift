@@ -1,5 +1,4 @@
-#if os(macOS)
-import AppKit
+import Foundation
 import AthenaeumCore
 
 /// The only AppKit representation admitted by the native rich editor.
@@ -34,15 +33,7 @@ enum LoroNativeRichTextCodec {
         case invalidSemanticDocument
     }
 
-    struct ScalarSelection: Equatable, Sendable {
-        let location: Int
-        let length: Int
-
-        init(location: Int, length: Int) {
-            self.location = location
-            self.length = length
-        }
-    }
+    typealias ScalarSelection = LoroNativeRichTextSelection
 
     /// Render only controlled semantic markers.  Visual styling and editor commands belong to the
     /// R3-B `NSTextView` wrapper; keeping it out of this codec prevents arbitrary AppKit font
@@ -352,4 +343,3 @@ private extension String.UTF16View {
         self[index(startIndex, offsetBy: offset)]
     }
 }
-#endif
