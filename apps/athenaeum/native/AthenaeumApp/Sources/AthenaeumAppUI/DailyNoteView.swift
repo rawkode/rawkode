@@ -82,6 +82,7 @@ public struct DailyNoteView: View {
     /// client/model; this type-erased slot only controls composition and never fetches data.
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
+    private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
     @State private var preparationNotice: String?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
@@ -94,6 +95,7 @@ public struct DailyNoteView: View {
         self.standupConfiguration = nil
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
+        self.onOpenReference = nil
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -104,7 +106,8 @@ public struct DailyNoteView: View {
         standupWorkspaceId: EntityId,
         standupBearerCredential: String?,
         contextualView: AnyView? = nil,
-        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil
+        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
+        onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil
     ) {
         self.model = model
         self.standupConfiguration = StandupConfiguration(
@@ -114,6 +117,7 @@ public struct DailyNoteView: View {
         )
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
+        self.onOpenReference = onOpenReference
     }
 
     public var body: some View {
@@ -693,7 +697,8 @@ public struct DailyNoteView: View {
                     focusRequestGeneration: richEditorFocusGeneration,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: { model.handleLoroRichSelectionChange($0) },
-                    onRejectedInput: { model.handleLoroRichRejectedInput($0) }
+                    onRejectedInput: { model.handleLoroRichRejectedInput($0) },
+                    onOpenReference: { onOpenReference?($0) }
                 )
                 #elseif os(iOS)
                 LoroNativeRichTextEditorUIKit(
@@ -702,7 +707,8 @@ public struct DailyNoteView: View {
                     focusRequestGeneration: richEditorFocusGeneration,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: { model.handleLoroRichSelectionChange($0) },
-                    onRejectedInput: { model.handleLoroRichRejectedInput($0) }
+                    onRejectedInput: { model.handleLoroRichRejectedInput($0) },
+                    onOpenReference: { onOpenReference?($0) }
                 )
                 #endif
                 if let prompt = LoroNativeRichEmptyStatePresentation(

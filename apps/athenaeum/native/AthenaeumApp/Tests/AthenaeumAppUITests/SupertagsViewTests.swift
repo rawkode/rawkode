@@ -131,6 +131,16 @@ final class SupertagsViewTests: XCTestCase {
         )
     }
 
+    func testDeepLinkedSelectionOnlySelectsTheExactExistingTag() throws {
+        let tags = [
+            try tag(id: "person", name: "Person", parentIds: [], builtin: true),
+            try tag(id: "project", name: "Project", parentIds: [], builtin: false)
+        ]
+        XCTAssertEqual(SupertagsViewModel.resolveDeepLinkedTagId(requestedTagId: "project", tags: tags), "project")
+        XCTAssertNil(SupertagsViewModel.resolveDeepLinkedTagId(requestedTagId: "removed", tags: tags))
+        XCTAssertNil(SupertagsViewModel.resolveDeepLinkedTagId(requestedTagId: "project", tags: []))
+    }
+
     func testParentAndChildNamesResolveAgainstLoadedTags() throws {
         let parent = try tag(id: "parent", name: "Project", parentIds: [], builtin: true)
         let child = try tag(id: "child", name: "Launch", parentIds: ["parent"], builtin: false)

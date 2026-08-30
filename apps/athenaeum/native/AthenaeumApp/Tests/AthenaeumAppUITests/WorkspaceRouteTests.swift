@@ -20,6 +20,21 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertNotEqual(WorkspaceRoute.personID(personNodeId), .graph(personNodeId.rawValue))
     }
 
+    func testGenericEntityRouteCarriesTheValidatedReferenceIDWithoutUsingGraphRows() throws {
+        let entityId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        XCTAssertEqual(WorkspaceRoute.entityID(entityId), .entity(entityId))
+        XCTAssertNotEqual(WorkspaceRoute.entityID(entityId), .graph(entityId.rawValue))
+        XCTAssertEqual(WorkspaceDirectEntityDestination.entity(entityId).nodeId, entityId)
+        XCTAssertEqual(WorkspaceDirectEntityDestination.entity(entityId).presentation, .entity)
+    }
+
+    func testGenericEntityPresentationKeepsMissingAndFailureCopyPrivateSafe() {
+        XCTAssertEqual(WorkspaceDirectEntityPresentation.entity.missingMessage, "This referenced entity is no longer available in this workspace.")
+        XCTAssertEqual(WorkspaceDirectEntityPresentation.entity.failureMessage, "Referenced entity details are unavailable right now.")
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.entity.missingMessage.contains("provider-private-node"))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.entity.failureMessage.contains("token=secret"))
+    }
+
     func testEmployeeUpdateRouteIsDistinctAndRetainsItsValidatedEntityID() throws {
         let nodeId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
 
@@ -53,6 +68,7 @@ final class WorkspaceRouteTests: XCTestCase {
 
         XCTAssertEqual(source.components(separatedBy: "DailyNoteView(").count - 1, 2)
         XCTAssertEqual(source.components(separatedBy: "onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) }").count - 1, 2)
+        XCTAssertEqual(source.components(separatedBy: "onOpenReference: { reference in openReference(reference) }").count - 1, 2)
     }
 
     func testSidebarKeepsCoreWorkSurfacesSeparateFromBrowseDestinations() {

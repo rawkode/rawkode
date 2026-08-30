@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import AthenaeumDomain
 import AthenaeumRPC
+import AthenaeumCore
 
 /// The native workspace shell keeps the daily note primary while giving every supporting tool a
 /// stable destination. The old workspace was one long scroll of unrelated surfaces, which made a
@@ -18,6 +19,7 @@ public struct WorkspaceCommandCenterView: View {
     @State private var selectedSearchNodeId: String?
     @State private var selectedGraphNodeId: String?
     @State private var selectedDirectEntityDestination: WorkspaceDirectEntityDestination?
+    @State private var selectedReferencedTagId: EntityId?
     #if !os(macOS)
     @State private var iOSPath = NavigationPath()
     @State private var showingIOSBrowse = false
@@ -321,6 +323,12 @@ public struct WorkspaceCommandCenterView: View {
             } else {
                 EmptyStateView(title: "Workspace entity unavailable", systemImage: "exclamationmark.triangle", message: "This entity is no longer available.")
             }
+        case .entity(let entityNodeId):
+            WorkspaceDirectEntityDetailView(
+                destination: .entity(entityNodeId),
+                client: host.readClient,
+                onClose: nil
+            )
         case .person(let personNodeId):
             WorkspaceDirectEntityDetailView(
                 destination: .person(personNodeId),
@@ -456,7 +464,8 @@ public struct WorkspaceCommandCenterView: View {
                     standupBackendURL: session.backendURL,
                     standupWorkspaceId: workspaceId,
                     standupBearerCredential: session.credential,
-                    onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) }
+                    onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
+                    onOpenReference: { reference in openReference(reference) }
                 )
                 .frame(maxWidth: 600, alignment: .leading)
                 dailyBrief(model: model)
@@ -469,7 +478,8 @@ public struct WorkspaceCommandCenterView: View {
                 standupWorkspaceId: workspaceId,
                 standupBearerCredential: session.credential,
                 contextualView: AnyView(dailyBrief(model: model)),
-                onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) }
+                onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
+                onOpenReference: { reference in openReference(reference) }
             )
             #endif
         case .supertags:
@@ -484,7 +494,8 @@ public struct WorkspaceCommandCenterView: View {
                     #else
                     iOSPath = NavigationPath()
                     #endif
-                }
+                },
+                initialSelectedTagId: selectedReferencedTagId
             )
         case .meetings:
             MeetingsView(
@@ -609,6 +620,26 @@ public struct WorkspaceCommandCenterView: View {
         iOSPath.append(WorkspaceRoute.employeeUpdateID(employeeUpdateNodeId))
         #endif
     }
+
+    private func openReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) {
+        switch reference.kind {
+        case .entity:
+            #if os(macOS)
+            selectedSearchNodeId = nil
+            selectedGraphNodeId = nil
+            selectedDirectEntityDestination = .entity(reference.id)
+            #else
+            iOSPath.append(.entity(reference.id))
+            #endif
+        case .supertag:
+            selectedReferencedTagId = reference.id
+            #if os(macOS)
+            selection = .supertags
+            #else
+            iOSPath.append(.section(.supertags))
+            #endif
+        }
+    }
 }
 
 private struct SearchResultDetailView: View {
@@ -702,17 +733,19 @@ private struct GraphNodeDetailView: View {
 /// A verified direct entity reference. The route keeps the opaque `EntityId` all the way to the
 /// RPC reader; the decoded wire ID must match before a page preview may be composed.
 enum WorkspaceDirectEntityDestination: Hashable {
+    case entity(EntityId)
     case person(EntityId)
     case employeeUpdate(EntityId)
 
     var nodeId: EntityId {
         switch self {
-        case .person(let nodeId), .employeeUpdate(let nodeId): return nodeId
+        case .entity(let nodeId), .person(let nodeId), .employeeUpdate(let nodeId): return nodeId
         }
     }
 
     var presentation: WorkspaceDirectEntityPresentation {
         switch self {
+        case .entity: return .entity
         case .person: return .person
         case .employeeUpdate: return .employeeUpdate
         }
@@ -754,6 +787,12 @@ struct WorkspaceDirectEntityPresentation: Equatable {
         missingTitle: "Person unavailable", missingMessage: "This person is no longer available in this workspace.",
         failureMessage: "Person details are unavailable right now.", retryTitle: "Retry person",
         retryingTitle: "Retrying person…", retryHint: "Retries the person details read."
+    )
+    static let entity = WorkspaceDirectEntityPresentation(
+        title: "Workspace entity", systemImage: "circle.hexagongrid", loadingTitle: "Loading entity…",
+        missingTitle: "Entity unavailable", missingMessage: "This referenced entity is no longer available in this workspace.",
+        failureMessage: "Referenced entity details are unavailable right now.", retryTitle: "Retry entity",
+        retryingTitle: "Retrying entity…", retryHint: "Retries the referenced entity details read."
     )
     static let employeeUpdate = WorkspaceDirectEntityPresentation(
         title: "Employee update", systemImage: "doc.text", loadingTitle: "Loading employee update…",
@@ -1164,6 +1203,7 @@ enum WorkspaceRoute: Hashable {
     case search(String)
     case dailyNote(LocalDate)
     case graph(String)
+    case entity(EntityId)
     case person(EntityId)
     case employeeUpdate(EntityId)
     static let voiceAction = WorkspaceRoute.section(.voice)
@@ -1171,6 +1211,7 @@ enum WorkspaceRoute: Hashable {
     static func graphID(_ id: String) -> WorkspaceRoute { .graph(id) }
     static func searchID(_ id: String) -> WorkspaceRoute { .search(id) }
     static func personID(_ id: EntityId) -> WorkspaceRoute { .person(id) }
+    static func entityID(_ id: EntityId) -> WorkspaceRoute { .entity(id) }
     static func employeeUpdateID(_ id: EntityId) -> WorkspaceRoute { .employeeUpdate(id) }
 }
 

@@ -275,6 +275,12 @@ final class SupertagsViewModel: ObservableObject {
         return selectedTagId
     }
 
+    /// A reference is authority-bearing: unlike ordinary catalog selection it must never fall
+    /// through to an unrelated first tag when the target has disappeared.
+    static func resolveDeepLinkedTagId(requestedTagId: String, tags: [RPCTag]) -> String? {
+        tags.contains(where: { $0.id == requestedTagId }) ? requestedTagId : nil
+    }
+
     func tag(withId id: String) -> RPCTag? {
         tags.first { $0.id == id }
     }
@@ -441,6 +447,8 @@ enum SupertagsCatalogRefreshPresentation {
 public struct SupertagsView: View {
     @StateObject private var model: SupertagsViewModel
     @State private var selectedTagId: String?
+    @State private var initialSelectedTagId: String?
+    @State private var initialSelectionUnavailable = false
     @State private var isCatalogRefreshInFlight = false
     @State private var newTagName = ""
     @State private var newTagRationale = ""
@@ -454,12 +462,14 @@ public struct SupertagsView: View {
         backendURL: URL,
         workspaceId: EntityId,
         bearerCredential: String?,
-        onOpenToday: (() -> Void)? = nil
+        onOpenToday: (() -> Void)? = nil,
+        initialSelectedTagId: EntityId? = nil
     ) {
         _model = StateObject(
             wrappedValue: SupertagsViewModel(backendURL: backendURL, workspaceId: workspaceId, bearerCredential: bearerCredential)
         )
         self.onOpenToday = onOpenToday
+        _initialSelectedTagId = State(initialValue: initialSelectedTagId?.rawValue)
     }
 
     public var body: some View {
@@ -492,6 +502,13 @@ public struct SupertagsView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+
+            if initialSelectionUnavailable {
+                Label("Referenced Supertag unavailable", systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Referenced Supertag unavailable")
             }
 
             if SupertagsViewModel.shouldShowCatalogLoading(
@@ -589,6 +606,18 @@ public struct SupertagsView: View {
             return
         }
 
+        if let requested = initialSelectedTagId {
+            initialSelectedTagId = nil
+            if let resolved = SupertagsViewModel.resolveDeepLinkedTagId(requestedTagId: requested, tags: model.tags) {
+                selectedTagId = resolved
+                initialSelectionUnavailable = false
+            } else {
+                selectedTagId = nil
+                initialSelectionUnavailable = true
+            }
+            return
+        }
+        guard !initialSelectionUnavailable else { return }
         let selectedTagIdBeforeResolution = selectedTagId
         let resolvedTagId = SupertagsViewModel.resolveSelectedTagId(
             selectedTagId: selectedTagIdBeforeResolution,
@@ -691,6 +720,7 @@ public struct SupertagsView: View {
             ForEach(model.tags, id: \.id) { tag in
                 Button {
                     selectedTagId = tag.id
+                    initialSelectionUnavailable = false
                 } label: {
                     HStack(spacing: 8) {
                         if tag.builtin {
