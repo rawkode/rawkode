@@ -358,6 +358,7 @@ import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeService
 import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
 import { makeCalendarCollections } from "./calendar-collections.js"
 import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
+import { CalendarConciergeExecutor } from "./calendar-concierge-executor.js"
 import {
   CalendarGatekeeperClient,
   CalendarGatekeeperClientUnconfigured,
@@ -4588,6 +4589,11 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       Layer.provide(
         Layer.mergeAll(repositoriesLayer, graphServiceLive, calendarGatekeeperClientLive, sharingServiceLive)
       )
+    )
+    const calendarConciergeExecutor = new CalendarConciergeExecutor(this.#workspaceId, this.#workforceRuntimeStore, calendarCollections)
+    this.#workforceScheduler.setExecutor(
+      (run) => calendarConciergeExecutor.execute(run),
+      ["calendar-relationship-concierge"]
     )
 
     // Phase 6 (`MeetingsService`/`VoiceSessionService`, task items 1/3): same "own small
