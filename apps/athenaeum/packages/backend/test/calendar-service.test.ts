@@ -75,10 +75,33 @@ const bookmarkInput = (workspaceId: string, url: string, title?: string) => ({
  * for never using a module-level mutable queue). Returns the scripted double's own handle so a
  * test can mutate `fixtures.accounts` mid-run (e.g. simulate a second calendar appearing between
  * two `syncGoogleCalendar` calls, for the Strategy C re-verification test below). */
-const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFixtures) => {
+type ScriptedCalendarClientOptions = {
+  readonly legacy?: boolean
+  /** Account fixture selected for each newly admitted opaque provider connection, in order. */
+  readonly opaqueAccounts?: ReadonlyArray<string>
+}
+
+const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFixtures, options: ScriptedCalendarClientOptions = {}) => {
   const scripted = makeGoogleCalendarClientScripted(fixtures)
   const client = Effect.runSync(Effect.provide(GoogleCalendarClient, scripted.layer))
   const ledger = Effect.runSync(Effect.provide(ObserverLedger, ObserverLedgerInMemory))
+  const opaqueAccounts = [...(options.opaqueAccounts ?? [Object.keys(fixtures.accounts)[0]!])]
+  const opaqueAccountByConnection = new Map<string, string>()
+  const opaqueRouteCalls: Array<string> = []
+  const legacyRouteCalls: Array<string> = []
+  const resolveOpaqueAccount = (locator: { readonly kind: string; readonly providerConnectionId?: string }) => {
+    if (locator.kind !== "provider-connection" || locator.providerConnectionId === undefined) {
+      return Effect.fail(new UnexpectedError({ message: "scripted opaque route requires a provider connection locator" }))
+    }
+    const existing = opaqueAccountByConnection.get(locator.providerConnectionId)
+    if (existing !== undefined) return Effect.succeed(existing)
+    const next = opaqueAccounts.shift()
+    if (next === undefined || scripted.fixtures.accounts[next] === undefined) {
+      return Effect.fail(new UnexpectedError({ message: "scripted opaque route has no account fixture" }))
+    }
+    opaqueAccountByConnection.set(locator.providerConnectionId, next)
+    return Effect.succeed(next)
+  }
   const withGatekeeperServices = <A>(effect: Effect.Effect<A, { readonly message: string }, GoogleCalendarClient | ObserverLedger>) =>
     effect.pipe(
       Effect.provideService(GoogleCalendarClient, client),
@@ -93,11 +116,13 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
         .pipe(Effect.orDie),
     exchangeAndConnect: () => Effect.void,
     listCalendars: (email) =>
+      (legacyRouteCalls.push(email),
       client.listCalendars(email).pipe(
         Effect.map((cals) => cals.map((c) => ({ id: c.id, summary: c.summary, ...(c.accessRole ? { accessRole: c.accessRole } : {}) }))),
         Effect.orDie
-      ),
+      )),
     eventsPage: (email, calendarId, query) =>
+      (legacyRouteCalls.push(email),
       client.listEvents(email, calendarId, query as never).pipe(
         Effect.map((page) => ({
           items: page.items.map((e) => ({
@@ -114,7 +139,7 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
           ...(page.nextSyncToken ? { nextSyncToken: page.nextSyncToken } : {})
         })),
         Effect.orDie
-      ),
+      )),
     mintObserverVerifier: (observerEmail) => Effect.succeed({ token: observerEmail }),
     addObserver: (_boundByEmail, bindingId, observerId, verifierToken, mode, calendarId) =>
       withGatekeeperServices(
@@ -128,10 +153,58 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
             )
       ),
     notifyCalendarTouched: (_boundByEmail, bindingId, calendarId) =>
-      withGatekeeperServices(onDatasetTouched(bindingId, calendarId, (identity) => Effect.succeed(identity.connectionId)))
+      withGatekeeperServices(onDatasetTouched(bindingId, calendarId, (identity) => Effect.succeed(identity.connectionId))),
+    ...(options.legacy ? {} : { byConnection: {
+      // The scripted provider fixture is intentionally token-keyed. Opaque production routing is
+      // exercised by CalendarService; this fixture deterministically selects its sole scripted
+      // account without exposing a real provider identity.
+      completeOAuth: (locator) =>
+        resolveOpaqueAccount(locator).pipe(
+          Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)),
+          Effect.as({ receiptDigest: "a".repeat(64), completionFactDigest: "b".repeat(64), completedAt: new Date().toISOString() })
+        ),
+      getOAuthCompletion: () => Effect.succeed({ receiptDigest: "a".repeat(64), completionFactDigest: "b".repeat(64), completedAt: new Date().toISOString() }),
+      isConnected: () => Effect.succeed({ connected: true }),
+      disconnect: (locator) => resolveOpaqueAccount(locator).pipe(Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)), Effect.asVoid),
+      listCalendars: (locator) =>
+        resolveOpaqueAccount(locator).pipe(
+          Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)),
+          Effect.flatMap((account) => client.listCalendars(account)),
+          Effect.map((cals) => cals.map((c) => ({ id: c.id, summary: c.summary, ...(c.accessRole ? { accessRole: c.accessRole } : {}) }))),
+          Effect.mapError((error) => new UnexpectedError({ message: error.message }))
+        ),
+      eventsPage: (locator, calendarId, query) =>
+        resolveOpaqueAccount(locator).pipe(
+          Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)),
+          Effect.flatMap((account) => client.listEvents(account, calendarId, query as never)),
+          Effect.map((page) => ({
+            items: page.items.map((e) => ({
+              id: e.id,
+              title: e.title,
+              ...(e.updatedAt ? { updatedAt: e.updatedAt } : {}),
+              start: e.start,
+              end: e.end,
+              status: e.status,
+              ...(e.attendees ? { attendees: e.attendees } : {}),
+              ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {})
+            })),
+            ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
+            ...(page.nextSyncToken ? { nextSyncToken: page.nextSyncToken } : {})
+          })),
+          Effect.mapError((error) => new UnexpectedError({ message: error.message }))
+        ),
+      createEvent: () => Effect.die("not used by calendar service tests"),
+      updateEvent: () => Effect.die("not used by calendar service tests"),
+      deleteEvent: () => Effect.die("not used by calendar service tests"),
+      freeBusy: () => Effect.succeed([]),
+      mintObserverVerifier: () => Effect.succeed({ token: "opaque-observer" }),
+      addObserver: () => Effect.void,
+      removeObserver: () => Effect.void,
+      notifyCalendarTouched: (locator) => resolveOpaqueAccount(locator).pipe(Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)), Effect.as({ failedObserverIds: [] }))
+    } })
   }
   calendarGatekeeperClientTestHook.api = api
-  return scripted
+  return Object.assign(scripted, { opaqueRouteCalls, legacyRouteCalls })
 }
 
 /** Same real `UserDurableObject#createWorkspace` round trip every governed-workspace test in this suite
@@ -233,6 +306,53 @@ describe("CalendarService — connect/callback/disconnect", () => {
     expect(otherWorkspaceCatalog.bindings).toEqual([])
   })
 
+  it("routes each opaque binding to its admitted account and never uses the legacy email adapter", async () => {
+    const secondAccount = "second@example.test"
+    const scripted = installScriptedCalendarClient(
+      {
+        accounts: {
+          [ACCOUNT_EMAIL]: { calendars: { [CALENDAR_ID]: "owner" }, freeBusyReadableCalendarIds: [], events: { [CALENDAR_ID]: [] } },
+          [secondAccount]: { calendars: { [CALENDAR_ID]: "owner" }, freeBusyReadableCalendarIds: [], events: { [CALENDAR_ID]: [] } }
+        }
+      },
+      { opaqueAccounts: [ACCOUNT_EMAIL, secondAccount] }
+    )
+
+    const firstWorkspace = freshWorkspaceId()
+    const { credential: firstCredential } = await devSignIn(ACCOUNT_EMAIL)
+    const { stub: firstStub } = await connectToWorkspaceWithSocketAs(firstWorkspace, firstCredential)
+    const firstConnect = (await firstStub.connectGoogleCalendar({ workspaceId: firstWorkspace })) as { state: string }
+    const firstCallback = (await firstStub.googleCalendarOAuthCallback({
+      workspaceId: firstWorkspace,
+      code: "first-code",
+      state: firstConnect.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    await firstStub.syncGoogleCalendar({ workspaceId: firstWorkspace, bindingId: firstCallback.binding.id })
+
+    const secondWorkspace = freshWorkspaceId()
+    const { credential: secondCredential } = await devSignIn(secondAccount)
+    const { stub: secondStub } = await connectToWorkspaceWithSocketAs(secondWorkspace, secondCredential)
+    const secondConnect = (await secondStub.connectGoogleCalendar({ workspaceId: secondWorkspace })) as { state: string }
+    const secondCallback = (await secondStub.googleCalendarOAuthCallback({
+      workspaceId: secondWorkspace,
+      code: "second-code",
+      state: secondConnect.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    await secondStub.syncGoogleCalendar({ workspaceId: secondWorkspace, bindingId: secondCallback.binding.id })
+
+    const providerReads = scripted.calls
+      .filter((call) => call.method === "listEvents")
+      .map((call) => call.args[0])
+    expect(providerReads).toEqual([ACCOUNT_EMAIL, secondAccount])
+    expect(scripted.legacyRouteCalls).toEqual([])
+    expect(scripted.opaqueRouteCalls).toHaveLength(4)
+    expect(new Set(scripted.opaqueRouteCalls).size).toBe(2)
+  })
+
   it("rejects a callback whose state was minted for a different workspace", async () => {
     installScriptedCalendarClient({ accounts: { [ACCOUNT_EMAIL]: { calendars: {}, freeBusyReadableCalendarIds: [], events: {} } } })
     const { credential } = await devSignIn(ACCOUNT_EMAIL)
@@ -308,7 +428,7 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
   })
 
   const setUpConnectedWorkspace = async (): Promise<{ workspaceId: EntityId; bindingId: EntityId; stub: Awaited<ReturnType<typeof connectToWorkspaceWithSocketAs>>["stub"] }> => {
-    installScriptedCalendarClient(buildFixtures())
+    installScriptedCalendarClient(buildFixtures(), { legacy: true })
     const { credential } = await devSignIn(ACCOUNT_EMAIL)
     const workspaceId = freshWorkspaceId()
     const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
@@ -1074,7 +1194,7 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
   })
 
   it("a qualifying observer sees calendar events and attendee-imported Person nodes; a non-qualifying one is excluded from BOTH while still seeing other workspace content", async () => {
-    installScriptedCalendarClient(buildFixtures())
+    installScriptedCalendarClient(buildFixtures(), { legacy: true })
     const workspaceId = await createGovernedWorkspace(ACCOUNT_EMAIL)
     const { credential: ownerCred } = await devSignIn(ACCOUNT_EMAIL)
     const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)
@@ -1105,6 +1225,8 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
     const grantedEvents = (await grantedStub.listCalendarEvents({ workspaceId })) as {
       events: ReadonlyArray<{ title: string }>
     }
+    // Opaque bindings require an exact private observer connection; an email alone cannot
+    // select one of a collaborator's possible Google grants and must not fall back to email.
     expect(grantedEvents.events.map((e) => e.title)).toContain("1:1 with Alice")
     const localDate = new Date().toISOString().slice(0, 10)
     const ownerBrief = (await ownerStub.getTodayBrief({ workspaceId, localDate, timeZone: "UTC" })) as {
@@ -1181,7 +1303,7 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
   })
 
   it("keeps retained calendar projections owner-only after the binding is disconnected", async () => {
-    installScriptedCalendarClient(buildFixtures())
+    installScriptedCalendarClient(buildFixtures(), { legacy: true })
     const workspaceId = await createGovernedWorkspace(ACCOUNT_EMAIL)
     const { credential: ownerCred } = await devSignIn(ACCOUNT_EMAIL)
     const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)
@@ -1245,7 +1367,7 @@ describe("CalendarService — observer verification (Strategy C, allVisible-mode
   })
 
   it("stays granted through a sync that only touches the already-covered primary calendar, then gets excluded once a genuinely new calendar is discovered and touched", async () => {
-    const handle = installScriptedCalendarClient(buildFixtures())
+    const handle = installScriptedCalendarClient(buildFixtures(), { legacy: true })
     const workspaceId = await createGovernedWorkspace(ACCOUNT_EMAIL)
     const { credential: ownerCred } = await devSignIn(ACCOUNT_EMAIL)
     const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)
@@ -1428,7 +1550,7 @@ describe("CalendarService/MeetingsService — Meeting/Bookmark.linkedNodeId obse
    * hide" regression.
    */
   it("omits a hidden calendar-derived node's id from Meeting/Bookmark.linkedNodeId for a non-qualifying observer, but not for a qualifying one", async () => {
-    installScriptedCalendarClient(buildFixtures())
+    installScriptedCalendarClient(buildFixtures(), { legacy: true })
     const workspaceId = await createGovernedWorkspace(owner)
     const { credential: ownerCred } = await devSignIn(owner)
     const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)

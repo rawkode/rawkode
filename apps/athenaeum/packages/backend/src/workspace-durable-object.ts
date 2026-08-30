@@ -3683,16 +3683,19 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const calendar = yield* CalendarService
+          const user = yield* requireAuthenticatedUser
           const binding = yield* calendar.completeOAuthCallback(
             decoded.workspaceId,
             decoded.code,
             decoded.state,
             decoded.calendarId,
-            decoded.mode
+            decoded.mode,
+            user.email
           )
           return new GoogleCalendarOAuthCallbackOutput({ binding })
         })
-      )
+      ),
+      Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
     )
     return runRpcProgram(this.#runtime, program, GoogleCalendarOAuthCallbackOutput)
   }
@@ -3705,10 +3708,12 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const calendar = yield* CalendarService
-          const disconnected = yield* calendar.disconnect(decoded.workspaceId, decoded.bindingId)
+          const user = yield* requireAuthenticatedUser
+          const disconnected = yield* calendar.disconnect(decoded.workspaceId, decoded.bindingId, user.email)
           return new DisconnectGoogleCalendarOutput({ disconnected })
         })
-      )
+      ),
+      Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
     )
     return runRpcProgram(this.#runtime, program, DisconnectGoogleCalendarOutput)
   }
@@ -4727,7 +4732,9 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
               calendarId
             ),
           notifyCalendarTouched: (boundByEmail, bindingId, calendarId) =>
-            (calendarGatekeeperClientTestHook.api ?? real).notifyCalendarTouched(boundByEmail, bindingId, calendarId)
+            (calendarGatekeeperClientTestHook.api ?? real).notifyCalendarTouched(boundByEmail, bindingId, calendarId),
+          completeOAuth: (calendarGatekeeperClientTestHook.api ?? real).completeOAuth,
+          byConnection: (calendarGatekeeperClientTestHook.api ?? real).byConnection
         }
       })
     )
@@ -4744,6 +4751,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         () => this.#workforceScheduler.rearm()
       ),
       attendeeDigestSecret: env.CALENDAR_ATTENDEE_DIGEST_SECRET ?? env.CALENDAR_OAUTH_STATE_SECRET,
+      storage: this.#storage
     }).pipe(
       Layer.provide(
         Layer.mergeAll(repositoriesLayer, graphServiceLive, calendarGatekeeperClientLive, sharingServiceLive)

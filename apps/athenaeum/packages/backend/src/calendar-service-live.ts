@@ -60,6 +60,7 @@
 
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import {
@@ -113,7 +114,22 @@ import {
 } from "./calendar-collections.js"
 import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
 import { planCalendarRemoteEventWithSecret } from "./calendar-projection-plan.js"
-import { mintCalendarOAuthState, verifyCalendarOAuthState } from "./calendar-oauth-state.js"
+import {
+  digestCalendarOAuthStateNonce,
+  makeCalendarOAuthStateNonce,
+  mintCalendarOAuthState,
+  mintCalendarOAuthAttemptState,
+  verifyCalendarOAuthState,
+  verifyCalendarOAuthAttemptState
+} from "./calendar-oauth-state.js"
+import {
+  preparePendingCalendarOAuthAdmission,
+  resolveGatekeeperConnectionLocator,
+  type BindingConnectionRecord,
+  CalendarOAuthAttemptRecord,
+  ProviderConnectionRecord,
+  type GatekeeperConnectionLocator
+} from "./calendar-connection-identity.js"
 import { GraphService } from "./graph-service-live.js"
 import { SharingService } from "./sharing-service-live.js"
 import { SyncFeedService } from "./sync-feed-service-live.js"
@@ -153,10 +169,11 @@ export interface CalendarServiceApi {
     code: string,
     state: string,
     calendarId: string,
-    mode: "selected" | "allVisible"
+    mode: "selected" | "allVisible",
+    principal: string
   ) => Effect.Effect<GatekeeperBinding, DomainError>
 
-  readonly disconnect: (workspaceId: EntityId, bindingId: EntityId) => Effect.Effect<boolean, DomainError>
+  readonly disconnect: (workspaceId: EntityId, bindingId: EntityId, principal: string) => Effect.Effect<boolean, DomainError>
 
   /** Sync is an attributed write: user-triggered pulls use `humanUi`; a future scheduled provider
    * pull must supply its real employee job attribution. System/anonymous writes are rejected at the
@@ -292,6 +309,8 @@ export interface CalendarServiceConfig {
   /** The Workspace DO-owned atomic write boundary. Calendar provider I/O remains in this
    * service; every resulting second-brain projection is committed through this gateway. */
   readonly projectionGateway: CalendarProjectionGateway
+  /** Raw storage is used only for the outer private OAuth admission CAS transaction. */
+  readonly storage: DurableObjectStorage
 }
 
 export const makeCalendarServiceLive = (
@@ -312,6 +331,20 @@ export const makeCalendarServiceLive = (
       const syncFeed = yield* SyncFeedService
       const sharing = yield* SharingService
       const projectionGateway = config.projectionGateway
+      const transaction = <A>(effect: Effect.Effect<A, DomainError>): Effect.Effect<A, DomainError> =>
+        Effect.suspend(() => {
+          try {
+            // Run the Effect to an Exit inside the synchronous DO transaction, then rehydrate the
+            // exact typed failure outside it; a validation conflict must not be collapsed into an
+            // unexpected storage error merely because it crossed the transaction boundary.
+            return Exit.match(config.storage.transactionSync(() => Effect.runSyncExit(effect)), {
+              onFailure: Effect.failCause,
+              onSuccess: Effect.succeed
+            })
+          } catch (cause) {
+            return Effect.fail(new UnexpectedError({ message: `Calendar OAuth private transaction failed: ${describeError(cause)}` }))
+          }
+        })
 
       const findBinding = (workspaceId: EntityId, bindingId: EntityId): Effect.Effect<GatekeeperBinding, DomainError> =>
         Effect.gen(function* () {
@@ -325,6 +358,60 @@ export const makeCalendarServiceLive = (
           }
           return binding
         })
+
+      /** Active private mappings are authoritative and fail closed; only truly unmapped historical
+       * bindings enter the legacy email adapter. */
+      const resolveBindingLocator = (binding: GatekeeperBinding): Effect.Effect<GatekeeperConnectionLocator, DomainError> =>
+        Effect.gen(function* () {
+          const mappingRaw = yield* collections.bindingConnections.get(binding.id).pipe(Effect.mapError(toUnexpectedError))
+          if (mappingRaw === undefined) return { kind: "legacy-email", email: binding.boundBy } as const
+          const mapping = mappingRaw as BindingConnectionRecord
+          const connectionRaw = yield* collections.providerConnections
+            .get(mapping.providerConnectionId)
+            .pipe(Effect.mapError(toUnexpectedError))
+          if (connectionRaw === undefined) return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId: binding.workspaceId, gatekeeperKind: "google-calendar" }))
+          const resolved = resolveGatekeeperConnectionLocator(binding, [mapping], [connectionRaw as ProviderConnectionRecord])
+          if (resolved instanceof Error) {
+            return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId: binding.workspaceId, gatekeeperKind: "google-calendar" }))
+          }
+          return resolved.locator
+        })
+
+      const isBindingActiveForVisibility = (binding: GatekeeperBinding): Effect.Effect<boolean, DomainError> =>
+        Effect.gen(function* () {
+          const mapping = yield* collections.bindingConnections.get(binding.id).pipe(Effect.mapError(toUnexpectedError))
+          if (mapping === undefined) return true
+          const connection = yield* collections.providerConnections
+            .get((mapping as BindingConnectionRecord).providerConnectionId)
+            .pipe(Effect.mapError(toUnexpectedError))
+          return connection !== undefined && (connection as ProviderConnectionRecord).status === "active"
+        })
+
+      const listCalendarsForBinding = (binding: GatekeeperBinding): Effect.Effect<ReadonlyArray<{ readonly id: string; readonly summary: string }>, DomainError> =>
+        resolveBindingLocator(binding).pipe(
+          Effect.flatMap((locator) =>
+            locator.kind === "legacy-email"
+              ? gatekeeperClient.listCalendars(locator.email)
+              : gatekeeperClient.byConnection === undefined
+                ? Effect.fail(new GatekeeperNotConnected({ workspaceId: binding.workspaceId, gatekeeperKind: "google-calendar" }))
+                : gatekeeperClient.byConnection.listCalendars(locator)
+          )
+        )
+
+      const eventsPageForBinding = (
+        binding: GatekeeperBinding,
+        calendarId: string,
+        query: Parameters<NonNullable<typeof gatekeeperClient.byConnection>["eventsPage"]>[2]
+      ) =>
+        resolveBindingLocator(binding).pipe(
+          Effect.flatMap((locator) =>
+            locator.kind === "legacy-email"
+              ? gatekeeperClient.eventsPage(locator.email, calendarId, query)
+              : gatekeeperClient.byConnection === undefined
+                ? Effect.fail(new GatekeeperNotConnected({ workspaceId: binding.workspaceId, gatekeeperKind: "google-calendar" }))
+                : gatekeeperClient.byConnection.eventsPage(locator, calendarId, query)
+          )
+        )
 
       /** Every `google-calendar` binding this workspace currently has — the set `verifyObserver`/
        *  `isCalendarContentVisible` both iterate over (see this file's header comment). */
@@ -379,6 +466,27 @@ export const makeCalendarServiceLive = (
             return
           }
 
+          const bindingLocator = yield* resolveBindingLocator(binding)
+          // The current public collaborator flow supplies only an email. For an active opaque
+          // binding that is not enough to choose among a person's multiple Google grants, so fail
+          // closed until the private observerConnectionId admission is wired by the collaborator
+          // package; never guess or fall back to email.
+          if (bindingLocator.kind === "provider-connection") {
+            yield* putObserverRecord({
+              id: calendarObserverKey(workspaceId, binding.id, observerEmail),
+              workspaceId,
+              bindingId: binding.id,
+              observerEmail,
+              status: "denied",
+              message: "An exact calendar connection is required to verify this observer.",
+              verifiedAt: now()
+            })
+            return
+          }
+          // The verifier is minted from the observer's own account. The binding locator only
+          // selects the account that will evaluate the resulting verifier in `addObserver`.
+          // Keeping those identities separate is essential for legacy sharing and remains the
+          // same invariant when the observer path gains an opaque locator.
           const verifierExit = yield* gatekeeperClient.mintObserverVerifier(observerEmail).pipe(Effect.either)
           if (verifierExit._tag === "Left") {
             yield* putObserverRecord({
@@ -394,7 +502,7 @@ export const makeCalendarServiceLive = (
           }
 
           const addExit = yield* gatekeeperClient
-            .addObserver(binding.boundBy, binding.id, observerEmail, verifierExit.right.token, mode, calendarId)
+            .addObserver(bindingLocator.email, binding.id, observerEmail, verifierExit.right.token, mode, calendarId)
             .pipe(Effect.either)
           yield* putObserverRecord({
             id: calendarObserverKey(workspaceId, binding.id, observerEmail),
@@ -418,13 +526,17 @@ export const makeCalendarServiceLive = (
       const isCalendarContentVisible: CalendarServiceApi["isCalendarContentVisible"] = (workspaceId, callerEmail) =>
         Effect.gen(function* () {
           const bindings = yield* listCalendarBindingsForWorkspace(workspaceId)
+          // A cleanupPending opaque connection remains locally retained only long enough for a
+          // retryable remote teardown. It is already unroutable, so its historical projection is
+          // owner-only during that interval rather than remaining visible via stale observer rows.
+          const activeBindings = yield* Effect.filter(bindings, isBindingActiveForVisibility)
           const ownerEmail = yield* sharing.getOwnerEmail
           // A disconnect removes credentials, not the already-synced private projection. In a
           // governed workspace retained calendar rows become owner-only until a new binding is
           // established; otherwise a disconnect would accidentally disclose old event metadata.
-          if (bindings.length === 0) return ownerEmail === null || callerEmail === ownerEmail
+          if (activeBindings.length === 0) return ownerEmail === null || callerEmail === ownerEmail
           if (callerEmail !== undefined && callerEmail === ownerEmail) return true
-          if (callerEmail !== undefined && bindings.some((b) => b.boundBy === callerEmail)) return true
+          if (callerEmail !== undefined && activeBindings.some((b) => b.boundBy === callerEmail)) return true
           if (callerEmail === undefined) {
             // A governed workspace's `requireRoleForGovernedWorkspace` gate already rejects an anonymous
             // caller before this method is ever reached — reaching here with no email means the
@@ -433,7 +545,7 @@ export const makeCalendarServiceLive = (
             return ownerEmail === null
           }
 
-          for (const binding of bindings) {
+          for (const binding of activeBindings) {
             const raw = yield* collections.calendarObservers
               .get(calendarObserverKey(workspaceId, binding.id, callerEmail))
               .pipe(Effect.mapError(toUnexpectedError))
@@ -468,7 +580,14 @@ export const makeCalendarServiceLive = (
       ): Effect.Effect<void, never> =>
         Effect.gen(function* () {
           if (binding.config.kind !== "google-calendar" || binding.config.mode !== "allVisible") return
-          const result = yield* gatekeeperClient.notifyCalendarTouched(binding.boundBy, binding.id, calendarId).pipe(
+          const result = yield* resolveBindingLocator(binding).pipe(
+            Effect.flatMap((locator) =>
+              locator.kind === "legacy-email"
+                ? gatekeeperClient.notifyCalendarTouched(locator.email, binding.id, calendarId)
+                : gatekeeperClient.byConnection === undefined
+                  ? Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
+                  : gatekeeperClient.byConnection.notifyCalendarTouched(locator, binding.id, calendarId)
+            ),
             Effect.either
           )
           if (result._tag === "Left") return
@@ -501,7 +620,41 @@ export const makeCalendarServiceLive = (
       const connect: CalendarServiceApi["connect"] = (workspaceId, boundByEmail) =>
         Effect.gen(function* () {
           yield* requireOAuthConfigured
-          const state = yield* mintCalendarOAuthState(workspaceId, boundByEmail, config.stateSecret)
+          if (gatekeeperClient.byConnection === undefined) {
+            const state = yield* mintCalendarOAuthState(workspaceId, boundByEmail, config.stateSecret)
+            const { url } = yield* gatekeeperClient.buildAuthorizationUrl(state, config.redirectUri)
+            return { authorizationUrl: url, state }
+          }
+          const principal = yield* decodeEmail(boundByEmail)
+          const nonce = makeCalendarOAuthStateNonce()
+          const nonceDigest = yield* digestCalendarOAuthStateNonce(nonce).pipe(
+            Effect.mapError((error) => new ValidationError({ message: error.message }))
+          )
+          const issuedAt = now()
+          const expiresAt = IsoDateTimeString.make(new Date(Date.now() + 10 * 60 * 1000).toISOString())
+          // Calendar selection stays public-flow compatible: the callback supplies it. These
+          // provisional values remain only inside the pending private admission record and are
+          // replaced before the public binding is activated.
+          const admission = preparePendingCalendarOAuthAdmission({
+            workspaceId,
+            principal,
+            calendarId: "primary",
+            mode: "selected",
+            stateNonceDigest: nonceDigest,
+            rowHash: nonceDigest,
+            issuedAt,
+            expiresAt
+          })
+          yield* transaction(
+            Effect.gen(function* () {
+              yield* collections.providerConnections.put(admission.connection).pipe(Effect.mapError(toUnexpectedError))
+              yield* collections.bindingConnections.put(admission.bindingConnection).pipe(Effect.mapError(toUnexpectedError))
+              yield* collections.calendarOAuthAttempts.put(admission.attempt).pipe(Effect.mapError(toUnexpectedError))
+            })
+          )
+          const state = yield* mintCalendarOAuthAttemptState(nonce, config.stateSecret).pipe(
+            Effect.mapError((error) => new ValidationError({ message: error.message }))
+          )
           const { url } = yield* gatekeeperClient.buildAuthorizationUrl(state, config.redirectUri)
           return { authorizationUrl: url, state }
         })
@@ -511,36 +664,182 @@ export const makeCalendarServiceLive = (
         code,
         state,
         calendarId,
-        mode
+        mode,
+        callbackPrincipal
       ) =>
         Effect.gen(function* () {
           yield* requireOAuthConfigured
-          const verified = yield* verifyCalendarOAuthState(state, config.stateSecret).pipe(
+          if (gatekeeperClient.byConnection === undefined) {
+            const legacy = yield* verifyCalendarOAuthState(state, config.stateSecret).pipe(
+              Effect.mapError((error) => new ValidationError({ message: error.message }))
+            )
+            if (legacy.workspaceId !== workspaceId || legacy.boundByEmail !== callbackPrincipal) {
+              return yield* Effect.fail(new ValidationError({ message: "OAuth state does not match this workspace." }))
+            }
+            const boundBy = yield* decodeEmail(legacy.boundByEmail)
+            yield* gatekeeperClient.exchangeAndConnect(legacy.boundByEmail, code, config.redirectUri)
+            const binding = new GatekeeperBinding({
+              id: crypto.randomUUID() as EntityId,
+              workspaceId,
+              gatekeeperKind: "google-calendar",
+              boundBy,
+              config: new GoogleCalendarBindingConfig({ kind: "google-calendar", calendarId, mode }),
+              createdAt: now()
+            })
+            yield* collections.gatekeeperBindings.put(binding).pipe(Effect.mapError(toUnexpectedError))
+            return binding
+          }
+          const verified = yield* verifyCalendarOAuthAttemptState(state, config.stateSecret).pipe(
             Effect.mapError((e) => new ValidationError({ message: e.message }))
           )
-          if (verified.workspaceId !== workspaceId) {
-            return yield* Effect.fail(new ValidationError({ message: "OAuth state does not match this workspace." }))
-          }
-          const boundByEmail = yield* decodeEmail(verified.boundByEmail)
-          yield* gatekeeperClient.exchangeAndConnect(boundByEmail, code, config.redirectUri).pipe(
-            Effect.mapError((cause) => new OAuthExchangeFailed({ message: describeError(cause) }))
+          const principal = yield* decodeEmail(callbackPrincipal)
+          const claimed = yield* transaction(
+            collections.calendarOAuthAttempts.byStateNonceDigest.get(verified.nonceDigest).pipe(
+              Effect.mapError(toUnexpectedError),
+              Effect.flatMap((rows) => Effect.gen(function* () {
+                const matching = rows.map((row) => row as CalendarOAuthAttemptRecord).filter((row) =>
+                  row.workspaceId === workspaceId && row.principal === principal
+                )
+                if (matching.length !== 1) return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
+                const attempt = matching[0]!
+                if (attempt.lifecycle === "committed") return { attempt, leaseToken: undefined as string | undefined }
+                if (Date.now() >= new Date(attempt.expiresAt).getTime()) {
+                  if (attempt.lifecycle === "pending" || attempt.lifecycle === "exchanging") {
+                    yield* collections.calendarOAuthAttempts
+                      .put(new CalendarOAuthAttemptRecord({ ...attempt, lifecycle: "expired", revision: attempt.revision + 1 }))
+                      .pipe(Effect.mapError(toUnexpectedError))
+                  }
+                  return yield* Effect.fail(new ValidationError({ message: "OAuth authorization has expired." }))
+                }
+                if (attempt.lifecycle !== "pending" && attempt.lifecycle !== "exchanging") {
+                  return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
+                }
+                if (
+                  attempt.lifecycle === "exchanging" &&
+                  attempt.leaseExpiresAt !== undefined &&
+                  new Date(attempt.leaseExpiresAt).getTime() > Date.now()
+                ) {
+                  return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is being completed." }))
+                }
+                const leaseToken = crypto.randomUUID()
+                const updated = new CalendarOAuthAttemptRecord({
+                  ...attempt,
+                  lifecycle: "exchanging",
+                  leaseToken,
+                  leaseExpiresAt: IsoDateTimeString.make(new Date(Date.now() + 60_000).toISOString()),
+                  fence: attempt.fence + 1,
+                  revision: attempt.revision + 1
+                })
+                yield* collections.calendarOAuthAttempts.put(updated).pipe(Effect.mapError(toUnexpectedError))
+                return { attempt: updated, leaseToken }
+              }))
+            )
           )
-          const binding = new GatekeeperBinding({
-            id: crypto.randomUUID() as EntityId,
-            workspaceId,
-            gatekeeperKind: "google-calendar",
-            boundBy: boundByEmail,
-            config: new GoogleCalendarBindingConfig({ kind: "google-calendar", calendarId, mode }),
-            createdAt: now()
-          })
-          yield* collections.gatekeeperBindings.put(binding).pipe(Effect.mapError(toUnexpectedError))
-          return binding
+          if (claimed.attempt.lifecycle === "committed") return yield* findBinding(workspaceId, claimed.attempt.bindingId)
+          const opaque = { kind: "provider-connection" as const, providerConnectionId: claimed.attempt.providerConnectionId }
+          const operations = gatekeeperClient.byConnection
+          if (operations === undefined) return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth connection is unavailable." }))
+          const receipt = yield* operations.completeOAuth(opaque, claimed.attempt.attemptId, code, config.redirectUri).pipe(
+            Effect.catchAll((exchangeError) =>
+              operations.getOAuthCompletion(opaque, claimed.attempt.attemptId).pipe(
+                Effect.mapError(() => new OAuthExchangeFailed({ message: "Calendar OAuth exchange failed." }))
+              )
+            )
+          )
+          return yield* transaction(
+            collections.calendarOAuthAttempts.get(claimed.attempt.attemptId).pipe(
+              Effect.mapError(toUnexpectedError),
+              Effect.flatMap((raw) => Effect.gen(function* () {
+                if (raw === undefined) return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
+                const attempt = raw as CalendarOAuthAttemptRecord
+                if (attempt.lifecycle === "committed") return yield* findBinding(workspaceId, attempt.bindingId)
+                if (attempt.leaseToken !== claimed.leaseToken || attempt.fence !== claimed.attempt.fence) {
+                  return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is being completed." }))
+                }
+                // Receipt values are private completion proof; validate their shape but never disclose them.
+                if (!/^[a-f0-9]{64}$/.test(receipt.receiptDigest) || !/^[a-f0-9]{64}$/.test(receipt.completionFactDigest)) {
+                  return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth completion is unavailable." }))
+                }
+                const binding = new GatekeeperBinding({
+                  id: attempt.bindingId,
+                  workspaceId,
+                  gatekeeperKind: "google-calendar",
+                  boundBy: principal,
+                  config: new GoogleCalendarBindingConfig({ kind: "google-calendar", calendarId, mode }),
+                  createdAt: attempt.issuedAt
+                })
+                const connectionRaw = yield* collections.providerConnections.get(attempt.providerConnectionId).pipe(Effect.mapError(toUnexpectedError))
+                if (connectionRaw === undefined) return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
+                const connection = connectionRaw as ProviderConnectionRecord
+                if (connection.workspaceId !== workspaceId || connection.principal !== principal || connection.status !== "pending") {
+                  return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
+                }
+                const active = new ProviderConnectionRecord({ ...connection, status: "active", updatedAt: now() })
+                const committed = new CalendarOAuthAttemptRecord({
+                  ...attempt,
+                  lifecycle: "committed",
+                  leaseToken: undefined,
+                  leaseExpiresAt: undefined,
+                  revision: attempt.revision + 1
+                })
+                yield* collections.gatekeeperBindings.put(binding).pipe(Effect.mapError(toUnexpectedError))
+                yield* collections.providerConnections.put(active).pipe(Effect.mapError(toUnexpectedError))
+                yield* collections.calendarOAuthAttempts.put(committed).pipe(Effect.mapError(toUnexpectedError))
+                return binding
+              }))
+            )
+          )
         })
 
-      const disconnect: CalendarServiceApi["disconnect"] = (workspaceId, bindingId) =>
+      const disconnect: CalendarServiceApi["disconnect"] = (workspaceId, bindingId, principalText) =>
         Effect.gen(function* () {
-          yield* findBinding(workspaceId, bindingId)
-          yield* collections.gatekeeperBindings.delete(bindingId).pipe(Effect.mapError(toUnexpectedError))
+          const binding = yield* findBinding(workspaceId, bindingId)
+          const principal = yield* decodeEmail(principalText)
+          const mappingRaw = yield* collections.bindingConnections.get(bindingId).pipe(Effect.mapError(toUnexpectedError))
+          if (mappingRaw === undefined) {
+            // Preserve explicit legacy lifecycle compatibility; it never impersonates an opaque connection.
+            if (binding.boundBy !== principal) {
+              return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
+            }
+            yield* collections.gatekeeperBindings.delete(bindingId).pipe(Effect.mapError(toUnexpectedError))
+            return true
+          }
+          const mapping = mappingRaw as BindingConnectionRecord
+          const locator = { kind: "provider-connection" as const, providerConnectionId: mapping.providerConnectionId }
+          yield* transaction(
+            Effect.gen(function* () {
+              const raw = yield* collections.providerConnections.get(locator.providerConnectionId).pipe(Effect.mapError(toUnexpectedError))
+              if (raw === undefined) return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
+              const connection = raw as ProviderConnectionRecord
+              if (
+                connection.workspaceId !== workspaceId ||
+                connection.principal !== principal ||
+                (connection.status !== "active" && connection.status !== "cleanupPending")
+              ) {
+                return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
+              }
+              if (connection.status === "active") {
+                yield* collections.providerConnections
+                  .put(new ProviderConnectionRecord({ ...connection, status: "cleanupPending", updatedAt: now() }))
+                  .pipe(Effect.mapError(toUnexpectedError))
+              }
+            })
+          )
+          const operations = gatekeeperClient.byConnection
+          if (operations === undefined) return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
+          yield* operations.disconnect(locator)
+          yield* transaction(
+            Effect.gen(function* () {
+              const raw = yield* collections.providerConnections.get(locator.providerConnectionId).pipe(Effect.mapError(toUnexpectedError))
+              if (raw === undefined) return
+              const connection = raw as ProviderConnectionRecord
+              yield* collections.providerConnections
+                .put(new ProviderConnectionRecord({ ...connection, status: "detached", updatedAt: now() }))
+                .pipe(Effect.mapError(toUnexpectedError))
+              yield* collections.bindingConnections.delete(bindingId).pipe(Effect.mapError(toUnexpectedError))
+              yield* collections.gatekeeperBindings.delete(bindingId).pipe(Effect.mapError(toUnexpectedError))
+            })
+          )
           return true
         })
 
@@ -737,7 +1036,7 @@ export const makeCalendarServiceLive = (
           // dedicated "every calendar this account has ANY visibility into" listing instead.
           yield* touchCalendar(workspaceId, binding, calendarId)
           if (binding.config.mode === "allVisible") {
-            const otherCalendarsExit = yield* gatekeeperClient.listCalendars(binding.boundBy).pipe(Effect.either)
+            const otherCalendarsExit = yield* listCalendarsForBinding(binding).pipe(Effect.either)
             if (otherCalendarsExit._tag === "Right") {
               yield* Effect.forEach(
                 otherCalendarsExit.right.filter((cal) => cal.id !== calendarId),
@@ -756,7 +1055,7 @@ export const makeCalendarServiceLive = (
           let pageToken: string | undefined
           let pages = 0
           do {
-            const page = yield* gatekeeperClient.eventsPage(binding.boundBy, calendarId, {
+            const page = yield* eventsPageForBinding(binding, calendarId, {
               mode: "window",
               timeMin,
               timeMax,
