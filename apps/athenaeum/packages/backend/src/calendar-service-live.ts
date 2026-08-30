@@ -138,6 +138,28 @@ const now = (): IsoDateTimeString => IsoDateTimeString.make(new Date().toISOStri
 
 const attendeeEmailPredicate = "email"
 
+/** Pure CAS fence used by the callback's final private admission transaction. */
+export const canFinalizeCalendarOAuthAttempt = (input: {
+  readonly attempt: CalendarOAuthAttemptRecord
+  readonly workspaceId: EntityId
+  readonly principal: Email
+  readonly providerConnectionId: string
+  readonly bindingId: EntityId
+  readonly leaseToken: string | undefined
+  readonly fence: number
+  readonly nowMs: number
+}): boolean =>
+  input.attempt.lifecycle === "exchanging" &&
+  input.attempt.leaseToken === input.leaseToken &&
+  input.attempt.fence === input.fence &&
+  input.attempt.leaseExpiresAt !== undefined &&
+  new Date(input.attempt.leaseExpiresAt).getTime() > input.nowMs &&
+  new Date(input.attempt.expiresAt).getTime() > input.nowMs &&
+  input.attempt.workspaceId === input.workspaceId &&
+  input.attempt.principal === input.principal &&
+  input.attempt.providerConnectionId === input.providerConnectionId &&
+  input.attempt.bindingId === input.bindingId
+
 /** Pages fetched per `sync()` call, bounded well under a Worker's CPU/subrequest budget — a real
  *  implementation would checkpoint `pageToken`/`syncToken` across calls (new-notes' own cited
  *  "one SQLite transaction applies a page... a crash before that commit resumes the immutable
@@ -706,7 +728,14 @@ export const makeCalendarServiceLive = (
                 if (Date.now() >= new Date(attempt.expiresAt).getTime()) {
                   if (attempt.lifecycle === "pending" || attempt.lifecycle === "exchanging") {
                     yield* collections.calendarOAuthAttempts
-                      .put(new CalendarOAuthAttemptRecord({ ...attempt, lifecycle: "expired", revision: attempt.revision + 1 }))
+                      .put(new CalendarOAuthAttemptRecord({
+                        ...attempt,
+                        lifecycle: "expired",
+                        leaseToken: undefined,
+                        leaseExpiresAt: undefined,
+                        fence: attempt.fence + 1,
+                        revision: attempt.revision + 1
+                      }))
                       .pipe(Effect.mapError(toUnexpectedError))
                   }
                   return yield* Effect.fail(new ValidationError({ message: "OAuth authorization has expired." }))
@@ -753,7 +782,16 @@ export const makeCalendarServiceLive = (
                 if (raw === undefined) return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
                 const attempt = raw as CalendarOAuthAttemptRecord
                 if (attempt.lifecycle === "committed") return yield* findBinding(workspaceId, attempt.bindingId)
-                if (attempt.leaseToken !== claimed.leaseToken || attempt.fence !== claimed.attempt.fence) {
+                if (!canFinalizeCalendarOAuthAttempt({
+                  attempt,
+                  workspaceId,
+                  principal,
+                  providerConnectionId: claimed.attempt.providerConnectionId,
+                  bindingId: claimed.attempt.bindingId,
+                  leaseToken: claimed.leaseToken,
+                  fence: claimed.attempt.fence,
+                  nowMs: Date.now()
+                })) {
                   return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is being completed." }))
                 }
                 // Receipt values are private completion proof; validate their shape but never disclose them.
@@ -774,6 +812,12 @@ export const makeCalendarServiceLive = (
                 if (connection.workspaceId !== workspaceId || connection.principal !== principal || connection.status !== "pending") {
                   return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
                 }
+                const mappingRaw = yield* collections.bindingConnections.get(attempt.bindingId).pipe(Effect.mapError(toUnexpectedError))
+                if (
+                  mappingRaw === undefined ||
+                  (mappingRaw as BindingConnectionRecord).workspaceId !== workspaceId ||
+                  (mappingRaw as BindingConnectionRecord).providerConnectionId !== attempt.providerConnectionId
+                ) return yield* Effect.fail(new ValidationError({ message: "OAuth authorization is unavailable." }))
                 const active = new ProviderConnectionRecord({ ...connection, status: "active", updatedAt: now() })
                 const committed = new CalendarOAuthAttemptRecord({
                   ...attempt,
