@@ -55,6 +55,24 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), next)
     }
 
+    func testAcknowledgedParentDocumentRetainsThePublishedSemanticValueWithoutASecondWrite() throws {
+        let source = heading("title", marks: [.code, .strong])
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        controller.testingReplace(NSRange(location: 5, length: 0), with: " today")
+        let persisted = try XCTUnwrap(published.first)
+        controller.testingUpdate(document: persisted, isEditable: true)
+
+        XCTAssertEqual(persisted, heading("title today", marks: [.code, .strong]))
+        XCTAssertEqual(controller.testingDocument(), persisted)
+        XCTAssertEqual(published, [persisted])
+    }
+
     private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
     }

@@ -8,6 +8,17 @@ options:
 packages:
   AthenaeumApp:
     path: ../AthenaeumApp
+  AthenaeumCore:
+    path: ../AthenaeumCore
+schemes:
+  AthenaeumiOS:
+    build:
+      targets:
+        AthenaeumiOS: all
+        AthenaeumiOSTests: [test]
+    test:
+      targets:
+        - AthenaeumiOSTests
 targets:
   AthenaeumiOS:
     type: application
@@ -36,4 +47,23 @@ targets:
         CODE_SIGNING_ALLOWED: true
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.0"
+  AthenaeumiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      # The package keeps platform-specific controller tests next to the shared UI tests. This
+      # generated iOS target is their executable XCTest home; SwiftPM's macOS test run correctly
+      # excludes the `#if os(iOS)` source.
+      - path: ../AthenaeumApp/Tests/AthenaeumAppUITests/LoroNativeRichTextEditorUIKitTests.swift
+    dependencies:
+      - target: AthenaeumiOS
+      - package: AthenaeumApp
+        product: AthenaeumAppUI
+      - package: AthenaeumCore
+        product: AthenaeumCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: academy.rawkode.athenaeum.ios.tests
         SWIFT_VERSION: "5.0"

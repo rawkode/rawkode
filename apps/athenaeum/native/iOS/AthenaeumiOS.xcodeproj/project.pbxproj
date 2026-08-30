@@ -9,11 +9,27 @@
 /* Begin PBXBuildFile section */
 		03D3060F367DE58111D99C58 /* AthenaeumAppUI in Frameworks */ = {isa = PBXBuildFile; productRef = 41117585515210C0A8B87682 /* AthenaeumAppUI */; };
 		1ADD2606D5D35531ED29948B /* AthenaeumiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860869566491C3788008AFC2 /* AthenaeumiOSApp.swift */; };
+		A01E00010000000000000001 /* LoroNativeRichTextEditorUIKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01E00040000000000000004 /* LoroNativeRichTextEditorUIKitTests.swift */; };
+		A01E00020000000000000002 /* AthenaeumAppUI in Frameworks */ = {isa = PBXBuildFile; productRef = A01E00100000000000000010 /* AthenaeumAppUI */; };
+		A01E00030000000000000003 /* AthenaeumCore in Frameworks */ = {isa = PBXBuildFile; productRef = A01E00110000000000000011 /* AthenaeumCore */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A01E000A000000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CD1C79DCFA9F8B33A48781DE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6FA09D76C25DB792BDEDEFE1;
+			remoteInfo = AthenaeumiOS;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		5A53AD02217DFBC5BF067EF4 /* AthenaeumApp */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AthenaeumApp; path = ../AthenaeumApp; sourceTree = SOURCE_ROOT; };
 		860869566491C3788008AFC2 /* AthenaeumiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AthenaeumiOSApp.swift; sourceTree = "<group>"; };
+		A01E00040000000000000004 /* LoroNativeRichTextEditorUIKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LoroNativeRichTextEditorUIKitTests.swift; path = ../AthenaeumApp/Tests/AthenaeumAppUITests/LoroNativeRichTextEditorUIKitTests.swift; sourceTree = SOURCE_ROOT; };
+		A01E00050000000000000005 /* AthenaeumCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AthenaeumCore; path = ../AthenaeumCore; sourceTree = SOURCE_ROOT; };
+		A01E00060000000000000006 /* AthenaeumiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AthenaeumiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F90B5D090E877C5242694529 /* AthenaeumiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AthenaeumiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -26,6 +42,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A01E00080000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A01E00020000000000000002 /* AthenaeumAppUI in Frameworks */,
+				A01E00030000000000000003 /* AthenaeumCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -34,6 +59,7 @@
 			children = (
 				B7F1EF78A1FC88180C0D75F2 /* Packages */,
 				9301F0933EBDD1B38B628778 /* Sources */,
+				A01E00120000000000000012 /* Tests */,
 				9C89A53FE037E3B99C7636F9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -50,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				F90B5D090E877C5242694529 /* AthenaeumiOS.app */,
+				A01E00060000000000000006 /* AthenaeumiOSTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -58,8 +85,17 @@
 			isa = PBXGroup;
 			children = (
 				5A53AD02217DFBC5BF067EF4 /* AthenaeumApp */,
+				A01E00050000000000000005 /* AthenaeumCore */,
 			);
 			name = Packages;
+			sourceTree = "<group>";
+		};
+		A01E00120000000000000012 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				A01E00040000000000000004 /* LoroNativeRichTextEditorUIKitTests.swift */,
+			);
+			name = Tests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -84,6 +120,27 @@
 			productReference = F90B5D090E877C5242694529 /* AthenaeumiOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A01E00090000000000000009 /* AthenaeumiOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A01E000E000000000000000E /* Build configuration list for PBXNativeTarget "AthenaeumiOSTests" */;
+			buildPhases = (
+				A01E00070000000000000007 /* Sources */,
+				A01E00080000000000000008 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A01E000B000000000000000B /* PBXTargetDependency */,
+			);
+			name = AthenaeumiOSTests;
+			packageProductDependencies = (
+				A01E00100000000000000010 /* AthenaeumAppUI */,
+				A01E00110000000000000011 /* AthenaeumCore */,
+			);
+			productName = AthenaeumiOSTests;
+			productReference = A01E00060000000000000006 /* AthenaeumiOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -96,6 +153,9 @@
 					6FA09D76C25DB792BDEDEFE1 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
+					};
+					A01E00090000000000000009 = {
+						CreatedOnToolsVersion = 26.0;
 					};
 				};
 			};
@@ -110,6 +170,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				1193D9E759E9AEEF0D1AF5C2 /* XCLocalSwiftPackageReference "../AthenaeumApp" */,
+				A01E000F000000000000000F /* XCLocalSwiftPackageReference "../AthenaeumCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9C89A53FE037E3B99C7636F9 /* Products */;
@@ -117,9 +178,18 @@
 			projectRoot = "";
 			targets = (
 				6FA09D76C25DB792BDEDEFE1 /* AthenaeumiOS */,
+				A01E00090000000000000009 /* AthenaeumiOSTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXTargetDependency section */
+		A01E000B000000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6FA09D76C25DB792BDEDEFE1 /* AthenaeumiOS */;
+			targetProxy = A01E000A000000000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXSourcesBuildPhase section */
 		493FF7DC315401ED265536D6 /* Sources */ = {
@@ -127,6 +197,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				1ADD2606D5D35531ED29948B /* AthenaeumiOSApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A01E00070000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A01E00010000000000000001 /* LoroNativeRichTextEditorUIKitTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,6 +382,36 @@
 			};
 			name = Release;
 		};
+		A01E000C000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = academy.rawkode.athenaeum.ios.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		A01E000D000000000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = academy.rawkode.athenaeum.ios.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -325,6 +433,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		A01E000E000000000000000E /* Build configuration list for PBXNativeTarget "AthenaeumiOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A01E000C000000000000000C /* Debug */,
+				A01E000D000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -332,12 +449,25 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../AthenaeumApp;
 		};
+		A01E000F000000000000000F /* XCLocalSwiftPackageReference "../AthenaeumCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../AthenaeumCore;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		41117585515210C0A8B87682 /* AthenaeumAppUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AthenaeumAppUI;
+		};
+		A01E00100000000000000010 /* AthenaeumAppUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AthenaeumAppUI;
+		};
+		A01E00110000000000000011 /* AthenaeumCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A01E000F000000000000000F /* XCLocalSwiftPackageReference "../AthenaeumCore" */;
+			productName = AthenaeumCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
