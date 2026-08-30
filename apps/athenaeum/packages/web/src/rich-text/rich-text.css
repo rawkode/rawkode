@@ -25,7 +25,7 @@
    opt-in visual variants. The editor sets `data-empty` from the actual PM document because
    ProseMirror's generated empty-paragraph DOM also contains widget decorations. */
 .rich-note-editor .ProseMirror[data-empty="true"]::before {
-  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  content: "Start with what matters. Use # to connect a person or project; @ to link context.";
   float: left;
   height: 0;
   pointer-events: none;

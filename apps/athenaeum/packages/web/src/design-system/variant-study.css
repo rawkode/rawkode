@@ -118,7 +118,7 @@ html[data-variant] .shell-nav-item {
 
 /* S9 — empty-note invitation (editor-owned document state) */
 html[data-variant] .rich-note-editor .ProseMirror[data-empty="true"]::before {
-  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  content: "Start with what matters. Use # to connect a person or project; @ to link context.";
   float: left;
   height: 0;
   pointer-events: none;

@@ -287,7 +287,7 @@ describe("Loro semantic checkpoint coordinator", () => {
       })
 
       expect(binding.view!.dom.dataset.empty).toBe("true")
-      expect(binding.view!.dom.getAttribute("aria-placeholder")).toBe("What's happening today?")
+      expect(binding.view!.dom.getAttribute("aria-placeholder")).toBe("Start with what matters. Use # to connect a person or project; @ to link context.")
 
       // The real official plugin creates init/import transactions, but neither can reach transport.
       await vi.advanceTimersByTimeAsync(0)

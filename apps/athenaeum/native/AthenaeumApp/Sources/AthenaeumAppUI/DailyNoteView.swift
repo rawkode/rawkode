@@ -604,7 +604,7 @@ public struct DailyNoteView: View {
             )
 
             if model.text.isEmpty && !model.isRichTextReadOnly {
-                Text("What is worth remembering today?")
+                Text(LoroNativeRichEmptyStatePresentation.promptText)
                     .font(.system(.body, design: .serif).italic())
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 24)
@@ -640,7 +640,7 @@ public struct DailyNoteView: View {
             .accessibilityHint("Plain-text editing is available only while the saved Loro state remains current.")
 
             if model.loroPlainDraft.isEmpty {
-                Text("What is worth remembering today?")
+                Text(LoroNativeRichEmptyStatePresentation.promptText)
                     .font(.system(.body, design: .serif).italic())
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 24)

@@ -6,7 +6,7 @@ import AthenaeumCore
 /// heading (or any other structure) is meaningful user-authored content and must not be obscured
 /// by a writing prompt.
 struct LoroNativeRichEmptyStatePresentation: Equatable {
-    static let promptText = "What is worth remembering today?"
+    static let promptText = "Start with what matters. Use # to connect a person or project; @ to link context."
 
     let prompt: String?
 

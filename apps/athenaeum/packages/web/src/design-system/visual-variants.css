@@ -222,7 +222,7 @@ html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .workspace
 }
 
 html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .rich-note-editor .ProseMirror[data-empty="true"]::before {
-  content: "What's happening today?  ·  # to tag  ·  @ to link";
+  content: "Start with what matters. Use # to connect a person or project; @ to link context.";
   float: left;
   height: 0;
   pointer-events: none;
