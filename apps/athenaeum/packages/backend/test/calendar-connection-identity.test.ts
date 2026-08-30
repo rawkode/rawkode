@@ -13,8 +13,10 @@ import {
   BindingConnectionRecord,
   CalendarConnectionIdentityError,
   ProviderConnectionRecord,
+  preparePendingCalendarOAuthAdmission,
   resolveGatekeeperConnectionLocator
 } from "../src/calendar-connection-identity.js"
+import type { CalendarObserverRecord } from "../src/calendar-collections.js"
 
 const bindingId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa6")
 const workspaceId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa7")
@@ -23,6 +25,7 @@ const createdAt = Schema.decodeUnknownSync(IsoDateTimeString)(new Date(0).toISOS
 const principal = Schema.decodeUnknownSync(Email)("alice@example.com")
 const otherPrincipal = Schema.decodeUnknownSync(Email)("bob@example.com")
 const connectionId = "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa9"
+const nonceDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 const binding = new GatekeeperBinding({
   id: bindingId,
@@ -120,5 +123,53 @@ describe("calendar connection identity migration adapter", () => {
     expect(Either.isLeft(Schema.decodeUnknownEither(ProviderConnectionRecord)({ ...valid, providerConnectionId: "alice@example.com" }))).toBe(true)
     expect(Either.isLeft(Schema.decodeUnknownEither(ProviderConnectionRecord)({ ...valid, status: "unknown" }))).toBe(true)
     expect(Either.isLeft(Schema.decodeUnknownEither(ProviderConnectionRecord)({ ...valid, workspaceId: "not-an-id" }))).toBe(true)
+  })
+
+  it("prepares isolated pending connection, binding, mapping, and attempt records for one atomic admission", () => {
+    const first = preparePendingCalendarOAuthAdmission({
+      workspaceId,
+      principal,
+      calendarId: "primary",
+      mode: "selected",
+      stateNonceDigest: nonceDigest,
+      rowHash: nonceDigest,
+      issuedAt: createdAt,
+      expiresAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date(60_000).toISOString())
+    })
+    const second = preparePendingCalendarOAuthAdmission({
+      workspaceId,
+      principal,
+      calendarId: "work",
+      mode: "allVisible",
+      stateNonceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      rowHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      issuedAt: createdAt,
+      expiresAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date(60_000).toISOString())
+    })
+
+    expect(first.connection.status).toBe("pending")
+    expect(first.attempt.lifecycle).toBe("pending")
+    expect(first.bindingConnection.bindingId).toBe(first.binding.id)
+    expect(first.bindingConnection.providerConnectionId).toBe(first.connection.providerConnectionId)
+    expect(first.attempt.bindingId).toBe(first.binding.id)
+    expect(first.attempt.providerConnectionId).toBe(first.connection.providerConnectionId)
+    expect(second.connection.providerConnectionId).not.toBe(first.connection.providerConnectionId)
+    expect(second.binding.id).not.toBe(first.binding.id)
+    expect(second.attempt.attemptId).not.toBe(first.attempt.attemptId)
+  })
+
+  it("requires an explicit opaque observer connection while keeping legacy observer rows representable", () => {
+    const legacy: CalendarObserverRecord = {
+      id: "legacy-observer",
+      workspaceId,
+      bindingId,
+      observerEmail: "observer@example.com",
+      status: "denied",
+      verifiedAt: createdAt
+    }
+    const opaque: CalendarObserverRecord = { ...legacy, id: "opaque-observer", observerConnectionId: connectionId }
+
+    expect(legacy.observerConnectionId).toBeUndefined()
+    expect(opaque.observerConnectionId).toBe(connectionId)
   })
 })

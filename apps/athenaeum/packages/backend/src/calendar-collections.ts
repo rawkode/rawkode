@@ -43,6 +43,9 @@ import { TreeFormatter } from "effect/ParseResult"
 import { Bookmark, CalendarEvent, GatekeeperBinding, UnexpectedError, type EntityId } from "@athenaeum/domain"
 import {
   type BindingConnectionRecord,
+  type CalendarOAuthAttemptId,
+  type CalendarOAuthAttemptRecord,
+  type CalendarOAuthStateNonceDigest,
   type ProviderConnectionId,
   type ProviderConnectionRecord
 } from "./calendar-connection-identity.js"
@@ -62,6 +65,8 @@ export interface CalendarObserverRecord {
   readonly workspaceId: EntityId
   readonly bindingId: EntityId
   readonly observerEmail: string
+  /** Exact private provider connection for opaque observer verification; absent is legacy-only. */
+  readonly observerConnectionId?: ProviderConnectionId
   readonly status: "granted" | "denied"
   readonly message?: string
   readonly verifiedAt: string
@@ -178,6 +183,15 @@ const bindingConnectionsCollectionSchema = collection<BindingConnectionRecord>()
   }
 })
 
+const calendarOAuthAttemptsCollectionSchema = collection<CalendarOAuthAttemptRecord>()({
+  primaryKey: "attemptId",
+  nonUniqueIndexes: {
+    byWorkspaceId: (record: CalendarOAuthAttemptRecord) => record.workspaceId,
+    byStateNonceDigest: (record: CalendarOAuthAttemptRecord) => record.stateNonceDigest,
+    byProviderConnectionId: (record: CalendarOAuthAttemptRecord) => record.providerConnectionId
+  }
+})
+
 export interface CalendarCollections {
   readonly gatekeeperBindings: Collection<GatekeeperBinding, EntityId> & {
     readonly byWorkspaceId: NonUniqueIndex<GatekeeperBinding, EntityId>
@@ -210,6 +224,11 @@ export interface CalendarCollections {
     readonly byWorkspaceId: NonUniqueIndex<BindingConnectionRecord, EntityId>
     readonly byProviderConnectionId: NonUniqueIndex<BindingConnectionRecord, ProviderConnectionId>
   }
+  readonly calendarOAuthAttempts: Collection<CalendarOAuthAttemptRecord, CalendarOAuthAttemptId> & {
+    readonly byWorkspaceId: NonUniqueIndex<CalendarOAuthAttemptRecord, EntityId>
+    readonly byStateNonceDigest: NonUniqueIndex<CalendarOAuthAttemptRecord, CalendarOAuthStateNonceDigest>
+    readonly byProviderConnectionId: NonUniqueIndex<CalendarOAuthAttemptRecord, ProviderConnectionId>
+  }
 }
 
 export const makeCalendarCollections = (storage: DurableObjectStorage): CalendarCollections => {
@@ -223,7 +242,8 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
       calendarSourceRevisions: calendarSourceRevisionsCollectionSchema,
       calendarAttendeeObservations: calendarAttendeeObservationsCollectionSchema,
       providerConnections: providerConnectionsCollectionSchema,
-      bindingConnections: bindingConnectionsCollectionSchema
+      bindingConnections: bindingConnectionsCollectionSchema,
+      calendarOAuthAttempts: calendarOAuthAttemptsCollectionSchema
     }
   })
   return {
@@ -235,7 +255,8 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
     calendarSourceRevisions: typedStorage.calendarSourceRevisions,
     calendarAttendeeObservations: typedStorage.calendarAttendeeObservations,
     providerConnections: typedStorage.providerConnections,
-    bindingConnections: typedStorage.bindingConnections
+    bindingConnections: typedStorage.bindingConnections,
+    calendarOAuthAttempts: typedStorage.calendarOAuthAttempts
   }
 }
 

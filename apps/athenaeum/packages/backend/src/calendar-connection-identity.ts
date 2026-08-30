@@ -3,9 +3,16 @@
 // connection identifier, provider subject, or account address becomes part of an RPC projection.
 
 import * as Schema from "effect/Schema"
-import { Email, EntityId, IsoDateTimeString, type GatekeeperBinding } from "@athenaeum/domain"
+import {
+  Email,
+  EntityId,
+  GatekeeperBinding,
+  GoogleCalendarBindingConfig,
+  IsoDateTimeString
+} from "@athenaeum/domain"
 
 const opaqueConnectionIdPattern = /^gpc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const opaqueAttemptIdPattern = /^coa_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const sha256FingerprintPattern = /^[a-f0-9]{64}$/
 
 /** Random, opaque backend key. It is not an email-derived identifier and is never an RPC value. */
@@ -17,6 +24,24 @@ export const ProviderConnectionId = Schema.String.pipe(
 )
 export type ProviderConnectionId = typeof ProviderConnectionId.Type
 
+/** Backend-private OAuth attempt key. It never crosses the OAuth redirect boundary. */
+export const CalendarOAuthAttemptId = Schema.String.pipe(
+  Schema.filter((value) => opaqueAttemptIdPattern.test(value), {
+    message: () => "CalendarOAuthAttemptId must be an opaque coa_ UUID"
+  }),
+  Schema.brand("CalendarOAuthAttemptId")
+)
+export type CalendarOAuthAttemptId = typeof CalendarOAuthAttemptId.Type
+
+/** A SHA-256 digest of the redirect nonce, never the nonce itself. */
+export const CalendarOAuthStateNonceDigest = Schema.String.pipe(
+  Schema.filter((value) => sha256FingerprintPattern.test(value), {
+    message: () => "CalendarOAuthStateNonceDigest must be a SHA-256 hex digest"
+  }),
+  Schema.brand("CalendarOAuthStateNonceDigest")
+)
+export type CalendarOAuthStateNonceDigest = typeof CalendarOAuthStateNonceDigest.Type
+
 export const ProviderSubjectFingerprint = Schema.String.pipe(
   Schema.filter((value) => sha256FingerprintPattern.test(value), {
     message: () => "ProviderSubjectFingerprint must be a SHA-256 hex digest"
@@ -25,8 +50,26 @@ export const ProviderSubjectFingerprint = Schema.String.pipe(
 )
 export type ProviderSubjectFingerprint = typeof ProviderSubjectFingerprint.Type
 
-export const CalendarProviderConnectionStatus = Schema.Literal("legacy-unverified", "active", "detached")
+export const CalendarProviderConnectionStatus = Schema.Literal(
+  "legacy-unverified",
+  "pending",
+  "active",
+  "cleanupPending",
+  "detached"
+)
 export type CalendarProviderConnectionStatus = typeof CalendarProviderConnectionStatus.Type
+
+export const CalendarOAuthAttemptLifecycle = Schema.Literal(
+  "pending",
+  "exchanging",
+  "provider-completed",
+  "committed",
+  "cleanupPending",
+  "detached",
+  "failed",
+  "expired"
+)
+export type CalendarOAuthAttemptLifecycle = typeof CalendarOAuthAttemptLifecycle.Type
 
 /**
  * Private record for a credential-bearing provider connection. `principal` is Athenaeum's
@@ -51,6 +94,39 @@ export class BindingConnectionRecord extends Schema.Class<BindingConnectionRecor
   providerConnectionId: ProviderConnectionId,
   createdAt: IsoDateTimeString
 }) {}
+
+/**
+ * Private callback state. The redirect's signed state contains only an independently generated
+ * nonce; this row is found by its digest and carries every durable identity needed after the
+ * authenticated callback reaches the workspace DO. `fence`/`revision`/`rowHash` are present now
+ * so the later callback worker can use a leased compare-and-swap without changing stored shape.
+ */
+export class CalendarOAuthAttemptRecord extends Schema.Class<CalendarOAuthAttemptRecord>("CalendarOAuthAttemptRecord")({
+  attemptId: CalendarOAuthAttemptId,
+  stateNonceDigest: CalendarOAuthStateNonceDigest,
+  workspaceId: EntityId,
+  principal: Email,
+  providerConnectionId: ProviderConnectionId,
+  bindingId: EntityId,
+  calendarId: Schema.String,
+  mode: Schema.Literal("selected", "allVisible"),
+  lifecycle: CalendarOAuthAttemptLifecycle,
+  issuedAt: IsoDateTimeString,
+  expiresAt: IsoDateTimeString,
+  fence: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  revision: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  rowHash: CalendarOAuthStateNonceDigest,
+  leaseToken: Schema.optional(Schema.String),
+  leaseExpiresAt: Schema.optional(IsoDateTimeString),
+  failureKind: Schema.optional(Schema.Literal("oauth-exchange", "missing-refresh-token", "expired", "unknown"))
+}) {}
+
+export interface PendingCalendarOAuthAdmission {
+  readonly connection: ProviderConnectionRecord
+  readonly binding: GatekeeperBinding
+  readonly bindingConnection: BindingConnectionRecord
+  readonly attempt: CalendarOAuthAttemptRecord
+}
 
 /**
  * The only identity handed to the gatekeeper transport. Existing records use the legacy email
@@ -78,6 +154,69 @@ export class CalendarConnectionIdentityError extends Error {
 
 export const makeProviderConnectionId = (): ProviderConnectionId =>
   Schema.decodeUnknownSync(ProviderConnectionId)(`gpc_${crypto.randomUUID()}`)
+
+export const makeCalendarOAuthAttemptId = (): CalendarOAuthAttemptId =>
+  Schema.decodeUnknownSync(CalendarOAuthAttemptId)(`coa_${crypto.randomUUID()}`)
+
+/** Build the four private records that the later CalendarService admission transaction persists together. */
+export const preparePendingCalendarOAuthAdmission = (input: {
+  readonly workspaceId: EntityId
+  readonly principal: Email
+  readonly calendarId: string
+  readonly mode: "selected" | "allVisible"
+  readonly stateNonceDigest: CalendarOAuthStateNonceDigest
+  readonly rowHash: CalendarOAuthStateNonceDigest
+  readonly issuedAt: IsoDateTimeString
+  readonly expiresAt: IsoDateTimeString
+  readonly providerConnectionId?: ProviderConnectionId
+  readonly attemptId?: CalendarOAuthAttemptId
+  readonly bindingId?: EntityId
+}): PendingCalendarOAuthAdmission => {
+  const providerConnectionId = input.providerConnectionId ?? makeProviderConnectionId()
+  const attemptId = input.attemptId ?? makeCalendarOAuthAttemptId()
+  const bindingId = input.bindingId ?? (crypto.randomUUID() as EntityId)
+  const connection = new ProviderConnectionRecord({
+    providerConnectionId,
+    workspaceId: input.workspaceId,
+    principal: input.principal,
+    provider: "google-calendar",
+    status: "pending",
+    createdAt: input.issuedAt,
+    updatedAt: input.issuedAt
+  })
+  const binding = new GatekeeperBinding({
+    id: bindingId,
+    workspaceId: input.workspaceId,
+    gatekeeperKind: "google-calendar",
+    // Compatibility-only private owner metadata. Active routing will use bindingConnection.
+    boundBy: input.principal,
+    config: new GoogleCalendarBindingConfig({ kind: "google-calendar", calendarId: input.calendarId, mode: input.mode }),
+    createdAt: input.issuedAt
+  })
+  const bindingConnection = new BindingConnectionRecord({
+    bindingId,
+    workspaceId: input.workspaceId,
+    providerConnectionId,
+    createdAt: input.issuedAt
+  })
+  const attempt = new CalendarOAuthAttemptRecord({
+    attemptId,
+    stateNonceDigest: input.stateNonceDigest,
+    workspaceId: input.workspaceId,
+    principal: input.principal,
+    providerConnectionId,
+    bindingId,
+    calendarId: input.calendarId,
+    mode: input.mode,
+    lifecycle: "pending",
+    issuedAt: input.issuedAt,
+    expiresAt: input.expiresAt,
+    fence: 0,
+    revision: 0,
+    rowHash: input.rowHash
+  })
+  return { connection, binding, bindingConnection, attempt }
+}
 
 /** Reject malformed migration input before it can become a persisted duplicate mapping. */
 export const assertUniqueBindingConnectionMappings = (
