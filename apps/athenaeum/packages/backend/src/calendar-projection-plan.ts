@@ -35,9 +35,10 @@ export const planCalendarRemoteEvent = (
   }))
   return {
     workspaceId, bindingId, remote, sourceRevisionDigest, sourceEventKeyDigest,
-    attendeeObservationDigests: attendeeEmails.map((email) => sha256HexSync(canonicalJsonBytes({
-      workspaceId, bindingId, providerEventId: remote.id, email
-    }))),
+    // Workspace-scoped rather than provider-event scoped: the concierge can resolve the same
+    // Person across repeated meetings and multiple connected calendars without learning the
+    // address itself. The event-specific sourceEventKeyDigest keeps observations distinct.
+    attendeeObservationDigests: attendeeEmails.map((email) => sha256HexSync(canonicalJsonBytes({ workspaceId, email }))),
     cancelled: remote.status === "cancelled"
   }
 }

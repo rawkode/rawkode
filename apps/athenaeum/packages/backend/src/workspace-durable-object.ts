@@ -4582,7 +4582,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       // The CalendarService performs provider I/O only. This DO-owned gateway is the one
       // transaction that applies its second-brain projection, ledger custody, outbox signal,
       // and durable workforce enqueue.
-      projectionGateway: new CalendarProjectionGateway(this.#storage, this.#ledger, this.#workforceRuntimeStore)
+      projectionGateway: new CalendarProjectionGateway(this.#storage, this.#ledger, this.#workforceRuntimeStore),
+      rearmWorkforce: () => this.#workforceScheduler.rearm()
     }).pipe(
       Layer.provide(
         Layer.mergeAll(repositoriesLayer, graphServiceLive, calendarGatekeeperClientLive, sharingServiceLive)

@@ -15,13 +15,16 @@ describe("CalendarRemoteEventPlan", () => {
     expect(left.sourceRevisionDigest).toBe(right.sourceRevisionDigest)
     expect(left.attendeeObservationDigests).toEqual(right.attendeeObservationDigests)
   })
-  it("changes revisions for cancellation and isolates bindings without leaking addresses", () => {
+  it("changes revisions for cancellation while retaining a workspace-wide opaque Person key", () => {
     const confirmed = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }]))
     const cancelled = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }], "cancelled"))
     const otherBinding = planCalendarRemoteEvent(workspaceId, "00000000-0000-4000-8000-000000000003", event([{ email: "a@example.test" }]))
     expect(cancelled.cancelled).toBe(true)
     expect(cancelled.sourceRevisionDigest).not.toBe(confirmed.sourceRevisionDigest)
-    expect(otherBinding.attendeeObservationDigests).not.toEqual(confirmed.attendeeObservationDigests)
+    // Different accounts observing the same address should converge on one second-brain Person;
+    // only the source-event key stays binding-specific.
+    expect(otherBinding.attendeeObservationDigests).toEqual(confirmed.attendeeObservationDigests)
+    expect(otherBinding.sourceEventKeyDigest).not.toEqual(confirmed.sourceEventKeyDigest)
     expect(confirmed.sourceRevisionDigest).not.toContain("a@example.test")
     expect(confirmed.attendeeObservationDigests.join(":")) .not.toContain("a@example.test")
   })

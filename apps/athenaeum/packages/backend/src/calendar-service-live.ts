@@ -293,6 +293,9 @@ export interface CalendarServiceConfig {
   /** The Workspace DO-owned atomic write boundary. Calendar provider I/O remains in this
    * service; every resulting second-brain projection is committed through this gateway. */
   readonly projectionGateway: CalendarProjectionGateway
+  /** Called only after a committed projection enqueues a durable run. Kept outside the storage
+   * transaction because DO alarm APIs are async; a later alarm always re-checks the SQL due set. */
+  readonly rearmWorkforce: () => Promise<void>
 }
 
 export const makeCalendarServiceLive = (
@@ -632,7 +635,10 @@ export const makeCalendarServiceLive = (
       ): Effect.Effect<CalendarEvent, DomainError> =>
         Effect.gen(function* () {
           const attendeeEntities: Array<CalendarEventAttendee> = []
-          for (const attendee of remote.attendees ?? []) {
+          // A cancellation is a tombstone for the event, not evidence that its attendee list is
+          // current. In particular, a first-seen cancelled snapshot must never mint Person nodes
+          // or email facts from historical provider data.
+          for (const attendee of remote.status === "cancelled" ? [] : remote.attendees ?? []) {
             // Best-effort: an attendee with a malformed email (rare, but Google does not itself
             // validate every historical row) is skipped rather than failing the whole sync.
             const emailExit = yield* Effect.either(decodeEmail(normalizeEmail(attendee.email)))
@@ -787,7 +793,7 @@ export const makeCalendarServiceLive = (
               // local identity/master caches isolated until the atomic projection has committed.
               const eventEmailIndex = new Map(emailIndex)
               const eventMasterCache = new Map(masterCache)
-              yield* Effect.try({
+              const receipt = yield* Effect.try({
                 try: () => projectionGateway.apply({
                   workspaceId,
                   bindingId,
@@ -821,11 +827,11 @@ export const makeCalendarServiceLive = (
                     }).pipe(Effect.mapError(toUnexpectedError)))
                     const byEmail = new Map(event.attendees.map((attendee) => [normalizeEmail(attendee.email), attendee] as const))
                     const firstObserved: string[] = []
-                    for (const attendee of remote.attendees ?? []) {
+                    for (const attendee of remote.status === "cancelled" ? [] : remote.attendees ?? []) {
                       const email = normalizeEmail(attendee.email)
                       const decoded = Effect.runSyncExit(decodeEmail(email))
                       if (decoded._tag === "Failure") continue
-                      const emailDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, bindingId, providerEventId: remote.id, email }))
+                      const emailDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, email }))
                       const observationId = sha256HexSync(canonicalJsonBytes({ sourceEventKeyDigest: planned.sourceEventKeyDigest, emailDigest }))
                       const existingObservation = Effect.runSync(
                         collections.calendarAttendeeObservations.get(observationId).pipe(Effect.mapError(toUnexpectedError))
@@ -850,6 +856,14 @@ export const makeCalendarServiceLive = (
                   message: `calendar projection failed: ${cause instanceof Error ? cause.message : String(cause)}`
                 })
               })
+              if (receipt.enqueuedRunIds.length > 0) {
+                yield* Effect.tryPromise({
+                  try: () => config.rearmWorkforce(),
+                  catch: (cause) => new UnexpectedError({
+                    message: `calendar projection committed but workforce alarm could not rearm: ${cause instanceof Error ? cause.message : String(cause)}`
+                  })
+                })
+              }
               // Merge only after gateway.apply returns: a failure leaves both maps exactly as
               // they were before this provider event and cannot point a later event at rolled-back data.
               for (const [email, personId] of eventEmailIndex) emailIndex.set(email, personId)
