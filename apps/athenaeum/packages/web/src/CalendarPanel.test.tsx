@@ -28,6 +28,7 @@ vi.mock("./use-effect-query.js", () => ({
 }))
 vi.mock("./calendar-binding-storage.js", () => ({
   CALENDAR_BINDING_CHANGED_EVENT: "calendar-binding-changed",
+  CALENDAR_SYNC_TRIGGERED_EVENT: "calendar-sync-triggered",
   loadCalendarBindingId: bindingStorageMock.loadCalendarBindingId,
   clearCalendarBindingId: bindingStorageMock.clearCalendarBindingId
 }))
@@ -233,6 +234,35 @@ describe("CalendarPanel connection custody", () => {
     expect(host.textContent).toContain("Connect another account")
     expect(host.textContent).not.toContain("in this browser")
     expect(host.querySelector(".calendar-connect")).toBeNull()
+  })
+
+  it("offers a scoped sync action and emits a sibling refresh signal only after the server acknowledges it", async () => {
+    let observe: ((exit: unknown) => void) | undefined
+    runtimeMock.runFork.mockImplementation(() => ({
+      addObserver: (observer: (exit: unknown) => void) => {
+        observe = observer
+      }
+    }))
+    catalogQueryMock.state = catalogSuccess([serverBinding(calendarBindingId)])
+    const host = await mount()
+    const syncButton = host.querySelector<HTMLButtonElement>(".calendar-sync-button")
+    expect(syncButton?.textContent).toBe("Sync now")
+
+    const dispatch = vi.spyOn(window, "dispatchEvent")
+    await act(async () => {
+      syncButton?.click()
+      await flush()
+    })
+    expect(syncButton?.disabled).toBe(true)
+    expect(syncButton?.textContent).toBe("Syncing…")
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "calendar-sync-triggered" }))
+
+    await act(async () => {
+      observe?.(Exit.succeed(Exit.succeed({ triggered: true })))
+      await flush()
+    })
+    expect(host.querySelector(".calendar-sync-success")?.textContent).toContain("Sync requested")
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "calendar-sync-triggered" }))
   })
 
   it("supersedes stale local storage with a confirmed server catalog", async () => {

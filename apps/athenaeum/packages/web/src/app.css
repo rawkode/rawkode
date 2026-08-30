@@ -1944,6 +1944,26 @@
   margin-top: var(--space-3);
 }
 
+.calendar-binding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.calendar-sync-success,
+.calendar-sync-failure {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+}
+
+.calendar-sync-success {
+  color: var(--color-success);
+}
+
+.calendar-sync-failure {
+  color: var(--color-danger, var(--color-warning));
+}
+
 .calendar-connection-actions {
   display: grid;
   gap: var(--space-2);

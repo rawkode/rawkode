@@ -5,6 +5,7 @@ import {
   ConnectGoogleCalendarInput,
   DisconnectGoogleCalendarInput,
   ListGatekeeperBindingsInput,
+  SyncGoogleCalendarInput,
   type GatekeeperBindingSummary,
   type EntityId
 } from "@athenaeum/domain"
@@ -14,6 +15,7 @@ import { workspaceId } from "./workspace-id.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import {
   CALENDAR_BINDING_CHANGED_EVENT,
+  CALENDAR_SYNC_TRIGGERED_EVENT,
   loadCalendarBindingId,
   clearCalendarBindingId
 } from "./calendar-binding-storage.js"
@@ -68,6 +70,12 @@ type ConnectState =
   | { readonly status: "ready"; readonly authorizationUrl: string }
   | { readonly status: "failure" }
 
+type SyncState =
+  | { readonly status: "idle" }
+  | { readonly status: "busy"; readonly bindingId: EntityId }
+  | { readonly status: "success"; readonly bindingId: EntityId }
+  | { readonly status: "failure"; readonly bindingId: EntityId }
+
 const calendarConnectFailureMessage =
   "Calendar connection couldn’t be started. Check the calendar integration, then try again."
 const calendarDisconnectFailureMessage =
@@ -77,6 +85,8 @@ const calendarCatalogFailureMessage =
   "We couldn’t confirm the calendar connections for this workspace. Retry before connecting another account."
 const calendarCatalogFallbackMessage =
   "A calendar connection is remembered in this browser, but the workspace could not confirm it."
+const calendarSyncFailureMessage =
+  "Calendar sync couldn’t be started. Nothing has changed. Retry from this connection."
 
 type CatalogResult = {
   readonly generation: number
@@ -102,6 +112,7 @@ const bindingLabel = (binding: GatekeeperBindingSummary): string => {
 
 export function CalendarPanel() {
   const [connect, setConnect] = useState<ConnectState>({ status: "idle" })
+  const [sync, setSync] = useState<SyncState>({ status: "idle" })
   const [localBindingId, setLocalBindingId] = useState<EntityId | undefined>(() => loadCalendarBindingId(workspaceId))
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
   const [selectedBindingId, setSelectedBindingId] = useState<EntityId | undefined>()
@@ -211,11 +222,41 @@ export function CalendarPanel() {
     })
   }
 
+  const handleSync = (bindingId: EntityId) => {
+    if (currentCatalog === undefined || !currentCatalog.some((binding) => binding.id === bindingId)) return
+    setSync({ status: "busy", bindingId })
+    const fiber = runtime.runFork(
+      Effect.exit(
+        WorkspaceRpcClient.pipe(
+          Effect.flatMap((client) => client.syncGoogleCalendar(new SyncGoogleCalendarInput({ workspaceId, bindingId })))
+        )
+      )
+    )
+    fiber.addObserver((outer) => {
+      if (!Exit.isSuccess(outer)) return
+      const inner = outer.value
+      if (Exit.isSuccess(inner)) {
+        setSync({ status: "success", bindingId })
+        // The server returns an acknowledgement, not the eventual event rows. Ask the sibling
+        // projection to re-read its bounded day window so the connection control and schedule
+        // stay in one visible workflow.
+        window.dispatchEvent(new CustomEvent(CALENDAR_SYNC_TRIGGERED_EVENT))
+      } else if (!Exit.isInterrupted(inner)) {
+        setSync({ status: "failure", bindingId })
+        console.error(inner.cause.toString())
+      }
+    })
+  }
+
   const confirmedBindings = currentCatalog ?? []
   const selectedBinding = confirmedBindings.find((binding) => binding.id === selectedBindingId)
   const hasConfirmedConnections = currentCatalog !== undefined && confirmedBindings.length > 0
   const hasLocalFallback = catalogFailed && localBindingId !== undefined
   const disconnectBusy = disconnectingBindingId !== undefined
+  const syncBusy = sync.status === "busy"
+  const selectedSync = sync.status !== "idle" && sync.bindingId === selectedBindingId
+    ? sync
+    : { status: "idle" as const }
 
   return (
     <section className="calendar-panel">
@@ -263,13 +304,30 @@ export function CalendarPanel() {
               <p>{disconnectError}</p>
             </section>
           )}
-          <button
-            type="button"
-            onClick={() => selectedBinding !== undefined && handleDisconnect(selectedBinding.id)}
-            disabled={disconnectBusy || selectedBinding === undefined}
-          >
-            {disconnectBusy ? "Disconnecting…" : "Disconnect selected"}
-          </button>
+          <div className="calendar-binding-actions">
+            <button
+              type="button"
+              className="calendar-sync-button"
+              onClick={() => selectedBinding !== undefined && handleSync(selectedBinding.id)}
+              disabled={syncBusy || disconnectBusy || selectedBinding === undefined}
+              aria-label="Sync selected Google Calendar"
+            >
+              {syncBusy ? "Syncing…" : "Sync now"}
+            </button>
+            <button
+              type="button"
+              onClick={() => selectedBinding !== undefined && handleDisconnect(selectedBinding.id)}
+              disabled={disconnectBusy || syncBusy || selectedBinding === undefined}
+            >
+              {disconnectBusy ? "Disconnecting…" : "Disconnect selected"}
+            </button>
+          </div>
+          {selectedSync.status === "success" && (
+            <p className="calendar-sync-success" role="status">Sync requested. Calendar events will refresh shortly.</p>
+          )}
+          {selectedSync.status === "failure" && (
+            <p className="calendar-sync-failure" role="alert">{calendarSyncFailureMessage}</p>
+          )}
           <div className="calendar-connection-actions">
             {connect.status !== "ready" && (
               <button type="button" onClick={handleConnect} disabled={connect.status === "busy"}>

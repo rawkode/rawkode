@@ -11,6 +11,8 @@ import type { EntityId } from "@athenaeum/domain"
 // picks up for OTHER tabs (`CalendarDayView.tsx`'s own `storage`-event listener is unaffected by
 // this addition, still real, still needed for the cross-tab case).
 export const CALENDAR_BINDING_CHANGED_EVENT = "athenaeum:calendarBindingChanged"
+/** Dispatched after a confirmed server-side sync request so sibling calendar projections can re-read. */
+export const CALENDAR_SYNC_TRIGGERED_EVENT = "athenaeum:calendarSyncTriggered"
 
 // The server's `listGatekeeperBindings` RPC is authoritative for connection state. This tiny
 // local record remains only as an immediate OAuth-callback hint and a recovery signal when the

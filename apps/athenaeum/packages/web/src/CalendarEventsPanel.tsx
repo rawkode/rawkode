@@ -11,6 +11,7 @@ import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { localDayWindow } from "./day-window.js"
 import { localDateStamp, parseDateStamp, shiftDateStamp } from "./daily-note-id.js"
+import { CALENDAR_SYNC_TRIGGERED_EVENT } from "./calendar-binding-storage.js"
 
 const formatDateTime = (value: string, timeZone?: string): string => {
   const timestamp = Date.parse(value)
@@ -93,6 +94,14 @@ export function CalendarEventsPanel() {
   useEffect(() => {
     window.addEventListener("focus", refresh)
     return () => window.removeEventListener("focus", refresh)
+  }, [refresh])
+
+  // A sync request is acknowledged before provider pages are projected. Re-read this bounded
+  // day window after the acknowledgement so the schedule surface observes the eventual result
+  // without making the connection-management panel know about calendar presentation state.
+  useEffect(() => {
+    window.addEventListener(CALENDAR_SYNC_TRIGGERED_EVENT, refresh)
+    return () => window.removeEventListener(CALENDAR_SYNC_TRIGGERED_EVENT, refresh)
   }, [refresh])
 
   const isRefreshing = refreshClaimed || state.status === "loading"

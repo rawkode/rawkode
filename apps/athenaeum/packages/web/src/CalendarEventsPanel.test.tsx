@@ -156,6 +156,19 @@ describe("CalendarEventsPanel day retrieval", () => {
     expect(refreshGenerations()).toEqual([0, 1, 2, 3])
   })
 
+  it("re-reads the active day after a connection panel confirms a sync request", async () => {
+    const { host } = await mount()
+    expect(queryStateMock.dependencies).toEqual([["2026-08-28", 0]])
+
+    await act(async () => {
+      window.dispatchEvent(new Event("athenaeum:calendarSyncTriggered"))
+      await flush()
+    })
+
+    expect(queryStateMock.dependencies.at(-1)).toEqual(["2026-08-28", 1])
+    expect(host.querySelector<HTMLButtonElement>(".calendar-events-refresh")?.disabled).toBe(true)
+  })
+
   it("releases a claimed refresh when day navigation starts a different read", async () => {
     const { host } = await mount({
       status: "failure",
