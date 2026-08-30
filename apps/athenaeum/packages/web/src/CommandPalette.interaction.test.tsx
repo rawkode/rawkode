@@ -182,6 +182,7 @@ describe("CommandPalette search freshness", () => {
 
     await act(async () => { press(lastEnabled!, "Escape") })
     expect(onClose).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledWith("dismiss")
   })
 
   it("opens a canonical daily-note result in the date-addressed editor", async () => {
@@ -198,6 +199,7 @@ describe("CommandPalette search freshness", () => {
     await act(async () => press(input, "Enter"))
     expect(routerMock.navigate).toHaveBeenCalledWith("/notes?date=2026-08-22")
     expect(onClose).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledWith("navigate")
   })
 
   it("opens an exact date command immediately while recall is still debouncing", async () => {
@@ -212,5 +214,6 @@ describe("CommandPalette search freshness", () => {
     expect(routerMock.navigate).toHaveBeenCalledTimes(1)
     expect(routerMock.navigate.mock.calls[0]?.[0]).toMatch(/^\/notes\?date=\d{4}-\d{2}-\d{2}$/)
     expect(onClose).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledWith("navigate")
   })
 })

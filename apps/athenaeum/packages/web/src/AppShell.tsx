@@ -62,6 +62,23 @@ const isBarePrimaryRecallShortcut = (event: globalThis.KeyboardEvent): boolean =
   !event.altKey &&
   !event.shiftKey
 
+type PaletteCloseReason = "dismiss" | "navigate"
+
+type PaletteReturnTarget = {
+  readonly element: HTMLElement
+  readonly routeKey: string
+}
+
+const isLivePaletteReturnTarget = (
+  target: PaletteReturnTarget | undefined,
+  routeKey: string
+): target is PaletteReturnTarget =>
+  target !== undefined &&
+  target.routeKey === routeKey &&
+  target.element.isConnected &&
+  target.element.getAttribute("contenteditable") === "true" &&
+  target.element.matches('[data-athenaeum-daily-note-editor="true"]')
+
 export function AppShell({
   session,
   activeWorkspaceId,
@@ -84,10 +101,17 @@ export function AppShell({
   const sidebarToggleRef = useRef<HTMLButtonElement>(null)
   const chatToggleRef = useRef<HTMLButtonElement>(null)
   const paletteToggleRef = useRef<HTMLButtonElement>(null)
+  // The palette's restore target is mutable because the CommandPalette owns the close transition
+  // and focuses it after React removes the dialog. It normally points at the global trigger, but
+  // an editor-origin recall temporarily points at that exact live ProseMirror contenteditable.
+  const paletteRestoreRef = useRef<HTMLElement | null>(null)
+  const paletteReturnTargetRef = useRef<PaletteReturnTarget | undefined>(undefined)
   const mainContentRef = useRef<HTMLDivElement>(null)
   const location = useLocation()
+  const routeKey = `${location.pathname}${location.search}${location.hash}`
   const currentRouteLabel = routeLabel(location.pathname, location.search)
   const announcedPathnameRef = useRef(location.pathname)
+  const previousRouteKeyRef = useRef(routeKey)
   const [routeAnnouncement, setRouteAnnouncement] = useState("")
   const sidebarIsDrawer = useMediaQuery("(max-width: 58rem)")
   const chatIsDocked = useMediaQuery("(min-width: 78rem)")
@@ -118,7 +142,14 @@ export function AppShell({
 
   const closeChat = () => setChatOpen(false)
 
-  const closePalette = () => setPaletteOpen(false)
+  const closePalette = (reason: PaletteCloseReason = "dismiss") => {
+    const returnTarget = paletteReturnTargetRef.current
+    paletteRestoreRef.current = reason === "dismiss" && isLivePaletteReturnTarget(returnTarget, routeKey)
+      ? returnTarget.element
+      : paletteToggleRef.current
+    paletteReturnTargetRef.current = undefined
+    setPaletteOpen(false)
+  }
 
   const closeSidebar = (restoreFocus = true) => {
     setSidebarOpen(false)
@@ -127,25 +158,36 @@ export function AppShell({
 
   const openChat = () => {
     setSidebarOpen(false)
-    setPaletteOpen(false)
+    if (paletteOpen) closePalette("navigate")
+    else paletteReturnTargetRef.current = undefined
     setChatOpen(true)
   }
 
   const openPalette = () => {
     setSidebarOpen(false)
     setChatOpen(false)
+    paletteReturnTargetRef.current = undefined
+    paletteRestoreRef.current = paletteToggleRef.current
     setPaletteOpen(true)
   }
 
   // Recall from active daily-note prose is intentionally non-disruptive: it must not close an
   // already-open agent/sidebar surface or discard the user's in-progress work behind the palette.
-  const openPaletteFromDailyNote = () => setPaletteOpen(true)
+  const openPaletteFromDailyNote = (target: EventTarget | null) => {
+    const editor = target instanceof Element
+      ? target.closest<HTMLElement>('[data-athenaeum-daily-note-editor="true"][contenteditable="true"]')
+      : null
+    if (editor === null) return
+    paletteReturnTargetRef.current = { element: editor, routeKey }
+    paletteRestoreRef.current = editor
+    setPaletteOpen(true)
+  }
 
   // Keep the advertised Cmd/Ctrl+K behavior useful from either state. Opening the palette
   // still clears competing drawers; invoking the same shortcut again returns to the work
   // surface instead of leaving a no-op command behind a modal dialog.
   const togglePalette = () => {
-    if (paletteOpen) closePalette()
+    if (paletteOpen) closePalette("dismiss")
     else openPalette()
   }
 
@@ -158,6 +200,15 @@ export function AppShell({
     if (chatOpen) closeChat()
     else openChat()
   }
+
+  useEffect(() => {
+    if (previousRouteKeyRef.current === routeKey) return
+    previousRouteKeyRef.current = routeKey
+    // Query changes are meaningful here: a replaced daily-note editor must never receive focus
+    // from a palette opened by the previous note, even when the shell itself remains mounted.
+    paletteReturnTargetRef.current = undefined
+    paletteRestoreRef.current = paletteToggleRef.current
+  }, [routeKey])
 
   useEffect(() => {
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
@@ -178,7 +229,7 @@ export function AppShell({
         toggleChat()
       } else if (isDailyNoteRecall) {
         event.preventDefault()
-        openPaletteFromDailyNote()
+        openPaletteFromDailyNote(event.target)
       } else if (isBarePrimaryRecallShortcut(event)) {
         event.preventDefault()
         togglePalette()
@@ -192,7 +243,7 @@ export function AppShell({
     }
     window.addEventListener("keydown", handleShortcut)
     return () => window.removeEventListener("keydown", handleShortcut)
-  }, [chatOpen, paletteOpen, sidebarIsDrawer, sidebarOpen])
+  }, [chatOpen, paletteOpen, routeKey, sidebarIsDrawer, sidebarOpen])
 
   return (
     <div className="shell-container">
@@ -378,7 +429,7 @@ export function AppShell({
         <CommandPalette
           open={paletteOpen}
           onClose={closePalette}
-          restoreFocusRef={paletteToggleRef}
+          restoreFocusRef={paletteRestoreRef}
           onNavigated={() => closeSidebar(false)}
         />
       </div>

@@ -21,14 +21,31 @@ vi.mock("./design-system/Drawer.js", () => ({
 }))
 
 vi.mock("./CommandPalette.js", () => ({
-  CommandPalette: ({ open }: { readonly open: boolean }) => {
+  CommandPalette: ({
+    open,
+    onClose,
+    restoreFocusRef
+  }: {
+    readonly open: boolean
+    readonly onClose?: (reason?: "dismiss" | "navigate") => void
+    readonly restoreFocusRef?: { readonly current: HTMLElement | null }
+  }) => {
     const inputRef = useRef<HTMLInputElement>(null)
+    const wasOpenRef = useRef(open)
     useEffect(() => {
       if (open) inputRef.current?.focus()
-    }, [open])
+      else if (wasOpenRef.current) restoreFocusRef?.current?.focus()
+      wasOpenRef.current = open
+    }, [open, restoreFocusRef])
     return <>
       <output data-command-palette-state>{open ? "open" : "closed"}</output>
-      {open && <input ref={inputRef} data-command-palette-input aria-label="Palette search" />}
+      {open && (
+        <>
+          <input ref={inputRef} data-command-palette-input aria-label="Palette search" />
+          <button type="button" data-command-palette-dismiss onClick={() => onClose?.("dismiss")}>Dismiss</button>
+          <button type="button" data-command-palette-navigate onClick={() => onClose?.("navigate")}>Navigate</button>
+        </>
+      )}
     </>
   }
 }))
@@ -241,6 +258,58 @@ describe("AppShell command palette shortcut", () => {
     expect(composer?.value).toBe("Keep this draft")
     expect(host.querySelector("[data-drawer='athenaeum-agent-chat']")?.getAttribute("data-open")).toBe("true")
     expect(host.querySelector("[data-drawer='athenaeum-workspace-navigation']")?.getAttribute("data-open")).toBe("true")
+  })
+
+  it.each(["metaKey", "ctrlKey"] as const)("returns a dismissed recall to the originating daily-note editor", async (modifier) => {
+    const host = await mount()
+    const editorChild = host.querySelector<HTMLElement>("[data-route-editor-child]")
+    const editor = host.querySelector<HTMLElement>("[data-route-editor]")
+    expect(editorChild).not.toBeNull()
+    expect(editor).not.toBeNull()
+
+    await pressShortcutOn(editorChild as HTMLElement, "k", modifier)
+    const paletteInput = host.querySelector<HTMLInputElement>("[data-command-palette-input]")
+    expect(paletteInput).not.toBeNull()
+    expect(document.activeElement).toBe(paletteInput)
+
+    const escapeEvent = await pressEscapeOn(paletteInput as HTMLInputElement)
+    expect(escapeEvent.defaultPrevented).toBe(true)
+    expect(host.querySelector("[data-command-palette-state]")?.textContent).toBe("closed")
+    expect(document.activeElement).toBe(editor)
+  })
+
+  it("returns destination navigation to the global palette trigger and never to a stale editor", async () => {
+    const host = await mount()
+    const editorChild = host.querySelector<HTMLElement>("[data-route-editor-child]")
+    const searchToggle = host.querySelector<HTMLButtonElement>(".shell-search-toggle")
+    expect(editorChild).not.toBeNull()
+    expect(searchToggle).not.toBeNull()
+
+    await pressShortcutOn(editorChild as HTMLElement, "k", "metaKey")
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("[data-command-palette-navigate]")?.click()
+      await flush()
+    })
+
+    expect(host.querySelector("[data-command-palette-state]")?.textContent).toBe("closed")
+    expect(document.activeElement).toBe(searchToggle)
+  })
+
+  it("falls back to the shell trigger when the route changes while recall is open", async () => {
+    const host = await mount()
+    const editorChild = host.querySelector<HTMLElement>("[data-route-editor-child]")
+    const searchToggle = host.querySelector<HTMLButtonElement>(".shell-search-toggle")
+    expect(editorChild).not.toBeNull()
+    expect(searchToggle).not.toBeNull()
+
+    await pressShortcutOn(editorChild as HTMLElement, "k", "ctrlKey")
+    routeLocation = { pathname: "/graph", search: "" }
+    await rerenderShell()
+    const paletteInput = host.querySelector<HTMLInputElement>("[data-command-palette-input]")
+    expect(paletteInput).not.toBeNull()
+
+    await pressEscapeOn(paletteInput as HTMLInputElement)
+    expect(document.activeElement).toBe(searchToggle)
   })
 
   it.each(["metaKey", "ctrlKey"] as const)("does not hijack %s from unmarked or non-bare editable controls", async (modifier) => {

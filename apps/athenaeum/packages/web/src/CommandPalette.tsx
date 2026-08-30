@@ -36,6 +36,8 @@ export type PaletteEntry =
   | { readonly kind: "command"; readonly command: PaletteCommand }
   | { readonly kind: "result"; readonly result: SearchResultEntry }
 
+export type PaletteCloseReason = "dismiss" | "navigate"
+
 const formatDailyNoteDate = (stamp: string): string => {
   const date = parseDateStamp(stamp)
   if (date === undefined) return stamp
@@ -118,7 +120,7 @@ export function CommandPalette({
   onNavigated
 }: {
   readonly open: boolean
-  readonly onClose: () => void
+  readonly onClose: (reason?: PaletteCloseReason) => void
   readonly restoreFocusRef?: RefObject<HTMLElement | null>
   readonly onNavigated?: () => void
 }) {
@@ -142,7 +144,18 @@ export function CommandPalette({
       setSelectedIndex(0)
       window.requestAnimationFrame(() => inputRef.current?.focus())
     } else if (!open && wasOpenRef.current) {
-      restoreFocusRef?.current?.focus()
+      // AppShell swaps this ref to the editor-origin target for dismissals and to the shell
+      // trigger for navigation. `preventScroll` keeps returning to a long daily note from
+      // jumping the document behind the palette.
+      const target = restoreFocusRef?.current
+      if (target !== null && target !== undefined) {
+        try {
+          target.focus({ preventScroll: true })
+        } catch {
+          // Older WebViews may not implement FocusOptions; focus remains a safe fallback.
+          target.focus()
+        }
+      }
     }
     wasOpenRef.current = open
   }, [open, restoreFocusRef])
@@ -155,7 +168,7 @@ export function CommandPalette({
 
   const navigateEntry = (entry: PaletteEntry) => {
     navigate(entry.kind === "result" ? searchResultDestination(entry.result.nodeId) : entry.command.to)
-    onClose()
+    onClose("navigate")
     onNavigated?.()
   }
 
@@ -208,7 +221,7 @@ export function CommandPalette({
     if (event.key === "Escape") {
       event.preventDefault()
       event.stopPropagation()
-      onClose()
+      onClose("dismiss")
       return
     }
     if (event.key !== "Tab") return
@@ -236,7 +249,7 @@ export function CommandPalette({
       className="command-palette-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget) onClose("dismiss")
       }}
     >
       <section
