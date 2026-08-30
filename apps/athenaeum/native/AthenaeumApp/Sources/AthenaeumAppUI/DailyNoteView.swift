@@ -605,9 +605,9 @@ public struct DailyNoteView: View {
 
     @ViewBuilder
     private var loroRichEditor: some View {
-        #if os(macOS)
         if let state = model.loroRichEditorState {
             ZStack(alignment: .topLeading) {
+                #if os(macOS)
                 LoroNativeRichTextEditor(
                     state: state,
                     isEditable: !model.isEditorInputDisabled,
@@ -616,6 +616,16 @@ public struct DailyNoteView: View {
                     onSelectionChange: { model.handleLoroRichSelectionChange($0) },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) }
                 )
+                #elseif os(iOS)
+                LoroNativeRichTextEditorUIKit(
+                    state: state,
+                    isEditable: !model.isEditorInputDisabled,
+                    focusRequestGeneration: richEditorFocusGeneration,
+                    onDocumentChange: { model.handleLoroRichDocumentChange($0) },
+                    onSelectionChange: { model.handleLoroRichSelectionChange($0) },
+                    onRejectedInput: { model.handleLoroRichRejectedInput($0) }
+                )
+                #endif
                 if let prompt = LoroNativeRichEmptyStatePresentation(
                     baseDocument: state.document,
                     liveDraft: model.loroRichDraft
@@ -636,10 +646,6 @@ public struct DailyNoteView: View {
             Text("Rich-text state is unavailable. Reload this page.")
                 .foregroundStyle(.secondary)
         }
-        #else
-        Text("Native rich-text editing is available on macOS. This platform shows safe read-only Loro content.")
-            .foregroundStyle(.secondary)
-        #endif
     }
 
     @ViewBuilder

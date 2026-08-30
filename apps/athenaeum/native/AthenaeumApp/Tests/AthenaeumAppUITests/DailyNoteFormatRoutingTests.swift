@@ -527,7 +527,7 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(fake.loroSyncCount, 0)
     }
 
-    func testAcceptedLiteralRecoveryIsExplicitAndIosPolicyStaysProjectionOnly() async throws {
+    func testAcceptedLiteralRecoveryIsExplicitAndDisabledNativePolicyStaysProjectionOnly() async throws {
         let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
         let fake = FakeOperations(descriptors: [native(node)], loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false))
         let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: Date(timeIntervalSince1970: 0), nativeLoroEditingEnabled: false)
@@ -1374,7 +1374,6 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(fake.nativeRichSubmitCount, 1)
     }
 
-    #if os(macOS)
     func testRichSelectionAndRejectionAreEphemeralAndDoNotSubmit() async throws {
         let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
         let rich = richState(node, text: "before")
@@ -1388,7 +1387,31 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(model.loroRichDraft, rich.document)
         XCTAssertEqual(fake.nativeRichSubmitCount, 0)
     }
-    #endif
+
+    func testDefaultNativePolicyAdmitsRichEditingForEveryNativeClient() async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let rich = richState(node, text: "iOS admission")
+        let fake = FakeOperations(descriptors: [native(node)], loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false))
+        fake.eligibilityResult = .ineligible
+        fake.richEligibilityResult = .editable(rich)
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: Date(timeIntervalSince1970: 0))
+
+        await model.start()
+
+        XCTAssertEqual(model.pagePresentation, .loroRichEditable)
+        XCTAssertEqual(model.loroRichEditorState, rich)
+    }
+
+    func testIosRichAdmissionUsesUIKitWithoutMacOnlyReadOnlyFallback() throws {
+        let dailyNoteView = try appUISource(named: "DailyNoteView.swift")
+        let viewModel = try appUISource(named: "AthenaeumViewModel.swift")
+
+        XCTAssertTrue(dailyNoteView.contains("#elseif os(iOS)"))
+        XCTAssertTrue(dailyNoteView.contains("LoroNativeRichTextEditorUIKit("))
+        XCTAssertFalse(dailyNoteView.contains("Native rich-text editing is available on macOS"))
+        XCTAssertTrue(viewModel.contains("self.nativeLoroEditingEnabled = true"))
+        XCTAssertFalse(viewModel.contains("self.nativeLoroEditingEnabled = nativeLoroEditingEnabled ?? false"))
+    }
 
     private func liveDailyNoteOperationsSource() throws -> String {
         let package = URL(fileURLWithPath: #filePath)
@@ -1399,6 +1422,14 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
             contentsOf: package.appendingPathComponent("Sources/AthenaeumAppUI/DailyNotePageOperations.swift"),
             encoding: .utf8
         )
+    }
+
+    private func appUISource(named name: String) throws -> String {
+        let package = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: package.appendingPathComponent("Sources/AthenaeumAppUI/\(name)"), encoding: .utf8)
     }
 
     private func operationBody(

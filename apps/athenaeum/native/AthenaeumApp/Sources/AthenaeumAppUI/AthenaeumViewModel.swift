@@ -278,11 +278,7 @@ public final class AthenaeumViewModel: ObservableObject {
         )
         self.secondaryLifecycleObserver = nil
         self.graphReadCompletionObserver = nil
-        #if os(macOS)
         self.nativeLoroEditingEnabled = true
-        #else
-        self.nativeLoroEditingEnabled = false
-        #endif
     }
 
     /// Test-only composition root. The public network/local-store initializer above remains the
@@ -311,11 +307,7 @@ public final class AthenaeumViewModel: ObservableObject {
         self.pageOperations = pageOperations
         self.secondaryLifecycleObserver = secondaryLifecycleObserver
         self.graphReadCompletionObserver = graphReadCompletionObserver
-        #if os(macOS)
         self.nativeLoroEditingEnabled = nativeLoroEditingEnabled ?? true
-        #else
-        self.nativeLoroEditingEnabled = nativeLoroEditingEnabled ?? false
-        #endif
     }
 
     deinit {
@@ -1415,12 +1407,11 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
-    #if os(macOS)
-    func handleLoroRichSelectionChange(_: LoroNativeRichTextCodec.ScalarSelection) {
-        // Selection is ephemeral AppKit presentation state; it never creates durable work.
+    func handleLoroRichSelectionChange(_: LoroNativeRichTextSelection) {
+        // Selection is ephemeral native presentation state; it never creates durable work.
     }
 
-    func handleLoroRichRejectedInput(_: LoroNativeRichTextEditorController.Rejection) {
+    func handleLoroRichRejectedInput(_: LoroNativeRichTextEditorRejection) {
         guard case .loroRichEditable = pagePresentation,
               !loroSubmitEntered, !loroDraftBlocked,
               let session = loroRichSession,
@@ -1428,7 +1419,6 @@ public final class AthenaeumViewModel: ObservableObject {
               session.generation == pageOperationGeneration else { return }
         loroNotice = "That rich-text edit is not supported."
     }
-    #endif
 
     private func submitLoroRichDraft(selection: DailyNoteSelection, generation: Int, revision: Int) async {
         guard isCurrent(selection, generation: generation), !isNavigating, !loroSubmitEntered,
