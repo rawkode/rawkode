@@ -1,0 +1,439 @@
+#if os(iOS)
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+import AthenaeumCore
+
+/// UIKit's native adapter for the shared, lossless semantic editing engine. It deliberately owns
+/// no durable document state: every accepted mutation is reduced by `LoroNativeRichEditingEngine`.
+struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
+    let state: LoroNativeRichEditorState
+    let isEditable: Bool
+    let focusRequestGeneration: Int
+    let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    let onSelectionChange: (LoroNativeRichTextSelection) -> Void
+    let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+
+    func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
+        .init(
+            document: state.document,
+            isEditable: isEditable,
+            onDocumentChange: onDocumentChange,
+            onSelectionChange: onSelectionChange,
+            onRejectedInput: onRejectedInput
+        )
+    }
+
+    func makeUIView(context: Context) -> UITextView { context.coordinator.makeTextView() }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.update(document: state.document, isEditable: isEditable)
+        context.coordinator.requestFocus(generation: focusRequestGeneration)
+    }
+
+    static func dismantleUIView(_ view: UITextView, coordinator: LoroNativeRichTextEditorUIKitController) {
+        coordinator.dismantle()
+    }
+}
+
+/// Kept separate from the representable for iOS-focused tests. The controller enforces three
+/// invariants: the engine is the only semantic authority; non-plain ingress is rejected before it
+/// can publish; and parent replacement waits for marked composition to be committed or cancelled.
+@MainActor
+final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegate, UITextPasteDelegate, UITextDropDelegate {
+    private enum Marker {
+        static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+        static let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
+    }
+
+    private let textView = GuardedUIKitRichTextView(frame: .zero, textContainer: nil)
+    private var engine: LoroNativeRichEditingEngine
+    private var rendering = false
+    private var pendingComposition = false
+    private var hostCompositionGeneration = 0
+    private var scheduledFlushGeneration: Int?
+    private var deferredParentDocument: LoroNativeRichDocumentV1?
+    private var isEditableInput: Bool
+    private var completedFocusGeneration = 0
+    private var pendingFocusGeneration: Int?
+    private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
+    private let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+
+    init(
+        document: LoroNativeRichDocumentV1,
+        isEditable: Bool,
+        onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
+        onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void = { _ in },
+        onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in }
+    ) {
+        engine = .init(document: document)
+        isEditableInput = isEditable
+        self.onDocumentChange = onDocumentChange
+        self.onSelectionChange = onSelectionChange
+        self.onRejectedInput = onRejectedInput
+        super.init()
+        textView.richController = self
+        textView.delegate = self
+        textView.pasteDelegate = self
+        textView.textDropDelegate = self
+        textView.pasteConfiguration = .init(acceptableTypeIdentifiers: [UTType.plainText.identifier])
+        textView.allowsEditingTextAttributes = false
+        textView.isEditable = isEditable
+        textView.isSelectable = true
+        textView.alwaysBounceVertical = true
+        textView.backgroundColor = .clear
+        textView.smartQuotesType = .no
+        textView.smartDashesType = .no
+        textView.smartInsertDeleteType = .no
+        textView.autocorrectionType = .no
+        textView.textDragInteraction?.isEnabled = false
+        render(document, preserving: nil)
+    }
+
+    func makeTextView() -> UITextView { textView }
+
+    func update(document: LoroNativeRichDocumentV1, isEditable: Bool) {
+        let wasEditable = isEditableInput
+        isEditableInput = isEditable
+        textView.isEditable = isEditable
+        if !wasEditable, isEditable { fulfillFocusRequestIfPossible() }
+        if wasEditable, !isEditable, (engine.compositionState != .idle || pendingComposition || hasMarkedText) {
+            deferredParentDocument = document
+            cancelComposition()
+            return
+        }
+        if let selection = scalarSelection() { engine.setSelection(selection) }
+        switch engine.receiveParentDocument(document) {
+        case let .adopted(document, selection), let .acknowledged(document, selection):
+            render(document, preserving: selection)
+        case .deferredForComposition:
+            deferredParentDocument = document
+        case .deferredForLocalProposal, .unchanged:
+            break
+        }
+    }
+
+    func requestFocus(generation: Int) {
+        guard generation > completedFocusGeneration else { return }
+        pendingFocusGeneration = max(pendingFocusGeneration ?? 0, generation)
+        fulfillFocusRequestIfPossible()
+    }
+
+    func dismantle() {
+        guard engine.compositionState != .idle || pendingComposition || hasMarkedText else { return }
+        // Teardown cannot leave a transient input-method value in storage. A finalized string has
+        // already been captured through `insertText`; incomplete marked text is cancelled.
+        if engine.compositionReplacement() != nil, !hasMarkedText {
+            commitComposition()
+        } else {
+            cancelComposition()
+        }
+    }
+
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        guard !rendering else { return false }
+        guard isEditableInput else { reject(.disabled); return false }
+        guard !text.contains("\u{FFFC}") else { reject(.attributedPaste); return false }
+        // UIKit owns transient marked presentation. We only accept its final plain string through
+        // the shared engine after unmark/insert establishes an exactly-once boundary.
+        guard !pendingComposition, !hasMarkedText else { return true }
+        return apply(engine.replace(utf16Range: range, withPlainText: text))
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        guard !rendering else { return }
+        if pendingComposition || hasMarkedText {
+            pendingComposition = hasMarkedText
+            if !pendingComposition { scheduleCompositionFlush() }
+            return
+        }
+        // Every intended non-composition write returns false from `shouldChangeTextIn` and is
+        // rendered by us. Any other storage change is untrusted and restored atomically.
+        guard let displayed = textView.attributedText,
+              (try? LoroNativeRichTextCodec.decode(displayed)) == engine.admittedDocument
+        else { reject(.invalidEdit); return }
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        guard !rendering, let selection = scalarSelection() else { return }
+        engine.setSelection(selection)
+        onSelectionChange(selection)
+    }
+
+    // MARK: Text input / IME hooks from GuardedUIKitRichTextView
+
+    fileprivate func beginComposition(range: NSRange) {
+        guard isEditableInput, !pendingComposition else { reject(.disabled); return }
+        let effect = engine.beginComposition(utf16Range: range)
+        guard case .noChange = effect else { _ = apply(effect); return }
+        hostCompositionGeneration &+= 1
+        scheduledFlushGeneration = nil
+        pendingComposition = true
+    }
+
+    fileprivate func updateComposition(_ replacement: String) { engine.updateComposition(replacement) }
+
+    fileprivate func finalizeComposition(_ replacement: String) { engine.finalizeComposition(replacement) }
+
+    fileprivate var hasPendingComposition: Bool { engine.compositionState != .idle }
+
+    fileprivate func endComposition() {
+        guard engine.compositionState != .idle else { return }
+        pendingComposition = hasMarkedText
+        guard !pendingComposition else { return }
+        scheduleCompositionFlush()
+    }
+
+    fileprivate func paste(_ pasteboard: UIPasteboard) {
+        guard isEditableInput, !pendingComposition, !hasMarkedText else { reject(.disabled); return }
+        guard let plain = Self.lonePlainText(from: pasteboard) else { reject(.attributedPaste); return }
+        _ = apply(engine.replace(utf16Range: textView.selectedRange, withPlainText: plain))
+    }
+
+    fileprivate func reject(_ reason: LoroNativeRichTextEditorRejection) {
+        guard !rendering else { return }
+        render(engine.admittedDocument, preserving: engine.admittedSelection)
+        onRejectedInput(reason)
+    }
+
+    // These value-facing seams let the iOS test bundle exercise UIKit policy without making the
+    // representable part of daily-note product admission.
+    func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
+    func testingReplace(_ range: NSRange, with text: String) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
+    func testingBeginComposition(range: NSRange) { beginComposition(range: range) }
+    func testingChangeComposition(_ text: String) { updateComposition(text) }
+    func testingFinalizeComposition(_ text: String) { finalizeComposition(text) }
+    func testingEndComposition() { endComposition() }
+    func testingUpdate(document: LoroNativeRichDocumentV1, isEditable: Bool) { update(document: document, isEditable: isEditable) }
+    static func testingAllowsOnlyLonePlainTextProvider(_ provider: NSItemProvider) -> Bool { isLonePlainTextProvider(provider) }
+
+    // MARK: Paste / drop admission
+
+    func textPasteConfigurationSupporting(
+        _ textPasteConfigurationSupporting: UITextPasteConfigurationSupporting,
+        transform item: UITextPasteItem
+    ) {
+        guard isEditableInput, Self.isLonePlainTextProvider(item.itemProvider) else {
+            item.setNoResult()
+            reject(.attributedPaste)
+            return
+        }
+        item.itemProvider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+            let string = (object as? NSString).map(String.init) ?? ""
+            Task { @MainActor [weak self] in
+                guard let self, self.isEditableInput else { item.setNoResult(); return }
+                item.setResult(string: string)
+            }
+        }
+    }
+
+    func textPasteConfigurationSupporting(
+        _ textPasteConfigurationSupporting: UITextPasteConfigurationSupporting,
+        performPasteOf attributedString: NSAttributedString,
+        to textRange: UITextRange
+    ) -> UITextRange {
+        guard isEditableInput,
+              let range = utf16Range(for: textRange),
+              Self.containsOnlyPlainTextAttributes(attributedString)
+        else { reject(.attributedPaste); return textRange }
+        _ = apply(engine.replace(utf16Range: range, withPlainText: attributedString.string))
+        return textRange
+    }
+
+    func textDroppableView(
+        _ textDroppableView: UIView & UITextDroppable,
+        proposalForDrop drop: UITextDropRequest
+    ) -> UITextDropProposal {
+        guard isEditableInput,
+              !pendingComposition,
+              !hasMarkedText,
+              drop.dropSession.items.count == 1,
+              let provider = drop.dropSession.items.first?.itemProvider,
+              Self.isLonePlainTextProvider(provider)
+        else {
+            reject(.attributedPaste)
+            return .init(operation: .forbidden)
+        }
+        return .init(operation: .copy)
+    }
+
+    func textDroppableView(_ textDroppableView: UIView & UITextDroppable, willPerformDrop drop: UITextDropRequest) {
+        guard drop.dropSession.items.count == 1,
+              let provider = drop.dropSession.items.first?.itemProvider,
+              Self.isLonePlainTextProvider(provider)
+        else { reject(.attributedPaste); return }
+    }
+
+    // MARK: Rendering and reconciliation
+
+    private func apply(_ effect: LoroNativeRichEditingEffect) -> Bool {
+        switch effect {
+        case let .publish(document, selection):
+            render(document, preserving: selection)
+            onDocumentChange(document)
+        case let .restore(document, selection):
+            render(document, preserving: selection)
+        case let .rejected(reason):
+            reject(reason)
+        case .noChange:
+            break
+        }
+        return false
+    }
+
+    private func render(_ document: LoroNativeRichDocumentV1, preserving selection: LoroNativeRichTextSelection?) {
+        guard let rendered = try? LoroNativeRichTextCodec.attributedString(for: document) else { return }
+        rendering = true
+        defer { rendering = false }
+        textView.attributedText = rendered
+        textView.textStorage.removeAttribute(.font, range: NSRange(location: 0, length: textView.textStorage.length))
+        textView.textStorage.removeAttribute(.link, range: NSRange(location: 0, length: textView.textStorage.length))
+        applyTemporaryPresentation()
+        if let selection,
+           let range = try? LoroNativeRichTextCodec.utf16Range(forScalarSelection: selection, in: rendered) {
+            textView.selectedRange = range
+        }
+    }
+
+    private func applyTemporaryPresentation() {
+        // UIKit's legacy layout manager has no temporary-attribute surface. Keep its typography
+        // on the view (not `textStorage`), so marker attributes remain the sole semantic value.
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.textColor = .label
+    }
+
+    private func scalarSelection() -> LoroNativeRichTextSelection? {
+        try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: textView.selectedRange, in: textView.attributedText ?? NSAttributedString())
+    }
+
+    private func utf16Range(for textRange: UITextRange) -> NSRange? {
+        let start = textView.offset(from: textView.beginningOfDocument, to: textRange.start)
+        let end = textView.offset(from: textView.beginningOfDocument, to: textRange.end)
+        guard start >= 0, end >= start else { return nil }
+        return NSRange(location: start, length: end - start)
+    }
+
+    private func scheduleCompositionFlush() {
+        let generation = hostCompositionGeneration
+        guard scheduledFlushGeneration != generation else { return }
+        scheduledFlushGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.scheduledFlushGeneration == generation else { return }
+            self.scheduledFlushGeneration = nil
+            guard generation == self.hostCompositionGeneration, !self.hasMarkedText else { return }
+            self.commitComposition()
+        }
+    }
+
+    private func commitComposition() {
+        guard isEditableInput else { cancelComposition(); return }
+        pendingComposition = false
+        _ = apply(engine.commitComposition())
+        reconcileDeferredParentIfPossible()
+    }
+
+    private func cancelComposition() {
+        hostCompositionGeneration &+= 1
+        scheduledFlushGeneration = nil
+        pendingComposition = false
+        textView.unmarkText()
+        _ = apply(engine.cancelComposition())
+        reconcileDeferredParentIfPossible()
+    }
+
+    private func reconcileDeferredParentIfPossible() {
+        guard engine.compositionState == .idle, let document = deferredParentDocument else { return }
+        deferredParentDocument = nil
+        switch engine.receiveParentDocument(document) {
+        case let .adopted(document, selection), let .acknowledged(document, selection):
+            render(document, preserving: selection)
+        case .deferredForComposition:
+            deferredParentDocument = document
+        case .deferredForLocalProposal, .unchanged:
+            break
+        }
+    }
+
+    private func fulfillFocusRequestIfPossible() {
+        guard isEditableInput, let generation = pendingFocusGeneration, textView.window != nil else { return }
+        guard textView.becomeFirstResponder() else { return }
+        completedFocusGeneration = generation
+        pendingFocusGeneration = nil
+    }
+
+    private var hasMarkedText: Bool { textView.markedTextRange != nil }
+
+    private static let plainTextIdentifiers: Set<String> = [
+        UTType.plainText.identifier,
+        UTType.utf8PlainText.identifier,
+        "public.text"
+    ]
+
+    private static func isLonePlainTextProvider(_ provider: NSItemProvider) -> Bool {
+        let identifiers = Set(provider.registeredTypeIdentifiers)
+        return !identifiers.isEmpty
+            && identifiers.isSubset(of: plainTextIdentifiers)
+            && identifiers.contains { UTType($0)?.conforms(to: .plainText) == true }
+    }
+
+    private static func lonePlainText(from pasteboard: UIPasteboard) -> String? {
+        guard pasteboard.items.count == 1,
+              let item = pasteboard.items.first,
+              Set(item.keys).isSubset(of: plainTextIdentifiers),
+              let string = pasteboard.string
+        else { return nil }
+        return string
+    }
+
+    private static func containsOnlyPlainTextAttributes(_ attributed: NSAttributedString) -> Bool {
+        var allowed = true
+        attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length), options: []) { attributes, _, stop in
+            // UIKit may supply baseline typography for a plain item. Semantic markers, links,
+            // attachments, colours, and arbitrary rich attributes are never an admitted payload.
+            let keys = Set(attributes.keys)
+            if !keys.isSubset(of: [.font]) || attributed.string.contains("\u{FFFC}") {
+                allowed = false
+                stop.pointee = true
+            }
+        }
+        return allowed
+    }
+}
+
+private final class GuardedUIKitRichTextView: UITextView {
+    weak var richController: LoroNativeRichTextEditorUIKitController?
+    private var suppressCompositionCallbacks = false
+    private var unmarking = false
+
+    override func paste(_ sender: Any?) { richController?.paste(.general) }
+
+    override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        guard !suppressCompositionCallbacks else { super.setMarkedText(markedText, selectedRange: selectedRange); return }
+        guard isEditable else { richController?.reject(.disabled); return }
+        if self.markedTextRange == nil { richController?.beginComposition(range: self.selectedRange) }
+        if !unmarking { richController?.updateComposition(markedText ?? "") }
+        super.setMarkedText(markedText, selectedRange: selectedRange)
+    }
+
+    override func insertText(_ text: String) {
+        guard !suppressCompositionCallbacks else { super.insertText(text); return }
+        guard isEditable else { richController?.reject(.disabled); return }
+        if richController?.hasPendingComposition == true {
+            richController?.finalizeComposition(text)
+            super.insertText(text)
+            richController?.endComposition()
+            return
+        }
+        super.insertText(text)
+    }
+
+    override func unmarkText() {
+        guard !suppressCompositionCallbacks else { super.unmarkText(); return }
+        unmarking = true
+        defer { unmarking = false }
+        super.unmarkText()
+        richController?.endComposition()
+    }
+}
+#endif
