@@ -88,7 +88,7 @@ describe("CommandPalette search freshness", () => {
     expect(hints).toContain("⌘K / Ctrl K")
   })
 
-  it("labels destination and note groups without changing flat keyboard order", async () => {
+  it("labels recall and destination groups while keeping flat keyboard order", async () => {
     queryStateMock.current = {
       status: "success" as const,
       value: new SearchNodesOutput({
@@ -99,12 +99,14 @@ describe("CommandPalette search freshness", () => {
     await searchFor(input, "today")
 
     const listbox = host.querySelector<HTMLElement>('[role="listbox"]')
-    expect(listbox?.getAttribute("aria-label")).toBe("Destinations and notes")
+    expect(listbox?.getAttribute("aria-label")).toBe("Recall and destinations")
     expect(Array.from(host.querySelectorAll<HTMLElement>('[role="group"]')).map((group) => group.getAttribute("aria-label")))
-      .toEqual(["Destinations", "Notes"])
+      .toEqual(["Recall", "Destinations"])
     expect(Array.from(host.querySelectorAll<HTMLElement>('[role="option"]')).map((option) => option.id))
       .toEqual(["command-palette-option-0", "command-palette-option-1"])
-    expect(host.querySelector('[role="group"][aria-label="Notes"] .command-palette-option-kind')?.textContent).toBe("note")
+    expect(host.querySelector('[role="group"][aria-label="Recall"] .command-palette-option-kind')?.textContent).toBe("Record")
+    expect(Array.from(host.querySelectorAll<HTMLElement>('[role="option"] .command-palette-option-label')).map((option) => option.textContent))
+      .toEqual(["Today planning", "Today"])
   })
 
   it("removes a prior query's result during debounce so Arrow/Enter cannot navigate it", async () => {

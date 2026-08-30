@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObjec
 import { useNavigate } from "react-router"
 import type { SearchResultEntry } from "@athenaeum/domain"
 import { searchResultDestination, useNodeSearch } from "./SearchBox.js"
+import { dateStampFromDailyNoteId, parseDateStamp } from "./daily-note-id.js"
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
@@ -39,7 +40,21 @@ export const paletteEntriesFor = (
     .filter((command) => normalized.length === 0 || `${command.label} ${command.hint}`.toLocaleLowerCase().includes(normalized))
     .map((command) => ({ kind: "command" as const, command }))
   if (normalized.length === 0) return commands
-  return [...commands, ...results.map((result) => ({ kind: "result" as const, result }))]
+  // Retrieval is the primary purpose of the palette: show recalled records before navigation
+  // destinations, while keeping matching destinations available as a deliberate fallback.
+  return [...results.map((result) => ({ kind: "result" as const, result })), ...commands]
+}
+
+const formatDailyNoteDate = (stamp: string): string => {
+  const date = parseDateStamp(stamp)
+  if (date === undefined) return stamp
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(date)
+}
+
+/** A result's kind is derived from its stable id, never guessed from an arbitrary title. */
+export const paletteResultKind = (result: SearchResultEntry): string => {
+  const dateStamp = dateStampFromDailyNoteId(result.nodeId)
+  return dateStamp === undefined ? "Record" : `Daily note · ${formatDailyNoteDate(dateStamp)}`
 }
 
 export function CommandPalette({
@@ -118,13 +133,13 @@ export function CommandPalette({
           <span className="command-palette-option-label">{label}</span>
           {hint.length > 0 && <span className="command-palette-option-hint">{hint}</span>}
         </span>
-        {entry.kind === "result" && <span className="command-palette-option-kind">note</span>}
+        {entry.kind === "result" && <span className="command-palette-option-kind">{paletteResultKind(entry.result)}</span>}
       </button>
     )
   }
 
-  const commandEntries = entries.flatMap((entry, index) => entry.kind === "command" ? [{ entry, index }] : [])
-  const noteEntries = entries.flatMap((entry, index) => entry.kind === "result" ? [{ entry, index }] : [])
+  const recallEntries = entries.flatMap((entry, index) => entry.kind === "result" ? [{ entry, index }] : [])
+  const destinationEntries = entries.flatMap((entry, index) => entry.kind === "command" ? [{ entry, index }] : [])
 
   const focusableControls = (): HTMLElement[] =>
     Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])
@@ -232,18 +247,18 @@ export function CommandPalette({
             id="command-palette-options"
             className="command-palette-options"
             role="listbox"
-            aria-label="Destinations and notes"
+            aria-label="Recall and destinations"
           >
-            {commandEntries.length > 0 && (
-              <div className="command-palette-group" role="group" aria-label="Destinations">
-                <div className="command-palette-group-label" aria-hidden="true">Destinations</div>
-                {commandEntries.map(({ entry, index }) => renderEntry(entry, index))}
+            {recallEntries.length > 0 && (
+              <div className="command-palette-group" role="group" aria-label="Recall">
+                <div className="command-palette-group-label" aria-hidden="true">Recall</div>
+                {recallEntries.map(({ entry, index }) => renderEntry(entry, index))}
               </div>
             )}
-            {noteEntries.length > 0 && (
-              <div className="command-palette-group" role="group" aria-label="Notes">
-                <div className="command-palette-group-label" aria-hidden="true">Notes</div>
-                {noteEntries.map(({ entry, index }) => renderEntry(entry, index))}
+            {destinationEntries.length > 0 && (
+              <div className="command-palette-group" role="group" aria-label="Destinations">
+                <div className="command-palette-group-label" aria-hidden="true">Destinations</div>
+                {destinationEntries.map(({ entry, index }) => renderEntry(entry, index))}
               </div>
             )}
           </div>

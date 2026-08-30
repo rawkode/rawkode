@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation } from "react-router"
 import type { EntityId } from "@athenaeum/domain"
 import type { DevSession } from "./dev-session.js"
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher.js"
-import { SearchBox } from "./SearchBox.js"
 import { CommandPalette } from "./CommandPalette.js"
 import { parseDateStamp } from "./daily-note-id.js"
 import { Drawer } from "./design-system/Drawer.js"
@@ -228,8 +227,6 @@ export function AppShell({
               </div>
             </details>
           </div>
-
-          <SearchBox onNavigated={() => closeSidebar(false)} />
 
           <nav className="shell-nav-core" aria-label="Core">
             {CORE_NAV_ITEMS.map((item) => (

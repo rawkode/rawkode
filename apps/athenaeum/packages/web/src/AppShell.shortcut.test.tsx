@@ -251,4 +251,12 @@ describe("AppShell command palette shortcut", () => {
 
     expect(hints).toEqual(expect.arrayContaining(["⌘K / Ctrl K", "⌘J / Ctrl J"]))
   })
+
+  it("keeps the sidebar focused on workspace navigation", async () => {
+    const host = await mount()
+
+    expect(host.querySelector(".shell-sidebar [data-search-box]")).toBeNull()
+    expect(host.querySelector(".shell-search-input")).toBeNull()
+    expect(host.querySelector(".shell-search-toggle")).not.toBeNull()
+  })
 })
