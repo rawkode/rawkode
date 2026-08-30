@@ -84,6 +84,7 @@ public struct DailyNoteView: View {
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
+    private let standupLifecycleDriver: DailyStandupLifecycleDriver
     /// DailyNote is the sole owner; standup detail/strip are passive observers.
     @StateObject private var dailyStandupModel: DailyStandupViewModel
     @State private var preparationNotice: String?
@@ -99,6 +100,7 @@ public struct DailyNoteView: View {
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
         self.onOpenReference = nil
+        self.standupLifecycleDriver = .live
         _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
     }
 
@@ -111,7 +113,8 @@ public struct DailyNoteView: View {
         standupBearerCredential: String?,
         contextualView: AnyView? = nil,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
-        onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil
+        onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil,
+        standupLifecycleDriver: DailyStandupLifecycleDriver = .live
     ) {
         self.model = model
         self.standupConfiguration = StandupConfiguration(
@@ -122,6 +125,7 @@ public struct DailyNoteView: View {
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
         self.onOpenReference = onOpenReference
+        self.standupLifecycleDriver = standupLifecycleDriver
         _dailyStandupModel = StateObject(wrappedValue: .init(
             backendURL: standupBackendURL,
             workspaceId: standupWorkspaceId,
@@ -239,8 +243,9 @@ public struct DailyNoteView: View {
         }
         .task(id: standupSnapshotIdentity) {
             guard standupConfiguration != nil, hasResolvedDailyNote else { return }
-            dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday)
-            await dailyStandupModel.refresh()
+            let window = DailyStandupDayWindow(now: standupLifecycleDriver.now())
+            dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday, dayWindow: window)
+            await dailyStandupModel.refresh(window: window)
         }
         .task(id: standupLifecycleIdentity) {
             guard standupConfiguration != nil, isToday, hasResolvedDailyNote else { return }
@@ -248,18 +253,18 @@ public struct DailyNoteView: View {
             // The task is cancelled automatically when the selected date, resolution state, or
             // configuration changes, and each rollover clears the previous snapshot first.
             while !Task.isCancelled {
-                let nextMidnight = DailyStandupLifecyclePresentation.nextLocalMidnight(after: Date())
-                let interval = max(nextMidnight.timeIntervalSinceNow, 0)
-                do { try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) }
+                let nextMidnight = DailyStandupLifecyclePresentation.nextLocalMidnight(after: standupLifecycleDriver.now())
+                do { try await standupLifecycleDriver.sleepUntil(nextMidnight) }
                 catch { return }
                 guard !Task.isCancelled, isToday, hasResolvedDailyNote else { return }
-                dailyStandupModel.invalidateForLifecycle(now: Date())
-                await dailyStandupModel.refresh()
+                let now = standupLifecycleDriver.now()
+                let window = DailyStandupDayWindow(now: now)
+                dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: true, dayWindow: window)
+                await dailyStandupModel.refresh(window: window)
             }
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active, standupConfiguration != nil, isToday, hasResolvedDailyNote else { return }
-            dailyStandupModel.invalidateForLifecycle(now: Date())
             refreshStandup()
         }
     }
@@ -282,8 +287,9 @@ public struct DailyNoteView: View {
     }
 
     private func refreshStandup() {
-        dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday)
-        Task { @MainActor in await dailyStandupModel.refresh() }
+        let window = DailyStandupDayWindow(now: standupLifecycleDriver.now())
+        dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday, dayWindow: window)
+        Task { @MainActor in await dailyStandupModel.refresh(window: window) }
     }
 
     private func dailyNoteFailureCard(_ rawMessage: String) -> some View {

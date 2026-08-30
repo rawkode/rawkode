@@ -25,6 +25,43 @@ private actor EmployeePublicationCallCounter {
     func value() -> Int { count }
 }
 
+private actor LedgerActivityGate {
+    private var continuation: CheckedContinuation<[RPCLedgerActivityEntry], Never>?
+    private(set) var windows: [DailyStandupDayWindow] = []
+    private(set) var waiting = false
+
+    func wait(window: DailyStandupDayWindow) async -> [RPCLedgerActivityEntry] {
+        record(window)
+        waiting = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func record(_ window: DailyStandupDayWindow) { windows.append(window) }
+
+    func resume(with entries: [RPCLedgerActivityEntry]) {
+        continuation?.resume(returning: entries)
+        continuation = nil
+    }
+
+    func recordedWindows() -> [DailyStandupDayWindow] { windows }
+}
+
+private actor InvocationCounter {
+    private var count = 0
+
+    func next() -> Int {
+        count += 1
+        return count
+    }
+}
+
+private actor LifecycleSleepRecorder {
+    private var dates: [Date] = []
+
+    func record(_ date: Date) { dates.append(date) }
+    func recordedDates() -> [Date] { dates }
+}
+
 @MainActor
 final class DailyStandupViewTests: XCTestCase {
     func testEmployeeUpdatesPartitionOutcomesWithoutReorderingOrLabelingLegacyRows() throws {
@@ -80,6 +117,9 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(snapshot.totalAttention, 4)
         XCTAssertEqual(snapshot.displayed.count, 3)
         XCTAssertEqual(snapshot.remainder, 1)
+        XCTAssertEqual(snapshot.displayed.map(\.outcome), [.blocked, .blocked, .blocked])
+        XCTAssertEqual(snapshot.displayed.map(\.employee), ["Executive", "Executive", "Executive"])
+        XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
         XCTAssertEqual(WorkforceAttentionPresentation.summary(totalAttention: 4), "4 workforce updates need attention")
         XCTAssertEqual(WorkforceAttentionPresentation.remainderTitle(1), "and 1 more")
     }
@@ -96,6 +136,19 @@ final class DailyStandupViewTests: XCTestCase {
             ),
             "1 employee update · no exceptions"
         )
+    }
+
+    func testAttentionStripOnlyExposesReviewForVerifiedOrModifiedCompanions() throws {
+        let verified = try makePublication(id: "00000000-0000-4000-8000-000000000320", resultKind: .blocked)
+        let missing = try makePublication(id: "00000000-0000-4000-8000-000000000321", resultKind: .blocked, companionStatus: .missing)
+        let unavailable = try makePublication(id: "00000000-0000-4000-8000-000000000322", resultKind: .blocked, companionStatus: .unavailable)
+
+        let snapshot = WorkforceAttentionPresentation.snapshot([verified, missing, unavailable])
+
+        XCTAssertEqual(snapshot.displayed.map(\.outcome), [.blocked, .blocked, .blocked])
+        XCTAssertEqual(snapshot.displayed.map(\.isReviewAvailable), [true, false, false])
+        XCTAssertEqual(snapshot.displayed.map(\.employee), ["Executive", "Executive", "Executive"])
+        XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
     }
 
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresControls() {
@@ -165,7 +218,7 @@ final class DailyStandupViewTests: XCTestCase {
             actor: .you,
             message: "Applied Supertag to a workspace node."
         )
-        let model = DailyStandupViewModel(loader: { [entry] })
+        let model = DailyStandupViewModel(loader: { _ in [entry] })
 
         await model.refresh()
 
@@ -173,7 +226,7 @@ final class DailyStandupViewTests: XCTestCase {
     }
 
     func testRefreshSurfacesSafeFailure() async {
-        let model = DailyStandupViewModel(loader: { throw TestFailure.load })
+        let model = DailyStandupViewModel(loader: { _ in throw TestFailure.load })
 
         await model.refresh()
 
@@ -231,7 +284,7 @@ final class DailyStandupViewTests: XCTestCase {
 
     func testLocalizedFailureSuppressesUnderlyingTransportDetails() async {
         let error = PrivateLocalizedFailure()
-        let model = DailyStandupViewModel(loader: { throw error })
+        let model = DailyStandupViewModel(loader: { _ in throw error })
 
         await model.refresh()
 
@@ -327,6 +380,97 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertGreaterThan(next, now)
     }
 
+    func testLifecycleDriverIsInjectableWithoutWallClockOrRealSleep() async throws {
+        let now = Date(timeIntervalSince1970: 1_782_000_000)
+        let recorder = LifecycleSleepRecorder()
+        let driver = DailyStandupLifecycleDriver(
+            now: { now },
+            sleepUntil: { date in await recorder.record(date) }
+        )
+        let midnight = DailyStandupLifecyclePresentation.nextLocalMidnight(after: driver.now())
+
+        try await driver.sleepUntil(midnight)
+
+        let recordedDates = await recorder.recordedDates()
+        XCTAssertEqual(recordedDates, [midnight])
+    }
+
+    func testLedgerLaneCanCompleteWhileEmployeeLaneIsStillLoading() async throws {
+        let entry = RPCLedgerActivityEntry(
+            occurredAt: try IsoDateTimeString(validating: "2026-06-28T09:30:00.000Z"), type: .addFact, actor: .you, message: "Ledger"
+        )
+        let publication = try makePublication(id: "00000000-0000-4000-8000-000000000420")
+        let gate = EmployeePublicationGate()
+        let model = DailyStandupViewModel(loader: { _ in [entry] }, employeeLoader: { await gate.wait() })
+
+        let refresh = Task { await model.refresh() }
+        for _ in 0..<20 where !(await gate.waiting) { await Task.yield() }
+        for _ in 0..<20 {
+            if case .loaded = model.state { break }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(model.state, .loaded([entry]))
+        XCTAssertEqual(model.employeeState, .loading)
+        await gate.resume(with: [publication])
+        await refresh.value
+        XCTAssertEqual(model.employeeState, .loaded([publication]))
+    }
+
+    func testLedgerRefreshUsesTheExactCapturedWindowAndRejectsOlderSameNoteResponse() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let windowA = DailyStandupDayWindow(now: Date(timeIntervalSince1970: 1_782_000_000), calendar: calendar)
+        let windowB = DailyStandupDayWindow(now: Date(timeIntervalSince1970: 1_782_086_400), calendar: calendar)
+        let old = RPCLedgerActivityEntry(
+            occurredAt: try IsoDateTimeString(validating: "2026-06-27T09:30:00.000Z"), type: .addFact, actor: .you, message: "Old"
+        )
+        let current = RPCLedgerActivityEntry(
+            occurredAt: try IsoDateTimeString(validating: "2026-06-28T09:30:00.000Z"), type: .addFact, actor: .you, message: "Current"
+        )
+        let gate = LedgerActivityGate()
+        let calls = InvocationCounter()
+        let model = DailyStandupViewModel(loader: { window in
+            if await calls.next() == 1 { return await gate.wait(window: window) }
+            await gate.record(window)
+            return [current]
+        })
+
+        let first = Task { await model.refresh(window: windowA) }
+        for _ in 0..<20 where !(await gate.waiting) { await Task.yield() }
+        await model.refresh(window: windowB)
+        await gate.resume(with: [old])
+        await first.value
+
+        let recordedWindows = await gate.recordedWindows()
+        XCTAssertEqual(recordedWindows, [windowA, windowB])
+        XCTAssertEqual(model.state, .loaded([current]))
+    }
+
+    func testSameNoteNewerEmployeeRefreshWinsOverOlderResponse() async throws {
+        let noteId = try EntityId(validating: "00000000-0000-4000-8000-000000000401")
+        let old = try makePublication(id: "00000000-0000-4000-8000-000000000402")
+        let current = try makePublication(id: "00000000-0000-4000-8000-000000000403", resultKind: .completed)
+        let gate = EmployeePublicationGate()
+        let calls = InvocationCounter()
+        let model = DailyStandupViewModel(
+            ledgerLoader: nil,
+            employeeLoaderFactory: { _ in
+                if await calls.next() == 1 { return await gate.wait() }
+                return [current]
+            },
+            dailyNoteId: noteId
+        )
+
+        let first = Task { await model.refresh() }
+        for _ in 0..<20 where !(await gate.waiting) { await Task.yield() }
+        await model.refresh()
+        await gate.resume(with: [old])
+        await first.value
+
+        XCTAssertEqual(model.employeeState, .loaded([current]))
+    }
+
     private enum TestFailure: Error {
         case load
     }
@@ -339,7 +483,8 @@ final class DailyStandupViewTests: XCTestCase {
 
     private func makePublication(
         id: String,
-        resultKind: StandupPublicationResultKind? = nil
+        resultKind: StandupPublicationResultKind? = nil,
+        companionStatus: StandupPublicationCompanionStatus = .verifiedOriginal
     ) throws -> StandupPublication {
         let reference = StandupPublicationReference(kind: "job", id: "daily-standup", version: "v1")
         return StandupPublication(
@@ -357,7 +502,7 @@ final class DailyStandupViewTests: XCTestCase {
             originalText: "Prepared the daily brief.",
             publishedAt: try IsoDateTimeString(validating: "2026-08-30T08:00:00.000Z"),
             childNodeId: try EntityId(validating: "00000000-0000-4000-8000-000000000115"),
-            companionStatus: .verifiedOriginal,
+            companionStatus: companionStatus,
             resultKind: resultKind
         )
     }

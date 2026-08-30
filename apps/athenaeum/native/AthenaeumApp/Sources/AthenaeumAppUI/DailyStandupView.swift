@@ -3,7 +3,7 @@ import AthenaeumRPC
 import Foundation
 import SwiftUI
 
-typealias DailyStandupLoader = @Sendable () async throws -> [RPCLedgerActivityEntry]
+typealias DailyStandupLoader = @Sendable (DailyStandupDayWindow) async throws -> [RPCLedgerActivityEntry]
 typealias EmployeeUpdatesLoader = @Sendable () async throws -> [StandupPublication]
 
 /// The local calendar-day window sent to the ledger projection. Keeping this calculation in the
@@ -27,6 +27,29 @@ enum DailyStandupLifecyclePresentation {
         let start = calendar.startOfDay(for: now)
         return calendar.date(byAdding: .day, value: 1, to: start) ?? now
     }
+}
+
+/// The view owns lifecycle observation, while this small injected seam owns clock/scheduling.
+/// Tests can advance a day without relying on wall-clock time or a real sleep.
+public struct DailyStandupLifecycleDriver: Sendable {
+    public let now: @Sendable () -> Date
+    public let sleepUntil: @Sendable (Date) async throws -> Void
+
+    public init(
+        now: @escaping @Sendable () -> Date,
+        sleepUntil: @escaping @Sendable (Date) async throws -> Void
+    ) {
+        self.now = now
+        self.sleepUntil = sleepUntil
+    }
+
+    public static let live = Self(
+        now: { Date() },
+        sleepUntil: { date in
+            let interval = max(date.timeIntervalSinceNow, 0)
+            try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+        }
+    )
 }
 
 @MainActor
@@ -101,8 +124,7 @@ final class DailyStandupViewModel: ObservableObject {
         }
         let ledgerLoader: DailyStandupLoader?
         if includeLedger {
-            ledgerLoader = {
-                let window = DailyStandupDayWindow()
+            ledgerLoader = { window in
                 return try await client.listRecentLedgerActivity(
                     limit: DailyStandupPresentation.fetchLimit,
                     from: window.from,
@@ -146,12 +168,16 @@ final class DailyStandupViewModel: ObservableObject {
         )
     }
 
-    func refresh() async {
+    /// The caller supplies the exact civil window captured for this generation. The ledger RPC
+    /// must never silently recalculate it after a rollover.
+    func refresh(window: DailyStandupDayWindow = DailyStandupDayWindow()) async {
         generation &+= 1
         let refreshGeneration = generation
         let noteIdentity = selectedDailyNoteId
-        let refreshDayWindow = dayWindowIdentity
         let shouldLoadLedger = ledgerEnabled && loader != nil
+        let requestedWindow = shouldLoadLedger ? window : nil
+        let refreshDayWindow = requestedWindow.map(Self.dayWindowKey) ?? "historical"
+        dayWindowIdentity = refreshDayWindow
         if shouldLoadLedger { state = .loading } else { state = .idle }
         let employeeLoader: EmployeeUpdatesLoader?
         if let directEmployeeLoader = self.employeeLoader {
@@ -166,9 +192,9 @@ final class DailyStandupViewModel: ObservableObject {
         if employeeLoader != nil { employeeState = .loading } else { employeeState = .idle }
 
         await withTaskGroup(of: LaneResult.self) { group in
-            if shouldLoadLedger, let loader {
+            if let requestedWindow, let loader {
                 group.addTask {
-                    do { return .ledger(.success(try await loader())) }
+                    do { return .ledger(.success(try await loader(requestedWindow))) }
                     catch { return .ledger(.failure(error)) }
                 }
             }

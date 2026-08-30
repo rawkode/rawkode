@@ -40,6 +40,16 @@ export type DailyStandupController = {
   readonly refresh: () => void
 }
 
+/**
+ * A deliberately narrow test seam. Production leaves this undefined and keeps the existing
+ * managed-runtime RPC execution path; mounted controller tests can supply deferred lanes without
+ * substituting the global runtime or exposing transport details to UI consumers.
+ */
+export type DailyStandupLoaders = {
+  readonly publications: (input: ListStandupPublicationsInput) => Promise<readonly StandupPublication[]>
+  readonly ledger: (input: ListRecentLedgerActivityInput) => Promise<readonly LedgerActivityEntry[]>
+}
+
 type InternalState = {
   readonly key: string
   readonly employee: StandupLane<readonly StandupPublication[]>
@@ -89,11 +99,13 @@ const employeeState = (lane: StandupLane<readonly StandupPublication[]>): DailyS
 export function useDailyStandup({
   dailyNoteId,
   isToday,
-  clock = systemClock
+  clock = systemClock,
+  loaders
 }: {
   readonly dailyNoteId?: EntityId
   readonly isToday: boolean
   readonly clock?: () => Date
+  readonly loaders?: DailyStandupLoaders
 }): DailyStandupController {
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [dayWindow, setDayWindow] = useState(() => dailyStandupWindow(clock()))
@@ -185,7 +197,7 @@ export function useDailyStandup({
         setRefreshing(false)
       }
     }
-    const run = <T,>(lane: "employee" | "ledger", effect: Effect.Effect<T, unknown, any>) => {
+    const runEffect = <T,>(lane: "employee" | "ledger", effect: Effect.Effect<T, unknown, any>) => {
       const fiber = runtime.runFork(Effect.exit(effect as never))
       fiber.addObserver((outer) => {
         if (!Exit.isSuccess(outer)) return
@@ -199,21 +211,35 @@ export function useDailyStandup({
       })
       return fiber
     }
-    const employeeFiber = run(
-      "employee",
-      WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listStandupPublications(new ListStandupPublicationsInput({ workspaceId, dailyNoteId }))))
-    )
-    const ledgerFiber = lanes.ledger
-      ? run(
-        "ledger",
-        WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listRecentLedgerActivity(new ListRecentLedgerActivityInput({ workspaceId, limit: DAILY_STANDUP_FETCH_LIMIT, from: dayWindow.from, to: dayWindow.to }))))
+    const runLoader = <T,>(lane: "employee" | "ledger", request: Promise<T>) => {
+      let cancelled = false
+      void request.then(
+        (value) => { if (!cancelled) settle(lane, { status: "success", value }) },
+        () => { if (!cancelled) settle(lane, { status: "failure" }) }
       )
+      return () => { cancelled = true }
+    }
+    const publicationInput = new ListStandupPublicationsInput({ workspaceId, dailyNoteId })
+    const ledgerInput = new ListRecentLedgerActivityInput({ workspaceId, limit: DAILY_STANDUP_FETCH_LIMIT, from: dayWindow.from, to: dayWindow.to })
+    const employeeFiber = loaders === undefined
+      ? runEffect("employee", WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listStandupPublications(publicationInput))))
+      : undefined
+    const cancelEmployeeLoader = loaders === undefined
+      ? undefined
+      : runLoader("employee", loaders.publications(publicationInput))
+    const ledgerFiber = lanes.ledger && loaders === undefined
+      ? runEffect("ledger", WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listRecentLedgerActivity(ledgerInput))))
+      : undefined
+    const cancelLedgerLoader = lanes.ledger && loaders !== undefined
+      ? runLoader("ledger", loaders.ledger(ledgerInput))
       : undefined
     return () => {
-      void Effect.runFork(Fiber.interrupt(employeeFiber))
+      if (employeeFiber !== undefined) void Effect.runFork(Fiber.interrupt(employeeFiber))
       if (ledgerFiber !== undefined) void Effect.runFork(Fiber.interrupt(ledgerFiber))
+      cancelEmployeeLoader?.()
+      cancelLedgerLoader?.()
     }
-  }, [dailyNoteId, isToday, key, dayWindow.from, dayWindow.to])
+  }, [dailyNoteId, isToday, key, dayWindow.from, dayWindow.to, loaders])
 
   const displayedState = state.key === key && !identityChanged
     ? state
