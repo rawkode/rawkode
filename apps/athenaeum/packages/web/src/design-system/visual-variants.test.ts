@@ -72,6 +72,12 @@ describe("visual variant CSS boundary", () => {
     expect(legacyPaperCss).not.toMatch(/html\[data-variant\]:not\(\[data-visual-variant\]\) \.shell-chat-toggle \{[^}]*position:\s*fixed/)
   })
 
+  it("lets persisted Paper use the responsive context rail without widening the prose measure", () => {
+    expect(legacyPaperCss).toContain('html[data-variant="paper"]:not([data-visual-variant]) .notes-route')
+    expect(legacyPaperCss).toMatch(/\.notes-route \{[^}]*max-width:\s*72rem/)
+    expect(legacyPaperCss).not.toMatch(/\.daily-note\s*\{[^}]*grid-template-columns/)
+  })
+
   it("defines the complete status-token set without relying on legacy Paper", () => {
     const statusTokens = [
       "--color-danger",
@@ -97,7 +103,7 @@ describe("visual variant CSS boundary", () => {
     for (const currentClass of [
       "daily-note-editor",
       "daily-note-header h1",
-      "notes-context-column",
+      "daily-note-context",
       "today-brief",
       "backlinks",
       "daily-note-standup",
@@ -109,6 +115,7 @@ describe("visual variant CSS boundary", () => {
     ]) {
       expect(variantsCss).toContain(currentClass)
     }
+    expect(variantsCss).not.toContain("notes-context-column")
     expect(variantsCss).not.toMatch(/\.shell-sidebar\s*\{[^}]*\b(?:position|transform|inset)\s*:/)
   })
 

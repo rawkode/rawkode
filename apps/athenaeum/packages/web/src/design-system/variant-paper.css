@@ -9,11 +9,9 @@
    SHARED STRUCTURAL LAYER (applies under any data-variant)
    ---------------------------------------------------------------------------- */
 
-/* S1 — backlinks never beside prose; kills the 46rem container branch
-   (specificity 0,2,1 beats 0,1,0) */
-html[data-variant]:not([data-visual-variant]) .daily-note {
-  grid-template-columns: minmax(0, 1fr);
-}
+/* S1 — the note owns one contextual projection. Backlinks stay below the writing surface, while
+   the current calendar context may become a secondary rail when the note container has room. The
+   base layout owns that responsive grid; this theme must not flatten it back to one column. */
 
 /* S2 — chat rail = summonable drawer at EVERY width; quiet toggle
    (surface, not solid accent) */
@@ -174,6 +172,11 @@ html[data-variant="paper"]:not([data-visual-variant]) .daily-note {
 html[data-variant="paper"]:not([data-visual-variant]) .route-view {
   margin-inline: auto;
   max-width: 40.5rem;
+}
+/* Keep the prose measure capped inside the note, but give its single context slot enough room to
+   become a useful desktop rail. Other routes retain the paper mode's centered reading column. */
+html[data-variant="paper"]:not([data-visual-variant]) .notes-route {
+  max-width: 72rem;
 }
 html[data-variant="paper"]:not([data-visual-variant]) .route-view--light,
 html[data-variant="paper"]:not([data-visual-variant]) .route-view:has(.graph-view),

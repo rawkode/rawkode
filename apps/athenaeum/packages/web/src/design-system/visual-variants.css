@@ -58,7 +58,7 @@ html[data-visual-variant="paper"] .daily-note-header h1 time {
   font-family: var(--font-data);
 }
 
-html[data-visual-variant="paper"] .notes-context-column > .today-brief {
+html[data-visual-variant="paper"] .daily-note-context > .today-brief {
   max-width: 42rem;
   margin-inline: auto;
 }
@@ -126,7 +126,7 @@ html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .notes-lay
   grid-template-columns: minmax(0, 1fr);
 }
 
-html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .notes-context-column {
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-context {
   position: static;
   max-height: none;
   overflow-y: visible;
@@ -145,7 +145,7 @@ html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-not
   text-transform: uppercase;
 }
 
-html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .notes-context-column,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-context,
 html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .backlinks,
 html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-standup {
   opacity: 0.9;
