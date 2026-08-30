@@ -31,6 +31,7 @@ export const CREATE_BOOKMARK_MESSAGE_DERIVATION_VERSION = "create-bookmark.v1" a
 export const LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION = "link-calendar-event-to-node.v1" as const
 export const APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION = "append-transcript-segment.v1" as const
 export const START_MEETING_MESSAGE_DERIVATION_VERSION = "start-meeting.v1" as const
+export const CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION = "calendar-projection.v1" as const
 export const ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION = "ensure-loro-page.v1" as const
 export const COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION = "commit-loro-page-content.v1" as const
 export const PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION = "prepare-meeting-in-daily-note.v1" as const
@@ -286,6 +287,16 @@ export class LinkCalendarEventToNodeLedgerPayload extends Schema.Class<LinkCalen
 export class LinkCalendarEventToNodeLedgerReceipt extends Schema.Class<LinkCalendarEventToNodeLedgerReceipt>("LinkCalendarEventToNodeLedgerReceipt")({
   calendarEventId: EntityId,
   nodeId: EntityId
+}) {}
+
+/** Private evidence for an atomic provider-event projection. Raw provider ids and attendee
+ * addresses remain in backend-private collections; audit and delivery records use digests only. */
+export class CalendarProjectionLedgerPayload extends Schema.Class<CalendarProjectionLedgerPayload>("CalendarProjectionLedgerPayload")({
+  calendarEventId: EntityId,
+  sourceRevisionDigest: Schema.String.pipe(Schema.minLength(1)),
+  attendeeObservationDigests: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 /** Optional speaker identity is encoded as a strict marker instead of relying on JSON's
@@ -652,6 +663,16 @@ export class LinkCalendarEventToNodeLedgerCommand extends Schema.Class<LinkCalen
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
+export class CalendarProjectionLedgerCommand extends Schema.Class<CalendarProjectionLedgerCommand>("CalendarProjectionLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("calendarProjection"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION),
+  message: MutationCommitMessage, payload: CalendarProjectionLedgerPayload,
+  createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
 export class AppendTranscriptSegmentLedgerCommand extends Schema.Class<AppendTranscriptSegmentLedgerCommand>("AppendTranscriptSegmentLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),
   requestId: MutationRequestId,
@@ -704,6 +725,7 @@ export const LedgerCommand = Schema.Union(
   CreateRelationDefinitionLedgerCommand,
   CreateBookmarkLedgerCommand,
   LinkCalendarEventToNodeLedgerCommand,
+  CalendarProjectionLedgerCommand,
   AppendTranscriptSegmentLedgerCommand,
   StartMeetingLedgerCommand
 )

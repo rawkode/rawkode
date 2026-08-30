@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest"
+import { planCalendarRemoteEvent } from "../src/calendar-projection-plan.js"
+
+const workspaceId = "00000000-0000-4000-8000-000000000001" as const
+const bindingId = "00000000-0000-4000-8000-000000000002" as const
+const event = (attendees: ReadonlyArray<{ email: string }>, status: "confirmed" | "cancelled" = "confirmed") => ({
+  id: "provider-private-id", title: "Private meeting", start: { kind: "dateTime" as const, dateTime: "2026-08-30T10:00:00.000Z" },
+  end: { kind: "dateTime" as const, dateTime: "2026-08-30T11:00:00.000Z" }, status, attendees
+})
+
+describe("CalendarRemoteEventPlan", () => {
+  it("is invariant to duplicate and reordered attendees", () => {
+    const left = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "A@example.test" }, { email: "b@example.test" }, { email: "a@example.test" }]))
+    const right = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "b@example.test" }, { email: "a@example.test" }]))
+    expect(left.sourceRevisionDigest).toBe(right.sourceRevisionDigest)
+    expect(left.attendeeObservationDigests).toEqual(right.attendeeObservationDigests)
+  })
+  it("changes revisions for cancellation and isolates bindings without leaking addresses", () => {
+    const confirmed = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }]))
+    const cancelled = planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }], "cancelled"))
+    const otherBinding = planCalendarRemoteEvent(workspaceId, "00000000-0000-4000-8000-000000000003", event([{ email: "a@example.test" }]))
+    expect(cancelled.cancelled).toBe(true)
+    expect(cancelled.sourceRevisionDigest).not.toBe(confirmed.sourceRevisionDigest)
+    expect(otherBinding.attendeeObservationDigests).not.toEqual(confirmed.attendeeObservationDigests)
+    expect(confirmed.sourceRevisionDigest).not.toContain("a@example.test")
+    expect(confirmed.attendeeObservationDigests.join(":")) .not.toContain("a@example.test")
+  })
+})

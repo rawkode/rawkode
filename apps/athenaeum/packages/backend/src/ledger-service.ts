@@ -80,6 +80,9 @@ import {
   AppendTranscriptSegmentLedgerSpeaker,
   appendTranscriptSegmentCommitMessage,
   START_MEETING_MESSAGE_DERIVATION_VERSION,
+  CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION,
+  CalendarProjectionLedgerCommand,
+  CalendarProjectionLedgerPayload,
   StartMeetingLedgerCommand,
   StartMeetingLedgerPayload,
   startMeetingCommitMessage,
@@ -281,6 +284,15 @@ export interface LinkCalendarEventToNodeLedgerCommandInput {
   readonly createdAt: string
 }
 
+export interface CalendarProjectionLedgerCommandInput {
+  readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
+  readonly workspaceId: string; readonly principal: string; readonly policy: string
+  readonly calendarEventId: string; readonly sourceRevisionDigest: string
+  readonly attendeeObservationDigests: ReadonlyArray<string>
+  readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
+  readonly createdAt: string
+}
+
 export interface AppendTranscriptSegmentLedgerCommandInput {
   readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
   readonly workspaceId: string; readonly principal: string; readonly policy: string
@@ -335,15 +347,15 @@ export type LedgerCustodyType =
   | "ensureLoroPage"
   | "migrateLegacyPage"
   | "prepareMeetingInDailyNote"
+  | "calendarProjection"
 
-export interface LedgerCustodyInput {
+interface BaseLedgerCustodyInput {
   readonly requestIdentity: string
   readonly fingerprint: string
   readonly type: LedgerCustodyType
   readonly workspaceId: string
   readonly actorKind: "user" | "employee" | "system"
   readonly actorLabel: string
-  readonly targetKind: "node"
   readonly targetId: string
   readonly employeeId?: string
   readonly jobId?: string
@@ -353,6 +365,16 @@ export interface LedgerCustodyInput {
   readonly toolCallId?: string
 }
 
+export type LedgerCustodyInput =
+  | (BaseLedgerCustodyInput & {
+      readonly type: Exclude<LedgerCustodyType, "calendarProjection">
+      readonly targetKind: "node"
+    })
+  | (BaseLedgerCustodyInput & {
+      readonly type: "calendarProjection"
+      readonly targetKind: "calendarEvent"
+    })
+
 const isNonBlankString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0
 
@@ -360,8 +382,9 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote"].includes(input.type) ||
-    !["user", "employee", "system"].includes(input.actorKind) || input.targetKind !== "node" ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "calendarProjection"].includes(input.type) ||
+    !["user", "employee", "system"].includes(input.actorKind) ||
+    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.targetKind !== "node") ||
     Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
     throw new LedgerConflict("invalid ledger custody shape")
   }
@@ -670,6 +693,19 @@ export const linkCalendarEventToNodeLedgerFingerprint = (
   messageDerivationVersion: LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION
 }))
 
+/** Provider ids and emails are deliberately absent: replay identity is binding-local request
+ * identity plus opaque source/attendee digests. */
+export const calendarProjectionLedgerFingerprint = (
+  command: Omit<CalendarProjectionLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity" | "calendarEventId">
+): string => sha256HexSync(canonicalJsonBytes({
+  version: LEDGER_COMMAND_VERSION, type: "calendarProjection", requestId: command.requestId,
+  workspaceId: command.workspaceId, principal: command.principal, policy: command.policy,
+  sourceRevisionDigest: command.sourceRevisionDigest,
+  attendeeObservationDigests: [...command.attendeeObservationDigests].sort(),
+  commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+  messageDerivationVersion: CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION
+}))
+
 /** Canonical identity for one transcript append. The optional speaker marker is explicit so
  * absent and present-with-value requests cannot collapse during retries; transcript text is kept
  * byte-for-byte and remains private to the command payload. */
@@ -840,7 +876,7 @@ export class LedgerService {
       requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
       actorKind: "user" | "employee" | "system"; actorLabel: string
       employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
-      chatId: string | null; toolCallId: string | null; targetKind: "node"; targetId: string
+      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent"; targetId: string
     }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
       employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
       FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
@@ -856,11 +892,16 @@ export class LedgerService {
       if (command !== undefined && command.type === input.type && command.commandRowId <= command.commandHighWater) return
       throw new LedgerConflict("request identity has missing or mismatched custody")
     }
-    const normalized = {
+    const normalizedBase = {
       ...row,
       employeeId: row.employeeId ?? undefined, jobId: row.jobId ?? undefined, runId: row.runId ?? undefined,
       grantId: row.grantId ?? undefined, chatId: row.chatId ?? undefined, toolCallId: row.toolCallId ?? undefined
     }
+    const normalized: LedgerCustodyInput = row.type === "calendarProjection" && row.targetKind === "calendarEvent"
+      ? { ...normalizedBase, type: "calendarProjection", targetKind: "calendarEvent" }
+      : row.type !== "calendarProjection" && row.targetKind === "node"
+        ? { ...normalizedBase, type: row.type, targetKind: "node" }
+        : (() => { throw new LedgerConflict("request identity has missing or mismatched custody") })()
     try { assertLedgerCustodyShape(normalized) } catch {
       throw new LedgerConflict("request identity has missing or mismatched custody")
     }
@@ -1326,6 +1367,26 @@ export class LedgerService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
       persisted.version, persisted.type, persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
       persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt)
+  }
+
+  appendCalendarProjection(command: CalendarProjectionLedgerCommandInput): void {
+    const payload = Schema.decodeUnknownSync(CalendarProjectionLedgerPayload)({
+      calendarEventId: command.calendarEventId, sourceRevisionDigest: command.sourceRevisionDigest,
+      attendeeObservationDigests: [...command.attendeeObservationDigests].sort(),
+      commitMessage: command.commitMessage, attribution: command.attribution
+    })
+    const persisted = Schema.decodeUnknownSync(CalendarProjectionLedgerCommand)({
+      version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint,
+      type: "calendarProjection", workspaceId: command.workspaceId, principal: command.principal,
+      capability: "build", policy: command.policy,
+      messageDerivationVersion: CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION,
+      message: command.commitMessage, payload, createdAt: command.createdAt
+    })
+    this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId,
+      persisted.fingerprint, persisted.version, persisted.type, persisted.workspaceId, persisted.principal,
+      persisted.capability, persisted.policy, persisted.messageDerivationVersion, persisted.message,
+      JSON.stringify(persisted.payload), persisted.createdAt)
   }
 
   appendTranscriptSegment(command: AppendTranscriptSegmentLedgerCommandInput, segment: {
