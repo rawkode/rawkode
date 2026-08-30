@@ -395,6 +395,13 @@ dialog.shell-sidebar:not([open]) {
   font-size: var(--text-sm);
 }
 
+/* The daily note owns its selected date heading. Keep the shell actions available, but do not
+   repeat a second "Athenaeum / Today" label above the writing surface. AppShell keeps the route
+   label in the accessibility tree with the shared `.sr-only` utility. */
+.shell-mainbar-daily-note .shell-mainbar-actions {
+  margin-left: auto;
+}
+
 .shell-main-content {
   width: min(100%, var(--shell-content-max));
   margin: 0 auto;

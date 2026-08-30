@@ -402,9 +402,6 @@ public struct DailyNoteView: View {
                 wideNoteHeaderRow
                 compactNoteHeader
             }
-            Text(LoroNativeRichEmptyStatePresentation.promptText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
     }
 

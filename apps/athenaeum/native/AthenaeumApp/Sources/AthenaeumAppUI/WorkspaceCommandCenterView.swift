@@ -467,6 +467,7 @@ public struct WorkspaceCommandCenterView: View {
         NavigationStack(path: $iOSPath) {
             iOSHome
                 .navigationTitle(WorkspaceIOSHomePresentation.navigationTitle(isToday: host.isSelectedDateToday))
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button {
@@ -1496,7 +1497,9 @@ enum WorkspaceIOSHomePresentation {
     static let dailyNoteTitle = "Daily note"
 
     static func navigationTitle(isToday: Bool) -> String {
-        isToday ? "Today" : dailyNoteTitle
+        // Today’s selected date is the primary heading inside DailyNoteView. An empty shell title
+        // avoids repeating "Today" above that date while retaining a title for historical notes.
+        isToday ? "" : dailyNoteTitle
     }
 
     static func dailyNoteDate(for route: WorkspaceRoute) -> LocalDate? {

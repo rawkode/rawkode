@@ -210,12 +210,15 @@ describe("AppShell command palette shortcut", () => {
   it("labels valid selected daily notes without treating malformed dates as history", async () => {
     const host = await mount()
     const routeTitle = () => host.querySelector(".shell-mainbar-title")?.textContent
+    const mainbar = () => host.querySelector(".shell-mainbar")
 
     expect(routeTitle()).toBe("Today")
+    expect(mainbar()?.classList.contains("shell-mainbar-daily-note")).toBe(true)
 
     routeLocation = { pathname: "/notes", search: "?date=2026-08-29" }
     await rerenderShell()
     expect(routeTitle()).toBe("Daily note")
+    expect(mainbar()?.classList.contains("shell-mainbar-daily-note")).toBe(true)
 
     routeLocation = { pathname: "/notes", search: "?date=2026-02-31" }
     await rerenderShell()

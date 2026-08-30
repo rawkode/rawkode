@@ -83,7 +83,7 @@ final class WorkspaceRouteTests: XCTestCase {
     }
 
     func testDailyNoteNavigationTitleFollowsTheSelectedDay() {
-        XCTAssertEqual(WorkspaceIOSHomePresentation.navigationTitle(isToday: true), "Today")
+        XCTAssertEqual(WorkspaceIOSHomePresentation.navigationTitle(isToday: true), "")
         XCTAssertEqual(WorkspaceIOSHomePresentation.navigationTitle(isToday: false), "Daily note")
         XCTAssertEqual(WorkspaceIOSHomePresentation.dailyNoteTitle, "Daily note")
     }

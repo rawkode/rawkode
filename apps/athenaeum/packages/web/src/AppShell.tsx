@@ -110,6 +110,7 @@ export function AppShell({
   const location = useLocation()
   const routeKey = `${location.pathname}${location.search}${location.hash}`
   const currentRouteLabel = routeLabel(location.pathname, location.search)
+  const isDailyNoteRoute = location.pathname.startsWith("/notes")
   const announcedPathnameRef = useRef(location.pathname)
   const previousRouteKeyRef = useRef(routeKey)
   const [routeAnnouncement, setRouteAnnouncement] = useState("")
@@ -355,8 +356,8 @@ export function AppShell({
         </Drawer>
 
         <main className="shell-main">
-          <header className="shell-mainbar">
-            <div className="shell-mainbar-location">
+          <header className={`shell-mainbar${isDailyNoteRoute ? " shell-mainbar-daily-note" : ""}`}>
+            <div className={`shell-mainbar-location${isDailyNoteRoute ? " sr-only" : ""}`}>
               <span className="shell-mainbar-kicker">Athenaeum</span>
               <span className="shell-mainbar-title">{currentRouteLabel}</span>
             </div>
