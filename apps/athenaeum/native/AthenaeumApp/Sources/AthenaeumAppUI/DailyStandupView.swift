@@ -325,15 +325,35 @@ public struct DailyStandupView: View {
     private let includeLedger: Bool
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if model.employeeLoaderAvailable {
-                employeeUpdates
-            }
-            if includeLedger {
-                ledgerActivity
+        Group {
+            if model.employeeLoaderAvailable || includeLedger {
+                VStack(alignment: .leading, spacing: 10) {
+                    subdocumentHeader
+                    VStack(alignment: .leading, spacing: 14) {
+                        if model.employeeLoaderAvailable {
+                            employeeUpdates
+                        }
+                        if includeLedger {
+                            ledgerActivity
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
             }
         }
-        .padding(.vertical, 8)
+    }
+
+    private var subdocumentHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Daily note sub-document")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Daily standup")
+                .font(.title2.bold())
+            Text("Employee updates and recorded changes for this day.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder
@@ -341,11 +361,11 @@ public struct DailyStandupView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Standup")
+                    Text("Workforce")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Employee updates")
-                        .font(.title2.bold())
+                        .font(.headline)
                 }
                 Spacer()
                 Label("Workforce", systemImage: "person.3")
@@ -418,11 +438,11 @@ public struct DailyStandupView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Daily standup")
+                    Text("Ledger")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Recorded work")
-                        .font(.title2.bold())
+                        .font(.headline)
                 }
                 Spacer()
                 HStack(spacing: 10) {

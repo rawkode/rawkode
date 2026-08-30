@@ -102,6 +102,8 @@ const emptyStandup: DailyStandupController = {
 
 export function DailyStandup({ standup = emptyStandup }: { readonly standup?: DailyStandupController } = {}) {
   const [showAllEntries, setShowAllEntries] = useState(false)
+  const hasEmployeeUpdates = standup.employeeUpdates.status !== "idle"
+  const hasRecordedWork = standup.snapshot.isToday
   const visibleEntries = standup.ledger.status === "success" ? standup.ledger.value : undefined
   const displayedEntries = showAllEntries ? visibleEntries : visibleEntries?.slice(0, DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES)
   const additionalEntryCount = visibleEntries === undefined ? 0 : Math.max(visibleEntries.length - DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES, 0)
@@ -111,14 +113,23 @@ export function DailyStandup({ standup = emptyStandup }: { readonly standup?: Da
   useEffect(() => setShowAllEntries(false), [standup.snapshot.dailyNoteId, standup.snapshot.generation])
 
   return (
-    <>
-      {standup.employeeUpdates.status !== "idle" && <EmployeeUpdates state={standup.employeeUpdates} onRetry={standup.refresh} />}
-      {standup.snapshot.isToday && (
-        <section className="daily-note-standup" aria-labelledby="daily-standup-title">
+    hasEmployeeUpdates || hasRecordedWork ? (
+      <section className="daily-standup-subdocument" aria-labelledby="daily-standup-title">
+        <header className="daily-standup-subdocument-heading">
+          <div>
+            <span className="section-kicker">Daily note sub-document</span>
+            <h2 id="daily-standup-title">Daily standup</h2>
+          </div>
+          <p>Employee updates and recorded changes for this day.</p>
+        </header>
+        <div className="daily-standup-subdocument-content">
+          {hasEmployeeUpdates && <EmployeeUpdates state={standup.employeeUpdates} onRetry={standup.refresh} />}
+          {hasRecordedWork && (
+            <section className="daily-note-standup" aria-labelledby="daily-standup-recorded-title">
           <div className="ledger-activity-heading">
             <div>
-              <span className="section-kicker">Daily standup</span>
-              <h2 id="daily-standup-title">Recorded work</h2>
+              <span className="section-kicker">Ledger</span>
+              <h3 id="daily-standup-recorded-title">Recorded work</h3>
             </div>
             <div className="ledger-activity-heading-actions">
               <span className="ledger-activity-badge">ledger</span>
@@ -189,9 +200,11 @@ export function DailyStandup({ standup = emptyStandup }: { readonly standup?: Da
               )}
             </>
           )}
-        </section>
-      )}
-    </>
+            </section>
+          )}
+        </div>
+      </section>
+    ) : null
   )
 }
 

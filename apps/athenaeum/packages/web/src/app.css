@@ -2195,7 +2195,7 @@
   margin-top: 0;
 }
 
-.daily-note-standup {
+.daily-standup-subdocument {
   min-width: 0;
   width: min(100%, 65ch);
   margin-inline: auto;
@@ -2204,10 +2204,38 @@
 }
 
 @container notes-route (min-width: 61rem) {
-  .daily-note-standup {
+  .daily-standup-subdocument {
     width: 100%;
     margin-inline: 0;
   }
+}
+
+.daily-standup-subdocument-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.daily-standup-subdocument-heading h2 {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.daily-standup-subdocument-heading p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.daily-standup-subdocument-content {
+  display: grid;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
 }
 
 .ledger-activity-heading {
@@ -2224,6 +2252,13 @@
 }
 
 .ledger-activity-heading h2 {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ledger-activity-heading h3 {
   margin: 0 0 var(--space-1);
   font-family: var(--font-data);
   font-size: var(--text-sm);
@@ -2391,7 +2426,7 @@
 
   .daily-note-header,
   .daily-note-canvas,
-  .daily-note-standup,
+  .daily-standup-subdocument,
   .daily-note > .backlinks {
     grid-column: 1;
   }
@@ -2419,7 +2454,7 @@
     display: none;
   }
 
-  .daily-note-standup,
+  .daily-standup-subdocument,
   .daily-note > .backlinks {
     width: 100%;
     margin-inline: 0;
@@ -4040,7 +4075,7 @@
 }
 
 .employee-updates {
-  margin-top: var(--space-6);
+  margin-top: 0;
 }
 
 /* The morning cue is intentionally a sentence-sized interruption, not a second dashboard. The
@@ -4189,6 +4224,17 @@
 }
 
 @media (max-width: 36rem) {
+  .daily-standup-subdocument-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .daily-standup-subdocument-heading p {
+    max-width: none;
+    text-align: left;
+  }
+
   .daily-note-editor {
     padding-top: var(--space-3);
   }

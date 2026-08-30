@@ -59,6 +59,8 @@ describe("DailyStandup meeting preparation activity", () => {
   it("renders the public meeting-preparation activity with its actor and commit reason", async () => {
     const host = await mount()
 
+    expect(host.querySelector(".daily-standup-subdocument")?.getAttribute("aria-labelledby")).toBe("daily-standup-title")
+    expect(host.querySelector("#daily-standup-title")?.textContent).toBe("Daily standup")
     expect(host.querySelector(".ledger-activity-kind")?.textContent).toBe("Prepared a meeting in the daily note")
     expect(host.querySelector(".ledger-activity-actor")?.textContent).toBe("Workspace member")
     expect(host.querySelector(".ledger-activity-reason p")?.textContent).toBe("Prepare the planning meeting in the daily note.")
