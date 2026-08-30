@@ -21,12 +21,10 @@ import { workspaceId } from "./workspace-id.js"
 import { AddTagFieldForm } from "./AddTagFieldForm.js"
 
 // docs/supertag-centering-decisions.md §3, "New `/supertags` route — minimal, concrete shape".
-// Tag schema administration — create a tag, set its parents at creation time, define its fields —
-// as distinct from `/graph`'s read-only ViewSpec browsing (see that section's own "different
-// mental modes" reasoning). Every read/write here is an RPC that already exists and is already
-// tested server-side (`listTags`, `createTag`, `listTagFields`, and — via the shared
-// `AddTagFieldForm` — `defineTagField`); this component adds no new backend surface, only the
-// admin-shaped UI for what already exists.
+// Tag schema administration — create and edit a tag, set its parents, and define its fields — as
+// distinct from `/graph`'s read-only ViewSpec browsing (see that section's own "different mental
+// modes" reasoning). Every read/write here is an RPC with a server-issued revision fence; the
+// manager keeps the draft visible when a save conflicts so the user can reconcile deliberately.
 
 const loadTags = (client: WorkspaceRpcClientService): Effect.Effect<ReadonlyArray<Tag>, DomainError> =>
   client.listTags(new ListTagsInput({ workspaceId })).pipe(Effect.map((output) => output.tags))
@@ -52,8 +50,7 @@ const tagCreationFailureMessage =
 
 /** Create-tag form — name plus a multi-select of existing tags as parents (decisions doc §3:
  *  "Create tag form: name + a multi-select of existing tags as parents → `createTag`"). Editing
- *  parents after creation is the doc's own named, explicitly-deferred gap (no `updateTagParents`
- *  RPC exists) — this form is create-only, matching what the backend actually supports today. */
+ *  is handled by TagDetail below with a server-issued revision fence. */
 function CreateTagForm({
   tags,
   onCreated
@@ -298,6 +295,7 @@ function TagDetail({
 }) {
   const [draft, setDraft] = useState<{ readonly revision: string; readonly name: string; readonly parentIds: ReadonlySet<EntityId> } | undefined>()
   const [editError, setEditError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const requestId = useRef<string | undefined>(undefined)
   const parents = tag.parentIds.flatMap((id) => {
@@ -306,10 +304,15 @@ function TagDetail({
   })
   const children = tags.filter((candidate) => candidate.parentIds.includes(tag.id))
   const startEdit = () => {
-    if (busy || tag.builtin) return
+    if (busy || loading || tag.builtin) return
+    // A deliberate reload starts a fresh semantic attempt. A failed save keeps its request id
+    // for an exact retry, but accepting the latest server revision must not reuse that old input.
+    requestId.current = undefined
+    setLoading(true)
     setEditError(null)
     runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getTag(new GetTagInput({ workspaceId, tagId: tag.id })))))
       .addObserver((exit) => {
+        setLoading(false)
         if (Exit.isSuccess(exit)) setDraft({ revision: exit.value.tag.revision, name: exit.value.tag.tag.name, parentIds: new Set(exit.value.tag.tag.parentIds) })
         else if (!Exit.isInterrupted(exit)) setEditError("We couldn’t load the latest schema. Retry before editing.")
       })
@@ -321,7 +324,7 @@ function TagDetail({
     return { ...current, parentIds }
   })
   const save = () => {
-    if (draft === undefined || busy) return
+    if (draft === undefined || busy || loading) return
     const currentRequestId = requestId.current ?? crypto.randomUUID()
     requestId.current = currentRequestId
     setBusy(true); setEditError(null)
@@ -347,20 +350,27 @@ function TagDetail({
       <header className="supertags-detail-header">
         <span className="supertag-chip">#{tag.name}</span>
         {tag.builtin && <span className="supertags-detail-badge">Base Tag</span>}
-        {!tag.builtin && draft === undefined && <button type="button" onClick={startEdit}>Edit</button>}
+        {!tag.builtin && draft === undefined && <button type="button" onClick={startEdit} disabled={loading}>{loading ? "Loading…" : "Edit"}</button>}
       </header>
+
+      {draft === undefined && editError !== null && (
+        <div className="error" role="alert">
+          <p>{editError}</p>
+          <button type="button" onClick={startEdit} disabled={loading}>Retry load</button>
+        </div>
+      )}
 
       {draft !== undefined && (
         <section className="supertags-edit-form" aria-label={`Edit ${tag.name} Supertag`}>
-          <label>Name <input value={draft.name} disabled={busy} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-          <fieldset disabled={busy}><legend>Parents</legend>
+          <label>Name <input value={draft.name} disabled={busy || loading} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+          <fieldset disabled={busy || loading}><legend>Parents</legend>
             {tags.filter((candidate) => candidate.id !== tag.id).map((candidate) => <label key={candidate.id}>
               <input type="checkbox" checked={draft.parentIds.has(candidate.id)} onChange={() => toggleParent(candidate.id)} /> #{candidate.name}
             </label>)}
           </fieldset>
-          <button type="button" onClick={save} disabled={busy || trimmedEmpty(draft.name)}>{busy ? "Saving…" : "Save"}</button>
-          <button type="button" onClick={() => { requestId.current = undefined; setDraft(undefined); setEditError(null) }} disabled={busy}>Cancel</button>
-          {editError !== null && <div className="error" role="alert"><p>{editError}</p><button type="button" onClick={save} disabled={busy}>Retry save</button><button type="button" onClick={startEdit} disabled={busy}>Reload latest</button></div>}
+          <button type="button" onClick={save} disabled={busy || loading || trimmedEmpty(draft.name)}>{busy ? "Saving…" : loading ? "Reloading…" : "Save"}</button>
+          <button type="button" onClick={() => { requestId.current = undefined; setDraft(undefined); setEditError(null) }} disabled={busy || loading}>Cancel</button>
+          {editError !== null && <div className="error" role="alert"><p>{editError}</p><button type="button" onClick={save} disabled={busy || loading}>Retry save</button><button type="button" onClick={startEdit} disabled={busy || loading}>Reload latest</button></div>}
         </section>
       )}
 

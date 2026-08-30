@@ -3222,8 +3222,8 @@ class WorkspaceRpcApi extends RpcTarget {
               : row.actorKind === "employee"
                 ? new LedgerActivityActorDetail({ kind: "employee", label: row.actorLabel })
                 : new LedgerActivityActorDetail({ kind: "system", label: row.actorLabel })
-          const target = row.targetKind === "node" && row.targetId !== undefined
-            ? new LedgerActivityTarget({ kind: "node", id: Schema.decodeUnknownSync(EntityId)(row.targetId) })
+          const target = (row.targetKind === "node" || row.targetKind === "tag") && row.targetId !== undefined
+            ? new LedgerActivityTarget({ kind: row.targetKind, id: Schema.decodeUnknownSync(EntityId)(row.targetId) })
             : undefined
           return [new LedgerActivityEntry({
             occurredAt: Schema.decodeUnknownSync(IsoDateTimeString)(row.createdAt),

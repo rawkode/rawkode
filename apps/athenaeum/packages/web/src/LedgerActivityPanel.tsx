@@ -14,7 +14,7 @@ const DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES = 8
 
 type PublicActivityEntry = LedgerActivityEntry & {
   readonly actorDetail?: { readonly kind: "user" | "employee" | "system"; readonly label: string }
-  readonly target?: { readonly kind: "node"; readonly id: EntityId }
+  readonly target?: { readonly kind: "node" | "tag"; readonly id: EntityId }
 }
 
 const actorLabel = (entry: PublicActivityEntry): string => {
@@ -33,9 +33,9 @@ const actorClass = (entry: PublicActivityEntry): string => {
   return `ledger-activity-actor-${entry.actor}`
 }
 
-const validTarget = (entry: PublicActivityEntry): { readonly kind: "node"; readonly id: EntityId } | undefined => {
+const validTarget = (entry: PublicActivityEntry): { readonly kind: "node" | "tag"; readonly id: EntityId } | undefined => {
   const target = entry.target
-  if (target?.kind !== "node" || typeof target.id !== "string") return undefined
+  if ((target?.kind !== "node" && target?.kind !== "tag") || typeof target.id !== "string") return undefined
   // Keep malformed forward-compatible payloads inert even when a caller bypasses the domain
   // decoder (for example a stale RPC fixture or an untyped integration).
   const id = target.id
@@ -248,8 +248,13 @@ export function DailyStandup({ dailyNoteId, includeLedger = true }: {
                       <p>{entry.message}</p>
                     </div>
                     {validTarget(entry as PublicActivityEntry) !== undefined && (
-                      <a className="ledger-activity-target" href={`/node/${validTarget(entry as PublicActivityEntry)!.id}`}>
-                        Open affected note
+                      <a
+                        className="ledger-activity-target"
+                        href={validTarget(entry as PublicActivityEntry)!.kind === "tag"
+                          ? "/supertags"
+                          : `/node/${validTarget(entry as PublicActivityEntry)!.id}`}
+                      >
+                        {validTarget(entry as PublicActivityEntry)!.kind === "tag" ? "Open affected Supertag" : "Open affected note"}
                       </a>
                     )}
                   </li>

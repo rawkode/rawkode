@@ -40,6 +40,8 @@ import {
   createNodeCommitMessage,
   normalizeCreateNodeTitle,
   normalizeCreateTagName,
+  normalizeTagName,
+  tagRevision,
   unassignTagCommitMessage,
   syncNoteReferencesCommitMessage,
   startMeetingCommitMessage
@@ -69,6 +71,13 @@ describe("transitional ledger domain contract", () => {
   it("normalizes public Supertag names once and preserves a fixed public activity message", () => {
     expect(normalizeCreateTagName("  Project\n  Alpha  ")).toBe("Project Alpha")
     expect(createTagCommitMessage()).toBe("Created a Supertag definition.")
+  })
+
+  it("uses the same deterministic name and parent ordering for optimistic revisions", () => {
+    expect(normalizeTagName("\u00a0Project\u2003\nAlpha\u00a0")).toBe("Project Alpha")
+    const base = { id: "00000000-0000-4000-8000-000000000001", name: "Project", parentIds: ["parent-a", "parent-b"] }
+    expect(tagRevision(base)).not.toBe(tagRevision({ ...base, parentIds: ["parent-b", "parent-a"] }))
+    expect(tagRevision(base)).toBe(tagRevision({ ...base, name: "  Project  " }))
   })
 
   it("keeps exact meeting titles private while requiring a strict start command", () => {

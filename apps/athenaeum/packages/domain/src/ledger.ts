@@ -401,10 +401,11 @@ export const startMeetingCommitMessage = (): string => "Started a meeting."
 export const normalizeTagName = (name: string): string => name.normalize("NFKC").trim().replace(/\s+/gu, " ")
 export const normalizeCreateTagName = normalizeTagName
 export const tagNameKey = (name: string): string => normalizeTagName(name).toLocaleLowerCase("en-US")
-/** Stable server-issued optimistic-concurrency token; parent order is deliberately normalized
- * for revision purposes while the persisted `Tag.parentIds` retains the caller's order. */
+/** Stable server-issued optimistic-concurrency token. Parent order is part of the persisted tag
+ * contract and therefore part of the revision; a reorder must conflict with another edit rather
+ * than silently overwriting it with the same token. */
 export const tagRevision = (tag: { readonly id: string; readonly name: string; readonly parentIds: ReadonlyArray<string> }): string =>
-  sha256HexSync(canonicalJsonBytes({ version: "tag-revision.v1", tagId: tag.id, normalizedName: normalizeTagName(tag.name), parentIds: [...tag.parentIds].sort() }))
+  sha256HexSync(canonicalJsonBytes({ version: "tag-revision.v1", tagId: tag.id, normalizedName: normalizeTagName(tag.name), parentIds: [...tag.parentIds] }))
 
 export class CreateNodeLedgerCommand extends Schema.Class<CreateNodeLedgerCommand>("CreateNodeLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),

@@ -149,7 +149,7 @@ describe("createNodeWithIntent strict workspace ledger", () => {
     )
     expect(activity.entries[0]).toMatchObject({
       type: "createNodeWithIntent",
-      actor: "workspace-member",
+      actor: "you",
       message: "Record the new entity for the workspace."
     })
   })

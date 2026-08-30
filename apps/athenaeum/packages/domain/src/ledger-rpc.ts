@@ -43,7 +43,7 @@ export class LedgerActivityActorDetail extends Schema.Class<LedgerActivityActorD
 
 /** The minimal stable target suitable for navigation from Today. */
 export class LedgerActivityTarget extends Schema.Class<LedgerActivityTarget>("LedgerActivityTarget")({
-  kind: Schema.Literal("node"),
+  kind: Schema.Literal("node", "tag"),
   id: EntityId
 }) {}
 

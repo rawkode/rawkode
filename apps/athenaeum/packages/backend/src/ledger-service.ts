@@ -970,7 +970,7 @@ export class LedgerService {
     readonly createdAt: string
     readonly actorKind?: "user" | "employee" | "system"
     readonly actorLabel?: string
-    readonly targetKind?: "node"
+    readonly targetKind?: "node" | "tag"
     readonly targetId?: string
   }> {
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 20)
@@ -999,7 +999,7 @@ export class LedgerService {
       grantId: string | null
       chatId: string | null
       toolCallId: string | null
-      targetKind: "node" | null
+      targetKind: "node" | "tag" | null
       targetId: string | null
       commandRowId: number
       commandHighWater: number
@@ -1025,25 +1025,30 @@ export class LedgerService {
         if ((row.type === "commitLoroPageContent" || row.type === "ensureLoroPage" || row.type === "migrateLegacyPage" || row.type === "prepareMeetingInDailyNote") && row.commandRowId > row.commandHighWater) return []
         return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt }]
       }
-      if (row.actorLabel === null || row.custodyType !== row.type || row.targetKind !== "node" || row.targetId === null) return []
-      if (row.custodyType !== "commitLoroPageContent" && row.custodyType !== "ensureLoroPage" && row.custodyType !== "migrateLegacyPage" && row.custodyType !== "prepareMeetingInDailyNote" && row.custodyType !== "createNodeWithIntent" && row.custodyType !== "addFact" && row.custodyType !== "assignTag") return []
+      if (row.actorLabel === null || row.custodyType !== row.type || row.targetId === null) return []
+      const nodeCustodyTypes = [
+        "commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote",
+        "createNodeWithIntent", "addFact", "assignTag"
+      ] as const
+      const isNodeCustodyType = (value: string): value is typeof nodeCustodyTypes[number] =>
+        nodeCustodyTypes.includes(value as typeof nodeCustodyTypes[number])
+      if (row.custodyType !== "updateTag" && !isNodeCustodyType(row.custodyType)) return []
+      if (row.custodyType === "updateTag" && row.targetKind !== "tag") return []
+      if (row.custodyType !== "updateTag" && row.targetKind !== "node") return []
       if (row.actorKind !== "user" && row.actorKind !== "employee" && row.actorKind !== "system") return []
-      const custody: LedgerCustodyInput = {
-        requestIdentity: "activity-row",
-        fingerprint: "activity-row",
-        type: row.custodyType,
-        workspaceId: "activity-row",
-        actorKind: row.actorKind,
-        actorLabel: row.actorLabel,
-        employeeId: row.employeeId ?? undefined,
-        jobId: row.jobId ?? undefined,
-        runId: row.runId ?? undefined,
-        grantId: row.grantId ?? undefined,
-        chatId: row.chatId ?? undefined,
-        toolCallId: row.toolCallId ?? undefined,
-        targetKind: row.targetKind,
-        targetId: row.targetId
-      }
+      const custody: LedgerCustodyInput = row.custodyType === "updateTag"
+        ? {
+            requestIdentity: "activity-row", fingerprint: "activity-row", type: "updateTag", workspaceId: "activity-row",
+            actorKind: row.actorKind, actorLabel: row.actorLabel, employeeId: row.employeeId ?? undefined,
+            jobId: row.jobId ?? undefined, runId: row.runId ?? undefined, grantId: row.grantId ?? undefined,
+            chatId: row.chatId ?? undefined, toolCallId: row.toolCallId ?? undefined, targetKind: "tag", targetId: row.targetId
+          }
+        : {
+            requestIdentity: "activity-row", fingerprint: "activity-row", type: row.custodyType, workspaceId: "activity-row",
+            actorKind: row.actorKind, actorLabel: row.actorLabel, employeeId: row.employeeId ?? undefined,
+            jobId: row.jobId ?? undefined, runId: row.runId ?? undefined, grantId: row.grantId ?? undefined,
+            chatId: row.chatId ?? undefined, toolCallId: row.toolCallId ?? undefined, targetKind: "node", targetId: row.targetId
+          }
       try { assertLedgerCustodyShape(custody) } catch { return [] }
       if (Schema.decodeUnknownOption(EntityId)(row.targetId)._tag === "None") return []
       return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,

@@ -35,6 +35,7 @@ import {
   type TagFieldValueKind,
   TagsRepository,
   UnexpectedError,
+  ValidationError,
   tagNameKey,
   tagRevision,
   type DomainError,
@@ -77,9 +78,9 @@ const validateTagDag = (tags: ReadonlyArray<Tag>): Effect.Effect<void, DomainErr
   Effect.gen(function* () {
     const byId = new Map(tags.map((tag) => [tag.id, tag]))
     for (const tag of tags) {
-      if (new Set(tag.parentIds).size !== tag.parentIds.length) return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must be unique." }))
+      if (new Set(tag.parentIds).size !== tag.parentIds.length) return yield* Effect.fail(new ValidationError({ message: "Supertag parents must be unique." }))
       for (const parentId of tag.parentIds) if (parentId === tag.id || !byId.has(parentId)) {
-        return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must exist and cannot include itself." }))
+        return yield* Effect.fail(new ValidationError({ message: "Supertag parents must exist and cannot include itself." }))
       }
     }
     const visiting = new Set<EntityId>(); const visited = new Set<EntityId>()
@@ -90,7 +91,7 @@ const validateTagDag = (tags: ReadonlyArray<Tag>): Effect.Effect<void, DomainErr
       for (const parentId of byId.get(id)!.parentIds) if (!visit(parentId)) return false
       visiting.delete(id); visited.add(id); return true
     }
-    for (const tag of tags) if (!visit(tag.id)) return yield* Effect.fail(new UnexpectedError({ message: "Supertag parents must form a DAG." }))
+    for (const tag of tags) if (!visit(tag.id)) return yield* Effect.fail(new ValidationError({ message: "Supertag parents must form a DAG." }))
   })
 
 export interface SyncNoteReferencesResult {
@@ -370,7 +371,7 @@ export const makeGraphServiceLive = (
             const beforeRaw = yield* tagsCollections.tags.list().pipe(Effect.mapError(tagsToUnexpectedError))
             const beforeTags = yield* Effect.forEach(beforeRaw, reviveTag)
             if (beforeTags.some((candidate) => tagNameKey(candidate.name) === tagNameKey(name))) {
-              return yield* Effect.fail(new UnexpectedError({ message: "A Supertag with that name already exists." }))
+              return yield* Effect.fail(new ValidationError({ message: "A Supertag with that name already exists." }))
             }
 
             const tag = new Tag({
@@ -379,11 +380,12 @@ export const makeGraphServiceLive = (
               parentIds,
               builtin: false
             })
+            const allTags = [...beforeTags, tag]
+            yield* validateTagDag(allTags)
             yield* tagsRepository.put(tag)
             yield* upsertTag(sql, tag)
             yield* replaceTagParents(sql, tag.id, tag.parentIds)
 
-            const allTags = [...beforeTags, tag]
             yield* recomputeAndPersistTagClosure(tagClosureCollections, allTags)
             const closureRows = yield* tagClosureCollections.tagClosure.list().pipe(
               Effect.mapError((error) =>
@@ -404,12 +406,12 @@ export const makeGraphServiceLive = (
               return yield* Effect.fail(new UnexpectedError({ message: "Supertag updates require the matching ledger command." }))
             }
             const current = yield* tagsRepository.get(tagId)
-            if (current.builtin) return yield* Effect.fail(new UnexpectedError({ message: "Built-in Supertags cannot be edited." }))
-            if (tagRevision(current) !== expectedRevision) return yield* Effect.fail(new UnexpectedError({ message: "This Supertag changed elsewhere. Reload it before saving." }))
+            if (current.builtin) return yield* Effect.fail(new ValidationError({ message: "Built-in Supertags cannot be edited." }))
+            if (tagRevision(current) !== expectedRevision) return yield* Effect.fail(new ValidationError({ message: "This Supertag changed elsewhere. Reload it before saving." }))
             const existingRaw = yield* tagsCollections.tags.list().pipe(Effect.mapError(tagsToUnexpectedError))
             const allTags = yield* Effect.forEach(existingRaw, reviveTag)
             const collision = allTags.find((candidate) => candidate.id !== tagId && tagNameKey(candidate.name) === tagNameKey(name))
-            if (collision !== undefined && tagNameKey(name) !== tagNameKey(current.name)) return yield* Effect.fail(new UnexpectedError({ message: "A Supertag with that name already exists." }))
+            if (collision !== undefined && tagNameKey(name) !== tagNameKey(current.name)) return yield* Effect.fail(new ValidationError({ message: "A Supertag with that name already exists." }))
             const next = new Tag({ id: current.id, name, parentIds: [...parentIds], builtin: current.builtin })
             const prospective = allTags.map((candidate) => candidate.id === tagId ? next : candidate)
             yield* validateTagDag(prospective)

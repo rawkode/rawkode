@@ -82,6 +82,19 @@ describe("DailyStandup meeting preparation activity", () => {
     expect(host.querySelector<HTMLAnchorElement>(".ledger-activity-target")?.getAttribute("href")).toBe("/node/00000000-0000-4000-8000-000000000001")
   })
 
+  it("links a Supertag schema change back to the Supertags manager", async () => {
+    queryStateMock.entries = [{
+      occurredAt: "2026-08-28T09:30:00.000Z",
+      type: "updateTag",
+      actor: "you",
+      target: { kind: "tag", id: "00000000-0000-4000-8000-000000000002" },
+      message: "Updated a Supertag definition."
+    } as unknown as LedgerActivityEntry]
+    const host = await mount()
+    expect(host.querySelector<HTMLAnchorElement>(".ledger-activity-target")?.getAttribute("href")).toBe("/supertags")
+    expect(host.querySelector(".ledger-activity-target")?.textContent).toBe("Open affected Supertag")
+  })
+
   it("falls back to the legacy actor and hides malformed optional target data", async () => {
     queryStateMock.entries = [{
       occurredAt: "2026-08-28T09:30:00.000Z",
