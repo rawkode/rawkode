@@ -17,6 +17,30 @@ final class TodayBriefViewTests: XCTestCase {
         XCTAssertNil(TodayBriefViewModel.localDate(from: DateComponents(year: 2026, month: 8)))
     }
 
+    func testRequestedLocalDatePinsHistoricalBriefToTheSelectedNote() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let now = date("2026-08-30T23:30:00Z")
+        let selectedDate = date("2026-08-26T00:00:00Z")
+
+        XCTAssertEqual(
+            TodayBriefViewModel.requestedLocalDate(
+                referenceDate: selectedDate,
+                now: now,
+                calendar: calendar
+            ),
+            "2026-08-26"
+        )
+        XCTAssertEqual(
+            TodayBriefViewModel.requestedLocalDate(
+                referenceDate: nil,
+                now: now,
+                calendar: calendar
+            ),
+            "2026-08-31"
+        )
+    }
+
     func testLoadFailureMessageCannotEchoProviderData() {
         let privateWireValue = "alice@example.test/provider-private-id"
         XCTAssertEqual(TodayBriefViewModel.safeErrorMessage, "Unable to load today’s brief. Please try again.")
@@ -35,6 +59,10 @@ final class TodayBriefViewTests: XCTestCase {
         XCTAssertEqual(
             TodayBriefRefreshPresentation.progressTitle(isRefreshInFlight: false),
             "Loading today’s brief…"
+        )
+        XCTAssertEqual(
+            TodayBriefRefreshPresentation.progressTitle(isRefreshInFlight: false, isToday: false),
+            "Loading daily brief…"
         )
 
         isRefreshInFlight = true

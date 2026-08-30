@@ -58,6 +58,10 @@ enum DailyNoteNavigationProgressPresentation {
 public struct DailyNoteView: View {
     @ObservedObject var model: AthenaeumViewModel
     private let standupConfiguration: StandupConfiguration?
+    /// A single contextual projection (currently the calendar brief) can be inserted between the
+    /// note header and editor on compact surfaces. The command center owns the projection's
+    /// client/model; this type-erased slot only controls composition and never fetches data.
+    private let contextualView: AnyView?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
@@ -67,6 +71,7 @@ public struct DailyNoteView: View {
     public init(model: AthenaeumViewModel) {
         self.model = model
         self.standupConfiguration = nil
+        self.contextualView = nil
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -75,7 +80,8 @@ public struct DailyNoteView: View {
         model: AthenaeumViewModel,
         standupBackendURL: URL,
         standupWorkspaceId: EntityId,
-        standupBearerCredential: String?
+        standupBearerCredential: String?,
+        contextualView: AnyView? = nil
     ) {
         self.model = model
         self.standupConfiguration = StandupConfiguration(
@@ -83,11 +89,17 @@ public struct DailyNoteView: View {
             workspaceId: standupWorkspaceId,
             bearerCredential: standupBearerCredential
         )
+        self.contextualView = contextualView
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             noteHeader
+
+            if let contextualView {
+                contextualView
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             switch model.status {
             case .loading:

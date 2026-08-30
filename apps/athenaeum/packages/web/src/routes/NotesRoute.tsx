@@ -107,16 +107,16 @@ export function NotesRoute() {
           onNavigateDate={navigateToDate}
           onPrepareMeetingReady={onPrepareMeetingReady}
           todayBriefTargetId={isToday ? "today-brief" : undefined}
+          dailyContext={
+            <TodayBrief
+              id={isToday ? "today-brief" : undefined}
+              reference={date}
+              isToday={isToday}
+              onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined}
+              onOpenPerson={onOpenPerson}
+            />
+          }
         />
-        <div className="notes-context-column">
-          <TodayBrief
-            id={isToday ? "today-brief" : undefined}
-            reference={date}
-            isToday={isToday}
-            onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined}
-            onOpenPerson={onOpenPerson}
-          />
-        </div>
       </div>
     </div>
   )

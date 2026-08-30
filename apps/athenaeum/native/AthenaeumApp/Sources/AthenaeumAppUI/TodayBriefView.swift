@@ -104,6 +104,9 @@ final class TodayBriefViewModel: ObservableObject {
     private let calendar: Calendar
     private let now: () -> Date
     private let sleeper: TodayBriefSleeper
+    /// A brief beside a selected historical note is pinned to that note and must not follow the
+    /// current day's event boundaries. Standalone briefs retain the live-day behavior.
+    private let tracksLiveDay: Bool
     private var lifecycleTask: Task<Void, Never>?
     private var lifecycleGeneration = 0
     private var isVisible = true
@@ -116,7 +119,9 @@ final class TodayBriefViewModel: ObservableObject {
         calendar: Calendar = .current,
         now: @escaping () -> Date = Date.init,
         sleeper: @escaping TodayBriefSleeper = defaultTodayBriefSleeper,
-        externalPreparer: TodayBriefPreparer? = nil
+        externalPreparer: TodayBriefPreparer? = nil,
+        referenceDate: Date? = nil,
+        tracksLiveDay: Bool? = nil
     ) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
         let client = WorkspaceRPCClient(
@@ -124,9 +129,12 @@ final class TodayBriefViewModel: ObservableObject {
             workspaceId: workspaceId.rawValue,
             bearerCredential: bearerCredential
         )
-        self.loader = { [client, calendar, now] in
-            let date = calendar.dateComponents([.year, .month, .day], from: now())
-            guard let localDate = Self.localDate(from: date) else { throw LoaderError.invalidDate }
+        let followsLiveDay = tracksLiveDay ?? (referenceDate == nil)
+        self.tracksLiveDay = followsLiveDay
+        self.loader = { [client, calendar, now, referenceDate] in
+            guard let localDate = Self.requestedLocalDate(referenceDate: referenceDate, now: now(), calendar: calendar) else {
+                throw LoaderError.invalidDate
+            }
             return try await client.getTodayBrief(localDate: localDate, timeZone: calendar.timeZone.identifier)
         }
         // Meeting preparation is deliberately not available on a standalone Today Brief. The
@@ -138,12 +146,13 @@ final class TodayBriefViewModel: ObservableObject {
         self.sleeper = sleeper
     }
 
-    init(loader: @escaping TodayBriefLoader, preparer: @escaping TodayBriefPreparer = { _, _ in throw LoaderError.invalidPreparation }, calendar: Calendar = .current, now: @escaping () -> Date = Date.init, sleeper: @escaping TodayBriefSleeper = defaultTodayBriefSleeper) {
+    init(loader: @escaping TodayBriefLoader, preparer: @escaping TodayBriefPreparer = { _, _ in throw LoaderError.invalidPreparation }, calendar: Calendar = .current, now: @escaping () -> Date = Date.init, sleeper: @escaping TodayBriefSleeper = defaultTodayBriefSleeper, tracksLiveDay: Bool = true) {
         self.loader = loader
         self.preparer = preparer
         self.calendar = calendar
         self.now = now
         self.sleeper = sleeper
+        self.tracksLiveDay = tracksLiveDay
     }
 
     func refresh() async {
@@ -186,7 +195,7 @@ final class TodayBriefViewModel: ObservableObject {
 
     private func scheduleLifecycle(for brief: RPCTodayBrief) {
         cancelLifecycle()
-        guard isVisible else { return }
+        guard isVisible, tracksLiveDay else { return }
         let current = now()
         guard Self.isCurrent(brief, now: current), let boundary = Self.nextBoundary(brief, now: current, calendar: calendar) else {
             if !Self.isCurrent(brief, now: current) { state = .stale(brief) }
@@ -231,6 +240,10 @@ final class TodayBriefViewModel: ObservableObject {
 
     static func scheduleSignature(_ brief: RPCTodayBrief, now: Date) -> String { TodayBriefSchedule.project(brief.events, now: now).membershipSignature(in: brief.events) }
 
+    nonisolated static func requestedLocalDate(referenceDate: Date?, now: Date, calendar: Calendar) -> String? {
+        localDate(from: calendar.dateComponents([.year, .month, .day], from: referenceDate ?? now))
+    }
+
     private enum LoaderError: Error { case invalidDate, invalidPreparation }
 
     nonisolated static func localDate(from components: DateComponents) -> String? {
@@ -256,8 +269,9 @@ enum TodayBriefRefreshPresentation {
         isRefreshing ? "Refreshing…" : "Refresh"
     }
 
-    static func progressTitle(isRefreshInFlight: Bool) -> String {
-        isRefreshInFlight ? "Refreshing today’s brief…" : "Loading today’s brief…"
+    static func progressTitle(isRefreshInFlight: Bool, isToday: Bool = true) -> String {
+        let brief = isToday ? "today’s brief" : "daily brief"
+        return isRefreshInFlight ? "Refreshing \(brief)…" : "Loading \(brief)…"
     }
 }
 
@@ -265,6 +279,7 @@ public struct TodayBriefView: View {
     @StateObject private var model: TodayBriefViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var isRefreshInFlight = false
+    private let showsToday: Bool
     private let onOpenDailyNote: ((LocalDate) -> Void)?
     private let onOpenPerson: ((EntityId) -> Void)?
 
@@ -274,8 +289,12 @@ public struct TodayBriefView: View {
         bearerCredential: String?,
         preparer: TodayBriefPreparer? = nil,
         onOpenDailyNote: ((LocalDate) -> Void)? = nil,
-        onOpenPerson: ((EntityId) -> Void)? = nil
+        onOpenPerson: ((EntityId) -> Void)? = nil,
+        referenceDate: Date? = nil,
+        isToday: Bool? = nil
     ) {
+        let liveDay = isToday ?? (referenceDate == nil)
+        self.showsToday = liveDay
         self.onOpenDailyNote = onOpenDailyNote
         self.onOpenPerson = onOpenPerson
         _model = StateObject(
@@ -283,7 +302,9 @@ public struct TodayBriefView: View {
                 backendURL: backendURL,
                 workspaceId: workspaceId,
                 bearerCredential: bearerCredential,
-                externalPreparer: preparer
+                externalPreparer: preparer,
+                referenceDate: referenceDate,
+                tracksLiveDay: liveDay
             )
         )
     }
@@ -295,7 +316,7 @@ public struct TodayBriefView: View {
                     Text("Daily context")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Today’s brief")
+                    Text(showsToday ? "Today’s brief" : "Daily brief")
                         .font(.title2.bold())
                 }
                 Spacer()
@@ -314,14 +335,15 @@ public struct TodayBriefView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(isRefreshing)
-                .help("Refresh today’s brief")
+                .help("Refresh \(showsToday ? "today’s" : "daily") brief")
             }
 
             switch model.state {
             case .idle, .loading:
                 ProgressView(
                     TodayBriefRefreshPresentation.progressTitle(
-                        isRefreshInFlight: isRefreshInFlight
+                        isRefreshInFlight: isRefreshInFlight,
+                        isToday: showsToday
                     )
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)

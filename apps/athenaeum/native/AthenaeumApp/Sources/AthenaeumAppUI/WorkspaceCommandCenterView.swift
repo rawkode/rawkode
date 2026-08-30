@@ -418,27 +418,52 @@ public struct WorkspaceCommandCenterView: View {
         }
     }
 
+    /// The calendar projection follows the selected daily-note date. The identity reset is
+    /// intentional: `TodayBriefView` owns a `StateObject` whose loader captures its reference
+    /// date, so a historical-note transition must create a fresh model instead of retaining the
+    /// previous day's request and lifecycle.
+    @ViewBuilder
+    private func dailyBrief(model: AthenaeumViewModel) -> some View {
+        TodayBriefView(
+            backendURL: session.backendURL,
+            workspaceId: workspaceId,
+            bearerCredential: session.credential,
+            preparer: { brief, event in
+                try await model.prepareMeetingInDailyNote(brief: brief, event: event)
+            },
+            onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
+            onOpenPerson: { personNodeId in openPerson(personNodeId) },
+            referenceDate: model.isSelectedDateToday ? nil : model.selectedDate,
+            isToday: model.isSelectedDateToday
+        )
+        .id(model.selectedDate)
+    }
+
     @ViewBuilder
     private func selectedContent(model: AthenaeumViewModel, section: WorkspaceSection? = nil) -> some View {
         switch section ?? selection {
         case .today:
+            #if os(macOS)
+            HStack(alignment: .top, spacing: 24) {
+                DailyNoteView(
+                    model: model,
+                    standupBackendURL: session.backendURL,
+                    standupWorkspaceId: workspaceId,
+                    standupBearerCredential: session.credential
+                )
+                .frame(maxWidth: 600, alignment: .leading)
+                dailyBrief(model: model)
+                    .frame(minWidth: 280, maxWidth: 360, alignment: .leading)
+            }
+            #else
             DailyNoteView(
                 model: model,
                 standupBackendURL: session.backendURL,
                 standupWorkspaceId: workspaceId,
-                standupBearerCredential: session.credential
+                standupBearerCredential: session.credential,
+                contextualView: AnyView(dailyBrief(model: model))
             )
-            Divider()
-            TodayBriefView(
-                backendURL: session.backendURL,
-                workspaceId: workspaceId,
-                bearerCredential: session.credential,
-                preparer: { brief, event in
-                    try await model.prepareMeetingInDailyNote(brief: brief, event: event)
-                },
-                onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
-                onOpenPerson: { personNodeId in openPerson(personNodeId) }
-            )
+            #endif
         case .supertags:
             SupertagsView(
                 backendURL: session.backendURL,

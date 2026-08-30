@@ -1,11 +1,15 @@
 /** @vitest-environment happy-dom */
 
-import { act } from "react"
+import { act, type ReactNode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 type TodayBriefProps = {
   readonly onOpenPerson?: (personNodeId: string) => void
+}
+
+type DailyNoteProps = {
+  readonly dailyContext?: ReactNode
 }
 
 const rendered = vi.hoisted(() => ({
@@ -23,7 +27,7 @@ vi.mock("react-router", () => ({
 }))
 
 vi.mock("../DailyNote.js", () => ({
-  DailyNote: () => null
+  DailyNote: (props: DailyNoteProps) => props.dailyContext ?? null
 }))
 
 vi.mock("../TodayBrief.js", () => ({

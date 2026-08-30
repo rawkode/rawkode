@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import * as Effect from "effect/Effect"
 import {
@@ -181,13 +181,17 @@ export function DailyNote({
   date,
   onNavigateDate,
   onPrepareMeetingReady,
-  todayBriefTargetId
+  todayBriefTargetId,
+  dailyContext
 }: {
   readonly date: Date
   readonly onNavigateDate: (stamp: string) => void
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
   /** Fragment target for the current day's secondary context, shown as a quiet mobile affordance. */
   readonly todayBriefTargetId?: string
+  /** The single live context projection for this note. It stays beside the prose on wide layouts
+   * and moves between the header and editor on constrained layouts without a second fetch. */
+  readonly dailyContext?: ReactNode
 }) {
   const navigate = useNavigate()
   // This intentionally plain cell is stable for the component/date lifetime, but it does not
@@ -389,6 +393,12 @@ export function DailyNote({
             )}
           </nav>
         </header>
+
+        {dailyContext !== undefined && (
+          <div className="daily-note-context">
+            {dailyContext}
+          </div>
+        )}
 
         <div
           className={`daily-note-canvas daily-note-canvas-${state.status}`}

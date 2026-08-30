@@ -683,10 +683,6 @@
   gap: var(--space-7);
 }
 
-.notes-context-column {
-  min-width: 0;
-}
-
 .daily-note {
   display: flex;
   flex-direction: column;
@@ -707,6 +703,13 @@
   width: min(100%, 65ch);
   margin-inline: auto;
   padding-top: var(--space-5);
+}
+
+/* The calendar projection is one live child of the note, rather than a second copy hidden in a
+   responsive rail. On constrained surfaces it sits between the note header and writing canvas so
+   the day can inform the first sentence; the wide layout below promotes that same child to a rail. */
+.daily-note-context {
+  min-width: 0;
 }
 
 .daily-note-header {
@@ -2156,24 +2159,42 @@
 }
 
 @container notes-route (min-width: 61rem) {
-  .notes-layout {
+  .daily-note {
+    display: grid;
     grid-template-columns: minmax(42rem, 65ch) minmax(16rem, 1fr);
+    align-items: start;
     gap: var(--space-7);
   }
 
+  /* Let the header, canvas, and context participate in the note grid while keeping the compact
+     DOM order (header → context → canvas) for narrow layouts. */
   .daily-note-editor {
-    width: 100%;
+    display: contents;
+    width: auto;
     margin-inline: 0;
   }
 
-  .notes-context-column {
+  .daily-note-header,
+  .daily-note-canvas,
+  .daily-note-standup,
+  .daily-note > .backlinks {
+    grid-column: 1;
+  }
+
+  .daily-note-header {
+    padding-top: var(--space-5);
+  }
+
+  .daily-note-context {
     position: sticky;
     top: var(--space-5);
+    grid-column: 2;
+    grid-row: 1 / span 2;
     max-height: calc(100vh - var(--space-7));
     overflow-y: auto;
   }
 
-  .notes-context-column > .today-brief {
+  .daily-note-context > .today-brief {
     padding: var(--space-2) 0 var(--space-5);
     border-top: 0;
     border-bottom: 1px solid var(--color-border);
@@ -2181,6 +2202,12 @@
 
   .notes-layout .daily-note-brief-jump {
     display: none;
+  }
+
+  .daily-note-standup,
+  .daily-note > .backlinks {
+    width: 100%;
+    margin-inline: 0;
   }
 }
 

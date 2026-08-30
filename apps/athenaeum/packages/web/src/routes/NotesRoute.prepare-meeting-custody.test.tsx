@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { StrictMode } from "react"
+import { StrictMode, type ReactNode } from "react"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -10,6 +10,7 @@ import type { TodayBriefEvent, TodayBriefPrepareMeeting } from "../TodayBrief.js
 type DailyNoteProps = {
   readonly onNavigateDate: (stamp: string) => void
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
+  readonly dailyContext?: ReactNode
 }
 type TodayBriefProps = { readonly onPrepareMeeting?: TodayBriefPrepareMeeting }
 
@@ -30,7 +31,7 @@ vi.mock("react-router", () => ({
 vi.mock("../DailyNote.js", () => ({
   DailyNote: (props: DailyNoteProps) => {
     rendered.dailyNotes.push(props)
-    return null
+    return props.dailyContext ?? null
   }
 }))
 vi.mock("../TodayBrief.js", () => ({
