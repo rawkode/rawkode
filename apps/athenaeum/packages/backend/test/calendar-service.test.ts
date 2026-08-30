@@ -1034,6 +1034,65 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     expect(afterResurrectionPublications.publications).toHaveLength(firstPublicationCount)
   })
 
+  it.each(["legacy-v1", "precanonical-v2"] as const)("adopts a %s recurring occurrence written with an offset timestamp", async (identityVersion) => {
+    const canonicalStart = { kind: "dateTime" as const, dateTime: "2026-09-07T09:00:00.000Z" }
+    const scripted = installScriptedCalendarClient({
+      accounts: {
+        [ACCOUNT_EMAIL]: {
+          calendars: { [CALENDAR_ID]: "owner" },
+          freeBusyReadableCalendarIds: [],
+          events: {
+            [CALENDAR_ID]: [new ScriptedCalendarEvent({
+              id: identityVersion === "legacy-v1" ? "legacy-instance" : "new-instance",
+              title: "Migrated planning",
+              start: canonicalStart,
+              end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+              status: "confirmed",
+              recurringEventId: "migrated-series",
+              originalStartTime: canonicalStart
+            })]
+          }
+        }
+      }
+    })
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const workspaceId = freshWorkspaceId()
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+    const pending = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callback = (await stub.googleCalendarOAuthCallback({ workspaceId, code: "code", state: pending.state, calendarId: CALENDAR_ID, mode: "selected" })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callback.binding.id)
+    const seededEventId = freshNodeId()
+    await (workspaceDurableObjectStub(workspaceId) as unknown as {
+      debugSeedCalendarRecurringOccurrence(input: unknown): Promise<void>
+    }).debugSeedCalendarRecurringOccurrence({
+      workspaceId,
+      bindingId,
+      calendarEventId: seededEventId,
+      providerEventId: "legacy-instance",
+      seriesId: "migrated-series",
+      occurrenceId: "2026-09-07T10:00:00+01:00",
+      identityVersion
+    })
+
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const listed = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; seriesId?: string; occurrenceId?: string; masterRecordId?: string; providerEventId: string }>
+    }
+    const occurrences = listed.events.filter((event) => event.seriesId === "migrated-series" && event.masterRecordId !== undefined)
+    expect(occurrences).toHaveLength(1)
+    expect(occurrences[0]).toMatchObject({
+      id: seededEventId,
+      occurrenceId: canonicalStart.dateTime,
+      providerEventId: identityVersion === "legacy-v1" ? "legacy-instance" : "new-instance"
+    })
+    expect(listed.events.filter((event) => event.seriesId === "migrated-series" && event.masterRecordId === undefined)).toHaveLength(1)
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetCalendarStorageCounts()).toMatchObject({
+      calendarEvents: 2,
+      calendarSourceIdentities: 2,
+      calendarSourceRevisions: 1
+    })
+  })
+
   it("does not import attendees from a first-seen cancelled event", async () => {
     installScriptedCalendarClient({
       accounts: {

@@ -368,9 +368,12 @@ import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
 import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeServiceLive } from "./app-runtime-service-live.js"
 import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
 import {
+  calendarOccurrenceSourceIdentityKey,
+  legacyCalendarEventSourceIdentityKey,
   makeCalendarCollections,
   reviveCalendarEvent,
-  type CalendarCollections
+  type CalendarCollections,
+  type CalendarEventSourceIdentityRecord
 } from "./calendar-collections.js"
 import {
   CalendarProjectionGateway,
@@ -6372,18 +6375,81 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     })
   }
 
+  /** Test-only migration fixture for a recurring occurrence written before timestamp
+   * canonicalization. It is native-RPC-only (`ctx.exports`) and deliberately seeds only private
+   * calendar rows, so the public sync path must still discover, validate, and atomically adopt the
+   * row. `legacy-v1` omits the kind field; `precanonical-v2` uses a typed occurrence key whose
+   * occurrence coordinate is the raw provider spelling. */
+  async debugSeedCalendarRecurringOccurrence(input: unknown): Promise<void> {
+    const decoded = Schema.decodeUnknownSync(Schema.Struct({
+      workspaceId: EntityId,
+      bindingId: EntityId,
+      calendarEventId: EntityId,
+      providerEventId: Schema.String.pipe(Schema.minLength(1)),
+      seriesId: Schema.String.pipe(Schema.minLength(1)),
+      occurrenceId: Schema.String.pipe(Schema.minLength(1)),
+      identityVersion: Schema.Literal("legacy-v1", "precanonical-v2")
+    }))(input)
+    if (decoded.workspaceId !== this.#workspaceId) throw new ValidationError({ message: "seed workspace does not match this Durable Object" })
+    const syncedAt = new Date().toISOString()
+    const event = new CalendarEvent({
+      id: decoded.calendarEventId,
+      workspaceId: decoded.workspaceId,
+      providerEventId: decoded.providerEventId,
+      seriesId: decoded.seriesId,
+      occurrenceId: decoded.occurrenceId,
+      title: "Seeded recurring migration fixture",
+      start: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+      end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+      attendees: [],
+      status: "confirmed",
+      syncedAt: Schema.decodeUnknownSync(IsoDateTimeString)(syncedAt)
+    })
+    const identityId = decoded.identityVersion === "legacy-v1"
+      ? legacyCalendarEventSourceIdentityKey(decoded.workspaceId, decoded.bindingId, decoded.providerEventId)
+      : calendarOccurrenceSourceIdentityKey(decoded.workspaceId, decoded.bindingId, decoded.seriesId, decoded.occurrenceId)
+    const identity = decoded.identityVersion === "legacy-v1"
+      ? ({
+          id: identityId,
+          workspaceId: decoded.workspaceId,
+          bindingId: decoded.bindingId,
+          providerEventId: decoded.providerEventId,
+          seriesId: decoded.seriesId,
+          occurrenceId: decoded.occurrenceId,
+          calendarEventId: decoded.calendarEventId,
+          adoptedAt: syncedAt
+        } as unknown as CalendarEventSourceIdentityRecord)
+      : {
+          id: identityId,
+          workspaceId: decoded.workspaceId,
+          bindingId: decoded.bindingId,
+          kind: "occurrence" as const,
+          providerEventId: decoded.providerEventId,
+          seriesId: decoded.seriesId,
+          occurrenceId: decoded.occurrenceId,
+          calendarEventId: decoded.calendarEventId,
+          adoptedAt: syncedAt
+        }
+    this.#storage.transactionSync(() => {
+      Effect.runSync(this.#calendarCollections.calendarEvents.put(event))
+      Effect.runSync(this.#calendarCollections.calendarEventSourceIdentities.put(identity))
+    })
+  }
+
   /** Test-only aggregate witness for the calendar projection transaction. The provider binding
    * itself is intentionally not counted: it is established before a sync and is not part of the
    * per-event projection transaction. */
   async debugGetCalendarStorageCounts(): Promise<Readonly<Record<string, number>>> {
-    const [events, derivedNodes, revisions, observations] = await Promise.all([
+    const [events, derivedNodes, revisions, observations, sourceIdentities] = await Promise.all([
       Effect.runPromise(this.#calendarCollections.calendarEvents.list()),
       Effect.runPromise(this.#calendarCollections.calendarDerivedNodes.list()),
       Effect.runPromise(this.#calendarCollections.calendarSourceRevisions.list()),
-      Effect.runPromise(this.#calendarCollections.calendarAttendeeObservations.list())
+      Effect.runPromise(this.#calendarCollections.calendarAttendeeObservations.list()),
+      Effect.runPromise(this.#calendarCollections.calendarEventSourceIdentities.list())
     ])
     return Object.freeze({
       calendarEvents: events.length,
+      calendarSourceIdentities: sourceIdentities.length,
       calendarDerivedNodes: derivedNodes.length,
       calendarSourceRevisions: revisions.length,
       calendarAttendeeObservations: observations.length

@@ -115,7 +115,8 @@ import {
   type CalendarAttendeeObservationRecord,
   type CalendarDerivedNodeRecord,
   type CalendarSourceRevisionRecord,
-  type CalendarObserverRecord
+  type CalendarObserverRecord,
+  type CalendarEventSourceIdentityRecord
 } from "./calendar-collections.js"
 import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
 import { calendarOriginalStartIdentity, planCalendarRemoteEventWithSecret } from "./calendar-projection-plan.js"
@@ -948,6 +949,19 @@ export const makeCalendarServiceLive = (
         return calendarOriginalStartIdentity(remote.originalStartTime ?? remote.start)
       }
 
+      /** Persisted pre-canonical rows contain the same provider coordinate in whatever spelling
+       * Google supplied at the time. Compare through the planner's canonicalizer during adoption
+       * so a migration cannot fork an occurrence merely because one row used an offset and the
+       * next payload used UTC. Date-only occurrences intentionally remain date-only. */
+      const sameOccurrenceIdentity = (left: string | undefined, right: string | undefined): boolean => {
+        if (left === undefined || right === undefined) return false
+        const asCalendarTime = (value: string): RemoteCalendarTime =>
+          /^\d{4}-\d{2}-\d{2}$/.test(value)
+            ? { kind: "date", date: value }
+            : { kind: "dateTime", dateTime: value }
+        return calendarOriginalStartIdentity(asCalendarTime(left)) === calendarOriginalStartIdentity(asCalendarTime(right))
+      }
+
       const sourceIdentityForRemote = (workspaceId: EntityId, bindingId: EntityId, remote: RemoteCalendarEvent): CalendarSourceIdentity =>
         remote.recurringEventId === undefined
           ? sourceIdentityForStandalone(workspaceId, bindingId, remote.id)
@@ -981,7 +995,7 @@ export const makeCalendarServiceLive = (
               candidate.workspaceId !== workspaceId ||
               (source.kind !== "occurrence" && candidate.providerEventId !== source.providerEventId) ||
               (expectedSeriesId !== undefined && candidate.seriesId !== expectedSeriesId) ||
-              (source.occurrenceId !== undefined && candidate.occurrenceId !== source.occurrenceId) ||
+              (source.occurrenceId !== undefined && !sameOccurrenceIdentity(candidate.occurrenceId, source.occurrenceId)) ||
               (requireMaster && (candidate.seriesId !== expectedSeriesId || candidate.masterRecordId !== undefined))
             ) return yield* Effect.fail(new UnexpectedError({ message: "legacy calendar source identity conflicts with provider identity" }))
             return candidate
@@ -1005,12 +1019,43 @@ export const makeCalendarServiceLive = (
               // its stable identity. Standalone/master rows retain a provider-id primary key.
               (source.kind !== "occurrence" && candidate.providerEventId !== source.providerEventId) ||
               (expectedSeriesId !== undefined && candidate.seriesId !== expectedSeriesId) ||
-              (source.occurrenceId !== undefined && candidate.occurrenceId !== source.occurrenceId) ||
+              (source.occurrenceId !== undefined && !sameOccurrenceIdentity(candidate.occurrenceId, source.occurrenceId)) ||
               (requireMaster && (candidate.seriesId !== expectedSeriesId || candidate.masterRecordId !== undefined))
             ) {
               return yield* Effect.fail(new UnexpectedError({ message: "legacy calendar source revision target conflicts with provider identity" }))
             }
             return candidate
+          }
+
+          // A typed v2 occurrence identity may predate canonical timestamp normalization. Find
+          // the exact same binding/series/occurrence tuple even when its hashed key used a raw
+          // offset spelling, then let `ensureSourceIdentity` replace that row transactionally.
+          if (source.kind === "occurrence" && source.seriesId !== undefined && source.occurrenceId !== undefined) {
+            const identities = yield* collections.calendarEventSourceIdentities.byWorkspaceId
+              .get(workspaceId)
+              .pipe(Effect.mapError(toUnexpectedError))
+            const matchingIdentityRows = identities.filter((record) =>
+              record.workspaceId === workspaceId &&
+              record.bindingId === bindingId &&
+              (record.kind === "occurrence" || record.kind === undefined) &&
+              record.seriesId === source.seriesId &&
+              sameOccurrenceIdentity(record.occurrenceId, source.occurrenceId)
+            )
+            if (matchingIdentityRows.length > 1) {
+              return yield* Effect.fail(new UnexpectedError({ message: "ambiguous legacy recurring source identity" }))
+            }
+            const matchingIdentity = matchingIdentityRows[0]
+            if (matchingIdentity !== undefined) {
+              const raw = yield* collections.calendarEvents.get(matchingIdentity.calendarEventId).pipe(Effect.mapError(toUnexpectedError))
+              if (raw === undefined) return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring source identity target is missing" }))
+              const candidate = yield* reviveCalendarEvent(raw)
+              if (
+                candidate.workspaceId !== workspaceId ||
+                candidate.seriesId !== source.seriesId ||
+                !sameOccurrenceIdentity(candidate.occurrenceId, source.occurrenceId)
+              ) return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring source identity conflicts with provider identity" }))
+              return candidate
+            }
           }
 
           // A pre-v2 recurring row may have a different provider instance-id alias. Before
@@ -1029,7 +1074,7 @@ export const makeCalendarServiceLive = (
               if (candidate.workspaceId !== workspaceId) {
                 return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring source revision crosses workspace custody" }))
               }
-              if (candidate.seriesId === source.seriesId && candidate.occurrenceId === source.occurrenceId) matchingIds.add(candidate.id)
+              if (candidate.seriesId === source.seriesId && sameOccurrenceIdentity(candidate.occurrenceId, source.occurrenceId)) matchingIds.add(candidate.id)
             }
             if (matchingIds.size > 1) return yield* Effect.fail(new UnexpectedError({ message: "ambiguous legacy recurring occurrence ownership" }))
             if (matchingIds.size === 1) {
@@ -1055,7 +1100,7 @@ export const makeCalendarServiceLive = (
             Effect.flatMap((rows) => Effect.forEach(rows, reviveCalendarEvent)),
             Effect.map((rows) => rows.filter((candidate) =>
               candidate.workspaceId === workspaceId &&
-              (source.kind !== "occurrence" || (candidate.seriesId === source.seriesId && candidate.occurrenceId === source.occurrenceId)) &&
+              (source.kind !== "occurrence" || (candidate.seriesId === source.seriesId && sameOccurrenceIdentity(candidate.occurrenceId, source.occurrenceId))) &&
               (expectedSeriesId === undefined || candidate.seriesId === expectedSeriesId) &&
               (!requireMaster || (candidate.seriesId === expectedSeriesId && candidate.masterRecordId === undefined))
             ))
@@ -1120,10 +1165,17 @@ export const makeCalendarServiceLive = (
             .get(calendarEventId)
             .pipe(Effect.mapError(toUnexpectedError))
           const conflictingReverse = reverse.filter((record) => record.id !== source.id)
+          const migratableOccurrence = (record: CalendarEventSourceIdentityRecord): boolean =>
+            source.kind === "occurrence" &&
+            record.kind === "occurrence" &&
+            record.workspaceId === workspaceId &&
+            record.bindingId === bindingId &&
+            record.seriesId === source.seriesId &&
+            sameOccurrenceIdentity(record.occurrenceId, source.occurrenceId)
           // Old pre-v2 identity rows have no kind. They may be atomically replaced only when
           // they already name this exact binding/target; any typed or foreign row is custody
           // evidence and must fail closed.
-          if (conflictingReverse.some((record) => record.kind !== undefined || record.workspaceId !== workspaceId || record.bindingId !== bindingId)) {
+          if (conflictingReverse.some((record) => !migratableOccurrence(record) && (record.kind !== undefined || record.workspaceId !== workspaceId || record.bindingId !== bindingId))) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar event already has a different source identity" }))
           }
           for (const legacy of conflictingReverse) {
@@ -1257,7 +1309,7 @@ export const makeCalendarServiceLive = (
             existing.workspaceId !== workspaceId ||
             (sourceIdentity.kind !== "occurrence" && existing.providerEventId !== remote.id) ||
             (seriesId !== undefined && existing.seriesId !== seriesId) ||
-            (occurrenceId !== undefined && existing.occurrenceId !== occurrenceId)
+            (occurrenceId !== undefined && !sameOccurrenceIdentity(existing.occurrenceId, occurrenceId))
           )) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar event conflicts with source identity" }))
           }
