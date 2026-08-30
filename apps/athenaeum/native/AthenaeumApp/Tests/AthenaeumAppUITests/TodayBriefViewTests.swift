@@ -299,6 +299,38 @@ final class TodayBriefViewTests: XCTestCase {
         ]).contains("next:1,2"))
     }
 
+    func testSectionPresentationKeepsCurrentAttentionOpenAndDefersOnlySecondaryBuckets() throws {
+        let events = [
+            try event("past", start: "2026-08-26T08:00:00Z", end: "2026-08-26T09:00:00Z"),
+            try event("active", start: "2026-08-26T09:30:00Z", end: "2026-08-26T10:30:00Z"),
+            try event("next", start: "2026-08-26T11:00:00Z", end: "2026-08-26T12:00:00Z"),
+            try event("later", start: "2026-08-26T13:00:00Z", end: "2026-08-26T14:00:00Z")
+        ]
+        let schedule = TodayBriefSchedule.project(events, now: date("2026-08-26T10:00:00Z"))
+        let sections = TodayBriefSectionPresentation.sections(isToday: true, events: events, schedule: schedule)
+
+        XCTAssertEqual(sections.map(\.kind), [.active, .next, .later, .earlier])
+        XCTAssertEqual(sections.map(\.label), ["Active", "Up next", "Later", "Earlier today"])
+        XCTAssertEqual(sections.map(\.count), [1, 1, 1, 1])
+        XCTAssertEqual(sections.map(\.deferred), [false, false, true, true])
+        XCTAssertEqual(sections.map(\.offersPreparation), [true, true, true, false])
+    }
+
+    func testSectionPresentationOmitsEmptyTodayBucketsAndKeepsHistoryAsOneSchedule() throws {
+        let currentEvents = [try event("active", start: "2026-08-26T09:30:00Z", end: "2026-08-26T10:30:00Z")]
+        let currentSchedule = TodayBriefSchedule.project(currentEvents, now: date("2026-08-26T10:00:00Z"))
+        XCTAssertEqual(
+            TodayBriefSectionPresentation.sections(isToday: true, events: currentEvents, schedule: currentSchedule).map(\.kind),
+            [.active]
+        )
+
+        let historical = [try event("historical", start: "2026-08-25T09:00:00Z", end: "2026-08-25T10:00:00Z")]
+        XCTAssertEqual(
+            TodayBriefSectionPresentation.sections(isToday: false, events: historical, schedule: nil),
+            [.init(kind: .schedule, label: "Schedule", count: 1, deferred: false, offersPreparation: false)]
+        )
+    }
+
     func testRefreshCanRetryAfterFailure() async {
         let attempts = RetryAttempts()
         let model = TodayBriefViewModel(loader: {

@@ -34,6 +34,45 @@ export type TodayBriefSchedule = {
 
 export type TodayBriefEvent = GetTodayBriefOutput["events"][number]
 
+export type TodayBriefSectionKind = "active" | "next" | "later" | "earlier" | "schedule"
+
+export type TodayBriefSection = {
+  readonly kind: TodayBriefSectionKind
+  readonly label: string
+  readonly events: readonly TodayBriefEvent[]
+  readonly deferred: boolean
+  readonly allowPreparation: boolean
+}
+
+/**
+ * Keeps the current-day brief focused on work that needs attention while preserving every event
+ * behind keyboard-accessible disclosures. Historical notes intentionally use one unclassified
+ * schedule: live clock projection would mislabel a past note as if it were still Today.
+ */
+export function projectTodayBriefSections(
+  events: readonly TodayBriefEvent[],
+  isToday: boolean,
+  schedule?: TodayBriefSchedule
+): readonly TodayBriefSection[] {
+  if (!isToday) {
+    return [{ kind: "schedule", label: "Schedule", events, deferred: false, allowPreparation: false }]
+  }
+  if (schedule === undefined) return []
+  const sections: TodayBriefSection[] = [
+    { kind: "active", label: "Active", events: schedule.active, deferred: false, allowPreparation: true },
+    { kind: "next", label: "Up next", events: schedule.next, deferred: false, allowPreparation: true },
+    {
+      kind: "later",
+      label: "Later",
+      events: schedule.upcoming.filter((_, index) => !schedule.nextIndexes.includes(schedule.upcomingIndexes[index] ?? -1)),
+      deferred: true,
+      allowPreparation: true
+    },
+    { kind: "earlier", label: "Earlier today", events: schedule.past, deferred: true, allowPreparation: false }
+  ]
+  return sections.filter((section) => section.events.length > 0)
+}
+
 export type TodayBriefPrepareMeeting = (event: TodayBriefEvent, localDate: LocalDate, timeZone: GetTodayBriefOutput["timeZone"]) => Promise<void>
 
 type TodayBriefPerson = TodayBriefEvent["people"][number]
@@ -287,13 +326,33 @@ export function TodayBriefFreshness({ value, isToday, now, stale, clock, onBound
 function TodayBriefContent({ value, isToday, now, onPrepareMeeting, onOpenPerson }: { readonly value: GetTodayBriefOutput; readonly isToday: boolean; readonly now: Date | undefined; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly onOpenPerson?: TodayBriefOpenPerson }) {
   const formatter = timeFormatter(value.timeZone)
   const schedule = isToday && now !== undefined ? projectTodayBriefSchedule(value.events, now) : undefined
-  const isEmptyCurrentDaySchedule = schedule !== undefined && schedule.active.length === 0 && schedule.upcoming.length === 0 && schedule.past.length === 0
-  const renderEvents = (events: readonly GetTodayBriefOutput["events"][number][], label: string, allowPreparation = true) => (
-    <section aria-labelledby={`today-brief-${label}`}>
-      <h3 id={`today-brief-${label}`}>{label}</h3>
-      {events.length === 0 ? <p className="today-brief-state">No events.</p> : <EventList events={events} formatter={formatter} localDate={value.localDate} timeZone={value.timeZone} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} allowPreparation={allowPreparation} sectionLabel={label} />}
+  const sections = projectTodayBriefSections(value.events, isToday, schedule)
+  const isEmptyCurrentDaySchedule = isToday && sections.length === 0
+  const renderEvents = (section: TodayBriefSection, showHeading = true) => (
+    <section
+      key={section.kind}
+      aria-labelledby={showHeading ? `today-brief-${section.kind}` : undefined}
+      aria-label={showHeading ? undefined : section.label}
+      data-today-brief-section={section.kind}
+    >
+      {showHeading && <h3 id={`today-brief-${section.kind}`}>{section.label}</h3>}
+      {section.events.length === 0
+        ? <p className="today-brief-state">No events.</p>
+        : <EventList events={section.events} formatter={formatter} localDate={value.localDate} timeZone={value.timeZone} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} allowPreparation={section.allowPreparation} sectionLabel={section.kind} />}
     </section>
   )
+  const renderDeferred = (section: TodayBriefSection) => {
+    const countLabel = `${section.events.length} ${section.events.length === 1 ? "event" : "events"}`
+    return (
+      <details key={section.kind} className="today-brief-deferred" data-today-brief-section={section.kind}>
+        <summary aria-label={`${section.label}, ${countLabel}`}>
+          <span>{section.label}</span>
+          <span className="today-brief-deferred-count" aria-hidden="true">{countLabel}</span>
+        </summary>
+        <div className="today-brief-deferred-content">{renderEvents(section, false)}</div>
+      </details>
+    )
+  }
   const previousSignature = useRef<string | undefined>(undefined)
   const announcement = schedule === undefined ? undefined : (() => {
     const signature = todayBriefScheduleSignature(schedule, value.events)
@@ -307,16 +366,9 @@ function TodayBriefContent({ value, isToday, now, onPrepareMeeting, onOpenPerson
         <summary>Calendar history</summary>
         <p>{formatHistory(value.calendarHistory.status)}</p>
       </details>
-      {schedule === undefined
-        ? renderEvents(value.events, "schedule", isToday)
-        : isEmptyCurrentDaySchedule
-          ? <p className="today-brief-state">No events today. Use your daily note to set priorities.</p>
-          : <>
-            {renderEvents(schedule.active, "active")}
-            {renderEvents(schedule.next, "next")}
-            {renderEvents(schedule.upcoming.filter((_, index) => !schedule.nextIndexes.includes(schedule.upcomingIndexes[index])), "later")}
-            {renderEvents(schedule.past, "past", false)}
-          </>}
+      {isEmptyCurrentDaySchedule
+        ? <p className="today-brief-state">No events today. Use your daily note to set priorities.</p>
+        : sections.map((section) => section.deferred ? renderDeferred(section) : renderEvents(section))}
       {announcement !== undefined && <p className="sr-only" role="status">{announcement}</p>}
     </>
   )

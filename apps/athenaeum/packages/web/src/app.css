@@ -2042,6 +2042,66 @@
   margin: var(--space-2) 0 0;
 }
 
+/* Keep secondary time buckets reachable without making every empty bucket compete with the
+   writing surface. A count makes the collapsed state useful at a glance and the native details
+   element preserves keyboard/assistive-technology disclosure semantics. */
+.today-brief-deferred {
+  margin-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+
+.today-brief-deferred > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.today-brief-deferred > summary::before {
+  content: "▸";
+  flex: 0 0 auto;
+  margin-right: var(--space-1);
+  color: var(--color-text-faint);
+  transition: transform 140ms ease;
+}
+
+.today-brief-deferred[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.today-brief-deferred > summary:hover {
+  color: var(--color-text);
+}
+
+.today-brief-deferred > summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.today-brief-deferred > summary::-webkit-details-marker {
+  display: none;
+}
+
+.today-brief-deferred-count {
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-brief-deferred-content {
+  padding-bottom: var(--space-2);
+}
+
+.today-brief-deferred-content > section > .today-brief-events {
+  margin-top: 0;
+}
+
 .daily-note-standup {
   min-width: 0;
   width: min(100%, 65ch);

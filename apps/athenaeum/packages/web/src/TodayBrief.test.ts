@@ -4,7 +4,7 @@ import { act, createElement, useCallback, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GetTodayBriefOutput } from "@athenaeum/domain"
-import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefPeople, projectTodayBriefSchedule, TodayBriefFreshness, todayBriefScheduleSignature } from "./TodayBrief.js"
+import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefPeople, projectTodayBriefSchedule, projectTodayBriefSections, TodayBriefFreshness, todayBriefScheduleSignature } from "./TodayBrief.js"
 
 type TodayBriefEvent = GetTodayBriefOutput["events"][number]
 const event = (
@@ -148,7 +148,7 @@ describe("projectTodayBriefSchedule", () => {
       current = new Date("2026-08-26T11:00:00.000Z")
       await vi.advanceTimersByTimeAsync(15 * 60 * 1000)
     })
-    expect(container.querySelector('[aria-labelledby="today-brief-past"]')?.textContent).toContain("meeting")
+    expect(container.querySelector('[data-today-brief-section="earlier"]')?.textContent).toContain("meeting")
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1)
   })
 
@@ -223,6 +223,36 @@ describe("projectTodayBriefSchedule", () => {
     expect(container.querySelectorAll(".today-brief-prepare")).toHaveLength(0)
   })
 
+  it("keeps current work open and defers only non-urgent buckets with counts", () => {
+    const events = [
+      event("past", "2026-08-26T08:00:00Z", "2026-08-26T09:00:00Z"),
+      event("active", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z"),
+      event("next", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z"),
+      event("later", "2026-08-26T13:00:00Z", "2026-08-26T14:00:00Z")
+    ]
+    const schedule = projectTodayBriefSchedule(events, now)
+    const sections = projectTodayBriefSections(events, true, schedule)
+
+    expect(sections.map(({ kind }) => kind)).toEqual(["active", "next", "later", "earlier"])
+    expect(sections.map(({ label, events: sectionEvents, deferred }) => ({ label, count: sectionEvents.length, deferred }))).toEqual([
+      { label: "Active", count: 1, deferred: false },
+      { label: "Up next", count: 1, deferred: false },
+      { label: "Later", count: 1, deferred: true },
+      { label: "Earlier today", count: 1, deferred: true }
+    ])
+  })
+
+  it("omits empty current-day sections while keeping a historical schedule unclassified", () => {
+    const currentEvents = [event("active", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z")]
+    const current = projectTodayBriefSections(currentEvents, true, projectTodayBriefSchedule(currentEvents, now))
+    expect(current.map(({ kind }) => kind)).toEqual(["active"])
+
+    const historicalEvents = [event("historical", "2026-08-25T09:00:00Z", "2026-08-25T10:00:00Z")]
+    expect(projectTodayBriefSections(historicalEvents, false)).toEqual([
+      { kind: "schedule", label: "Schedule", events: historicalEvents, deferred: false, allowPreparation: false }
+    ])
+  })
+
   it("keeps an empty historical brief in its date-specific schedule section", async () => {
     const value = {
       localDate: "2026-08-25",
@@ -265,7 +295,7 @@ describe("projectTodayBriefSchedule", () => {
       onPrepareMeeting
     }))
 
-    expect(container.querySelector('[aria-labelledby="today-brief-past"] .today-brief-prepare')).toBeNull()
+    expect(container.querySelector('[data-today-brief-section="earlier"] .today-brief-prepare')).toBeNull()
     const activePreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-active"] .today-brief-prepare')
     const nextPreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-next"] .today-brief-prepare')
     expect(activePreparation).not.toBeNull()
@@ -396,7 +426,7 @@ describe("projectTodayBriefSchedule", () => {
       onBoundary: () => undefined
     }))
 
-    expect(container.querySelector('[aria-labelledby="today-brief-past"] .today-brief-prepare')).toBeNull()
+    expect(container.querySelector('[data-today-brief-section="earlier"] .today-brief-prepare')).toBeNull()
     const preparations = Array.from(container.querySelectorAll<HTMLButtonElement>(".today-brief-prepare"))
     expect(preparations).toHaveLength(2)
     for (const preparation of preparations) {

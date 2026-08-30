@@ -85,6 +85,48 @@ struct TodayBriefSchedule {
     }
 }
 
+enum TodayBriefSectionKind: String, Equatable, Hashable {
+    case active
+    case next
+    case later
+    case earlier
+    case schedule
+}
+
+struct TodayBriefSectionDescriptor: Identifiable, Equatable {
+    let kind: TodayBriefSectionKind
+    let label: String
+    let count: Int
+    let deferred: Bool
+    let offersPreparation: Bool
+
+    var id: TodayBriefSectionKind { kind }
+}
+
+/// Keeps the current-day brief focused on work that needs attention while preserving every event
+/// behind native disclosures. Historical notes intentionally use one unclassified schedule so a
+/// past note is never projected through the live clock and mislabeled as "Past".
+enum TodayBriefSectionPresentation {
+    static func sections(
+        isToday: Bool,
+        events: [RPCTodayBriefEvent],
+        schedule: TodayBriefSchedule?
+    ) -> [TodayBriefSectionDescriptor] {
+        if !isToday {
+            return [
+                .init(kind: .schedule, label: "Schedule", count: events.count, deferred: false, offersPreparation: false)
+            ]
+        }
+        guard let schedule else { return [] }
+        return [
+            .init(kind: .active, label: "Active", count: schedule.active.count, deferred: false, offersPreparation: true),
+            .init(kind: .next, label: "Up next", count: schedule.next.count, deferred: false, offersPreparation: true),
+            .init(kind: .later, label: "Later", count: schedule.later.count, deferred: true, offersPreparation: true),
+            .init(kind: .earlier, label: "Earlier today", count: schedule.past.count, deferred: true, offersPreparation: false)
+        ].filter { $0.count > 0 }
+    }
+}
+
 @MainActor
 final class TodayBriefViewModel: ObservableObject {
     enum State: Equatable {
@@ -391,6 +433,7 @@ public struct TodayBriefView: View {
                 TodayBriefContent(
                     brief: brief,
                     now: model.currentDate(),
+                    isToday: showsToday,
                     isPreparationReady: onOpenDailyNote != nil,
                     onOpenPerson: onOpenPerson,
                     onPrepareMeeting: { event in
@@ -451,6 +494,7 @@ public struct TodayBriefView: View {
 private struct TodayBriefContent: View {
     let brief: RPCTodayBrief
     let now: Date
+    let isToday: Bool
     let isPreparationReady: Bool
     let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
@@ -462,17 +506,74 @@ private struct TodayBriefContent: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Calendar history")
 
-            if brief.events.isEmpty {
+            if !isToday {
+                TodayBriefSection(
+                    title: "Schedule",
+                    events: brief.events,
+                    brief: brief,
+                    offersPreparation: false,
+                    isPreparationReady: false,
+                    onOpenPerson: onOpenPerson,
+                    onPrepareMeeting: onPrepareMeeting
+                )
+            } else if brief.events.isEmpty {
                 Text("Nothing scheduled in the retained calendar projection.")
                     .foregroundStyle(.secondary)
             } else {
                 let schedule = TodayBriefSchedule.project(brief.events, now: now)
-                TodayBriefSection(title: "Active", events: schedule.active, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Up next", events: schedule.next, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Later", events: schedule.later, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Past", events: schedule.past, brief: brief, offersPreparation: false, isPreparationReady: false, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
+                let sections = TodayBriefSectionPresentation.sections(isToday: true, events: brief.events, schedule: schedule)
+                ForEach(sections) { section in
+                    let events = events(for: section.kind, in: schedule)
+                    if section.deferred {
+                        DisclosureGroup {
+                            TodayBriefSection(
+                                title: section.label,
+                                events: events,
+                                brief: brief,
+                                offersPreparation: section.offersPreparation,
+                                isPreparationReady: isPreparationReady,
+                                onOpenPerson: onOpenPerson,
+                                onPrepareMeeting: onPrepareMeeting,
+                                showsHeader: false
+                            )
+                        } label: {
+                            HStack {
+                                Text(section.label)
+                                Spacer()
+                                Text(countLabel(for: section.count))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityLabel("\(section.label), \(countLabel(for: section.count))")
+                    } else {
+                        TodayBriefSection(
+                            title: section.label,
+                            events: events,
+                            brief: brief,
+                            offersPreparation: section.offersPreparation,
+                            isPreparationReady: isPreparationReady,
+                            onOpenPerson: onOpenPerson,
+                            onPrepareMeeting: onPrepareMeeting
+                        )
+                    }
+                }
             }
         }
+    }
+
+    private func events(for kind: TodayBriefSectionKind, in schedule: TodayBriefSchedule) -> [RPCTodayBriefEvent] {
+        switch kind {
+        case .active: return schedule.active
+        case .next: return schedule.next
+        case .later: return schedule.later
+        case .earlier: return schedule.past
+        case .schedule: return []
+        }
+    }
+
+    private func countLabel(for count: Int) -> String {
+        "\(count) \(count == 1 ? "event" : "events")"
     }
 
     private var historyLabel: String {
@@ -530,12 +631,35 @@ private struct TodayBriefSection: View {
     let isPreparationReady: Bool
     let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
+    let showsHeader: Bool
+
+    init(
+        title: String,
+        events: [RPCTodayBriefEvent],
+        brief: RPCTodayBrief,
+        offersPreparation: Bool,
+        isPreparationReady: Bool,
+        onOpenPerson: ((EntityId) -> Void)?,
+        onPrepareMeeting: @escaping (RPCTodayBriefEvent) async -> Bool,
+        showsHeader: Bool = true
+    ) {
+        self.title = title
+        self.events = events
+        self.brief = brief
+        self.offersPreparation = offersPreparation
+        self.isPreparationReady = isPreparationReady
+        self.onOpenPerson = onOpenPerson
+        self.onPrepareMeeting = onPrepareMeeting
+        self.showsHeader = showsHeader
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+            if showsHeader {
+                Text(title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+            }
             if events.isEmpty {
                 Text("No events.")
                     .font(.caption)
