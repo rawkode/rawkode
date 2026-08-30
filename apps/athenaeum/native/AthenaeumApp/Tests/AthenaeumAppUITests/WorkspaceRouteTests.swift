@@ -502,6 +502,54 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertTrue(receivedSession)
     }
 
+    func testEntityPagePreviewLoaderClassifiesLegacyDisappearanceAfterSelectionAsStale() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let descriptor = legacyPageDescriptor(node)
+        var descriptorReadCount = 0
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in
+                descriptorReadCount += 1
+                return descriptor
+            },
+            readLegacy: { _, _, _ in
+                throw AthenaeumDomainError.pageNotFound(nodeId: node.rawValue)
+            },
+            readLoro: { _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .stale)
+        XCTAssertEqual(descriptorReadCount, 1, "a page removed during the selected read is stale, not an absent initial descriptor")
+        XCTAssertTrue(WorkspaceEntityPagePreviewPresentation.canRetry(state: loader.state))
+    }
+
+    func testEntityPagePreviewLoaderClassifiesLoroDisappearanceAfterSelectionAsStale() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let descriptor = nativePageDescriptor(node)
+        var descriptorReadCount = 0
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in
+                descriptorReadCount += 1
+                return descriptor
+            },
+            readLegacy: { _, _, _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            },
+            readLoro: { _ in
+                throw AthenaeumDomainError.pageNotFound(nodeId: node.rawValue)
+            }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .stale)
+        XCTAssertEqual(descriptorReadCount, 1, "a page removed during the selected read is stale, not an absent initial descriptor")
+        XCTAssertTrue(WorkspaceEntityPagePreviewPresentation.canRetry(state: loader.state))
+    }
+
     func testEntityPagePreviewLoaderRejectsDescriptorABAAsStale() async throws {
         let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
         let first = nativePageDescriptor(node, snapshot: "b")
@@ -548,6 +596,26 @@ final class WorkspaceRouteTests: XCTestCase {
             "No page document is attached to this entity yet."
         )
         XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.missingMessage.contains(node.rawValue))
+    }
+
+    func testEntityPagePreviewLoaderKeepsInitialLegacyDescriptorAbsenceAsMissing() async throws {
+        let node = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let loader = WorkspaceEntityPagePreviewLoader(
+            readDescriptor: { _ in
+                throw AthenaeumDomainError.pageNotFound(nodeId: node.rawValue)
+            },
+            readLegacy: { _, _, _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            },
+            readLoro: { _ in
+                throw WorkspaceEntityPagePreviewLoadError.unsupported
+            }
+        )
+
+        await loader.load(nodeId: node)
+
+        XCTAssertEqual(loader.state, .missing)
+        XCTAssertFalse(WorkspaceEntityPagePreviewPresentation.canRetry(state: loader.state))
     }
 
     func testEntityPagePreviewLoaderIgnoresLateOlderNodeCompletion() async throws {

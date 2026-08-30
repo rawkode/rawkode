@@ -66,22 +66,49 @@ export const resolveNodePagePreview = (
   nodeId: EntityId
 ): Effect.Effect<NodePagePreviewState, never> =>
   Effect.gen(function* () {
-    const initial = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
-    const witness = pageWitness(initial.descriptor)
-    if (initial.descriptor.activeFormat === "loro-v1") {
-      const doc = yield* convergeLoroPageFromServer(client, workspaceId, nodeId)
-      const current = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
-      if (!samePageWitness(witness, pageWitness(current.descriptor))) return { kind: "stale" } as const
-      const rendered = renderStaticLoroPreview(doc)
+    // A missing descriptor means the entity has never had a page. Once a descriptor has been
+    // selected, the same absence is a concurrent deletion/replacement and must be surfaced as
+    // stale so the caller can retry rather than being told that the page never existed.
+    const initial = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId })).pipe(
+      Effect.map((value) => ({ kind: "ok" as const, value })),
+      Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "missing" as const }))
+    )
+    if (initial.kind === "missing") return { kind: "missing" } as const
+
+    const witness = pageWitness(initial.value.descriptor)
+    if (initial.value.descriptor.activeFormat === "loro-v1") {
+      const docRead = yield* convergeLoroPageFromServer(client, workspaceId, nodeId).pipe(
+        Effect.map((doc) => ({ kind: "ok" as const, doc })),
+        Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "stale" as const })),
+        Effect.catchTag("PageFormatMismatch", () => Effect.succeed({ kind: "stale" as const }))
+      )
+      if (docRead.kind === "stale") return { kind: "stale" } as const
+      const currentRead = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId })).pipe(
+        Effect.map((value) => ({ kind: "ok" as const, value })),
+        Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "stale" as const })),
+        Effect.catchTag("PageFormatMismatch", () => Effect.succeed({ kind: "stale" as const }))
+      )
+      if (currentRead.kind === "stale") return { kind: "stale" } as const
+      if (!samePageWitness(witness, pageWitness(currentRead.value.descriptor))) return { kind: "stale" } as const
+      const rendered = renderStaticLoroPreview(docRead.doc)
       return rendered.kind === "content" ? { kind: "loro", html: rendered.html } as const
         : rendered.kind === "empty" ? { kind: "empty" } as const : { kind: "unsupported" } as const
     }
-    const page = yield* client.getPageText(new GetPageTextInput({ workspaceId, nodeId }))
-    const current = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
-    if (!samePageWitness(witness, pageWitness(current.descriptor))) return { kind: "stale" } as const
-    return page.text.trim().length === 0 ? { kind: "empty" } as const : { kind: "legacy", text: page.text } as const
+    const pageRead = yield* client.getPageText(new GetPageTextInput({ workspaceId, nodeId })).pipe(
+      Effect.map((page) => ({ kind: "ok" as const, page })),
+      Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "stale" as const })),
+      Effect.catchTag("PageFormatMismatch", () => Effect.succeed({ kind: "stale" as const }))
+    )
+    if (pageRead.kind === "stale") return { kind: "stale" } as const
+    const currentRead = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId })).pipe(
+      Effect.map((value) => ({ kind: "ok" as const, value })),
+      Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "stale" as const })),
+      Effect.catchTag("PageFormatMismatch", () => Effect.succeed({ kind: "stale" as const }))
+    )
+    if (currentRead.kind === "stale") return { kind: "stale" } as const
+    if (!samePageWitness(witness, pageWitness(currentRead.value.descriptor))) return { kind: "stale" } as const
+    return pageRead.page.text.trim().length === 0 ? { kind: "empty" } as const : { kind: "legacy", text: pageRead.page.text } as const
   }).pipe(
-    Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "missing" } as const)),
     Effect.catchAll(() => Effect.succeed({ kind: "failed" } as const))
   )
 

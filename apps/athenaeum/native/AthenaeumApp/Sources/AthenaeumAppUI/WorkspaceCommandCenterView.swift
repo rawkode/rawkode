@@ -1432,6 +1432,22 @@ final class WorkspaceEntityPagePreviewLoader: ObservableObject {
         state = .unsupported
     }
 
+    /// After the initial descriptor has selected a storage lane, a disappearing or changing page
+    /// is a concurrent replacement. Keep that phase distinction explicit so the UI can offer a
+    /// retry instead of claiming the page never existed.
+    private func readAfterSelection<Value>(_ operation: () async throws -> Value) async throws -> Value {
+        do {
+            return try await operation()
+        } catch let error as AthenaeumDomainError {
+            switch error {
+            case .pageNotFound, .pageFormatMismatch:
+                throw WorkspaceEntityPagePreviewLoadError.stale
+            default:
+                throw error
+            }
+        }
+    }
+
     /// Route changes and retries increment the same generation. A late completion is ignored,
     /// so node A can never replace node B's page preview.
     func load(nodeId: EntityId) async {
@@ -1446,7 +1462,9 @@ final class WorkspaceEntityPagePreviewLoader: ObservableObject {
 
             switch descriptor {
             case .legacy:
-                let projection = try await readLegacy(nodeId, descriptor, SyncSessionHandle())
+                let projection = try await readAfterSelection {
+                    try await readLegacy(nodeId, descriptor, SyncSessionHandle())
+                }
                 guard WorkspacePageDescriptorWitness(projection.descriptor) == selectedWitness else {
                     throw WorkspaceEntityPagePreviewLoadError.stale
                 }
@@ -1455,7 +1473,7 @@ final class WorkspaceEntityPagePreviewLoader: ObservableObject {
                 case .richTextUnsupported, .tooLarge:
                     throw WorkspaceEntityPagePreviewLoadError.unsupported
                 }
-                let confirmed = try await readDescriptor(nodeId)
+                let confirmed = try await readAfterSelection { try await readDescriptor(nodeId) }
                 guard WorkspacePageDescriptorWitness(confirmed) == selectedWitness else {
                     throw WorkspaceEntityPagePreviewLoadError.stale
                 }
@@ -1464,7 +1482,7 @@ final class WorkspaceEntityPagePreviewLoader: ObservableObject {
                       let schemaVersion = selectedWitness.schemaVersion,
                       let snapshotSHA256 = selectedWitness.snapshotSHA256
                 else { throw WorkspaceEntityPagePreviewLoadError.unsupported }
-                let projection = try await readLoro(nodeId)
+                let projection = try await readAfterSelection { try await readLoro(nodeId) }
                 let route = projection.projection.route
                 guard route.nodeId == nodeId,
                       route.format == .loroV1,
@@ -1472,7 +1490,7 @@ final class WorkspaceEntityPagePreviewLoader: ObservableObject {
                       route.schemaVersion == schemaVersion,
                       route.snapshotSHA256 == snapshotSHA256
                 else { throw WorkspaceEntityPagePreviewLoadError.stale }
-                let confirmed = try await readDescriptor(nodeId)
+                let confirmed = try await readAfterSelection { try await readDescriptor(nodeId) }
                 guard WorkspacePageDescriptorWitness(confirmed) == selectedWitness else {
                     throw WorkspaceEntityPagePreviewLoadError.stale
                 }
