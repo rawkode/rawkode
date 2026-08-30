@@ -76,6 +76,7 @@ enum DailyNotePreparationAnnouncementPresentation {
 /// status line and nested `BacklinksView`, matching the composition used by `DailyNote.tsx`.
 public struct DailyNoteView: View {
     @ObservedObject var model: AthenaeumViewModel
+    @Environment(\.scenePhase) private var scenePhase
     private let standupConfiguration: StandupConfiguration?
     /// A single contextual projection (currently the calendar brief) can be inserted after the
     /// note/editor content on compact surfaces. The command center owns the projection's
@@ -83,6 +84,8 @@ public struct DailyNoteView: View {
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
+    /// DailyNote is the sole owner; standup detail/strip are passive observers.
+    @StateObject private var dailyStandupModel: DailyStandupViewModel
     @State private var preparationNotice: String?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
@@ -96,6 +99,7 @@ public struct DailyNoteView: View {
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
         self.onOpenReference = nil
+        _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -118,11 +122,24 @@ public struct DailyNoteView: View {
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
         self.onOpenReference = onOpenReference
+        _dailyStandupModel = StateObject(wrappedValue: .init(
+            backendURL: standupBackendURL,
+            workspaceId: standupWorkspaceId,
+            bearerCredential: standupBearerCredential,
+            dailyNoteId: model.dailyNoteId,
+            includeLedger: true
+        ))
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             noteHeader
+
+            // Today attention is deliberately the first operational context after the note
+            // heading; the full historical/publication detail remains below the editor.
+            if isToday, standupConfiguration != nil {
+                WorkforceAttentionStrip(model: dailyStandupModel, onOpen: onOpenEmployeeUpdate)
+            }
 
             switch model.status {
             case .loading:
@@ -177,19 +194,14 @@ public struct DailyNoteView: View {
             if hasResolvedDailyNote {
                 if DailyNoteStandupPresentation.shouldShowEmployeeUpdates(
                     hasConfiguration: standupConfiguration != nil
-                ), let standupConfiguration {
+                ), standupConfiguration != nil {
                     DailyStandupView(
-                        backendURL: standupConfiguration.backendURL,
-                        workspaceId: standupConfiguration.workspaceId,
-                        bearerCredential: standupConfiguration.bearerCredential,
+                        model: dailyStandupModel,
                         dailyNoteId: model.dailyNoteId,
                         includeLedger: isToday,
-                        onOpenEmployeeUpdate: onOpenEmployeeUpdate
+                        onOpenEmployeeUpdate: onOpenEmployeeUpdate,
+                        onRefresh: refreshStandup
                     )
-                    // The loader closure captures the resolved note identity. Key the subtree so
-                    // SwiftUI cannot retain yesterday's StateObject when day navigation changes
-                    // the active note while its employee read is still in flight.
-                    .id(model.dailyNoteId.rawValue)
                 }
                 BacklinksView(model: model)
             }
@@ -225,6 +237,31 @@ public struct DailyNoteView: View {
         .onChange(of: model.acceptedHumanEditGeneration) { _ in
             preparationNotice = nil
         }
+        .task(id: standupSnapshotIdentity) {
+            guard standupConfiguration != nil, hasResolvedDailyNote else { return }
+            dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday)
+            await dailyStandupModel.refresh()
+        }
+        .task(id: standupLifecycleIdentity) {
+            guard standupConfiguration != nil, isToday, hasResolvedDailyNote else { return }
+            // Keep the owner alive across more than one midnight while the app remains open.
+            // The task is cancelled automatically when the selected date, resolution state, or
+            // configuration changes, and each rollover clears the previous snapshot first.
+            while !Task.isCancelled {
+                let nextMidnight = DailyStandupLifecyclePresentation.nextLocalMidnight(after: Date())
+                let interval = max(nextMidnight.timeIntervalSinceNow, 0)
+                do { try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) }
+                catch { return }
+                guard !Task.isCancelled, isToday, hasResolvedDailyNote else { return }
+                dailyStandupModel.invalidateForLifecycle(now: Date())
+                await dailyStandupModel.refresh()
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, standupConfiguration != nil, isToday, hasResolvedDailyNote else { return }
+            dailyStandupModel.invalidateForLifecycle(now: Date())
+            refreshStandup()
+        }
     }
 
     private var hasResolvedDailyNote: Bool {
@@ -234,6 +271,19 @@ public struct DailyNoteView: View {
         default:
             return true
         }
+    }
+
+    private var standupSnapshotIdentity: String {
+        "\(model.dailyNoteId.rawValue):\(isToday):\(hasResolvedDailyNote)"
+    }
+
+    private var standupLifecycleIdentity: String {
+        "\(standupSnapshotIdentity):\(standupConfiguration != nil)"
+    }
+
+    private func refreshStandup() {
+        dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday)
+        Task { @MainActor in await dailyStandupModel.refresh() }
     }
 
     private func dailyNoteFailureCard(_ rawMessage: String) -> some View {

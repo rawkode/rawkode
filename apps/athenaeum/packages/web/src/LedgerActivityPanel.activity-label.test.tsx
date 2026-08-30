@@ -4,16 +4,10 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import type { LedgerActivityEntry } from "@athenaeum/domain"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { DailyStandupController } from "./use-daily-standup.js"
 
 const queryStateMock = vi.hoisted(() => ({
   entries: [] as Array<LedgerActivityEntry>
-}))
-
-vi.mock("./use-effect-query.js", () => ({
-  useEffectQuery: () => ({
-    status: "success" as const,
-    value: { entries: queryStateMock.entries }
-  })
 }))
 
 import { DAILY_STANDUP_FETCH_LIMIT, DailyStandup } from "./LedgerActivityPanel.js"
@@ -32,7 +26,11 @@ const mount = async (): Promise<HTMLDivElement> => {
   const root = createRoot(host)
   roots.push({ root, host })
   await act(async () => {
-    root.render(<DailyStandup />)
+    const standup: DailyStandupController = {
+      snapshot: { isToday: true, generation: 1 }, employeeUpdates: { status: "idle" },
+      ledger: { status: "success", value: queryStateMock.entries }, isRefreshing: false, refresh: () => undefined
+    }
+    root.render(<DailyStandup standup={standup} />)
     await flush()
   })
   return host

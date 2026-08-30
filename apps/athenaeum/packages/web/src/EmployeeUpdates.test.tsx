@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   EmployeeUpdates,
   partitionEmployeeUpdates,
+  workforceAttentionPresentation,
   type EmployeeUpdatePublication,
   type EmployeeUpdateResultKind,
   type EmployeeUpdatesState,
@@ -47,6 +48,32 @@ const mount = async (state: EmployeeUpdatesState, onRetry?: () => void) => {
 afterEach(() => { for (const { root, host } of roots.splice(0)) { act(() => root.unmount()); host.remove() }; vi.restoreAllMocks() })
 
 describe("EmployeeUpdates presentation", () => {
+  it("projects only capped blocked or failed metadata into the writing-surface attention contract", () => {
+    const attention = workforceAttentionPresentation({
+      status: "success",
+      publications: [
+        { ...makePublication("040", "completed"), originalText: "never project this", workflowLabel: "private workflow" },
+        { ...makePublication("041", "blocked"), microEmployeeLabel: "Calendar concierge", jobLabel: "Resolve attendee" },
+        { ...makePublication("042", "failed", "missing"), microEmployeeLabel: "Researcher", jobLabel: "Enrich profile" },
+        { ...makePublication("043", "failed"), microEmployeeLabel: "Reviewer", jobLabel: "Check report" },
+        { ...makePublication("044", "blocked"), microEmployeeLabel: "Later", jobLabel: "Later job" }
+      ]
+    }, 2)
+    expect(attention).toEqual({
+      kind: "attention",
+      totalAttentionCount: 4,
+      disclosures: [
+        { outcome: "Blocked", employee: "Calendar concierge", job: "Resolve attendee", destination: `/node/${makePublication("041", "blocked").childNodeId}` },
+        { outcome: "Failed", employee: "Researcher", job: "Enrich profile" }
+      ],
+      remainderCount: 2
+    })
+    expect(JSON.stringify(attention)).not.toContain("never project this")
+    expect(JSON.stringify(attention)).not.toContain("private workflow")
+    expect(workforceAttentionPresentation({ status: "success", publications: [makePublication("045")] })).toEqual({ kind: "all-clear", routineCount: 1 })
+    expect(workforceAttentionPresentation({ status: "loading" })).toEqual({ kind: "hidden" })
+    expect(workforceAttentionPresentation({ status: "failure" })).toEqual({ kind: "failure" })
+  })
   it("renders supplied original multiline text safely with labels, status, and node link", async () => {
     const host = await mount({ status: "success", publications: [publication] })
     expect(host.querySelector(".employee-update-text")?.textContent).toContain("\n<script>alert('x')</script>")

@@ -69,6 +69,35 @@ final class DailyStandupViewTests: XCTestCase {
         }
     }
 
+    func testAttentionStripCapsCountsRemainderAndKeepsOnlySafeReviewLabels() throws {
+        let publications = try (0..<4).map { index in
+            try makePublication(
+                id: String(format: "00000000-0000-4000-8000-%012d", 300 + index),
+                resultKind: .blocked
+            )
+        }
+        let snapshot = WorkforceAttentionPresentation.snapshot(publications)
+        XCTAssertEqual(snapshot.totalAttention, 4)
+        XCTAssertEqual(snapshot.displayed.count, 3)
+        XCTAssertEqual(snapshot.remainder, 1)
+        XCTAssertEqual(WorkforceAttentionPresentation.summary(totalAttention: 4), "4 workforce updates need attention")
+        XCTAssertEqual(WorkforceAttentionPresentation.remainderTitle(1), "and 1 more")
+    }
+
+    func testAttentionStripTreatsRoutinePublicationsAsClear() throws {
+        let publication = try makePublication(id: "00000000-0000-4000-8000-000000000310", resultKind: .completed)
+        let snapshot = WorkforceAttentionPresentation.snapshot([publication])
+        XCTAssertTrue(snapshot.isClear)
+        XCTAssertEqual(snapshot.routineCount, 1)
+        XCTAssertEqual(
+            WorkforceAttentionPresentation.summary(
+                totalAttention: snapshot.totalAttention,
+                routineCount: snapshot.routineCount
+            ),
+            "1 employee update · no exceptions"
+        )
+    }
+
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresControls() {
         var isRefreshInFlight = false
 
@@ -287,6 +316,15 @@ final class DailyStandupViewTests: XCTestCase {
 
         XCTAssertEqual(window.from, "2025-08-26T23:00:00.000Z")
         XCTAssertEqual(window.to, "2025-08-27T23:00:00.000Z")
+    }
+
+    func testLifecycleSchedulesTheNextLocalMidnight() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_782_000_000)
+        let next = DailyStandupLifecyclePresentation.nextLocalMidnight(after: now, calendar: calendar)
+        XCTAssertEqual(calendar.startOfDay(for: next), next)
+        XCTAssertGreaterThan(next, now)
     }
 
     private enum TestFailure: Error {

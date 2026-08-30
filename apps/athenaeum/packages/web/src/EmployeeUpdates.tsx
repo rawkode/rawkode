@@ -53,8 +53,56 @@ const resultKindPresentation: Record<EmployeeUpdateResultKind, { readonly label:
   skipped: { label: "Skipped", icon: "–" },
 }
 
-const canOpenCompanion = (publication: EmployeeUpdatePublication): boolean =>
+export const canOpenCompanion = (publication: EmployeeUpdatePublication): boolean =>
   publication.companionStatus === "verified-original" || publication.companionStatus === "modified"
+
+export type WorkforceAttentionDisclosure = {
+  readonly outcome: "Blocked" | "Failed"
+  readonly employee: string
+  readonly job: string
+  /** Deliberately optional: missing/unavailable companion documents must remain inert. */
+  readonly destination?: string
+}
+
+export type WorkforceAttentionPresentation =
+  | { readonly kind: "hidden" }
+  | { readonly kind: "failure" }
+  | { readonly kind: "all-clear"; readonly routineCount: number }
+  | {
+      readonly kind: "attention"
+      readonly totalAttentionCount: number
+      readonly disclosures: readonly WorkforceAttentionDisclosure[]
+      readonly remainderCount: number
+    }
+
+/**
+ * Small, deliberately redacted above-editor projection. Keep the detailed report in the lower
+ * standup subdocument; this contract cannot accidentally carry report text, ids, schedules, or
+ * other operational detail into the writing surface.
+ */
+export const workforceAttentionPresentation = (
+  state: EmployeeUpdatesState | { readonly status: "idle" },
+  cap = 3
+): WorkforceAttentionPresentation => {
+  if (state.status === "idle" || state.status === "loading") return { kind: "hidden" }
+  if (state.status === "failure") return { kind: "failure" }
+  const attention = partitionEmployeeUpdates(state.publications).needsAttention
+  if (attention.length === 0) {
+    return state.publications.length === 0 ? { kind: "hidden" } : { kind: "all-clear", routineCount: state.publications.length }
+  }
+  const displayed = attention.slice(0, Math.max(0, cap)).map((publication): WorkforceAttentionDisclosure => ({
+    outcome: publication.resultKind === "failed" ? "Failed" : "Blocked",
+    employee: publication.microEmployeeLabel,
+    job: publication.jobLabel,
+    ...(canOpenCompanion(publication) ? { destination: `/node/${publication.childNodeId}` } : {})
+  }))
+  return {
+    kind: "attention",
+    totalAttentionCount: attention.length,
+    disclosures: displayed,
+    remainderCount: attention.length - displayed.length
+  }
+}
 
 /** A read-only, privacy-safe projection of workforce updates attached to a daily note. */
 export function EmployeeUpdates({ state, onRetry }: {

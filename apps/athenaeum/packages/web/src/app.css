@@ -3890,6 +3890,68 @@
   margin-top: var(--space-6);
 }
 
+/* The morning cue is intentionally a sentence-sized interruption, not a second dashboard. The
+   full report, including employee-authored content and provenance, stays in the standup below. */
+.workforce-attention-strip {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: min(100%, 65ch);
+  margin: 0 auto var(--space-4);
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.workforce-attention-strip a,
+.workforce-attention-strip button {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+.workforce-attention-strip-alert {
+  display: block;
+  border-left-color: var(--color-danger);
+  color: var(--color-text);
+}
+
+.workforce-attention-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.workforce-attention-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workforce-attention-list li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.workforce-attention-outcome {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.workforce-attention-strip-alert p {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
 .employee-updates-heading,
 .employee-update-labels {
   display: flex;

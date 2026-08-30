@@ -33,6 +33,8 @@ import { Backlinks } from "./Backlinks.js"
 import { NoteTags } from "./NoteTags.js"
 import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "./SupertagFieldPopover.js"
 import { DailyStandup } from "./LedgerActivityPanel.js"
+import { useDailyStandup } from "./use-daily-standup.js"
+import { WorkforceAttentionStrip } from "./WorkforceAttentionStrip.js"
 
 // `resolveDailyNote` is the "resolve or create" half
 // (deterministic id from `daily-note-id.ts`, so a reload resolves the *same* node/page rather than
@@ -320,6 +322,12 @@ export function DailyNote({
   })
   const todayStamp = localDateStamp(new Date())
   const isToday = dateStamp === todayStamp
+  // One controller serves the compact Today cue and the detailed subdocument. Until resolve
+  // succeeds it receives no note identity, which makes stale workforce data impossible to show.
+  const standup = useDailyStandup({
+    dailyNoteId: state.status === "success" ? state.value.nodeId : undefined,
+    isToday
+  })
   const pageFormat = state.status === "success"
     ? dailyNotePageFormatPresentation(state.value.format)
     : undefined
@@ -394,6 +402,10 @@ export function DailyNote({
             )}
           </nav>
         </header>
+
+        {isToday && state.status === "success" && (
+          <WorkforceAttentionStrip state={standup.employeeUpdates} onRetry={standup.refresh} />
+        )}
 
         <div
           className={`daily-note-canvas daily-note-canvas-${state.status}`}
@@ -505,7 +517,7 @@ export function DailyNote({
       </div>
 
       {state.status === "success" && (
-        <DailyStandup dailyNoteId={state.value.nodeId} includeLedger={isToday} />
+        <DailyStandup standup={standup} />
       )}
 
       {state.status === "success" && <Backlinks nodeId={state.value.nodeId} />}

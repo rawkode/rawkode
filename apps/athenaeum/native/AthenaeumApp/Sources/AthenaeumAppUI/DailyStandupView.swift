@@ -22,6 +22,13 @@ struct DailyStandupDayWindow: Equatable, Sendable {
     }
 }
 
+enum DailyStandupLifecyclePresentation {
+    static func nextLocalMidnight(after now: Date, calendar: Calendar = .autoupdatingCurrent) -> Date {
+        let start = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: 1, to: start) ?? now
+    }
+}
+
 @MainActor
 final class DailyStandupViewModel: ObservableObject {
     enum State: Equatable {
@@ -44,6 +51,9 @@ final class DailyStandupViewModel: ObservableObject {
     private let employeeLoader: EmployeeUpdatesLoader?
     private let employeeLoaderFactory: (@Sendable (EntityId) async throws -> [StandupPublication])?
     private var selectedDailyNoteId: EntityId?
+    private var ledgerEnabled = true
+    private var dayWindowIdentity = "historical"
+    private var generation = 0
 
     var employeeLoaderAvailable: Bool {
         employeeLoader != nil || (employeeLoaderFactory != nil && selectedDailyNoteId != nil)
@@ -106,48 +116,90 @@ final class DailyStandupViewModel: ObservableObject {
     }
 
     func updateDailyNoteId(_ dailyNoteId: EntityId?) {
-        guard employeeLoaderFactory != nil, selectedDailyNoteId != dailyNoteId else { return }
+        update(dailyNoteId: dailyNoteId, includeLedger: ledgerEnabled)
+    }
+
+    /// A DailyNoteView owns this model and advances the snapshot before starting either lane.
+    /// Every terminal write subsequently checks the same monotonic generation and note identity.
+    func update(
+        dailyNoteId: EntityId?,
+        includeLedger: Bool,
+        dayWindow: DailyStandupDayWindow = DailyStandupDayWindow()
+    ) {
+        let normalizedDayWindow = includeLedger ? Self.dayWindowKey(dayWindow) : "historical"
+        guard selectedDailyNoteId != dailyNoteId || ledgerEnabled != includeLedger || dayWindowIdentity != normalizedDayWindow else { return }
+        generation &+= 1
         selectedDailyNoteId = dailyNoteId
+        ledgerEnabled = includeLedger
+        dayWindowIdentity = normalizedDayWindow
+        state = .idle
         employeeState = .idle
     }
 
+    /// The host may call this from foreground/midnight observation. Historical notes deliberately
+    /// retain the inert identity so crossing midnight never refetches their publications.
+    func invalidateForLifecycle(now: Date, calendar: Calendar = .autoupdatingCurrent) {
+        update(
+            dailyNoteId: selectedDailyNoteId,
+            includeLedger: ledgerEnabled,
+            dayWindow: DailyStandupDayWindow(now: now, calendar: calendar)
+        )
+    }
+
     func refresh() async {
-        if let loader {
-            state = .loading
-            do {
-                state = .loaded(try await loader())
-            } catch {
-                state = .failed(Self.loadFailureMessage(for: error))
-            }
-        } else {
-            state = .idle
-        }
-        let employeeGeneration = selectedDailyNoteId
+        generation &+= 1
+        let refreshGeneration = generation
+        let noteIdentity = selectedDailyNoteId
+        let refreshDayWindow = dayWindowIdentity
+        let shouldLoadLedger = ledgerEnabled && loader != nil
+        if shouldLoadLedger { state = .loading } else { state = .idle }
         let employeeLoader: EmployeeUpdatesLoader?
         if let directEmployeeLoader = self.employeeLoader {
             employeeLoader = directEmployeeLoader
-        } else if let employeeGeneration, let employeeLoaderFactory {
+        } else if let noteIdentity, let employeeLoaderFactory {
             employeeLoader = {
-                try await employeeLoaderFactory(employeeGeneration)
+                try await employeeLoaderFactory(noteIdentity)
             }
         } else {
             employeeLoader = nil
         }
-        if let employeeLoader {
-            employeeState = .loading
-            do {
-                let publications = try await employeeLoader()
-                // A SwiftUI task can outlive a route transition if its transport ignores
-                // cancellation. Do not let the old note's response populate the new note.
-                if let employeeGeneration, selectedDailyNoteId != employeeGeneration { return }
-                employeeState = .loaded(publications)
-            } catch {
-                if let employeeGeneration, selectedDailyNoteId != employeeGeneration { return }
-                employeeState = .failed(Self.employeeLoadFailureMessage(for: error))
+        if employeeLoader != nil { employeeState = .loading } else { employeeState = .idle }
+
+        await withTaskGroup(of: LaneResult.self) { group in
+            if shouldLoadLedger, let loader {
+                group.addTask {
+                    do { return .ledger(.success(try await loader())) }
+                    catch { return .ledger(.failure(error)) }
+                }
             }
-        } else {
-            employeeState = .idle
+            if let employeeLoader {
+                group.addTask {
+                    do { return .employee(.success(try await employeeLoader())) }
+                    catch { return .employee(.failure(error)) }
+                }
+            }
+            for await result in group where accepts(refreshGeneration: refreshGeneration, noteIdentity: noteIdentity, dayWindow: refreshDayWindow) {
+                switch result {
+                case .ledger(.success(let entries)): state = .loaded(entries)
+                case .ledger(.failure(let error)): state = .failed(Self.loadFailureMessage(for: error))
+                case .employee(.success(let publications)): employeeState = .loaded(publications)
+                case .employee(.failure(let error)): employeeState = .failed(Self.employeeLoadFailureMessage(for: error))
+                }
+            }
         }
+    }
+
+    private func accepts(refreshGeneration: Int, noteIdentity: EntityId?, dayWindow: String) -> Bool {
+        generation == refreshGeneration && selectedDailyNoteId == noteIdentity && dayWindowIdentity == dayWindow
+    }
+
+    private static func dayWindowKey(_ window: DailyStandupDayWindow) -> String {
+        "\(window.from)|\(window.to)"
+    }
+
+    private enum LaneResult: @unchecked Sendable {
+        case ledger(Result<[RPCLedgerActivityEntry], Error>)
+        case employee(Result<[StandupPublication], Error>)
     }
 
     /// Ledger read errors can carry transport, provider, or credential-adjacent details. The
@@ -224,32 +276,24 @@ enum DailyStandupPresentation {
 }
 
 public struct DailyStandupView: View {
-    @StateObject private var model: DailyStandupViewModel
-    @State private var isRefreshInFlight = false
+    @ObservedObject private var model: DailyStandupViewModel
     @State private var isShowingAllEntries = false
     private let dailyNoteId: EntityId?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
+    private let onRefresh: () -> Void
 
-    public init(
-        backendURL: URL,
-        workspaceId: EntityId,
-        bearerCredential: String?,
+    init(
+        model: DailyStandupViewModel,
         dailyNoteId: EntityId? = nil,
         includeLedger: Bool = true,
-        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil
+        onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
+        onRefresh: @escaping () -> Void = {}
     ) {
-        _model = StateObject(
-            wrappedValue: DailyStandupViewModel(
-                backendURL: backendURL,
-                workspaceId: workspaceId,
-                bearerCredential: bearerCredential,
-                dailyNoteId: dailyNoteId,
-                includeLedger: includeLedger
-            )
-        )
+        self.model = model
         self.dailyNoteId = dailyNoteId
         self.includeLedger = includeLedger
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
+        self.onRefresh = onRefresh
     }
 
     private let includeLedger: Bool
@@ -264,10 +308,6 @@ public struct DailyStandupView: View {
             }
         }
         .padding(.vertical, 8)
-        .task(id: dailyNoteId?.rawValue) { await refreshOnAppear() }
-        .onChange(of: dailyNoteId?.rawValue) { _ in
-            model.updateDailyNoteId(dailyNoteId)
-        }
     }
 
     @ViewBuilder
@@ -297,7 +337,7 @@ public struct DailyStandupView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                     Button(DailyStandupRefreshPresentation.retryTitle(isRefreshing: isRefreshing)) {
-                        startRefresh()
+                        onRefresh()
                     }
                     .disabled(isRefreshing)
                 }
@@ -361,7 +401,7 @@ public struct DailyStandupView: View {
                 Spacer()
                 HStack(spacing: 10) {
                     Button {
-                        startRefresh()
+                        onRefresh()
                     } label: {
                         Label(
                             DailyStandupRefreshPresentation.actionTitle(isRefreshing: isRefreshing),
@@ -394,7 +434,7 @@ public struct DailyStandupView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                     Button(DailyStandupRefreshPresentation.retryTitle(isRefreshing: isRefreshing)) {
-                        startRefresh()
+                        onRefresh()
                     }
                     .disabled(isRefreshing)
                 }
@@ -428,37 +468,11 @@ public struct DailyStandupView: View {
     }
 
     private var isRefreshing: Bool {
-        if isRefreshInFlight { return true }
         if case .loading = model.state { return true }
         if case .loading = model.employeeState { return true }
         return false
     }
 
-    private func startRefresh() {
-        guard beginRefresh() else { return }
-        Task { @MainActor in
-            await completeRefresh()
-        }
-    }
-
-    private func refreshOnAppear() async {
-        guard beginRefresh() else { return }
-        await completeRefresh()
-    }
-
-    private func beginRefresh() -> Bool {
-        guard DailyStandupRefreshPresentation.canStartRefresh(isRefreshInFlight: isRefreshInFlight) else {
-            return false
-        }
-        isRefreshInFlight = true
-        isShowingAllEntries = false
-        return true
-    }
-
-    private func completeRefresh() async {
-        defer { isRefreshInFlight = false }
-        await model.refresh()
-    }
 }
 
 private struct DailyStandupEntryRow: View {
