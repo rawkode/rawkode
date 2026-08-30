@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObjec
 import { useNavigate } from "react-router"
 import type { SearchResultEntry } from "@athenaeum/domain"
 import { searchResultDestination, useNodeSearch } from "./SearchBox.js"
-import { dateStampFromDailyNoteId, parseDateStamp } from "./daily-note-id.js"
+import { dateStampFromDailyNoteId, localDateStamp, parseDateStamp, shiftDateStamp } from "./daily-note-id.js"
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
@@ -15,8 +15,12 @@ export type PaletteCommand = {
   readonly icon: string
 }
 
+export type DailyNotePaletteCommand = PaletteCommand & {
+  readonly dateStamp: string
+}
+
 export const PALETTE_COMMANDS: ReadonlyArray<PaletteCommand> = [
-  { id: "today", label: "Today", hint: "Open your daily note", to: "/notes", icon: "☀" },
+  { id: "today", label: "Today", hint: "Open or create your daily note", to: "/notes", icon: "☀" },
   { id: "supertags", label: "Supertags", hint: "Shape your typed schema", to: "/supertags", icon: "#" },
   { id: "calendar", label: "Calendar", hint: "Review connected events", to: "/calendar", icon: "◷" },
   { id: "meetings", label: "Meetings", hint: "Review transcripts and people", to: "/meetings", icon: "◌" },
@@ -28,27 +32,77 @@ export const PALETTE_COMMANDS: ReadonlyArray<PaletteCommand> = [
 ]
 
 export type PaletteEntry =
+  | { readonly kind: "daily-note"; readonly command: DailyNotePaletteCommand }
   | { readonly kind: "command"; readonly command: PaletteCommand }
   | { readonly kind: "result"; readonly result: SearchResultEntry }
-
-export const paletteEntriesFor = (
-  query: string,
-  results: ReadonlyArray<SearchResultEntry>
-): ReadonlyArray<PaletteEntry> => {
-  const normalized = query.trim().toLocaleLowerCase()
-  const commands = PALETTE_COMMANDS
-    .filter((command) => normalized.length === 0 || `${command.label} ${command.hint}`.toLocaleLowerCase().includes(normalized))
-    .map((command) => ({ kind: "command" as const, command }))
-  if (normalized.length === 0) return commands
-  // Retrieval is the primary purpose of the palette: show recalled records before navigation
-  // destinations, while keeping matching destinations available as a deliberate fallback.
-  return [...results.map((result) => ({ kind: "result" as const, result })), ...commands]
-}
 
 const formatDailyNoteDate = (stamp: string): string => {
   const date = parseDateStamp(stamp)
   if (date === undefined) return stamp
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(date)
+}
+
+const dailyNoteRoute = (dateStamp: string, referenceDate: Date): string =>
+  dateStamp === localDateStamp(referenceDate) ? "/notes" : `/notes?date=${dateStamp}`
+
+const dailyNoteCommand = (
+  dateStamp: string,
+  referenceDate: Date,
+  label: string,
+  icon: string
+): DailyNotePaletteCommand => ({
+  id: `daily-note-${dateStamp}`,
+  label: `${label} · ${formatDailyNoteDate(dateStamp)}`,
+  hint: "Open or create this daily note",
+  to: dailyNoteRoute(dateStamp, referenceDate),
+  icon,
+  dateStamp
+})
+
+/** Resolves only exact, deliberate date commands; ordinary prose remains search input. */
+export const dailyNoteCommandForQuery = (
+  query: string,
+  referenceDate: Date = new Date()
+): DailyNotePaletteCommand | undefined => {
+  const normalized = query.trim().toLowerCase()
+  const todayStamp = localDateStamp(referenceDate)
+  if (normalized === "today") return dailyNoteCommand(todayStamp, referenceDate, "Today", "☀")
+  if (normalized === "yesterday") {
+    return dailyNoteCommand(shiftDateStamp(todayStamp, -1), referenceDate, "Yesterday", "↶")
+  }
+  if (normalized === "tomorrow") {
+    return dailyNoteCommand(shiftDateStamp(todayStamp, 1), referenceDate, "Tomorrow", "↷")
+  }
+  const date = parseDateStamp(normalized)
+  if (date === undefined) return undefined
+  const dateStamp = localDateStamp(date)
+  return dailyNoteCommand(dateStamp, referenceDate, "Daily note", "◷")
+}
+
+export const paletteEntriesFor = (
+  query: string,
+  results: ReadonlyArray<SearchResultEntry>,
+  referenceDate: Date = new Date()
+): ReadonlyArray<PaletteEntry> => {
+  const normalized = query.trim().toLowerCase()
+  const dateCommand = dailyNoteCommandForQuery(query, referenceDate)
+  const commands = PALETTE_COMMANDS
+    .filter((command) => normalized.length === 0 || `${command.label} ${command.hint}`.toLowerCase().includes(normalized))
+    .map((command) => ({ kind: "command" as const, command }))
+  if (normalized.length === 0) return commands
+  if (dateCommand !== undefined) {
+    // The generated Today action replaces the static Today destination for an exact `today`
+    // query, avoiding two indistinguishable routes while keeping ordinary recall intact.
+    const destinations = commands.filter((entry) => !(normalized === "today" && entry.command.id === "today"))
+    return [
+      { kind: "daily-note" as const, command: dateCommand },
+      ...results.map((result) => ({ kind: "result" as const, result })),
+      ...destinations
+    ]
+  }
+  // Retrieval is the primary purpose of the palette: show recalled records before navigation
+  // destinations, while keeping matching destinations available as a deliberate fallback.
+  return [...results.map((result) => ({ kind: "result" as const, result })), ...commands]
 }
 
 /** A result's kind is derived from its stable id, never guessed from an arbitrary title. */
@@ -100,7 +154,7 @@ export function CommandPalette({
   if (!open) return null
 
   const navigateEntry = (entry: PaletteEntry) => {
-    navigate(entry.kind === "command" ? entry.command.to : searchResultDestination(entry.result.nodeId))
+    navigate(entry.kind === "result" ? searchResultDestination(entry.result.nodeId) : entry.command.to)
     onClose()
     onNavigated?.()
   }
@@ -113,11 +167,11 @@ export function CommandPalette({
   const activeId = hasOptions ? `command-palette-option-${selectedIndex}` : undefined
 
   const renderEntry = (entry: PaletteEntry, index: number) => {
-    const label = entry.kind === "command" ? entry.command.label : entry.result.title
-    const hint = entry.kind === "command" ? entry.command.hint : entry.result.snippet
+    const label = entry.kind === "result" ? entry.result.title : entry.command.label
+    const hint = entry.kind === "result" ? entry.result.snippet : entry.command.hint
     return (
       <button
-        key={entry.kind === "command" ? entry.command.id : entry.result.nodeId}
+        key={entry.kind === "result" ? entry.result.nodeId : entry.command.id}
         id={`command-palette-option-${index}`}
         type="button"
         role="option"
@@ -127,7 +181,7 @@ export function CommandPalette({
         onClick={() => navigateEntry(entry)}
       >
         <span className="command-palette-option-icon" aria-hidden="true">
-          {entry.kind === "command" ? entry.command.icon : "⌕"}
+          {entry.kind === "result" ? "⌕" : entry.command.icon}
         </span>
         <span className="command-palette-option-copy">
           <span className="command-palette-option-label">{label}</span>
@@ -138,8 +192,14 @@ export function CommandPalette({
     )
   }
 
+  const dailyNoteEntries = entries.flatMap((entry, index) => entry.kind === "daily-note" ? [{ entry, index }] : [])
   const recallEntries = entries.flatMap((entry, index) => entry.kind === "result" ? [{ entry, index }] : [])
   const destinationEntries = entries.flatMap((entry, index) => entry.kind === "command" ? [{ entry, index }] : [])
+  const listboxLabel = [
+    dailyNoteEntries.length > 0 ? "Daily notes" : undefined,
+    recallEntries.length > 0 ? "recall" : undefined,
+    destinationEntries.length > 0 ? "destinations" : undefined
+  ].filter((label): label is string => label !== undefined).join(", ")
 
   const focusableControls = (): HTMLElement[] =>
     Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])
@@ -247,8 +307,14 @@ export function CommandPalette({
             id="command-palette-options"
             className="command-palette-options"
             role="listbox"
-            aria-label="Recall and destinations"
+            aria-label={listboxLabel}
           >
+            {dailyNoteEntries.length > 0 && (
+              <div className="command-palette-group" role="group" aria-label="Daily notes">
+                <div className="command-palette-group-label" aria-hidden="true">Daily notes</div>
+                {dailyNoteEntries.map(({ entry, index }) => renderEntry(entry, index))}
+              </div>
+            )}
             {recallEntries.length > 0 && (
               <div className="command-palette-group" role="group" aria-label="Recall">
                 <div className="command-palette-group-label" aria-hidden="true">Recall</div>

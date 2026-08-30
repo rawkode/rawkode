@@ -88,7 +88,7 @@ describe("CommandPalette search freshness", () => {
     expect(hints).toContain("⌘K / Ctrl K")
   })
 
-  it("labels recall and destination groups while keeping flat keyboard order", async () => {
+  it("renders exact date actions before recall with one shared keyboard and DOM order", async () => {
     queryStateMock.current = {
       status: "success" as const,
       value: new SearchNodesOutput({
@@ -99,14 +99,20 @@ describe("CommandPalette search freshness", () => {
     await searchFor(input, "today")
 
     const listbox = host.querySelector<HTMLElement>('[role="listbox"]')
-    expect(listbox?.getAttribute("aria-label")).toBe("Recall and destinations")
+    expect(listbox?.getAttribute("aria-label")).toBe("Daily notes, recall")
     expect(Array.from(host.querySelectorAll<HTMLElement>('[role="group"]')).map((group) => group.getAttribute("aria-label")))
-      .toEqual(["Recall", "Destinations"])
+      .toEqual(["Daily notes", "Recall"])
     expect(Array.from(host.querySelectorAll<HTMLElement>('[role="option"]')).map((option) => option.id))
       .toEqual(["command-palette-option-0", "command-palette-option-1"])
     expect(host.querySelector('[role="group"][aria-label="Recall"] .command-palette-option-kind')?.textContent).toBe("Record")
     expect(Array.from(host.querySelectorAll<HTMLElement>('[role="option"] .command-palette-option-label')).map((option) => option.textContent))
-      .toEqual(["Today planning", "Today"])
+      .toEqual([expect.stringMatching(/^Today · /), "Today planning"])
+    expect(input.getAttribute("aria-activedescendant")).toBe("command-palette-option-0")
+
+    await act(async () => press(input, "ArrowDown"))
+    expect(input.getAttribute("aria-activedescendant")).toBe("command-palette-option-1")
+    expect(host.querySelector<HTMLElement>('[role="option"]#command-palette-option-1')?.getAttribute("aria-selected"))
+      .toBe("true")
   })
 
   it("removes a prior query's result during debounce so Arrow/Enter cannot navigate it", async () => {
@@ -191,6 +197,20 @@ describe("CommandPalette search freshness", () => {
 
     await act(async () => press(input, "Enter"))
     expect(routerMock.navigate).toHaveBeenCalledWith("/notes?date=2026-08-22")
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("opens an exact date command immediately while recall is still debouncing", async () => {
+    const { input, onClose } = await mount()
+
+    await act(async () => {
+      setInput(input, "tomorrow")
+      await flush()
+      press(input, "Enter")
+    })
+
+    expect(routerMock.navigate).toHaveBeenCalledTimes(1)
+    expect(routerMock.navigate.mock.calls[0]?.[0]).toMatch(/^\/notes\?date=\d{4}-\d{2}-\d{2}$/)
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
