@@ -1516,6 +1516,17 @@ export const projectTodayBriefEvents = (
   personNodeIdValidator?: (attendee: CalendarEventAttendee) => boolean,
   sourceScope?: (event: CalendarEvent) => string
 ): ReadonlyArray<TodayBriefEvent> => {
+  const scopedOccurrenceKey = (event: CalendarEvent): string => {
+    if (sourceScope === undefined) return calendarEventOccurrenceKey(event)
+    const scope = sourceScope(event)
+    return sha256HexSync(canonicalJsonBytes({
+      version: 1,
+      scope,
+      providerEventId: event.providerEventId,
+      seriesId: event.seriesId ?? null,
+      occurrenceId: event.occurrenceId ?? null
+    }))
+  }
   const fromMs = Date.parse(from)
   const toMs = Date.parse(to)
   const self = callerEmail === undefined ? undefined : normalizeEmail(callerEmail)
@@ -1527,8 +1538,10 @@ export const projectTodayBriefEvents = (
     // is canonical for recurring instances even if a sync retry duplicated the materialized row.
     // Resolve this before filtering cancelled rows: a newer cancellation tombstone must suppress
     // the older confirmed row regardless of input order.
-    const scope = sourceScope?.(event) ?? event.id
-    const key = event.occurrenceId === undefined ? `${scope}:${event.providerEventId}` : `${scope}:${event.seriesId ?? ""}:${event.occurrenceId}`
+    const scope = sourceScope?.(event)
+    const key = scope === undefined
+      ? (event.occurrenceId === undefined ? event.providerEventId : `${event.seriesId ?? ""}:${event.occurrenceId}`)
+      : (event.occurrenceId === undefined ? `${scope}:${event.providerEventId}` : `${scope}:${event.seriesId ?? ""}:${event.occurrenceId}`)
     const existing = canonical.get(key)
     if (existing === undefined || compareCanonicalCalendarEvents(event, existing) > 0) {
       canonical.set(key, event)
@@ -1565,9 +1578,7 @@ export const projectTodayBriefEvents = (
       }
       return new TodayBriefEvent({
         id: event.id,
-        occurrenceKey: event.occurrenceId === undefined
-          ? `${sourceScope?.(event) ?? event.id}:${event.providerEventId}`
-          : `${sourceScope?.(event) ?? event.id}:${event.seriesId ?? ""}:${event.occurrenceId}`,
+        occurrenceKey: scopedOccurrenceKey(event),
         title: event.title,
         start: IsoDateTimeString.make(new Date(calendarEventInstant(event.start, timeZone)).toISOString()),
         end: IsoDateTimeString.make(new Date(calendarEventInstant(event.end, timeZone)).toISOString()),
