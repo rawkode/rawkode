@@ -957,12 +957,28 @@ public actor LoroPageDocumentStore {
     private func richRuns(_ text: LoroText) throws -> [LoroCanonicalSemanticValueV1.TextRun] {
         var runs: [LoroCanonicalSemanticValueV1.TextRun] = []
         for delta in text.toDelta() {
-            guard case let .insert(value, rawAttributes) = delta, !value.isEmpty else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            guard case let .insert(insertedText, rawAttributes) = delta, !insertedText.isEmpty else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
             let attributes = rawAttributes ?? [:]
-            guard attributes.keys.allSatisfy({ ["strong", "em", "code"].contains($0) }), attributes.values.allSatisfy({ $0 == LoroValue.map(value: [:]) }) else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            guard attributes.keys.allSatisfy({ ["strong", "em", "code", "entityRef", "supertagRef"].contains($0) }) else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            for key in ["strong", "em", "code"] {
+                if let value = attributes[key], value != LoroValue.map(value: [:]) { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            }
+            let references = ["entityRef", "supertagRef"].compactMap { key -> LoroCanonicalSemanticValueV1.InlineReference? in
+                guard let attributeValue = attributes[key] else { return nil }
+                guard case let .map(payload) = attributeValue,
+                      Set(payload.keys) == Set([key == "entityRef" ? "nodeId" : "tagId", "label"]),
+                      case let .string(id)? = payload[key == "entityRef" ? "nodeId" : "tagId"],
+                      case let .string(label)? = payload["label"],
+                      let entityId = try? EntityId(validating: id),
+                      !label.isEmpty, label.lengthOfBytes(using: .utf8) <= 500, label == insertedText else { return nil }
+                return .init(kind: key == "entityRef" ? .entity : .supertag, id: entityId, label: label)
+            }
+            guard references.count == attributes.keys.filter({ $0 == "entityRef" || $0 == "supertagRef" }).count,
+                  references.count <= 1 else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
             let marks = LoroCanonicalSemanticValueV1.Mark.canonicalOrder.filter { mark in attributes.keys.contains(mark == .emphasis ? "em" : mark.rawValue) }
-            guard runs.last?.marks != marks else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
-            runs.append(.init(text: value, marks: marks))
+            let reference = references.first
+            guard runs.last == nil || runs.last!.marks != marks || runs.last!.reference != reference else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            runs.append(.init(text: insertedText, marks: marks, reference: reference))
         }
         return runs
     }
@@ -987,6 +1003,12 @@ public actor LoroPageDocumentStore {
                 try text.pushStr(s: run.text)
                 guard let count = UInt32(exactly: run.text.unicodeScalars.count), offset <= UInt32.max - count else { throw LoroPageDocumentStoreError.inputTooLarge }
                 for mark in run.marks { try text.mark(from: offset, to: offset + count, key: mark == .emphasis ? "em" : mark.rawValue, value: LoroValue.map(value: [:])) }
+                if let reference = run.reference {
+                    let key = reference.kind == .entity ? "entityRef" : "supertagRef"
+                    let idKey = reference.kind == .entity ? "nodeId" : "tagId"
+                    let payload: LoroValue = .map(value: [idKey: .string(value: reference.id.rawValue), "label": .string(value: reference.label)])
+                    try text.mark(from: offset, to: offset + count, key: key, value: payload)
+                }
                 offset += count
             }
         }
@@ -996,6 +1018,8 @@ public actor LoroPageDocumentStore {
         let styles = StyleConfigMap.defaultRichTextConfig()
         styles.insert(key: "strong", value: styles.get(key: "bold")!)
         styles.insert(key: "em", value: styles.get(key: "italic")!)
+        styles.insert(key: "entityRef", value: StyleConfig(expand: .none))
+        styles.insert(key: "supertagRef", value: StyleConfig(expand: .none))
         doc.configTextStyle(textStyle: styles)
     }
 

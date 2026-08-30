@@ -1,4 +1,5 @@
 import Foundation
+import AthenaeumDomain
 
 /// Content-only, canonical rich text semantics accepted by the native Loro editor.  This is
 /// intentionally not a projection: every member is authorable and no Loro/container metadata
@@ -12,11 +13,23 @@ public struct LoroCanonicalSemanticValueV1: Sendable, Equatable {
     public struct TextRun: Sendable, Equatable {
         public let text: String
         public let marks: [Mark]
+        /// A value-only inline reference. The snapshot label is retained alongside the immutable
+        /// id so rendering never needs to dereference personal/workspace data during projection.
+        public let reference: InlineReference?
 
-        public init(text: String, marks: [Mark] = []) {
+        public init(text: String, marks: [Mark] = [], reference: InlineReference? = nil) {
             self.text = text
             self.marks = marks
+            self.reference = reference
         }
+    }
+
+    public struct InlineReference: Sendable, Equatable {
+        public enum Kind: Sendable, Equatable { case entity, supertag }
+        public let kind: Kind
+        public let id: EntityId
+        public let label: String
+        public init(kind: Kind, id: EntityId, label: String) { self.kind = kind; self.id = id; self.label = label }
     }
 
     public enum Mark: String, Sendable, Equatable, CaseIterable {
@@ -58,17 +71,23 @@ extension LoroCanonicalSemanticValueV1 {
                 guard (1...3).contains(level) else { throw LoroNativeRichEditorError.malformed }
                 runs = value
             }
-            var previous: [Mark]?
+            var previous: (marks: [Mark], reference: InlineReference?)?
             for run in runs {
                 runCount += 1; bytes += run.text.lengthOfBytes(using: .utf8)
+                if let reference = run.reference { bytes += reference.label.lengthOfBytes(using: .utf8) }
                 guard !run.text.isEmpty,
                       !run.text.contains("\n"),
                       !run.text.contains("\r"),
                       run.marks == Mark.canonicalOrder.filter(run.marks.contains),
                       Set(run.marks).count == run.marks.count else { throw LoroNativeRichEditorError.malformed }
-                guard previous != run.marks else { throw LoroNativeRichEditorError.malformed }
+                if let reference = run.reference {
+                    guard !reference.label.isEmpty, !reference.label.contains("\n"), !reference.label.contains("\r"),
+                          reference.label.lengthOfBytes(using: .utf8) <= 500,
+                          reference.label == run.text else { throw LoroNativeRichEditorError.malformed }
+                }
+                guard previous == nil || previous!.marks != run.marks || previous!.reference != run.reference else { throw LoroNativeRichEditorError.malformed }
                 guard runCount <= limits.maxTextRuns, bytes <= limits.maxUTF8Bytes, run.marks.count <= limits.maxMarks else { throw LoroNativeRichEditorError.bounds }
-                previous = run.marks
+                previous = (run.marks, run.reference)
             }
         }
         return self

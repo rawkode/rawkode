@@ -1,5 +1,6 @@
 import XCTest
 import Loro
+import AthenaeumDomain
 @testable import AthenaeumCore
 
 final class LoroNativeRichEditorFacadeTests: XCTestCase {
@@ -9,6 +10,16 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
             .heading(level: 3, runs: [.init(text: "Heading", marks: [.strong])])
         ])
         XCTAssertEqual(try value.validated(), value)
+    }
+
+    func testCanonicalValueAcceptsValueOnlyInlineReferenceAndCountsItsPayload() throws {
+        let id = try EntityId(validating: "00000000-0000-4000-8000-000000000001")
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(kind: .entity, id: id, label: "Alice")
+        let value = LoroCanonicalSemanticValueV1(blocks: [.paragraph([.init(text: "Alice", marks: [.strong], reference: reference)])])
+        XCTAssertEqual(try value.validated(), value)
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.paragraph([.init(text: "Alias", reference: reference)])]).validated())
+        let oversized = LoroCanonicalSemanticValueV1.InlineReference(kind: .supertag, id: id, label: String(repeating: "x", count: 501))
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.paragraph([.init(text: String(repeating: "x", count: 501), reference: oversized)])]).validated())
     }
 
     func testCanonicalValueRejectsAdjacentEqualMarksMalformedAndBounds() {
@@ -37,8 +48,9 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
         let fixture = try await LoroSemanticCheckpointStateMachineTests.Fixture.make()
         let route = fixture.candidate.route
         let replica = LoroPageReplicaWitness(snapshotSHA256: route.snapshotSHA256, versionVectorSHA256: try VersionVectorIdentity.digest(encodedVersionVector: fixture.candidate.checkpoint.baseVersionVector))
+        let reference = try EntityId(validating: "00000000-0000-4000-8000-000000000001")
         let semantic = LoroCanonicalSemanticValueV1(blocks: [
-            .paragraph([.init(text: "plain"), .init(text: " bold", marks: [.strong])]),
+            .paragraph([.init(text: "Alice", marks: [.strong], reference: .init(kind: .entity, id: reference, label: "Alice")), .init(text: " bold", marks: [.strong])]),
             .heading(level: 2, runs: [.init(text: "e\u{301} 😀", marks: [.code, .emphasis])])
         ])
         let forged = LoroPageReplicaWitness(snapshotSHA256: replica.snapshotSHA256, versionVectorSHA256: String(repeating: "0", count: 64))
@@ -58,7 +70,7 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
         _ = try document.import(bytes: minted.literal.snapshotBytes)
         var projector = LoroPageProjector(limits: .init())
         XCTAssertEqual(try projector.project(document), .document([
-            .paragraph([.text("plain", marks: []), .text(" bold", marks: [.strong])]),
+            .paragraph([.text("Alice", marks: [.strong, .unsupported]), .text(" bold", marks: [.strong])]),
             .heading(level: 2, children: [.text("e\u{301} 😀", marks: [.emphasis, .code])])
         ]))
         do {
