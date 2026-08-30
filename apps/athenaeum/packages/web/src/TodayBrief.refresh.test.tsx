@@ -114,7 +114,12 @@ describe("TodayBrief refresh single flight", () => {
     queryState.settled.set(2, "failure")
     await render()
     expect(headerRefresh?.disabled).toBe(false)
-    expect(host.querySelector("[role=alert]")?.textContent).not.toContain("private refresh detail")
+    const recovery = host.querySelector<HTMLElement>(".today-brief-load-error")
+    expect(recovery).not.toBeNull()
+    expect(recovery?.textContent).toContain("Today’s brief is unavailable")
+    expect(recovery?.textContent).toContain("Retry today’s brief")
+    expect(recovery?.textContent).not.toContain("private refresh detail")
+    expect(recovery?.getAttribute("role")).toBe("alert")
 
     await act(async () => {
       headerRefresh?.click()

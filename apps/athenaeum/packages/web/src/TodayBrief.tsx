@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import type { GetTodayBriefOutput, LocalDate } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
-import { formatTodayBriefError } from "./today-brief-errors.js"
+import { todayBriefFailurePresentation } from "./today-brief-errors.js"
 import { todayBriefRequest } from "./today-brief-request.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
@@ -184,6 +184,7 @@ export function TodayBrief({ id, reference = new Date(), isToday = true, clock =
     setRefreshKey((value) => value + 1)
   }, [clock, isToday, query.status])
   const isRefreshing = refreshClaimed || query.status === "loading"
+  const failurePresentation = todayBriefFailurePresentation(isToday)
 
   // A date/clock change starts a new projection.  In particular, a stale brief for a
   // previous route must not keep its stale state when the caller supplies a new day.
@@ -216,7 +217,23 @@ export function TodayBrief({ id, reference = new Date(), isToday = true, clock =
       {query.status === "loading" && (
         <p className="today-brief-state" role="status">Loading {isToday ? "today’s" : "daily"} brief&hellip;</p>
       )}
-      {query.status === "failure" && <p className="today-brief-state error" role="alert">{formatTodayBriefError(query.error)}</p>}
+      {query.status === "failure" && (
+        <div className="today-brief-load-error" role="alert">
+          <div className="today-brief-load-error-copy">
+            <p className="today-brief-load-error-title">{failurePresentation.title}</p>
+            <p>{failurePresentation.message}</p>
+          </div>
+          <button
+            type="button"
+            className="today-brief-refresh"
+            onClick={refresh}
+            disabled={isRefreshing}
+            aria-label={failurePresentation.retryHint}
+          >
+            {isRefreshing ? failurePresentation.retryingLabel : failurePresentation.retryLabel}
+          </button>
+        </div>
+      )}
       {query.status === "success" && <TodayBriefFreshness value={query.value} isToday={isToday} now={now} stale={stale} clock={clock} onBoundary={onBoundary} onRefresh={refresh} isRefreshing={isRefreshing} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} />}
     </aside>
   )
