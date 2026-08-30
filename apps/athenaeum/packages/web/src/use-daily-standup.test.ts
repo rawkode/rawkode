@@ -2,11 +2,19 @@
 
 import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { EntityId, type LedgerActivityEntry, type StandupPublication } from "@athenaeum/domain"
+import {
+  EntityId,
+  type LedgerActivityEntry,
+  type ListRecentLedgerActivityOutput,
+  type ListStandupPublicationsOutput,
+  type StandupPublication
+} from "@athenaeum/domain"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   dailyStandupLanePlan,
   dailyStandupSnapshotKey,
+  ledgerActivityFromRpc,
+  standupPublicationsFromRpc,
   useDailyStandup,
   type DailyStandupController,
   type DailyStandupLoaders
@@ -63,6 +71,23 @@ afterEach(() => {
 })
 
 describe("daily standup controller contract", () => {
+  it("normalizes production RPC envelopes to the arrays consumed by the two lanes", () => {
+    const publications = [publication("standup employee")]
+    const entries = [ledger("ledger entry")]
+    const publicationEnvelope = { publications } as ListStandupPublicationsOutput
+    const ledgerEnvelope = { entries } as ListRecentLedgerActivityOutput
+
+    const normalizedPublications = standupPublicationsFromRpc(publicationEnvelope)
+    const normalizedEntries = ledgerActivityFromRpc(ledgerEnvelope)
+
+    expect(Array.isArray(normalizedPublications)).toBe(true)
+    expect(Array.isArray(normalizedEntries)).toBe(true)
+    expect(normalizedPublications).toBe(publications)
+    expect(normalizedEntries).toBe(entries)
+    expect(normalizedPublications).not.toHaveProperty("publications")
+    expect(normalizedEntries).not.toBe(ledgerEnvelope)
+  })
+
   it("keeps historical publication detail but never plans a ledger request", () => {
     expect(dailyStandupLanePlan(noteA, false)).toEqual({ publications: true, ledger: false })
     expect(dailyStandupLanePlan(noteA, true)).toEqual({ publications: true, ledger: true })

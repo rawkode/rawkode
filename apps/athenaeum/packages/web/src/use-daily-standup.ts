@@ -8,6 +8,8 @@ import {
   ListStandupPublicationsInput,
   type EntityId,
   type LedgerActivityEntry,
+  type ListRecentLedgerActivityOutput,
+  type ListStandupPublicationsOutput,
   type StandupPublication
 } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
@@ -60,6 +62,18 @@ export type DailyStandupLanePlan = {
   readonly publications: boolean
   readonly ledger: boolean
 }
+
+/**
+ * The RPC contract deliberately envelopes its projections. Keep that transport shape at this
+ * boundary: every UI lane below deals only in the arrays its rendering contract expects.
+ */
+export const standupPublicationsFromRpc = (
+  output: ListStandupPublicationsOutput
+): readonly StandupPublication[] => output.publications
+
+export const ledgerActivityFromRpc = (
+  output: ListRecentLedgerActivityOutput
+): readonly LedgerActivityEntry[] => output.entries
 
 const idle = <T,>(): StandupLane<T> => ({ status: "idle" })
 const loading = <T,>(): StandupLane<T> => ({ status: "loading" })
@@ -222,13 +236,19 @@ export function useDailyStandup({
     const publicationInput = new ListStandupPublicationsInput({ workspaceId, dailyNoteId })
     const ledgerInput = new ListRecentLedgerActivityInput({ workspaceId, limit: DAILY_STANDUP_FETCH_LIMIT, from: dayWindow.from, to: dayWindow.to })
     const employeeFiber = loaders === undefined
-      ? runEffect("employee", WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listStandupPublications(publicationInput))))
+      ? runEffect("employee", WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) => client.listStandupPublications(publicationInput)),
+        Effect.map(standupPublicationsFromRpc)
+      ))
       : undefined
     const cancelEmployeeLoader = loaders === undefined
       ? undefined
       : runLoader("employee", loaders.publications(publicationInput))
     const ledgerFiber = lanes.ledger && loaders === undefined
-      ? runEffect("ledger", WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.listRecentLedgerActivity(ledgerInput))))
+      ? runEffect("ledger", WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) => client.listRecentLedgerActivity(ledgerInput)),
+        Effect.map(ledgerActivityFromRpc)
+      ))
       : undefined
     const cancelLedgerLoader = lanes.ledger && loaders !== undefined
       ? runLoader("ledger", loaders.ledger(ledgerInput))
