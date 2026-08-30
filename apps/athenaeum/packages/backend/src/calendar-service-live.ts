@@ -1255,18 +1255,29 @@ export const makeCalendarServiceLive = (
           })
         })
 
+      const todaySourceScope = (workspaceId: EntityId): Effect.Effect<(event: CalendarEvent) => string, DomainError> =>
+        collections.calendarEventSourceIdentities.byWorkspaceId.get(workspaceId).pipe(
+          Effect.mapError(toUnexpectedError),
+          Effect.map((rows) => {
+            const scopes = new Map(rows.map((row) => [row.calendarEventId, row.id] as const))
+            return (event: CalendarEvent) => scopes.get(event.id) ?? event.id
+          })
+        )
+
       const getTodayBrief: CalendarServiceApi["getTodayBrief"] = (input, callerEmail) => {
         const { timeZone, from, to } = resolveTodayBriefWindow(input.localDate, input.timeZone)
         return listEvents(input.workspaceId, from, to, callerEmail).pipe(
           Effect.flatMap((events) => Effect.gen(function* () {
             const emailIndex = yield* loadEmailIndex(input.workspaceId)
+            const sourceScope = yield* todaySourceScope(input.workspaceId)
             const projected = projectTodayBriefEvents(
               events,
               from,
               to,
               timeZone,
               callerEmail,
-              (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId
+              (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId,
+              sourceScope
             )
             return yield* Effect.forEach(projected, (event) =>
               Effect.forEach(event.people, (person) => {
@@ -1319,13 +1330,15 @@ export const makeCalendarServiceLive = (
           const rows = yield* collections.calendarEvents.byWorkspaceId.get(workspaceId).pipe(Effect.mapError(toUnexpectedError))
           const events = yield* Effect.forEach(rows, reviveCalendarEvent)
           const emailIndex = yield* loadEmailIndex(workspaceId)
+          const sourceScope = yield* todaySourceScope(workspaceId)
           const projected = projectTodayBriefEvents(
             events,
             from,
             to,
             timeZone,
             callerEmail,
-            (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId
+            (attendee) => emailIndex.get(normalizeEmail(attendee.email)) === attendee.personNodeId,
+            sourceScope
           )
           return projected.find((event) => event.occurrenceKey === occurrenceKey)
         })
@@ -1500,7 +1513,8 @@ export const projectTodayBriefEvents = (
   to: IsoDateTimeString,
   timeZone: string,
   callerEmail: string | undefined,
-  personNodeIdValidator?: (attendee: CalendarEventAttendee) => boolean
+  personNodeIdValidator?: (attendee: CalendarEventAttendee) => boolean,
+  sourceScope?: (event: CalendarEvent) => string
 ): ReadonlyArray<TodayBriefEvent> => {
   const fromMs = Date.parse(from)
   const toMs = Date.parse(to)
@@ -1513,7 +1527,8 @@ export const projectTodayBriefEvents = (
     // is canonical for recurring instances even if a sync retry duplicated the materialized row.
     // Resolve this before filtering cancelled rows: a newer cancellation tombstone must suppress
     // the older confirmed row regardless of input order.
-    const key = event.occurrenceId === undefined ? event.providerEventId : `${event.seriesId ?? ""}:${event.occurrenceId}`
+    const scope = sourceScope?.(event) ?? event.id
+    const key = event.occurrenceId === undefined ? `${scope}:${event.providerEventId}` : `${scope}:${event.seriesId ?? ""}:${event.occurrenceId}`
     const existing = canonical.get(key)
     if (existing === undefined || compareCanonicalCalendarEvents(event, existing) > 0) {
       canonical.set(key, event)
@@ -1550,7 +1565,9 @@ export const projectTodayBriefEvents = (
       }
       return new TodayBriefEvent({
         id: event.id,
-        occurrenceKey: calendarEventOccurrenceKey(event),
+        occurrenceKey: event.occurrenceId === undefined
+          ? `${sourceScope?.(event) ?? event.id}:${event.providerEventId}`
+          : `${sourceScope?.(event) ?? event.id}:${event.seriesId ?? ""}:${event.occurrenceId}`,
         title: event.title,
         start: IsoDateTimeString.make(new Date(calendarEventInstant(event.start, timeZone)).toISOString()),
         end: IsoDateTimeString.make(new Date(calendarEventInstant(event.end, timeZone)).toISOString()),
