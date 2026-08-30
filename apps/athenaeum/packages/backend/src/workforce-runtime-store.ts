@@ -74,6 +74,35 @@ export class DurableWorkforceRuntimeStore {
     const result = this.sql.exec(`UPDATE workforce_runtime_runs SET state=?, claimOwner=NULL, claimToken=NULL, leaseExpiresAt=NULL, lastError=?, updatedAt=? WHERE id=? AND state='claimed' AND claimToken=? AND leaseExpiresAt > ?`, state, error ?? null, now.toISOString(), runId, token, now.toISOString())
     return result.rowsWritten === 1
   }
+  /**
+   * Atomically consume an exact worker claim as part of a downstream authority transaction. The
+   * attempt fence matters even when tokens are opaque: a stale worker must not be able to publish
+   * after its row has been reclaimed with a new claim. The caller supplies the same DO transaction
+   * used for the publication, so either both the terminal receipt and this state transition commit,
+   * or neither does.
+   */
+  finishClaim(
+    runId: string,
+    token: string,
+    claimFence: number,
+    state: Extract<WorkforceRunState, "completed" | "blocked" | "failed" | "skipped">,
+    now: Date,
+    error?: string
+  ): boolean {
+    const result = this.sql.exec(
+      `UPDATE workforce_runtime_runs
+          SET state=?, claimOwner=NULL, claimToken=NULL, leaseExpiresAt=NULL, lastError=?, updatedAt=?
+        WHERE id=? AND state='claimed' AND claimToken=? AND attempts=? AND leaseExpiresAt > ?`,
+      state,
+      error ?? null,
+      now.toISOString(),
+      runId,
+      token,
+      claimFence,
+      now.toISOString()
+    )
+    return result.rowsWritten > 0
+  }
   retry(runId: string, token: string, now: Date, error: string, maxAttempts = 5): WorkforceRunRecord | undefined {
     const run = this.get(runId); if (!run || run.state !== "claimed" || run.claimToken !== token || !run.leaseExpiresAt || new Date(run.leaseExpiresAt) <= now) return undefined
     const terminal = run.attempts >= maxAttempts, next = new Date(now.getTime() + workforceRetryDelayMs(run.attempts)).toISOString()

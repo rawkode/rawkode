@@ -30,7 +30,7 @@ import {
   type GoogleCalendarClientScriptedFixtures
 } from "@athenaeum/gatekeeper-google-calendar"
 import type { CalendarGatekeeperClientApi } from "../src/calendar-gatekeeper-client.js"
-import { calendarGatekeeperClientTestHook } from "../src/workspace-durable-object.js"
+import { calendarConciergeAdmissionTestHook, calendarGatekeeperClientTestHook } from "../src/workspace-durable-object.js"
 import { calendarProjectionGatewayTestHook } from "../src/calendar-projection-gateway.js"
 import { ledgerExecuteTestHook } from "../src/ledger-service.js"
 import {
@@ -153,6 +153,7 @@ const createGovernedWorkspace = async (ownerEmail: string): Promise<EntityId> =>
 
 afterEach(() => {
   calendarGatekeeperClientTestHook.api = undefined
+  calendarConciergeAdmissionTestHook.beforeAdmission = undefined
 })
 
 const drainWorkforceRuns = async (workspaceId: EntityId): Promise<void> => {
@@ -675,6 +676,64 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const nodes = (await stub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     expect(nodes.nodes.filter((node) => node.title === "Calendar attendee")).toHaveLength(1)
     expect(JSON.stringify(nodes.nodes)).not.toContain(attendeeEmail)
+  })
+
+  it("cannot admit a staged standup after another worker reclaims the lease", async () => {
+    const attendeeEmail = "lease-race@example.test"
+    installScriptedCalendarClient({
+      accounts: {
+        [ACCOUNT_EMAIL]: {
+          calendars: { [CALENDAR_ID]: "owner" },
+          freeBusyReadableCalendarIds: [],
+          events: {
+            [CALENDAR_ID]: [new ScriptedCalendarEvent({
+              id: "lease-race-event",
+              title: "Lease race",
+              start: { kind: "dateTime", dateTime: new Date().toISOString() },
+              end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+              status: "confirmed",
+              attendees: [new ScriptedCalendarAttendee({ email: attendeeEmail, displayName: "Lease race attendee" })]
+            })]
+          }
+        }
+      }
+    })
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const workspaceId = freshWorkspaceId()
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+    const connectResult = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callbackResult = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: "code",
+      state: connectResult.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callbackResult.binding.id)
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+
+    const native = workspaceDurableObjectStub(workspaceId) as unknown as {
+      debugGetWorkforceRuntimeRuns(): Promise<ReadonlyArray<{ id: string; state: string; leaseExpiresAt: string | null; attempts: number }>>
+    }
+    let reclaimed: { id: string; state: string; leaseExpiresAt: string | null; attempts: number } | null = null
+    calendarConciergeAdmissionTestHook.beforeAdmission = async ({ leaseExpiresAt, reclaimClaim }) => {
+      reclaimed = reclaimClaim(new Date(Date.parse(leaseExpiresAt) + 1), 60_000)
+    }
+
+    let alarmRan = false
+    for (let attempt = 0; attempt < 8 && !alarmRan; attempt += 1) {
+      alarmRan = await runDurableObjectAlarm(workspaceDurableObjectStub(workspaceId))
+      if (!alarmRan) await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(alarmRan).toBe(true)
+    expect(reclaimed).toMatchObject({ state: "claimed", attempts: 2 })
+    const runs = await native.debugGetWorkforceRuntimeRuns()
+    expect(runs).toMatchObject([{ state: "claimed", attempts: 2 }])
+
+    const localDate = new Date().toISOString().slice(0, 10)
+    const dailyNoteId = Schema.decodeUnknownSync(EntityId)(`00000000-0000-4000-8000-0000${localDate.replaceAll("-", "")}`)
+    const publications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as { publications: ReadonlyArray<unknown> }
+    expect(publications.publications).toEqual([])
   })
 
   it("reclaims a claimed calendar run when its lease expires", async () => {

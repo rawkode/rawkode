@@ -567,6 +567,25 @@ export const agentEditModelClientTestHook: {
  */
 export const calendarGatekeeperClientTestHook: { api: CalendarGatekeeperClientApi | undefined } = { api: undefined }
 
+/** Test-only seam for exercising the narrow window after an employee stages a terminal result and
+ * before the trusted workforce authority admits it. Production leaves it unset; a race test may
+ * reclaim the exact runtime row here and prove that the old claim cannot publish. */
+export const calendarConciergeAdmissionTestHook: {
+  beforeAdmission?: (input: Readonly<{
+    readonly workspaceId: string
+    readonly runId: string
+    readonly claimFence: number
+    readonly leaseExpiresAt: string
+    /** Reclaims a due/expired runtime row inside this DO; raw replacement tokens never escape. */
+    readonly reclaimClaim: (now: Date, leaseMs: number) => Readonly<{
+      readonly id: string
+      readonly state: string
+      readonly attempts: number
+      readonly leaseExpiresAt: string | null
+    }> | null
+  }>) => Promise<void>
+} = {}
+
 /**
  * Same live-per-call test-injection convention as `agentEditModelClientTestHook`/
  * `calendarGatekeeperClientTestHook` above, for `CloudTranscriptionClient` (task item 2). Production
@@ -5007,9 +5026,38 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         const finalize = async (input: Readonly<{ result: CalendarConciergeTerminalResult; reportText: string; commitMessage: string; publicationId: string }>): Promise<void> => {
           if (stagedTerminal === undefined || stagedTerminal.result !== input.result || stagedTerminal.reportText !== input.reportText || stagedTerminal.commitMessage !== input.commitMessage) throw new Error("calendar concierge terminal publication was not staged by the capability")
           if (!observationStillCurrent()) throw new Error("calendar observation was cancelled or superseded before finalization")
+          await calendarConciergeAdmissionTestHook.beforeAdmission?.({
+            workspaceId: this.#workspaceId,
+            runId: run.id,
+            claimFence: run.attempts,
+            leaseExpiresAt: run.leaseExpiresAt!,
+            reclaimClaim: (now, leaseMs) => {
+              const replacementToken = crypto.randomUUID()
+              const replacement = this.#storage.transactionSync(() => this.#workforceRuntimeStore.claimDue(
+                now,
+                `test:calendar-concierge:${crypto.randomUUID()}`,
+                replacementToken,
+                leaseMs,
+                [CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW]
+              ))
+              return replacement === undefined
+                ? null
+                : Object.freeze({
+                    id: replacement.id,
+                    state: replacement.state,
+                    attempts: replacement.attempts,
+                    leaseExpiresAt: replacement.leaseExpiresAt
+                  })
+            }
+          })
           const civilDate = calendarCivilDate(event)
           const bundle = calendarConciergeBundle({ runId: run.id, occurrenceId: run.occurrenceId, civilDate, result: { kind: input.result, summary: input.reportText } })
-          const receipt = await this.admitWorkforceRun({ workspaceId: this.#workspaceId, bundle, reportText: input.reportText })
+          const receipt = await this.admitWorkforceRun({
+            workspaceId: this.#workspaceId,
+            bundle,
+            reportText: input.reportText,
+            claim: { runId: run.id, claimToken: run.claimToken!, claimFence: run.attempts }
+          })
           if (receipt.resultKind !== input.result || receipt.runId !== run.id) throw new Error("calendar concierge admission receipt does not match the claimed run")
           if (!this.#calendarConciergeGrants.consume(grant.grantId, issued.token)) throw new Error("calendar concierge grant was already consumed")
         }
@@ -5796,18 +5844,19 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     const ownWorkspaceId = this.#workspaceId
     const standupPublicationStore = this.#standupPublicationStore
     const workforceRunStore = this.#workforceRunStore
+    const workforceRuntimeStore = this.#workforceRuntimeStore
     const sql = this.#sql
     const ledger = this.#ledger
     const storage = this.#storage
     const program = decodeRpcInput(AdmitWorkforceRunInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(ownWorkspaceId, decoded.workspaceId)),
       Effect.flatMap((decoded) => Effect.try({
-        try: () => decodeWorkforceRunAdmission(decoded),
+        try: () => ({ admission: decodeWorkforceRunAdmission(decoded), claim: decoded.claim }),
         catch: (error): DomainError => error instanceof WorkforceRunAdmissionError
           ? new ValidationError({ message: error.message })
           : new UnexpectedError({ message: `workforce run admission failed: ${error instanceof Error ? error.message : String(error)}` })
       })),
-      Effect.flatMap((admission) => Effect.gen(function* () {
+      Effect.flatMap(({ admission, claim }) => Effect.gen(function* () {
         const repository = yield* NodesRepository
         const syncFeed = yield* SyncFeedService
         const loro = yield* LoroPageService
@@ -5826,6 +5875,23 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         let pageFinalize: (() => void) | undefined
         const result = yield* Effect.try({
           try: () => standupPublicationStore.transactionSync((transaction) => {
+            if (claim !== undefined) {
+              if (claim.runId !== admission.terminal.run.runId) {
+                throw new WorkforceRunConflictError("workforce claim is bound to a different run")
+              }
+              const claimNow = new Date()
+              const claimed = workforceRuntimeStore.finishClaim(
+                claim.runId,
+                claim.claimToken,
+                claim.claimFence,
+                admission.terminal.result.kind,
+                claimNow,
+                admission.reportText
+              )
+              if (!claimed) {
+                throw new WorkforceRunConflictError("workforce run claim is stale or expired")
+              }
+            }
             const identityReceipt = workforceRunStore.get(admission.requestIdentity)
             const slotReceipt = workforceRunStore.getBySlot(
               admission.workspaceId,

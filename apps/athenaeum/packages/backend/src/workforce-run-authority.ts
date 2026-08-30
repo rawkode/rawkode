@@ -27,13 +27,23 @@ import {
 } from "./standup-publication-private-contract.js"
 
 /** Trusted internal ingress. This schema is never mounted on WorkspaceRpcApi. */
+export const WorkforceRunClaim = Schema.Struct({
+  /** Runtime row id, claim token, and monotonic attempt fence are all issuer-owned values. */
+  runId: Schema.String.pipe(Schema.minLength(1)),
+  claimToken: Schema.String.pipe(Schema.minLength(1)),
+  claimFence: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))
+})
+
 export const AdmitWorkforceRunInput = Schema.Struct({
   workspaceId: EntityId,
   bundle: Schema.Unknown,
-  reportText: Schema.String.pipe(Schema.minLength(1))
+  reportText: Schema.String.pipe(Schema.minLength(1)),
+  /** Present only when a live runtime worker is admitting its own terminal result. */
+  claim: Schema.optional(WorkforceRunClaim)
 })
 
 export type AdmitWorkforceRunInput = typeof AdmitWorkforceRunInput.Type
+export type WorkforceRunClaim = typeof WorkforceRunClaim.Type
 
 export const WORKFORCE_RUN_AUTHORITY_VERSION = "athenaeum.workforce-run-authority.v1" as const
 export const WORKFORCE_RUN_MESSAGE_DERIVATION_VERSION = "athenaeum.workforce-run-message.v1" as const
