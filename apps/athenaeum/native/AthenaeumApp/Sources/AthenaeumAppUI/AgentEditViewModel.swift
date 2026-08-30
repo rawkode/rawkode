@@ -48,7 +48,15 @@ public final class AgentEditViewModel: ObservableObject {
     @Published public private(set) var isCreatingChat = false
     @Published public private(set) var isSending = false
     @Published public private(set) var isMutatingPending = false
+    /// A model outage is an availability state, not a failed workspace mutation. Keep it
+    /// separate from `errorMessage` so the native surface can use the same calm warning treatment
+    /// as the web drawer without presenting deployment diagnostics as a user error.
+    @Published public private(set) var isModelUnavailable = false
     @Published public private(set) var errorMessage: String?
+
+    static let modelUnavailableMessage =
+        "Agent replies are unavailable for this workspace. Your message is saved. " +
+        "You can keep reviewing this conversation and try again later."
 
     /// A `mergeThrough`/`revertFrom` value comfortably beyond any real `ChangesMessage.sequence`
     /// a single chat will ever produce — "accept/revert everything currently pending for this
@@ -280,6 +288,7 @@ public final class AgentEditViewModel: ObservableObject {
         guard !text.isEmpty else { return }
         isSending = true
         errorMessage = nil
+        isModelUnavailable = false
         defer { isSending = false }
 
         let chatId: String
@@ -293,9 +302,15 @@ public final class AgentEditViewModel: ObservableObject {
         do {
             _ = try await client.sendChatMessage(chatId: chatId, text: text)
             messageText = ""
+            isModelUnavailable = false
             await selectChat(chatId)
         } catch {
-            errorMessage = Self.describeSendError(error)
+            if Self.isModelUnavailableError(error) {
+                isModelUnavailable = true
+                errorMessage = nil
+            } else {
+                errorMessage = Self.describeSendError(error)
+            }
         }
     }
 
@@ -305,18 +320,17 @@ public final class AgentEditViewModel: ObservableObject {
         "We couldn’t confirm that the chat was created. Your message is still here. Review existing chats before taking another action."
     }
 
-    /// Mirrors the web stage's `ChatPanel.tsx` banner: `sendChatMessage` against the real
-    /// (in this environment, unconfigured — no `ANTHROPIC_API_KEY`, per this task's hard
-    /// constraint) `ModelClientAnthropic` fails with a typed `UnexpectedError` whose message
-    /// contains `"ModelClient.converse failed: ModelUnavailable"` — a deliberate, documented
-    /// stable-string contract (see `agent-edit-service-live.ts`), not a fragile accident to match
-    /// against.
+    /// Identifies the model availability failure without exposing the provider diagnostic to the
+    /// user. The exact backend error remains useful in logs, but the native UI receives only the
+    /// stable availability state below.
+    static func isModelUnavailableError(_ error: Error) -> Bool {
+        guard case AthenaeumDomainError.unexpectedError(let message) = error else { return false }
+        return message.contains("ModelClient.converse failed: ModelUnavailable")
+    }
+
     static func describeSendError(_ error: Error) -> String {
-        if case AthenaeumDomainError.unexpectedError(let message) = error,
-           message.contains("ModelUnavailable")
-        {
-            return "The agent model isn't configured in this environment (no ANTHROPIC_API_KEY " +
-                "secret) — this is expected, not a bug. See docs/agent-model-client.md."
+        if Self.isModelUnavailableError(error) {
+            return Self.modelUnavailableMessage
         }
         return "We couldn’t confirm that your message was sent. Your draft is still here. " +
             "Review the chat before taking another action."

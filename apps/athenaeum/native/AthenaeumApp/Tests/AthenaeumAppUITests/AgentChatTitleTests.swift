@@ -361,18 +361,22 @@ final class AgentChatTitleTests: XCTestCase {
         XCTAssertFalse(message.contains(error.description))
     }
 
-    func testModelUnavailableSendFailureRetainsExplicitConfigurationGuidance() {
-        let message = AgentEditViewModel.describeSendError(
-            AthenaeumDomainError.unexpectedError(
-                message: "ModelClient.converse failed: ModelUnavailable: private provider detail"
-            )
+    func testModelUnavailableSendFailureUsesCalmAvailabilityCopy() {
+        let error = AthenaeumDomainError.unexpectedError(
+            message: "ModelClient.converse failed: ModelUnavailable: private provider detail"
         )
+        let message = AgentEditViewModel.describeSendError(error)
 
+        XCTAssertTrue(AgentEditViewModel.isModelUnavailableError(error))
+        XCTAssertEqual(message, AgentEditViewModel.modelUnavailableMessage)
         XCTAssertEqual(
             message,
-            "The agent model isn't configured in this environment (no ANTHROPIC_API_KEY " +
-                "secret) — this is expected, not a bug. See docs/agent-model-client.md."
+            "Agent replies are unavailable for this workspace. Your message is saved. " +
+                "You can keep reviewing this conversation and try again later."
         )
         XCTAssertFalse(message.contains("private provider detail"))
+        XCTAssertFalse(message.contains("ANTHROPIC_API_KEY"))
+        XCTAssertFalse(message.contains("wrangler"))
+        XCTAssertFalse(message.contains("docs/"))
     }
 }

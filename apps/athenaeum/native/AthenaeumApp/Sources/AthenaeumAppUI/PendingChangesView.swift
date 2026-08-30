@@ -148,6 +148,10 @@ public struct PendingChangesView: View {
                 firstPrompt
             }
 
+            if model.isModelUnavailable {
+                agentUnavailableNotice
+            }
+
             if let error = model.errorMessage {
                 Text(error).foregroundStyle(.red).font(.caption)
             }
@@ -368,6 +372,25 @@ public struct PendingChangesView: View {
             composeBox
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var agentUnavailableNotice: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Agent replies are unavailable for this workspace", systemImage: "sparkles")
+                .font(.subheadline.bold())
+            Text("Your message is saved. You can keep reviewing this conversation and try again later.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.orange.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(AgentEditViewModel.modelUnavailableMessage)
     }
 
     private var pendingSummary: some View {

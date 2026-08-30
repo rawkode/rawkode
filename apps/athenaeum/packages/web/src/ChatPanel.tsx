@@ -682,10 +682,8 @@ export function ChatPanel() {
 
       {modelUnavailable && (
         <p className="chat-model-unavailable" role="status">
-          <strong>No AI model configured.</strong> Messages are saved, but the agent can't reply —
-          the backend has no <code>ANTHROPIC_API_KEY</code> configured (expected in this
-          environment). Configure one with <code>wrangler secret put ANTHROPIC_API_KEY</code>{" "}
-          against the <code>backend</code> Worker to enable real replies.
+          <strong>Agent replies are unavailable for this workspace.</strong>
+          <span>Your message is saved. You can keep reviewing this conversation and try again later.</span>
         </p>
       )}
 
