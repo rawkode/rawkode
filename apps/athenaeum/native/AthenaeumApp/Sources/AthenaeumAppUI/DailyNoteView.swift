@@ -55,6 +55,14 @@ enum DailyNoteNavigationProgressPresentation {
     }
 }
 
+enum DailyNotePreparationAnnouncementPresentation {
+    static let message = "Meeting prepared in this daily note."
+
+    static func shouldFocus(pagePresentation: AthenaeumViewModel.PagePresentation) -> Bool {
+        pagePresentation == .loroPlainEditable || pagePresentation == .loroRichEditable
+    }
+}
+
 /// Native mirror of `web/src/DailyNote.tsx`: resolves/creates today's note (via
 /// `AthenaeumViewModel.start()`), then routes active Loro pages to the native plain-text editor
 /// and explicit legacy descriptors to a server-owned, read-only projection. It also owns the sync
@@ -67,6 +75,7 @@ public struct DailyNoteView: View {
     /// client/model; this type-erased slot only controls composition and never fetches data.
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
+    @State private var preparationNotice: String?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
@@ -147,6 +156,13 @@ public struct DailyNoteView: View {
                     ProgressView("Preparing daily note…")
                 }
                 statusLine
+                if let preparationNotice {
+                    Text(preparationNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .accessibilityLabel(preparationNotice)
+                }
             }
 
             // Keep this projection mounted while a note is loading or recovering. It owns an
@@ -180,6 +196,7 @@ public struct DailyNoteView: View {
         .padding()
         .task {
             focusEditorIfNeeded()
+            consumePreparationCompletion()
         }
         .onChange(of: model.status) { status in
             guard case .synced = status else { return }
@@ -199,6 +216,13 @@ public struct DailyNoteView: View {
         .onChange(of: model.selectedDate) { _ in
             editorFocused = false
             hasAutofocused = false
+            preparationNotice = nil
+        }
+        .onChange(of: model.preparationCompletionGeneration) { _ in
+            consumePreparationCompletion()
+        }
+        .onChange(of: model.acceptedHumanEditGeneration) { _ in
+            preparationNotice = nil
         }
     }
 
@@ -223,6 +247,17 @@ public struct DailyNoteView: View {
         } else {
             editorFocused = true
         }
+    }
+
+    private func consumePreparationCompletion() {
+        guard model.consumePreparationCompletion() != nil else { return }
+        preparationNotice = DailyNotePreparationAnnouncementPresentation.message
+        if DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: model.pagePresentation) {
+            hasAutofocused = false
+            focusEditorIfNeeded()
+        }
+        // A clean read-only projection can truthfully confirm the committed preparation, but
+        // must never promise an editor focus it cannot provide.
     }
 
     private var noteHeader: some View {

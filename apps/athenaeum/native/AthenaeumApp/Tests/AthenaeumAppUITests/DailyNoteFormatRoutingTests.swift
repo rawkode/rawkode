@@ -31,6 +31,33 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertFalse(presentation.contains(privateMessage))
     }
 
+    func testPreparationAnnouncementUsesTheStableAccessibleMessage() {
+        XCTAssertEqual(
+            DailyNotePreparationAnnouncementPresentation.message,
+            "Meeting prepared in this daily note."
+        )
+    }
+
+    func testPreparationFocusIsLimitedToEditableLoroPresentations() {
+        XCTAssertTrue(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .loroPlainEditable))
+        XCTAssertTrue(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .loroRichEditable))
+        XCTAssertFalse(
+            DailyNotePreparationAnnouncementPresentation.shouldFocus(
+                pagePresentation: .loroReadOnly(.init(format: .loroV1, schemaVersion: 1, isDirty: false))
+            )
+        )
+        XCTAssertFalse(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .unavailable))
+        XCTAssertFalse(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .automergeRichTextReadOnly))
+    }
+
+    func testPreparationAnnouncementUsesTheNativePoliteUpdateTrait() throws {
+        let source = try appUISource(named: "DailyNoteView.swift")
+        let noticeStart = try XCTUnwrap(source.range(of: "if let preparationNotice"))
+        let noticeBody = String(source[noticeStart.lowerBound...].prefix(420))
+        XCTAssertTrue(noticeBody.contains(".accessibilityAddTraits(.updatesFrequently)"))
+        XCTAssertTrue(noticeBody.contains(".accessibilityLabel(preparationNotice)"))
+    }
+
     func testLegacyProjectionRejectsAChangedFullWitness() async throws {
         let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
         let first = legacy(node, version: 1, heads: "before")
@@ -287,7 +314,7 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         let occurrenceKey = String(repeating: "a", count: 64)
         let timeZone = try IanaTimeZone(validating: "UTC")
         let fake = FakeOperations(
-            descriptors: [native(node), native(node)],
+            descriptors: [native(node), native(node), native(node), native(node), native(dailyNoteIdForDate(Calendar.current.date(byAdding: .day, value: 1, to: startDate)!, calendar: .current))],
             loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
         )
         fake.eligibilityResult = .editable(state)
@@ -323,6 +350,95 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(fake.preparedInputs.first?.occurrenceKey, occurrenceKey)
         XCTAssertEqual(model.pagePresentation, .loroPlainEditable)
         XCTAssertFalse(model.isEditorInputDisabled, "custody must be released only after the authoritative reload")
+        XCTAssertEqual(model.consumePreparationCompletion(), output)
+        XCTAssertNil(model.consumePreparationCompletion(), "completion is consumed before a view can announce or focus twice")
+
+        let firstCompletionGeneration = model.preparationCompletionGeneration
+        let replay = try await model.prepareMeetingInDailyNote(input)
+        XCTAssertEqual(replay.occurrenceKey, occurrenceKey)
+        XCTAssertEqual(model.preparationCompletionGeneration, firstCompletionGeneration + 1)
+        XCTAssertNotNil(model.preparationCompletion)
+        model.showDate(startDate)
+        XCTAssertNotNil(model.preparationCompletion, "a no-op date request must not consume a delayed-mount completion")
+        XCTAssertEqual(model.consumePreparationCompletion(), replay)
+
+        _ = try await model.prepareMeetingInDailyNote(input)
+        XCTAssertNotNil(model.preparationCompletion)
+
+        let firstHumanEditGeneration = model.acceptedHumanEditGeneration
+        model.handleLoroPlainTextChange("edited")
+        XCTAssertEqual(model.acceptedHumanEditGeneration, firstHumanEditGeneration + 1)
+
+        let nextDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate)!
+        model.showDate(nextDate)
+        try await waitUntil { model.selectedDate == Calendar.current.startOfDay(for: nextDate) }
+        XCTAssertNil(model.preparationCompletion, "an accepted day transition clears the old completion")
+    }
+
+    func testPreparationReceiptMismatchNeverPublishesCompletion() async throws {
+        let startDate = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(startDate, calendar: .current)
+        let otherNode = dailyNoteIdForDate(Calendar.current.date(byAdding: .day, value: 1, to: startDate)!, calendar: .current)
+        let route = LoroPageRouteWitness(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64))
+        let state = LoroNativePlainEditorState(text: "plain", scalarCount: 5, route: route, replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64)))
+        let localDate = try LocalDate(validating: localDateStamp(startDate, calendar: .current))
+        let occurrenceKey = String(repeating: "a", count: 64)
+        let fake = FakeOperations(descriptors: [native(node), native(node)], loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false))
+        fake.eligibilityResult = .editable(state)
+        fake.preparationResult = try PrepareMeetingInDailyNoteOutput(
+            dailyNoteId: otherNode,
+            localDate: localDate,
+            occurrenceKey: occurrenceKey,
+            status: .created,
+            resultSnapshotSha256: String(repeating: "e", count: 64)
+        )
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: startDate, nativeLoroEditingEnabled: true)
+        await model.start()
+        let input = try PrepareMeetingInDailyNoteInput(
+            workspaceId: workspace,
+            dailyNoteId: node,
+            localDate: localDate,
+            timeZone: try IanaTimeZone(validating: "UTC"),
+            occurrenceKey: occurrenceKey,
+            intent: try LoroMutationIntentV1(requestId: "mismatch", commitMessage: "Prepare meeting context in daily note.", attribution: .humanUi(surface: "macos"))
+        )
+        do {
+            _ = try await model.prepareMeetingInDailyNote(input)
+            XCTFail("a mismatched receipt must fail closed")
+        } catch { }
+        XCTAssertNil(model.preparationCompletion)
+        XCTAssertEqual(model.preparationCompletionGeneration, 0)
+    }
+
+    func testReadOnlyPreparationConfirmsWithoutRequestingEditorFocus() async throws {
+        let startDate = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(startDate, calendar: .current)
+        let localDate = try LocalDate(validating: localDateStamp(startDate, calendar: .current))
+        let occurrenceKey = String(repeating: "a", count: 64)
+        let fake = FakeOperations(
+            descriptors: [native(node), native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.preparationResult = try PrepareMeetingInDailyNoteOutput(
+            dailyNoteId: node,
+            localDate: localDate,
+            occurrenceKey: occurrenceKey,
+            status: .alreadyPrepared,
+            resultSnapshotSha256: String(repeating: "e", count: 64)
+        )
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: startDate, nativeLoroEditingEnabled: false)
+        await model.start()
+        let input = try PrepareMeetingInDailyNoteInput(
+            workspaceId: workspace,
+            dailyNoteId: node,
+            localDate: localDate,
+            timeZone: try IanaTimeZone(validating: "UTC"),
+            occurrenceKey: occurrenceKey,
+            intent: try LoroMutationIntentV1(requestId: "readonly", commitMessage: "Prepare meeting context in daily note.", attribution: .humanUi(surface: "macos"))
+        )
+        _ = try await model.prepareMeetingInDailyNote(input)
+        XCTAssertFalse(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: model.pagePresentation))
+        XCTAssertNotNil(model.consumePreparationCompletion())
     }
 
     func testMigratedLoroPublishesProjectedReadOnlyStateWithoutAutomerge() async throws {
@@ -1156,7 +1272,9 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         fake.preparationResult = try PrepareMeetingInDailyNoteOutput(dailyNoteId: node, localDate: localDate, occurrenceKey: input.occurrenceKey, status: .created, resultSnapshotSha256: String(repeating: "e", count: 64))
         let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: date, nativeLoroEditingEnabled: true)
         await model.start()
+        let acceptedEditGeneration = model.acceptedHumanEditGeneration
         model.handleLoroRichDocumentChange(richDocument("dirty"))
+        XCTAssertEqual(model.acceptedHumanEditGeneration, acceptedEditGeneration + 1)
         var dirtyRejected = false
         do { _ = try await model.prepareMeetingInDailyNote(input) } catch { dirtyRejected = true }
         XCTAssertTrue(dirtyRejected, "dirty rich draft must reject external mutation")

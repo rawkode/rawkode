@@ -231,6 +231,7 @@ export function DailyNote({
   // A resolver retry deliberately retains the two intent refs above, so an uncertain create
   // resumes with its original provenance instead of minting a second daily note operation.
   const [resolveRetryKey, setResolveRetryKey] = useState(0)
+  const [preparationNotice, setPreparationNotice] = useState<string | undefined>(undefined)
   const [resolveRetryClaimed, setResolveRetryClaimed] = useState(false)
   const resolveRetryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const resolveEffect = useMemo(
@@ -433,6 +434,8 @@ export function DailyNote({
                   }}
                   onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
                   onPrepareMeetingReady={onPrepareMeetingReady}
+                  onPreparationCompleted={() => setPreparationNotice("Meeting prepared in this daily note.")}
+                  onAcceptedHumanEdit={() => setPreparationNotice(undefined)}
                 />
               ) : (
                 <LegacyRichNoteEditor
@@ -451,6 +454,7 @@ export function DailyNote({
                   onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
                 />
               )}
+              {preparationNotice !== undefined && <p className="sync-status" role="status" aria-live="polite">{preparationNotice}</p>}
               {showSyncStatus && (
                 <p
                   className={`sync-status sync-status-${syncStatus}`}

@@ -181,6 +181,14 @@ public final class AthenaeumViewModel: ObservableObject {
     /// Recovery work is explicit and single-flight so the recovery action can reflect that it is
     /// already in progress rather than launching a duplicate Core operation.
     @Published public private(set) var isLoroRecoveryInProgress = false
+    /// A one-shot, authority-backed completion. It is intentionally published only after the
+    /// preparation receipt and the replacement page route agree on the active daily note.
+    @Published public private(set) var preparationCompletion: PrepareMeetingInDailyNoteOutput?
+    /// Changes for every authority-admitted completion, including an idempotent replay of the
+    /// same occurrence key. Views observe this rather than comparing receipt fields.
+    @Published public private(set) var preparationCompletionGeneration = 0
+    /// Changes only after a guarded native human edit enters either editable Loro draft lane.
+    @Published public private(set) var acceptedHumanEditGeneration = 0
 
     public let workspaceId: EntityId
     /// The deterministic node currently presented by the daily-note route. Secondary projections
@@ -204,6 +212,13 @@ public final class AthenaeumViewModel: ObservableObject {
         return loroRichSession?.base
     }
     public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight }
+
+    /// Claims the completion before presentation can move focus or announce it. This makes a
+    /// delayed DailyNote mount and an ordinary observation update converge on one delivery.
+    public func consumePreparationCompletion() -> PrepareMeetingInDailyNoteOutput? {
+        defer { preparationCompletion = nil }
+        return preparationCompletion
+    }
 
     private let localStore: LocalWorkspaceStore
     private let syncClient: WorkspaceSyncClient
@@ -496,6 +511,7 @@ public final class AthenaeumViewModel: ObservableObject {
     }
 
     private func beginNavigation(to date: Date) -> DailyNoteSelection {
+        preparationCompletion = nil
         let selection = navigator.request(date: date)
         selectedDate = selection.date
         status = .loading
@@ -633,7 +649,14 @@ public final class AthenaeumViewModel: ObservableObject {
             // The RPC has advanced server authority. Clear the old route and let the normal Loro
             // loader establish a fresh descriptor/projection before releasing editor custody.
             resetPagePresentation()
+            let reloadGeneration = pageOperationGeneration
             await loadDailyNote(selection)
+            guard isCurrent(selection, generation: reloadGeneration),
+                  status == .synced,
+                  acceptsPreparationCompletionPresentation
+            else { throw TodayBriefPreparationError.invalidOutput }
+            preparationCompletion = output
+            preparationCompletionGeneration &+= 1
             return output
         } catch {
             // A response can be lost after the Worker commits. Reconcile from authority even on
@@ -642,6 +665,19 @@ public final class AthenaeumViewModel: ObservableObject {
             resetPagePresentation()
             await loadDailyNote(selection)
             throw error
+        }
+    }
+
+    private var acceptsPreparationCompletionPresentation: Bool {
+        switch pagePresentation {
+        case .loroPlainEditable, .loroRichEditable:
+            return true
+        case .loroReadOnly(let projection):
+            return !projection.isDirty
+        case .loroProjectedReadOnly(let projection):
+            return !projection.projection.isDirty
+        default:
+            return false
         }
     }
 
@@ -1313,6 +1349,8 @@ public final class AthenaeumViewModel: ObservableObject {
             return
         }
         guard newText != loroPlainDraft else { return }
+        preparationCompletion = nil
+        acceptedHumanEditGeneration &+= 1
         loroPlainDraft = newText
         loroNotice = nil
         loroDraftRevision &+= 1
@@ -1391,6 +1429,8 @@ public final class AthenaeumViewModel: ObservableObject {
               session.generation == pageOperationGeneration,
               isCurrent(session.selection, generation: session.generation) else { return }
         guard document != session.draft else { return }
+        preparationCompletion = nil
+        acceptedHumanEditGeneration &+= 1
         session.draft = document
         loroRichSession = session
         loroRichDraft = document

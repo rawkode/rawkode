@@ -281,6 +281,9 @@ export interface LoroRichNoteEditorProps {
   readonly onBindingReady?: (binding: ReturnType<typeof createLoroEditorBinding> | undefined) => void
   /** Registers a server-owned meeting-preparation command while this Loro attachment is live. */
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
+  /** Called only after a matching receipt has been reconciled through current authority. */
+  readonly onPreparationCompleted?: (receipt: PrepareMeetingInDailyNoteOutput) => void
+  readonly onAcceptedHumanEdit?: () => void
 }
 
 export type PrepareMeetingRequest = {
@@ -291,6 +294,20 @@ export type PrepareMeetingRequest = {
 }
 
 export type PrepareMeetingHandler = (request: PrepareMeetingRequest) => Promise<PrepareMeetingInDailyNoteOutput>
+
+export const isMatchingMeetingPreparationReceipt = (
+  receipt: PrepareMeetingInDailyNoteOutput,
+  nodeId: EntityId,
+  localDate: LocalDate,
+  occurrenceKey: string
+): boolean => receipt.dailyNoteId === nodeId && receipt.localDate === localDate && receipt.occurrenceKey === occurrenceKey
+
+export const isAuthoritativeMeetingPreparationReload = (args: {
+  readonly current: boolean
+  readonly clean: boolean
+  readonly descriptorNodeId: EntityId | undefined
+  readonly nodeId: EntityId
+}): boolean => args.current && args.clean && args.descriptorNodeId === args.nodeId
 
 /** Visible terminal-conflict affordance; dismissal is deliberately an explicit destructive choice. */
 export function LoroConflictNotice({
@@ -493,7 +510,9 @@ export function LoroRichNoteEditor({
   autoFocus,
   onOpenEntityRef,
   onBindingReady,
-  onPrepareMeetingReady
+  onPrepareMeetingReady,
+  onPreparationCompleted,
+  onAcceptedHumanEdit
 }: LoroRichNoteEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const latestStatusCallback = useRef(onSyncStatusChange)
@@ -522,6 +541,8 @@ export function LoroRichNoteEditor({
     const retryRegistration = onSyncRetryReady
     const bindingReady = onBindingReady
     const preparationReady = onPrepareMeetingReady
+    const preparationCompleted = onPreparationCompleted
+    const acceptedHumanEdit = onAcceptedHumanEdit
     // Never reread the mutable runtime export here: a workspace/auth switch between render and
     // effect must not attach A under one runtime identity and send it through another.
     const scopedRuntime = renderedRuntime
@@ -573,7 +594,9 @@ export function LoroRichNoteEditor({
         Effect.flatMap((client) => Effect.flatMap(
           client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId })),
           (result) => Effect.map(convergeLoroPageFromServer(client, workspaceId, nodeId), (doc) => {
-            if (result.descriptor.activeFormat !== "loro-v1") throw new Error("authority reload returned a non-Loro descriptor")
+            if (result.descriptor.activeFormat !== "loro-v1" || result.descriptor.nodeId !== nodeId) {
+              throw new Error("authority reload returned a different daily note")
+            }
             return { workspaceId, nodeId, doc, descriptor: result.descriptor }
           })
         ))
@@ -623,9 +646,21 @@ export function LoroRichNoteEditor({
             })
           })))
         ))
+        if (!isMatchingMeetingPreparationReceipt(result, nodeId, localDate, occurrenceKey)) {
+          throw new Error("meeting preparation receipt did not match the active daily note")
+        }
         const reloaded = await attachment.reloadAfterExternalCommit()
         presentSnapshot(attachment.snapshot())
         if (!reloaded) throw new Error("Meeting preparation was committed, but the daily note could not be refreshed")
+        const after = attachment.snapshot()
+        if (!isAuthoritativeMeetingPreparationReload({
+          current: isCurrentUiAttachment(after), clean: after.state === "clean",
+          descriptorNodeId: after.acceptedBase?.descriptor.nodeId, nodeId
+        })) {
+          throw new Error("meeting preparation reload did not restore the active daily note")
+        }
+        binding?.view?.focus()
+        preparationCompleted?.(result)
         return result
       } catch (error) {
         // A transport can fail after the Worker committed. Reconcile from server authority before
@@ -755,7 +790,10 @@ export function LoroRichNoteEditor({
       onHumanEdit: () => {
         const beforeEdit = attachment.snapshot()
         if (!isCurrentUiAttachment(beforeEdit)) return
-        if (attachment.noteHumanEdit()) presentSnapshot(attachment.snapshot())
+        if (attachment.noteHumanEdit()) {
+          presentSnapshot(attachment.snapshot())
+          acceptedHumanEdit?.()
+        }
       },
       isAttachmentActive: isAttachmentUiLive,
       workspaceId,
