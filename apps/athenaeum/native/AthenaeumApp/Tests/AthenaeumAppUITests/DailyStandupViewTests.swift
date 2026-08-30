@@ -160,6 +160,8 @@ final class DailyStandupViewTests: XCTestCase {
 
         XCTAssertEqual(WorkforceAttentionLayout.mode(isAccessibilitySize: false), .inline)
         XCTAssertEqual(WorkforceAttentionLayout.mode(isAccessibilitySize: true), .stacked)
+        XCTAssertTrue(WorkforceAttentionLayout.requiresStackedFallback(availableWidth: 320, intrinsicInlineWidth: 321))
+        XCTAssertFalse(WorkforceAttentionLayout.requiresStackedFallback(availableWidth: 500, intrinsicInlineWidth: 321))
         XCTAssertEqual(
             WorkforceAttentionLayout.reviewAccessibilityLabel(for: disclosure),
             "Review Blocked update from Executive for Daily standup"

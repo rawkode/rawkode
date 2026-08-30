@@ -88,6 +88,12 @@ enum WorkforceAttentionLayout {
         isAccessibilitySize ? .stacked : .inline
     }
 
+    /// Models `ViewThatFits`'s width decision for a constrained-layout regression. The renderer
+    /// supplies that intrinsic measurement by fixing the entire inline candidate horizontally.
+    static func requiresStackedFallback(availableWidth: CGFloat, intrinsicInlineWidth: CGFloat) -> Bool {
+        intrinsicInlineWidth > availableWidth
+    }
+
     static func reviewAccessibilityLabel(for disclosure: WorkforceAttentionPresentation.Disclosure) -> String {
         "Review \(disclosure.outcome.rawValue) update from \(disclosure.employee) for \(disclosure.job)"
     }
@@ -116,7 +122,11 @@ struct WorkforceAttentionStrip: View {
             stackedContent(snapshot)
         } else {
             ViewThatFits(in: .horizontal) {
+                // Without this the HStack can accept an artificial compressed proposal and never
+                // reach the readable stacked fallback. The complete candidate must advertise its
+                // intrinsic horizontal width, not just each disclosure inside it.
                 inlineContent(snapshot)
+                    .fixedSize(horizontal: true, vertical: false)
                 stackedContent(snapshot)
             }
         }
