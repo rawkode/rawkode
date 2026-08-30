@@ -87,6 +87,8 @@ export interface CalendarSourceRevisionRecord {
   readonly bindingId: EntityId
   readonly providerEventId: string
   readonly sourceRevisionDigest: string
+  /** Provider-monotonic revision cursor when the connector supplies one (Google `updated`). */
+  readonly sourceUpdatedAt?: string
   readonly calendarEventId: EntityId
   readonly status: "confirmed" | "cancelled"
   readonly appliedAt: string

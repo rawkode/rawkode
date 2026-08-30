@@ -74,6 +74,7 @@ import {
   CalendarEvent,
   CalendarEventAttendee,
   type CalendarEventTime,
+  AgentJobMutationAttribution,
   Email,
   EntityId,
   Fact,
@@ -90,7 +91,6 @@ import {
   NodesRepository,
   Node as NodeEntity,
   OAuthExchangeFailed,
-  SystemMutationAttribution,
   UnexpectedError,
   ValidationError,
   TodayBriefCalendarHistory,
@@ -116,10 +116,11 @@ import {
   type CalendarCollections,
   type CalendarAttendeeObservationRecord,
   type CalendarDerivedNodeRecord,
+  type CalendarSourceRevisionRecord,
   type CalendarObserverRecord
 } from "./calendar-collections.js"
 import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
-import { planCalendarRemoteEvent } from "./calendar-projection-plan.js"
+import { planCalendarRemoteEventWithSecret } from "./calendar-projection-plan.js"
 import { mintCalendarOAuthState, verifyCalendarOAuthState } from "./calendar-oauth-state.js"
 import { GraphService } from "./graph-service-live.js"
 import { SharingService } from "./sharing-service-live.js"
@@ -290,12 +291,13 @@ export interface CalendarServiceConfig {
    *  `stateSecret` (`connect`/`completeOAuthCallback` both fail closed with the same clear
    *  `ValidationError` rather than sending Google a blank `redirect_uri`). */
   readonly redirectUri: string
+  /** Private workspace/deployment key used for attendee identity HMACs. In local development this
+   * may intentionally reuse the OAuth state secret; production should provide a separately
+   * rotated secret. */
+  readonly attendeeDigestSecret?: string
   /** The Workspace DO-owned atomic write boundary. Calendar provider I/O remains in this
    * service; every resulting second-brain projection is committed through this gateway. */
   readonly projectionGateway: CalendarProjectionGateway
-  /** Called only after a committed projection enqueues a durable run. Kept outside the storage
-   * transaction because DO alarm APIs are async; a later alarm always re-checks the SQL due set. */
-  readonly rearmWorkforce: () => Promise<void>
 }
 
 export const makeCalendarServiceLive = (
@@ -734,6 +736,26 @@ export const makeCalendarServiceLive = (
           Effect.map((rows) => rows.find((row) => row.workspaceId === workspaceId)?.id)
         )
 
+      /** Google includes a monotonic `updated` cursor on every Event resource. Keep that cursor
+       * in the private revision rows and reject an older snapshot before it can touch the public
+       * event/person projection. Legacy/scripted providers may omit it; once a timestamped row
+       * exists, an unversioned snapshot is treated as stale rather than allowed to clobber known
+       * newer state. Equal timestamps are also rejected: a same-cursor/different-payload response
+       * is not strong enough evidence to replace the already-applied revision. */
+      const isOlderProviderRevision = (
+        incomingUpdatedAt: string | undefined,
+        existing: ReadonlyArray<CalendarSourceRevisionRecord>
+      ): boolean => {
+        const timestamped = existing
+          .map((row) => row.sourceUpdatedAt === undefined ? undefined : Date.parse(row.sourceUpdatedAt))
+          .filter((value): value is number => value !== undefined && Number.isFinite(value))
+        if (timestamped.length === 0) return false
+        if (incomingUpdatedAt === undefined) return true
+        const incoming = Date.parse(incomingUpdatedAt)
+        if (!Number.isFinite(incoming)) return true
+        return incoming <= Math.max(...timestamped)
+      }
+
       const sync: CalendarServiceApi["sync"] = (workspaceId, bindingId) =>
         Effect.gen(function* () {
           const binding = yield* findBinding(workspaceId, bindingId)
@@ -786,14 +808,24 @@ export const makeCalendarServiceLive = (
             for (const remote of page.items) {
               // Fetch/parse is provider I/O. The deterministic plan holds only the opaque
               // revision/observation identities that cross into the durable ledger/outbox.
-              const planned = planCalendarRemoteEvent(workspaceId, bindingId, remote)
+              const planned = yield* Effect.tryPromise({
+                try: () => planCalendarRemoteEventWithSecret(
+                  workspaceId,
+                  bindingId,
+                  remote,
+                  config.attendeeDigestSecret ?? config.stateSecret
+                ),
+                catch: (cause) => new UnexpectedError({
+                  message: `calendar attendee identity planning failed: ${cause instanceof Error ? cause.message : String(cause)}`
+                })
+              })
               const requestIdentity = `calendar-projection:${planned.sourceRevisionDigest}`
               const calendarEventId = (yield* existingCalendarEventId(workspaceId, remote.id)) ?? (crypto.randomUUID() as EntityId)
               // A failed gateway transaction rolls its storage back, not JavaScript maps. Keep
               // local identity/master caches isolated until the atomic projection has committed.
               const eventEmailIndex = new Map(emailIndex)
               const eventMasterCache = new Map(masterCache)
-              const receipt = yield* Effect.try({
+              const receipt = yield* Effect.tryPromise({
                 try: () => projectionGateway.apply({
                   workspaceId,
                   bindingId,
@@ -806,12 +838,19 @@ export const makeCalendarServiceLive = (
                   sourceEventKeyDigest: planned.sourceEventKeyDigest,
                   attendeeObservationDigests: planned.attendeeObservationDigests,
                   commitMessage: "Project this calendar revision into the second brain.",
-                  attribution: new SystemMutationAttribution({
+                  attribution: new AgentJobMutationAttribution({
                     version: "athenaeum.mutation-attribution.v1",
-                    kind: "system",
-                    source: "calendar-sync"
+                    kind: "agentJob",
+                    jobId: "calendar-attendee-enrichment",
+                    runId: planned.sourceRevisionDigest
                   }),
                   applyProjection: () => {
+                    const existingRevisions = Effect.runSync(
+                      collections.calendarSourceRevisions.byBindingAndProviderEvent
+                        .get(`${bindingId}:${remote.id}`)
+                        .pipe(Effect.mapError(toUnexpectedError))
+                    )
+                    if (isOlderProviderRevision(planned.sourceUpdatedAt, existingRevisions)) return []
                     const event = Effect.runSync(upsertRemoteEvent(workspaceId, remote, eventEmailIndex, eventMasterCache, calendarEventId))
                     // Both records are backend-private: provider ids and addresses stay here,
                     // while the public ledger/event/outbox sees only their digests.
@@ -821,6 +860,7 @@ export const makeCalendarServiceLive = (
                       bindingId,
                       providerEventId: remote.id,
                       sourceRevisionDigest: planned.sourceRevisionDigest,
+                      ...(planned.sourceUpdatedAt === undefined ? {} : { sourceUpdatedAt: planned.sourceUpdatedAt }),
                       calendarEventId: event.id,
                       status: remote.status === "cancelled" ? "cancelled" : "confirmed",
                       appliedAt: now()
@@ -831,7 +871,12 @@ export const makeCalendarServiceLive = (
                       const email = normalizeEmail(attendee.email)
                       const decoded = Effect.runSyncExit(decodeEmail(email))
                       if (decoded._tag === "Failure") continue
-                      const emailDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, email }))
+                      const emailDigest = planned.attendeeObservationDigests[
+                        [...new Set((remote.attendees ?? []).map((candidate) => normalizeEmail(candidate.email)).filter(Boolean))]
+                          .sort()
+                          .indexOf(email)
+                      ]
+                      if (emailDigest === undefined) continue
                       const observationId = sha256HexSync(canonicalJsonBytes({ sourceEventKeyDigest: planned.sourceEventKeyDigest, emailDigest }))
                       const existingObservation = Effect.runSync(
                         collections.calendarAttendeeObservations.get(observationId).pipe(Effect.mapError(toUnexpectedError))
@@ -856,14 +901,6 @@ export const makeCalendarServiceLive = (
                   message: `calendar projection failed: ${cause instanceof Error ? cause.message : String(cause)}`
                 })
               })
-              if (receipt.enqueuedRunIds.length > 0) {
-                yield* Effect.tryPromise({
-                  try: () => config.rearmWorkforce(),
-                  catch: (cause) => new UnexpectedError({
-                    message: `calendar projection committed but workforce alarm could not rearm: ${cause instanceof Error ? cause.message : String(cause)}`
-                  })
-                })
-              }
               // Merge only after gateway.apply returns: a failure leaves both maps exactly as
               // they were before this provider event and cannot point a later event at rolled-back data.
               for (const [email, personId] of eventEmailIndex) emailIndex.set(email, personId)

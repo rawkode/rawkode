@@ -120,6 +120,10 @@ export interface Env {
    */
   readonly CALENDAR_OAUTH_STATE_SECRET?: string
 
+  /** Private HMAC key for calendar attendee identity digests. Keep separate from OAuth state in
+   * production so rotating either concern does not invalidate the other. */
+  readonly CALENDAR_ATTENDEE_DIGEST_SECRET?: string
+
   /** The fixed, Google-Cloud-Console-registered OAuth redirect URI for this deployment (the
    *  web app's own callback route, which itself calls `googleCalendarOAuthCallback` — see
    *  `calendar-service-live.ts`'s `CalendarServiceApi.connect` doc comment). Not a secret, but

@@ -54,6 +54,9 @@ export interface RemoteCalendarAttendee {
 export interface RemoteCalendarEvent {
   readonly id: string
   readonly title: string
+  /** Provider event revision cursor (Google's `updated` field). Optional for scripted or legacy
+   *  providers; projections use it when present to fence out-of-order snapshots. */
+  readonly updatedAt?: string
   readonly start: RemoteCalendarTime
   readonly end: RemoteCalendarTime
   readonly status: "confirmed" | "tentative" | "cancelled"

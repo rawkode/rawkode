@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { planCalendarRemoteEvent } from "../src/calendar-projection-plan.js"
+import { planCalendarRemoteEvent, planCalendarRemoteEventWithSecret } from "../src/calendar-projection-plan.js"
 
 const workspaceId = "00000000-0000-4000-8000-000000000001" as const
 const bindingId = "00000000-0000-4000-8000-000000000002" as const
@@ -27,5 +27,16 @@ describe("CalendarRemoteEventPlan", () => {
     expect(otherBinding.sourceEventKeyDigest).not.toEqual(confirmed.sourceEventKeyDigest)
     expect(confirmed.sourceRevisionDigest).not.toContain("a@example.test")
     expect(confirmed.attendeeObservationDigests.join(":")) .not.toContain("a@example.test")
+  })
+  it("keys production attendee identities to the workspace secret", async () => {
+    const lower = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, event([{ email: "A@example.test" }]), "secret-a")
+    const upper = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, event([{ email: "a@EXAMPLE.test" }]), "secret-a")
+    const otherSecret = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, event([{ email: "a@example.test" }]), "secret-b")
+    expect(lower.attendeeObservationDigests).toEqual(upper.attendeeObservationDigests)
+    expect(lower.attendeeObservationDigests).not.toEqual(otherSecret.attendeeObservationDigests)
+    expect(lower.attendeeObservationDigests).not.toEqual(planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }])).attendeeObservationDigests)
+    expect(lower.sourceRevisionDigest).not.toBe(otherSecret.sourceRevisionDigest)
+    expect(lower.sourceEventKeyDigest).not.toBe(otherSecret.sourceEventKeyDigest)
+    expect(lower.sourceRevisionDigest).not.toBe(planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }])).sourceRevisionDigest)
   })
 })

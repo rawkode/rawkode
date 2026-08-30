@@ -95,6 +95,7 @@ import {
   UnassignTagOutput,
   type AuthenticatedUser,
   Bookmark,
+  BaseTagIds,
   ChatForkPreviewInput,
   ChatForkPreviewOutput,
   CloseVoiceAudioSessionInput,
@@ -292,6 +293,7 @@ import {
   normalizeCreateTagName,
   normalizeTagFieldName,
   sha256HexSync,
+  canonicalJsonBytes,
   AgentChangeProposal,
   WhoamiOutput,
   ImportWorkoutInput,
@@ -356,9 +358,35 @@ import { makeAppsRepositoryLive } from "./apps-repository-live.js"
 import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
 import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeServiceLive } from "./app-runtime-service-live.js"
 import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
-import { makeCalendarCollections } from "./calendar-collections.js"
-import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
-import { CalendarConciergeExecutor } from "./calendar-concierge-executor.js"
+import {
+  makeCalendarCollections,
+  reviveCalendarEvent,
+  type CalendarCollections
+} from "./calendar-collections.js"
+import {
+  CalendarProjectionGateway,
+  CALENDAR_RELATIONSHIP_CONCIERGE_VERSION,
+  CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW
+} from "./calendar-projection-gateway.js"
+import { calendarAttendeeDigest } from "./calendar-identity-digest.js"
+import { calendarCivilDate, calendarConciergeBundle } from "./calendar-concierge-workforce.js"
+import {
+  CalendarConciergeExecutor,
+  type CalendarConciergeExecutorIntegration
+} from "./calendar-concierge-executor.js"
+import {
+  CALENDAR_CONCIERGE_CAPABILITY_VERSION,
+  type CalendarConciergeExecutionBinding,
+  type CalendarConciergeGrantResolver,
+  type CalendarConciergeGrantV1,
+  type CalendarConciergeJobPort,
+  type CalendarConciergeTerminalResult,
+  type CalendarConciergeExecutionAdapter
+} from "./calendar-concierge-job-capability.js"
+import {
+  DurableCalendarConciergeGrantStore,
+  type IssuedCalendarConciergeGrant
+} from "./calendar-concierge-grant-store.js"
 import {
   CalendarGatekeeperClient,
   CalendarGatekeeperClientUnconfigured,
@@ -405,10 +433,12 @@ import {
   type SyncNoteReferencesLedgerCommandInput,
   type UnassignTagLedgerCommandInput,
   type CreateNodeWithIntentLedgerCommandInput,
+  type LedgerCustodyInput,
   LedgerConflict,
   LedgerService,
   ledgerFingerprint,
-  createNodeWithIntentLedgerFingerprint
+  createNodeWithIntentLedgerFingerprint,
+  calendarProjectionLedgerFingerprint
 } from "./ledger-service.js"
 import { loroVersionVectorIdentity } from "./loro-page-service-live.js"
 import { DurableWorkforceRuntimeStore } from "./workforce-runtime-store.js"
@@ -4299,6 +4329,7 @@ class WorkspaceRpcApi extends RpcTarget {
 export class WorkspaceDurableObject extends DurableObject<Env> {
   readonly #runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>
   readonly #collections: WorkspaceCollections
+  readonly #calendarCollections: CalendarCollections
   readonly #syncFeedCollections: SyncFeedCollections
   readonly #pageCollections: PagesCollections
   readonly #workspaceId: EntityId
@@ -4351,6 +4382,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
    * package; until then this object only persists/re-arms schedules and never claims a job. */
   readonly #workforceRuntimeStore: DurableWorkforceRuntimeStore
   readonly #workforceScheduler: WorkforceScheduler
+  readonly #calendarConciergeGrants: DurableCalendarConciergeGrantStore
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -4370,6 +4402,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     this.#workforceRunStore = new DurableWorkforceRunReceiptStore(this.#sql)
     this.#workforceRuntimeStore = new DurableWorkforceRuntimeStore(this.#sql)
     this.#workforceScheduler = new WorkforceScheduler(this.#storage, this.#workforceRuntimeStore)
+    this.#calendarConciergeGrants = new DurableCalendarConciergeGrantStore(this.#sql)
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
     // "read directly off env" pattern every other optional binding in this constructor uses.
@@ -4536,6 +4569,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     // keeps working unaffected (mirrors `ModelClientAnthropic`'s own "unconfigured, fails per-call"
     // precedent, not a DO-construction-time crash).
     const calendarCollections = makeCalendarCollections(ctx.storage)
+    this.#calendarCollections = calendarCollections
     // Adversarial-review fix: the real HTTP client is only wired in when BOTH the service binding
     // AND the shared caller-credential secret are configured — an empty/missing
     // `GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_SECRET` now falls back to `CalendarGatekeeperClientUnconfigured`
@@ -4583,14 +4617,351 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       // The CalendarService performs provider I/O only. This DO-owned gateway is the one
       // transaction that applies its second-brain projection, ledger custody, outbox signal,
       // and durable workforce enqueue.
-      projectionGateway: new CalendarProjectionGateway(this.#storage, this.#ledger, this.#workforceRuntimeStore),
-      rearmWorkforce: () => this.#workforceScheduler.rearm()
+      projectionGateway: new CalendarProjectionGateway(
+        this.#storage,
+        this.#ledger,
+        this.#workforceRuntimeStore,
+        () => this.#workforceScheduler.rearm()
+      ),
+      attendeeDigestSecret: env.CALENDAR_ATTENDEE_DIGEST_SECRET ?? env.CALENDAR_OAUTH_STATE_SECRET,
     }).pipe(
       Layer.provide(
         Layer.mergeAll(repositoriesLayer, graphServiceLive, calendarGatekeeperClientLive, sharingServiceLive)
       )
     )
-    const calendarConciergeExecutor = new CalendarConciergeExecutor(this.#workspaceId, this.#workforceRuntimeStore, calendarCollections)
+    const calendarDigestSecret = env.CALENDAR_ATTENDEE_DIGEST_SECRET ?? env.CALENDAR_OAUTH_STATE_SECRET ?? ""
+    const calendarConciergeIntegration: CalendarConciergeExecutorIntegration = {
+      prepare: async ({ run, observation, revision }) => {
+        const rawEvent = await Effect.runPromise(calendarCollections.calendarEvents.get(observation.calendarEventId))
+        if (rawEvent === undefined) throw new Error("calendar event for concierge observation is missing")
+        const event = await Effect.runPromise(reviveCalendarEvent(rawEvent))
+        const attendees = event.attendees.map((attendee) => ({
+          email: attendee.email.trim().toLowerCase(),
+          ...(attendee.displayName === undefined ? {} : { displayName: attendee.displayName })
+        }))
+        const digests = await Promise.all(attendees.map((attendee) => calendarAttendeeDigest(calendarDigestSecret, this.#workspaceId, attendee.email)))
+        const attendeeIndex = digests.indexOf(observation.emailDigest)
+        const attendee = attendeeIndex < 0 ? undefined : attendees[attendeeIndex]
+        if (attendee === undefined) throw new Error("calendar attendee digest is not present in the private event")
+
+        const microEmployee = { kind: "microEmployee" as const, id: "calendar-concierge", version: "v1" }
+        const job = { kind: "job" as const, id: "calendar-attendee-enrichment", version: "v1" }
+        const workflow = { kind: "workflow" as const, id: CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW, version: CALENDAR_RELATIONSHIP_CONCIERGE_VERSION }
+        const grant: CalendarConciergeGrantV1 = {
+          version: CALENDAR_CONCIERGE_CAPABILITY_VERSION,
+          grantId: `calendar-concierge-grant:${run.id}:${run.attempts}:${crypto.randomUUID()}`,
+          grantRecordVersion: "1",
+          workspaceId: this.#workspaceId,
+          microEmployee,
+          job,
+          workflow,
+          runId: run.id,
+          claimToken: run.claimToken!,
+          claimFence: run.attempts,
+          observationId: observation.id,
+          sourceRevisionDigest: revision.sourceRevisionDigest,
+          policyGeneration: "calendar-concierge-policy.v1",
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          allowedTools: [
+            "readObservedAttendee",
+            "resolveUniquePersonByEmailDigest",
+            "createCalendarPerson",
+            "recordCalendarRelationshipObservation",
+            "publishRunTerminal"
+          ]
+        }
+        const issued: IssuedCalendarConciergeGrant = this.#calendarConciergeGrants.issue(grant)
+        const binding: CalendarConciergeExecutionBinding = {
+          workspaceId: grant.workspaceId,
+          microEmployee: grant.microEmployee,
+          job: grant.job,
+          workflow: grant.workflow,
+          runId: grant.runId,
+          claimToken: grant.claimToken,
+          claimFence: grant.claimFence,
+          observationId: grant.observationId,
+          sourceRevisionDigest: grant.sourceRevisionDigest,
+          policyGeneration: grant.policyGeneration
+        }
+        const employeeAttribution = new AgentJobMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "agentJob",
+          jobId: grant.job.id,
+          runId: grant.runId
+        })
+        type NodeCustodyRequest = Readonly<{
+          readonly requestIdentity: string
+          readonly fingerprint: string
+          readonly type: "createNodeWithIntent" | "addFact" | "assignTag"
+          readonly targetId: string
+        }>
+        type CalendarCustodyRequest = Readonly<{
+          readonly requestIdentity: string
+          readonly fingerprint: string
+          readonly type: "calendarProjection"
+          readonly targetId: string
+        }>
+        const custodyFor = (input: NodeCustodyRequest | CalendarCustodyRequest): LedgerCustodyInput => {
+          const base = {
+            requestIdentity: input.requestIdentity,
+            fingerprint: input.fingerprint,
+            workspaceId: this.#workspaceId,
+            actorKind: "employee" as const,
+            actorLabel: "Calendar relationship concierge",
+            employeeId: grant.microEmployee.id,
+            jobId: grant.job.id,
+            runId: grant.runId,
+            grantId: grant.grantId,
+            targetId: input.targetId
+          }
+          return input.type === "calendarProjection"
+            ? { ...base, type: input.type, targetKind: "calendarEvent" as const }
+            : { ...base, type: input.type, targetKind: "node" as const }
+        }
+        const deterministicEntityId = (seed: string): EntityId => {
+          const digest = sha256HexSync(canonicalJsonBytes({ version: "calendar-concierge-id.v1", seed }))
+          return Schema.decodeUnknownSync(EntityId)(`${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`)
+        }
+        const personId = deterministicEntityId(`person:${this.#workspaceId}:${observation.emailDigest}`)
+        const factId = deterministicEntityId(`email-fact:${personId}`)
+        const workspaceId = this.#workspaceId
+        const sql = this.#sql
+        let stagedTerminal: Readonly<{ result: CalendarConciergeTerminalResult; reportText: string; commitMessage: string }> | undefined
+
+        const port: CalendarConciergeJobPort = {
+          readObservedAttendee: (input) => {
+            if (input.custody.observationId !== observation.id || input.sourceRevisionDigest !== revision.sourceRevisionDigest) return undefined
+            const current = Effect.runSync(calendarCollections.calendarAttendeeObservations.get(observation.id))
+            return current === undefined || current.sourceRevisionDigest !== revision.sourceRevisionDigest
+              ? undefined
+              : { observationId: current.id, emailDigest: current.emailDigest, sourceRevisionDigest: current.sourceRevisionDigest }
+          },
+          resolveUniquePersonByEmailDigest: (input) => {
+            if (input.emailDigest !== observation.emailDigest) return undefined
+            const result = this.#runtime.runSync(Effect.gen(function* () {
+              const facts = yield* FactsRepository
+              const graph = yield* GraphService
+              const matches = (yield* facts.list(workspaceId)).filter((fact) =>
+                fact.predicateId === "email" && typeof fact.value === "string" && fact.value.trim().toLowerCase() === attendee.email
+              )
+              const verified: string[] = []
+              for (const fact of matches) {
+                if (yield* graph.hasTag(workspaceId, fact.nodeId, BaseTagIds.Person)) verified.push(fact.nodeId)
+              }
+              return [...new Set(verified)]
+            }))
+            return result.length === 1 ? { personId: result[0]! } : undefined
+          },
+          createCalendarPerson: (input) => {
+            if (input.emailDigest !== observation.emailDigest) throw new Error("calendar attendee digest does not match the claimed observation")
+            const repository = this.#runtime.runSync(Effect.gen(function* () { return yield* NodesRepository }))
+            const graph = this.#runtime.runSync(Effect.gen(function* () { return yield* GraphService }))
+            const syncFeed = this.#runtime.runSync(Effect.gen(function* () { return yield* SyncFeedService }))
+            const nodeRequestIdentity = `calendar-concierge:person-node:${observation.id}`
+            const nodeCommand: CreateNodeWithIntentLedgerCommandInput = {
+              requestIdentity: nodeRequestIdentity,
+              requestId: nodeRequestIdentity,
+              fingerprint: "",
+              workspaceId,
+              principal: `workforce:employee:${grant.microEmployee.id}`,
+              policy: "calendar-concierge-v1",
+              nodeId: personId,
+              requestedNodeId: personId,
+              title: (attendee.displayName ?? attendee.email).slice(0, 500),
+              commitMessage: input.commitMessage,
+              attribution: employeeAttribution,
+              createdAt: new Date().toISOString()
+            }
+            const nodeFingerprint = createNodeWithIntentLedgerFingerprint(nodeCommand)
+            const nodeLedgerCommand = { ...nodeCommand, fingerprint: nodeFingerprint }
+            const tagRequestIdentity = `calendar-concierge:person-tag:${observation.id}`
+            const tagCommand: AssignTagLedgerCommandInput = {
+              requestIdentity: tagRequestIdentity,
+              requestId: tagRequestIdentity,
+              fingerprint: "",
+              workspaceId,
+              principal: `workforce:employee:${grant.microEmployee.id}`,
+              policy: "calendar-concierge-v1",
+              nodeId: personId,
+              tagId: BaseTagIds.Person,
+              commitMessage: input.commitMessage,
+              attribution: employeeAttribution,
+              createdAt: new Date().toISOString()
+            }
+            const tagFingerprint = assignTagLedgerFingerprint(tagCommand)
+            const tagLedgerCommand = { ...tagCommand, fingerprint: tagFingerprint }
+            const factRequestIdentity = `calendar-concierge:person-email:${observation.id}`
+            const factCommand: AddFactLedgerCommandInput = {
+              requestIdentity: factRequestIdentity,
+              requestId: factRequestIdentity,
+              fingerprint: "",
+              workspaceId,
+              principal: `workforce:employee:${grant.microEmployee.id}`,
+              policy: "calendar-concierge-v1",
+              nodeId: personId,
+              predicateId: "email",
+              value: attendee.email,
+              factId,
+              commitMessage: input.commitMessage,
+              attribution: employeeAttribution,
+              createdAt: new Date().toISOString()
+            }
+            const factFingerprint = addFactLedgerFingerprint(factCommand)
+            const factLedgerCommand = { ...factCommand, fingerprint: factFingerprint }
+            let nodeOutput: CreateNodeOutput | undefined
+            this.#storage.transactionSync(() => {
+              nodeOutput = this.#ledger.executeV2({
+                requestIdentity: nodeRequestIdentity,
+                fingerprint: nodeFingerprint,
+                type: "createNodeWithIntent",
+                mutate: () => {
+                  const existing = Effect.runSyncExit(repository.get(personId))
+                  if (Exit.isSuccess(existing)) throw new NodeAlreadyExists({ nodeId: personId })
+                  const node = new NodeEntity({ id: personId, workspaceId, title: nodeCommand.title, createdAt: IsoDateTimeString.make(nodeCommand.createdAt) })
+                  const persisted = Effect.runSyncExit(repository.put(node))
+                  if (Exit.isFailure(persisted)) throw domainErrorFromCause(persisted.cause)
+                  const projections = Effect.runSyncExit(Effect.gen(function* () {
+                    yield* upsertNode(sql, persisted.value)
+                    yield* indexNodeText(sql, persisted.value.id, persisted.value.title, "")
+                    yield* syncFeed.append("node", persisted.value.id, "put", persisted.value)
+                  }))
+                  if (Exit.isFailure(projections)) throw domainErrorFromCause(projections.cause)
+                  Effect.runSync(calendarCollections.calendarDerivedNodes.put({ nodeId: personId, workspaceId }))
+                  return new CreateNodeOutput({ node: persisted.value })
+                },
+                encodeOutput: (output) => Schema.encodeSync(CreateNodeOutput)(output),
+                decodeOutput: (output) => Schema.decodeUnknownSync(CreateNodeOutput)(output),
+                appendCommand: () => this.#ledger.appendCreateNodeWithIntent(nodeLedgerCommand),
+                appendCustody: () => this.#ledger.appendCustody(custodyFor({ requestIdentity: nodeRequestIdentity, fingerprint: nodeFingerprint, type: "createNodeWithIntent", targetId: personId })),
+                validateReplayCustody: () => this.#ledger.validateCustody(custodyFor({ requestIdentity: nodeRequestIdentity, fingerprint: nodeFingerprint, type: "createNodeWithIntent", targetId: personId })),
+                appendSideEffects: () => {
+                  const payload = { nodeId: personId, observationId: observation.id }
+                  this.#ledger.appendEvent(nodeRequestIdentity, "calendar-concierge-person-created", payload)
+                  this.#ledger.appendOutbox(nodeRequestIdentity, "calendar-concierge-person-created", payload)
+                }
+              })
+              this.#ledger.executeV2({
+                requestIdentity: tagRequestIdentity,
+                fingerprint: tagFingerprint,
+                type: "assignTag",
+                mutate: () => new AssignTagOutput({ nodeId: personId, tagId: BaseTagIds.Person, changed: this.#runtime.runSync(graph.assignTag(workspaceId, personId, BaseTagIds.Person)) }),
+                encodeOutput: (output) => Schema.encodeSync(AssignTagOutput)(output),
+                decodeOutput: (output) => Schema.decodeUnknownSync(AssignTagOutput)(output),
+                appendCommand: () => this.#ledger.appendAssignTag(tagLedgerCommand),
+                appendCustody: () => this.#ledger.appendCustody(custodyFor({ requestIdentity: tagRequestIdentity, fingerprint: tagFingerprint, type: "assignTag", targetId: personId })),
+                validateReplayCustody: () => this.#ledger.validateCustody(custodyFor({ requestIdentity: tagRequestIdentity, fingerprint: tagFingerprint, type: "assignTag", targetId: personId })),
+                appendSideEffects: () => {
+                  const payload = { nodeId: personId, tagId: BaseTagIds.Person }
+                  this.#ledger.appendEvent(tagRequestIdentity, "calendar-concierge-person-tagged", payload)
+                  this.#ledger.appendOutbox(tagRequestIdentity, "calendar-concierge-person-tagged", payload)
+                }
+              })
+              this.#ledger.executeV2({
+                requestIdentity: factRequestIdentity,
+                fingerprint: factFingerprint,
+                type: "addFact",
+                mutate: () => new AddFactOutput({ fact: this.#runtime.runSync(graph.addFact(workspaceId, personId, "email", attendee.email, factId)) }),
+                encodeOutput: (output) => Schema.encodeSync(AddFactOutput)(output),
+                decodeOutput: (output) => Schema.decodeUnknownSync(AddFactOutput)(output),
+                appendCommand: () => this.#ledger.appendAddFact(factLedgerCommand),
+                appendCustody: () => this.#ledger.appendCustody(custodyFor({ requestIdentity: factRequestIdentity, fingerprint: factFingerprint, type: "addFact", targetId: personId })),
+                validateReplayCustody: () => this.#ledger.validateCustody(custodyFor({ requestIdentity: factRequestIdentity, fingerprint: factFingerprint, type: "addFact", targetId: personId })),
+                appendSideEffects: () => {
+                  const payload = { nodeId: personId, factId }
+                  this.#ledger.appendEvent(factRequestIdentity, "calendar-concierge-person-email", payload)
+                  this.#ledger.appendOutbox(factRequestIdentity, "calendar-concierge-person-email", payload)
+                }
+              })
+            })
+            if (nodeOutput === undefined) throw new Error("calendar concierge did not create a Person")
+            return { personId }
+          },
+          recordCalendarRelationshipObservation: (input) => {
+            const requestIdentity = `calendar-concierge:relationship:${observation.id}:${input.personId}`
+            const command = {
+              requestIdentity,
+              requestId: requestIdentity,
+              fingerprint: "",
+              workspaceId: this.#workspaceId,
+              principal: `workforce:employee:${grant.microEmployee.id}`,
+              policy: "calendar-concierge-v1",
+              calendarEventId: observation.calendarEventId,
+              sourceRevisionDigest: revision.sourceRevisionDigest,
+              attendeeObservationDigests: [observation.emailDigest],
+              commitMessage: input.commitMessage,
+              attribution: employeeAttribution,
+              createdAt: new Date().toISOString()
+            }
+            const fingerprint = calendarProjectionLedgerFingerprint(command)
+            this.#storage.transactionSync(() => this.#ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "calendarProjection",
+              mutate: () => {
+                const current = Effect.runSync(calendarCollections.calendarAttendeeObservations.get(observation.id))
+                if (current === undefined || current.sourceRevisionDigest !== revision.sourceRevisionDigest) throw new Error("calendar observation is stale")
+                const personNodeId = Schema.decodeUnknownSync(EntityId)(input.personId)
+                Effect.runSync(calendarCollections.calendarAttendeeObservations.put({ ...current, personNodeId }))
+                return { personId: input.personId }
+              },
+              encodeOutput: (output) => output,
+              decodeOutput: (output) => output as { readonly personId: string },
+              appendCommand: () => this.#ledger.appendCalendarProjection({ ...command, fingerprint }),
+              appendCustody: () => this.#ledger.appendCustody(custodyFor({ requestIdentity, fingerprint, type: "calendarProjection", targetId: observation.calendarEventId })),
+              validateReplayCustody: () => this.#ledger.validateCustody(custodyFor({ requestIdentity, fingerprint, type: "calendarProjection", targetId: observation.calendarEventId })),
+              appendSideEffects: () => {
+                const payload = { observationId: observation.id, personId: input.personId }
+                this.#ledger.appendEvent(requestIdentity, "calendar-concierge-relationship-recorded", payload)
+                this.#ledger.appendOutbox(requestIdentity, "calendar-concierge-relationship-recorded", payload)
+              }
+            }))
+          },
+          publishRunTerminal: (input) => {
+            stagedTerminal = { result: input.result, reportText: input.reportText, commitMessage: input.commitMessage }
+            return { publicationId: `calendar-concierge-publication:${run.id}` }
+          }
+        }
+        const resolver: CalendarConciergeGrantResolver = {
+          resolve: (token) => this.#calendarConciergeGrants.resolve(token),
+          recheckFresh: (candidate, expected) => {
+            if (this.#calendarConciergeGrants.isConsumed(candidate.grantId)) return { status: "denied" }
+            const current = this.#workforceRuntimeStore.get(expected.runId)
+            return current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence && current.workflowId === CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW
+              ? { status: "admitted" }
+              : { status: "denied" }
+          }
+        }
+        const execution: CalendarConciergeExecutionAdapter = {
+          assertLiveClaim: (expected) => {
+            const current = this.#workforceRuntimeStore.get(expected.runId)
+            return current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence
+              ? { status: "admitted" }
+              : { status: "denied" }
+          }
+        }
+        const finalize = async (input: Readonly<{ result: CalendarConciergeTerminalResult; reportText: string; commitMessage: string; publicationId: string }>): Promise<void> => {
+          if (stagedTerminal === undefined || stagedTerminal.result !== input.result || stagedTerminal.reportText !== input.reportText || stagedTerminal.commitMessage !== input.commitMessage) throw new Error("calendar concierge terminal publication was not staged by the capability")
+          const civilDate = calendarCivilDate(event)
+          const bundle = calendarConciergeBundle({ runId: run.id, occurrenceId: run.occurrenceId, civilDate, result: { kind: input.result, summary: input.reportText } })
+          const receipt = await this.admitWorkforceRun({ workspaceId: this.#workspaceId, bundle, reportText: input.reportText })
+          if (receipt.resultKind !== input.result || receipt.runId !== run.id) throw new Error("calendar concierge admission receipt does not match the claimed run")
+          if (!this.#calendarConciergeGrants.consume(grant.grantId, issued.token)) throw new Error("calendar concierge grant was already consumed")
+        }
+        return {
+          grant: issued.grant,
+          token: issued.token,
+          binding,
+          resolver,
+          execution,
+          port,
+          attendeeEmail: attendee.email,
+          ...(attendee.displayName === undefined ? {} : { attendeeDisplayName: attendee.displayName }),
+          finalize
+        }
+      }
+    }
+    const calendarConciergeExecutor = new CalendarConciergeExecutor(this.#workspaceId, this.#workforceRuntimeStore, calendarCollections, calendarConciergeIntegration)
     this.#workforceScheduler.setExecutor(
       (run) => calendarConciergeExecutor.execute(run),
       ["calendar-relationship-concierge"]
@@ -5272,6 +5643,19 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     }
   }
 
+  /** Test-only compact command index used by replay regressions; payloads stay private. */
+  async debugListLedgerCommandIdentities(): Promise<ReadonlyArray<Readonly<{
+    readonly requestIdentity: string
+    readonly fingerprint: string
+    readonly type: string
+  }>>> {
+    return this.#sql.exec<{
+      requestIdentity: string
+      fingerprint: string
+      type: string
+    }>("SELECT requestIdentity, fingerprint, type FROM ledger_commands ORDER BY requestIdentity").toArray().map((row) => Object.freeze({ ...row }))
+  }
+
   /**
    * Test-only transaction harness for the durable standup authority adapter. It accepts a bundle
    * already produced by the dormant private publication service's in-memory contract and stages
@@ -5760,6 +6144,48 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       ledgerEvents: count("ledger_events"),
       ledgerOutboxIntents: count("ledger_outbox_intents")
     })
+  }
+
+  /** Test-only aggregate witness for the calendar projection transaction. The provider binding
+   * itself is intentionally not counted: it is established before a sync and is not part of the
+   * per-event projection transaction. */
+  async debugGetCalendarStorageCounts(): Promise<Readonly<Record<string, number>>> {
+    const [events, derivedNodes, revisions, observations] = await Promise.all([
+      Effect.runPromise(this.#calendarCollections.calendarEvents.list()),
+      Effect.runPromise(this.#calendarCollections.calendarDerivedNodes.list()),
+      Effect.runPromise(this.#calendarCollections.calendarSourceRevisions.list()),
+      Effect.runPromise(this.#calendarCollections.calendarAttendeeObservations.list())
+    ])
+    return Object.freeze({
+      calendarEvents: events.length,
+      calendarDerivedNodes: derivedNodes.length,
+      calendarSourceRevisions: revisions.length,
+      calendarAttendeeObservations: observations.length
+    })
+  }
+
+  /** Test-only visibility into the generic durable job clock. Claim credentials are deliberately
+   * omitted; this witness is limited to lifecycle state needed to prove enqueue, alarm wakeup,
+   * retry, and terminalization without exposing the capability token itself. */
+  async debugGetWorkforceRuntimeRuns(): Promise<ReadonlyArray<Readonly<{
+    readonly id: string
+    readonly workflowId: string
+    readonly state: string
+    readonly attempts: number
+    readonly nextAttemptAt: string
+    readonly sourceEventId: string | null
+    readonly lastError: string | null
+  }>>> {
+    return this.#sql.exec<{
+      id: string
+      workflowId: string
+      state: string
+      attempts: number
+      nextAttemptAt: string
+      sourceEventId: string | null
+      lastError: string | null
+    }>(`SELECT id, workflowId, state, attempts, nextAttemptAt, sourceEventId, lastError
+        FROM workforce_runtime_runs ORDER BY createdAt, id`).toArray().map((row) => Object.freeze({ ...row }))
   }
 
   /** Test-only corruption seam for proving durable Loro reload validation. It remains native-RPC

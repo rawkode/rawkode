@@ -64,6 +64,11 @@ export type CalendarSendUpdates = typeof CalendarSendUpdates.Type
 export class CalendarEvent extends Schema.Class<CalendarEvent>("CalendarEvent")({
   id: Schema.String,
   title: Schema.String,
+  /** Provider change cursor used by downstream projections to reject an older snapshot that
+   * arrives after a newer one. Google exposes this as the Event resource's `updated` field; the
+   * scripted client may omit it, in which case the consumer falls back to its existing ordering
+   * policy. */
+  updatedAt: Schema.optional(Schema.String),
   start: CalendarTime,
   end: CalendarTime,
   status: Schema.Literal("confirmed", "tentative", "cancelled"),

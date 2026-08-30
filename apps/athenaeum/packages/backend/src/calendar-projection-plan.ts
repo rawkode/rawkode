@@ -3,12 +3,14 @@
  * the same revision and attendee observation identities. */
 import { canonicalJsonBytes, sha256HexSync, type EntityId } from "@athenaeum/domain"
 import type { RemoteCalendarEvent } from "./calendar-gatekeeper-client.js"
+import { calendarAttendeeDigest, hmacSha256Hex } from "./calendar-identity-digest.js"
 
 export interface CalendarRemoteEventPlan {
   readonly workspaceId: EntityId
   readonly bindingId: EntityId
   readonly remote: RemoteCalendarEvent
   readonly sourceRevisionDigest: string
+  readonly sourceUpdatedAt?: string
   /** Stable, opaque identity for the provider event across revisions. It is used only for
    * private attendee-observation de-duplication; it never leaves the Workspace DO. */
   readonly sourceEventKeyDigest: string
@@ -30,15 +32,64 @@ export const planCalendarRemoteEvent = (
   const sourceEventKeyDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, bindingId, providerEventId: remote.id }))
   const sourceRevisionDigest = sha256HexSync(canonicalJsonBytes({
     workspaceId, bindingId, providerEventId: remote.id, recurringEventId: remote.recurringEventId ?? null,
+    updatedAt: remote.updatedAt ?? null,
     title: remote.title, start: remote.start, end: remote.end, status: remote.status,
     attendees: attendeeEmails, workflowVersion
   }))
   return {
-    workspaceId, bindingId, remote, sourceRevisionDigest, sourceEventKeyDigest,
+    workspaceId, bindingId, remote, sourceRevisionDigest,
+    ...(remote.updatedAt === undefined ? {} : { sourceUpdatedAt: remote.updatedAt }),
+    sourceEventKeyDigest,
     // Workspace-scoped rather than provider-event scoped: the concierge can resolve the same
     // Person across repeated meetings and multiple connected calendars without learning the
     // address itself. The event-specific sourceEventKeyDigest keeps observations distinct.
     attendeeObservationDigests: attendeeEmails.map((email) => sha256HexSync(canonicalJsonBytes({ workspaceId, email }))),
     cancelled: remote.status === "cancelled"
   }
+}
+
+/** Production planner. The sync-only planner above remains available for deterministic pure
+ * tests and migration tooling; provider writes use this keyed variant so attendee identity never
+ * crosses the DO boundary as a dictionary-testable plain hash. */
+export const planCalendarRemoteEventWithSecret = async (
+  workspaceId: EntityId,
+  bindingId: EntityId,
+  remote: RemoteCalendarEvent,
+  attendeeDigestSecret: string
+): Promise<CalendarRemoteEventPlan> => {
+  const plan = planCalendarRemoteEvent(workspaceId, bindingId, remote)
+  const emails = [...new Set((remote.attendees ?? []).map((attendee) => normalizedEmail(attendee.email)).filter(Boolean))].sort()
+  const attendeeObservationDigests = await Promise.all(
+    emails.map((email) => calendarAttendeeDigest(attendeeDigestSecret, workspaceId, email))
+  )
+  // The pure planner remains useful for migration fixtures, but production projections must not
+  // expose a dictionary-testable digest of either an email or a provider event id. Re-key both
+  // identities here; the raw provider payload remains inside this DO call only.
+  const sourceEventKeyDigest = await hmacSha256Hex(
+    attendeeDigestSecret,
+    canonicalJsonBytes({
+      domain: "athenaeum.calendar-source-event.v1",
+      workspaceId,
+      bindingId,
+      providerEventId: remote.id
+    })
+  )
+  const sourceRevisionDigest = await hmacSha256Hex(
+    attendeeDigestSecret,
+    canonicalJsonBytes({
+      domain: "athenaeum.calendar-source-revision.v1",
+      workspaceId,
+      bindingId,
+      providerEventId: remote.id,
+      recurringEventId: remote.recurringEventId ?? null,
+      updatedAt: remote.updatedAt ?? null,
+      title: remote.title,
+      start: remote.start,
+      end: remote.end,
+      status: remote.status,
+      attendees: emails,
+      workflowVersion: "calendar-relationship-concierge.v1"
+    })
+  )
+  return { ...plan, sourceRevisionDigest, sourceEventKeyDigest, attendeeObservationDigests }
 }

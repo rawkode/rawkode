@@ -347,6 +347,9 @@ export type LedgerCustodyType =
   | "ensureLoroPage"
   | "migrateLegacyPage"
   | "prepareMeetingInDailyNote"
+  | "createNodeWithIntent"
+  | "addFact"
+  | "assignTag"
   | "calendarProjection"
 
 interface BaseLedgerCustodyInput {
@@ -382,7 +385,7 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "calendarProjection"].includes(input.type) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "calendarProjection"].includes(input.type) ||
     !["user", "employee", "system"].includes(input.actorKind) ||
     (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.targetKind !== "node") ||
     Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
@@ -696,11 +699,16 @@ export const linkCalendarEventToNodeLedgerFingerprint = (
 /** Provider ids and emails are deliberately absent: replay identity is binding-local request
  * identity plus opaque source/attendee digests. */
 export const calendarProjectionLedgerFingerprint = (
-  command: Omit<CalendarProjectionLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity" | "calendarEventId">
+  command: Omit<CalendarProjectionLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity" | "calendarEventId"> & {
+    /** Private source-event identity strengthens the replay witness without entering the public
+     * command payload (provider ids remain backend-private). */
+    readonly sourceEventKeyDigest?: string
+  }
 ): string => sha256HexSync(canonicalJsonBytes({
   version: LEDGER_COMMAND_VERSION, type: "calendarProjection", requestId: command.requestId,
   workspaceId: command.workspaceId, principal: command.principal, policy: command.policy,
   sourceRevisionDigest: command.sourceRevisionDigest,
+  sourceEventKeyDigest: command.sourceEventKeyDigest ?? null,
   attendeeObservationDigests: [...command.attendeeObservationDigests].sort(),
   commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
   messageDerivationVersion: CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION
@@ -980,7 +988,7 @@ export class LedgerService {
         return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt }]
       }
       if (row.actorLabel === null || row.custodyType !== row.type || row.targetKind !== "node" || row.targetId === null) return []
-      if (row.custodyType !== "commitLoroPageContent" && row.custodyType !== "ensureLoroPage" && row.custodyType !== "migrateLegacyPage" && row.custodyType !== "prepareMeetingInDailyNote") return []
+      if (row.custodyType !== "commitLoroPageContent" && row.custodyType !== "ensureLoroPage" && row.custodyType !== "migrateLegacyPage" && row.custodyType !== "prepareMeetingInDailyNote" && row.custodyType !== "createNodeWithIntent" && row.custodyType !== "addFact" && row.custodyType !== "assignTag") return []
       if (row.actorKind !== "user" && row.actorKind !== "employee" && row.actorKind !== "system") return []
       const custody: LedgerCustodyInput = {
         requestIdentity: "activity-row",

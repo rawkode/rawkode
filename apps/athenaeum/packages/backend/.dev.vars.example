@@ -9,6 +9,9 @@ DEV_AUTH_HMAC_SECRET=replace-with-any-random-hex-string
 
 # Phase 5 (calendar-oauth-state.ts) — same "any non-empty string" dev-only discipline.
 CALENDAR_OAUTH_STATE_SECRET=replace-with-any-random-hex-string
+# Separate private HMAC key for opaque calendar attendee identities. Local tests may reuse the
+# OAuth state key, but production should rotate this independently.
+CALENDAR_ATTENDEE_DIGEST_SECRET=replace-with-any-random-hex-string
 # Not a secret — the OAuth redirect URI this deployment is registered under in Google Cloud
 # Console (see google-calendar-client-real.ts's own doc comment for what real registration needs).
 CALENDAR_OAUTH_REDIRECT_URI=https://your-deployment.example/oauth/google-calendar/callback

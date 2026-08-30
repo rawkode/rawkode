@@ -189,6 +189,7 @@ interface GoogleCalendarTime {
 interface GoogleEventWire {
   readonly id: string
   readonly summary?: string
+  readonly updated?: string
   readonly description?: string
   readonly location?: string
   readonly start?: GoogleCalendarTime
@@ -228,6 +229,7 @@ const calendarEventFromGoogleWire = (event: GoogleEventWire): CalendarEvent =>
   new CalendarEvent({
     id: event.id,
     title: event.summary ?? "(no title)",
+    ...(event.updated ? { updatedAt: event.updated } : {}),
     start: calendarTimeFromGoogle(event.start),
     end: calendarTimeFromGoogle(event.end),
     status: event.status ?? "confirmed",

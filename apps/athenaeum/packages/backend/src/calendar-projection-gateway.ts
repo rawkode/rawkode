@@ -35,15 +35,54 @@ export const calendarProjectionGatewayTestHook: { afterProjectionBeforeLedger: (
   afterProjectionBeforeLedger: undefined
 }
 
-export class CalendarProjectionGateway {
-  constructor(private readonly storage: DurableObjectStorage, private readonly ledger: LedgerService, private readonly runtime: DurableWorkforceRuntimeStore) {}
+const calendarProjectionCustody = (plan: CalendarProjectionPlan, fingerprint: string): LedgerCustodyInput => {
+  if (plan.attribution.kind === "agentJob") {
+    return {
+      requestIdentity: plan.requestIdentity,
+      fingerprint,
+      type: "calendarProjection",
+      workspaceId: plan.workspaceId,
+      actorKind: "employee",
+      actorLabel: "Calendar relationship concierge",
+      employeeId: "calendar-concierge",
+      jobId: plan.attribution.jobId,
+      runId: plan.attribution.runId,
+      grantId: `calendar-concierge-grant:${plan.sourceRevisionDigest}`,
+      targetKind: "calendarEvent",
+      targetId: plan.calendarEventId
+    }
+  }
+  if (plan.attribution.kind === "humanUi") {
+    return {
+      requestIdentity: plan.requestIdentity,
+      fingerprint,
+      type: "calendarProjection",
+      workspaceId: plan.workspaceId,
+      actorKind: "user",
+      actorLabel: "Calendar sync initiated by user",
+      targetKind: "calendarEvent",
+      targetId: plan.calendarEventId
+    }
+  }
+  throw new Error("calendar projection requires an employee or user attribution")
+}
 
-  apply(plan: CalendarProjectionPlan): CalendarProjectionReceipt {
+export class CalendarProjectionGateway {
+  constructor(
+    private readonly storage: DurableObjectStorage,
+    private readonly ledger: LedgerService,
+    private readonly runtime: DurableWorkforceRuntimeStore,
+    private readonly rearmWorkforce: () => Promise<void> = async () => undefined
+  ) {}
+
+  async apply(plan: CalendarProjectionPlan): Promise<CalendarProjectionReceipt> {
     if (plan.commitMessage.trim().length === 0) throw new Error("calendar projection requires a nonblank commit message")
     const attendeeObservationDigests = [...new Set(plan.attendeeObservationDigests)].sort()
+    const principal = plan.attribution.kind === "agentJob" ? "workforce:employee:calendar-concierge" : "user:calendar-sync"
     const fingerprint = calendarProjectionLedgerFingerprint({
-      requestId: plan.requestId, workspaceId: plan.workspaceId, principal: "system:calendar-sync",
+      requestId: plan.requestId, workspaceId: plan.workspaceId, principal,
       policy: "calendar-provider-projection", sourceRevisionDigest: plan.sourceRevisionDigest,
+      sourceEventKeyDigest: plan.sourceEventKeyDigest,
       attendeeObservationDigests, commitMessage: plan.commitMessage, attribution: plan.attribution
     })
     let replayed = false
@@ -66,19 +105,13 @@ export class CalendarProjectionGateway {
       },
       appendCommand: () => this.ledger.appendCalendarProjection({
         requestIdentity: plan.requestIdentity, requestId: plan.requestId, fingerprint,
-        workspaceId: plan.workspaceId, principal: "system:calendar-sync", policy: "calendar-provider-projection",
+        workspaceId: plan.workspaceId, principal, policy: "calendar-provider-projection",
         calendarEventId: plan.calendarEventId, sourceRevisionDigest: plan.sourceRevisionDigest,
         attendeeObservationDigests, commitMessage: plan.commitMessage, attribution: plan.attribution,
         createdAt: new Date().toISOString()
       }),
-      appendCustody: () => this.ledger.appendCustody({
-        requestIdentity: plan.requestIdentity, fingerprint, type: "calendarProjection", workspaceId: plan.workspaceId,
-        actorKind: "system", actorLabel: "Calendar sync", targetKind: "calendarEvent", targetId: plan.calendarEventId
-      }),
-      validateReplayCustody: () => this.ledger.validateCustody({
-        requestIdentity: plan.requestIdentity, fingerprint, type: "calendarProjection", workspaceId: plan.workspaceId,
-        actorKind: "system", actorLabel: "Calendar sync", targetKind: "calendarEvent", targetId: plan.calendarEventId
-      }),
+      appendCustody: () => this.ledger.appendCustody(calendarProjectionCustody(plan, fingerprint)),
+      validateReplayCustody: () => this.ledger.validateCustody(calendarProjectionCustody(plan, fingerprint)),
       appendSideEffects: () => {
         if (newAttendeeObservationDigests.length === 0) return
         const event = { eventType: CALENDAR_ATTENDEE_OBSERVED_EVENT, workspaceId: plan.workspaceId,
@@ -97,6 +130,13 @@ export class CalendarProjectionGateway {
         }
       }
     }))
+    // The SQL transaction above owns the durable enqueue. Alarm installation is deliberately
+    // outside it because Cloudflare's setAlarm API is async; awaiting here makes this gateway's
+    // public contract include the post-commit wake-up rather than relying on a caller to remember
+    // a second, easy-to-miss rearm step. Replays re-arm too: if the first response was lost after
+    // SQLite commit but before `setAlarm` succeeded, the retry must be able to recover the queued
+    // run even though `executeV2` returns the existing receipt and no new run id.
+    if (enqueuedRunIds.length > 0 || replayed) await this.rearmWorkforce()
     return { calendarEventId: receipt.calendarEventId, replayed, enqueuedRunIds }
   }
 }
