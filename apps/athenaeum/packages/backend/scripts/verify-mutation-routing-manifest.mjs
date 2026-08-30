@@ -26,7 +26,7 @@ const readOnlyRpcMethods = new Set([
   "previewPageProposal", "chatForkPreview", "listBacklinks", "listGraphIssues", "listTags", "listTagClosure",
   "listTagFields", "runView", "searchNodes", "syncFeed", "listChats", "getChat", "listChatChanges",
   "listPendingChanges", "listApps", "getApp", "getAppCode", "previewRemoveCollaborator", "previewRevokeShareLink",
-  "listCollaborators", "listShareLinks", "listCalendarEvents", "getTodayBrief", "listBookmarks", "getMeeting",
+  "listCollaborators", "listShareLinks", "listCalendarEvents", "listGatekeeperBindings", "getTodayBrief", "listBookmarks", "getMeeting",
   "listMeetings", "listWorkoutImports", "listWorkouts", "getWorkout", "pollVoiceAudioEvents", "listRecentLedgerActivity",
   // A historical endpoint which now throws before decoding input. It has no manifest entry and
   // cannot mutate; retaining it briefly produces a typed upgrade error for stale clients.
@@ -39,7 +39,7 @@ const stale = listed.filter((name) => !actual.includes(name))
 if (missing.length || stale.length) {
   throw new Error(`mutation-routing manifest drift; missing=[${missing}] stale=[${stale}] (root ${backendRoot})`)
 }
-const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "decideAgentChangeProposal", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "createBookmark", "appendTranscriptSegment", "startMeeting"]
+const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "decideAgentChangeProposal", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "linkCalendarEventToNode", "createBookmark", "appendTranscriptSegment", "startMeeting"]
 if (ledgerRoutes.some((name) => manifestExports.WORKSPACE_MUTATION_ROUTING[name] !== "ledger") || Object.values(manifestExports.WORKSPACE_MUTATION_ROUTING).filter((route) => route === "ledger").length !== ledgerRoutes.length) {
   throw new Error(`ledger routing manifest must contain exactly ${ledgerRoutes.join(", ")}`)
 }
@@ -64,11 +64,16 @@ const worker = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
 if (!registry.some((row) => row.adapter === "worker-fetch" && row.symbol === "Worker.fetch")) throw new Error("unknown Worker fetch entrypoint")
 assertNoUnknownWorkerEntrypoints(worker)
 const sourceDirectory = fileURLToPath(new URL("../src/", import.meta.url))
-// Stage 1A's unwired authority kernel deliberately owns in-memory registries and
-// capability objects. Those `.set`/`.delete`/`Object.create` calls are not direct
-// persistence sinks; its transitive source audit is the separate guard for that code.
+// Stage 1A's unwired authority kernel and the dormant private standup publisher deliberately own
+// in-memory registries, capability objects, and transaction doubles. Their `.set`/`.delete`/
+// `Object.create` calls are not direct persistence sinks; the transitive source audit is the
+// separate guard for every actual repository/SQLite writer.
 const authorityContractOnly = new Set([
+  "authority-kernel-contract.ts",
   "authority-local-command-registry.ts",
+  "authority-trusted-data-token.ts",
+  "standup-publication-collections.ts",
+  "standup-publication-service-live.ts",
   "workspace-local-mutation-capability.ts",
   "workspace-mutation-authority.ts"
 ])

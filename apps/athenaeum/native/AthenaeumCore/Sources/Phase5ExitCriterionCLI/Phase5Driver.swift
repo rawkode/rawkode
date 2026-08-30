@@ -183,7 +183,13 @@ struct Phase5Driver {
         case "link-calendar-event":
             let calendarEventId = requireArg(positional, 0, "calendarEventId")
             let nodeId = requireArg(positional, 1, "nodeId")
-            let event = try await client.linkCalendarEventToNode(calendarEventId: calendarEventId, nodeId: nodeId)
+            let event = try await client.linkCalendarEventToNode(
+                calendarEventId: calendarEventId,
+                nodeId: nodeId,
+                requestId: optionValue(allArgs, "--request-id") ?? UUID().uuidString.lowercased(),
+                commitMessage: "Link this calendar event to a workspace node from the Phase 5 driver.",
+                attribution: MutationAttribution(version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos")
+            )
             print("CALENDAR_EVENT_ID: \(event.id)")
             print("LINKED_NODE_ID: \(event.linkedNodeId ?? "<none>")")
 

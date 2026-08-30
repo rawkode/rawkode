@@ -45,6 +45,7 @@ const typeLabel = (type: LedgerActivityEntry["type"]): string => {
     case "createEdge": return "Created a relationship"
     case "createRelationDefinition": return "Created a relationship definition"
     case "createBookmark": return "Captured a bookmark"
+    case "linkCalendarEventToNode": return "Linked a calendar event to a workspace node"
     case "appendTranscriptSegment": return "Captured a transcript segment"
     case "startMeeting": return "Started a meeting"
     case "prepareMeetingInDailyNote": return "Prepared a meeting in the daily note"

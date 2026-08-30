@@ -123,7 +123,11 @@ describe("Calendar event read/link RPC schemas", () => {
   it("round-trips LinkCalendarEventToNodeInput/Output", () => {
     roundTrip(
       LinkCalendarEventToNodeInput,
-      new LinkCalendarEventToNodeInput({ workspaceId, calendarEventId, nodeId })
+      new LinkCalendarEventToNodeInput({
+        workspaceId, calendarEventId, nodeId, requestId: "link-calendar-event-1",
+        commitMessage: "Link this calendar event to its workspace node.",
+        attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" })
+      })
     )
     roundTrip(
       LinkCalendarEventToNodeOutput,

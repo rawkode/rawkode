@@ -22,6 +22,7 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
     case createEdge
     case createRelationDefinition
     case createBookmark
+    case linkCalendarEventToNode
     case appendTranscriptSegment
     case startMeeting
     case createTag
@@ -42,6 +43,7 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
         case .createEdge: return "Created a relationship"
         case .createRelationDefinition: return "Created a relationship definition"
         case .createBookmark: return "Captured a bookmark"
+        case .linkCalendarEventToNode: return "Linked a calendar event to a workspace node"
         case .appendTranscriptSegment: return "Captured a transcript segment"
         case .startMeeting: return "Started a meeting"
         case .createTag: return "Created a Supertag definition"
@@ -64,6 +66,7 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
         case .createEdge: return "link"
         case .createRelationDefinition: return "link.badge.plus"
         case .createBookmark: return "bookmark"
+        case .linkCalendarEventToNode: return "calendar.badge.plus"
         case .appendTranscriptSegment: return "waveform"
         case .startMeeting: return "video"
         case .createTag: return "tag"

@@ -28,6 +28,7 @@ export const UNASSIGN_TAG_MESSAGE_DERIVATION_VERSION = "unassign-tag.v1" as cons
 export const SYNC_NOTE_REFERENCES_MESSAGE_DERIVATION_VERSION = "sync-note-references.v1" as const
 export const CREATE_RELATION_DEFINITION_MESSAGE_DERIVATION_VERSION = "create-relation-definition.v1" as const
 export const CREATE_BOOKMARK_MESSAGE_DERIVATION_VERSION = "create-bookmark.v1" as const
+export const LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION = "link-calendar-event-to-node.v1" as const
 export const APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION = "append-transcript-segment.v1" as const
 export const START_MEETING_MESSAGE_DERIVATION_VERSION = "start-meeting.v1" as const
 export const ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION = "ensure-loro-page.v1" as const
@@ -273,6 +274,20 @@ export class CreateBookmarkLedgerPayload extends Schema.Class<CreateBookmarkLedg
   attribution: MutationAttribution
 }) {}
 
+/** Private evidence for linking a retained calendar projection to a mainline node. */
+export class LinkCalendarEventToNodeLedgerPayload extends Schema.Class<LinkCalendarEventToNodeLedgerPayload>("LinkCalendarEventToNodeLedgerPayload")({
+  calendarEventId: EntityId,
+  nodeId: EntityId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+/** Compact replay receipt; WorkspaceDO re-resolves visible current state before returning it. */
+export class LinkCalendarEventToNodeLedgerReceipt extends Schema.Class<LinkCalendarEventToNodeLedgerReceipt>("LinkCalendarEventToNodeLedgerReceipt")({
+  calendarEventId: EntityId,
+  nodeId: EntityId
+}) {}
+
 /** Optional speaker identity is encoded as a strict marker instead of relying on JSON's
  * omission semantics. This keeps absent, explicit, and malformed values distinct in the private
  * command payload and in the replay fingerprint. */
@@ -350,6 +365,8 @@ export const syncNoteReferencesCommitMessage = (): string => "Reconciled note me
 export const createRelationDefinitionCommitMessage = (): string => "Created a relation definition."
 /** Privacy-safe public label for bookmark capture; URL/title remain private command data. */
 export const createBookmarkCommitMessage = (): string => "Captured a bookmark."
+/** Privacy-safe public label; calendar details remain private command data. */
+export const linkCalendarEventToNodeCommitMessage = (): string => "Linked a calendar event to a workspace node."
 /** Privacy-safe public label for transcript capture; transcript text remains private command data. */
 export const appendTranscriptSegmentCommitMessage = (): string => "Appended a transcript segment."
 /** Privacy-safe public label for meeting-session capture; title remains private command data. */
@@ -625,6 +642,16 @@ export class CreateBookmarkLedgerCommand extends Schema.Class<CreateBookmarkLedg
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
+export class LinkCalendarEventToNodeLedgerCommand extends Schema.Class<LinkCalendarEventToNodeLedgerCommand>("LinkCalendarEventToNodeLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("linkCalendarEventToNode"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION),
+  message: Schema.String.pipe(Schema.minLength(1)), payload: LinkCalendarEventToNodeLedgerPayload,
+  createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
 export class AppendTranscriptSegmentLedgerCommand extends Schema.Class<AppendTranscriptSegmentLedgerCommand>("AppendTranscriptSegmentLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),
   requestId: MutationRequestId,
@@ -676,6 +703,7 @@ export const LedgerCommand = Schema.Union(
   SyncNoteReferencesLedgerCommand,
   CreateRelationDefinitionLedgerCommand,
   CreateBookmarkLedgerCommand,
+  LinkCalendarEventToNodeLedgerCommand,
   AppendTranscriptSegmentLedgerCommand,
   StartMeetingLedgerCommand
 )

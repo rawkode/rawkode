@@ -171,7 +171,10 @@ export class LinkCalendarEventToNodeInput extends Schema.Class<LinkCalendarEvent
 )({
   workspaceId: EntityId,
   calendarEventId: EntityId,
-  nodeId: EntityId
+  nodeId: EntityId,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
 }) {}
 
 export class LinkCalendarEventToNodeOutput extends Schema.Class<LinkCalendarEventToNodeOutput>(

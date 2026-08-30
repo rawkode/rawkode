@@ -170,6 +170,7 @@ import {
   LocalDate,
   LinkCalendarEventToNodeInput,
   LinkCalendarEventToNodeOutput,
+  LinkCalendarEventToNodeLedgerReceipt,
   ListBacklinksInput,
   ListBacklinksOutput,
   ListBookmarksInput,
@@ -372,6 +373,7 @@ import {
   migrateLegacyPageLedgerFingerprint,
   createRelationDefinitionLedgerFingerprint,
   createBookmarkLedgerFingerprint,
+  linkCalendarEventToNodeLedgerFingerprint,
   appendTranscriptSegmentLedgerFingerprint,
   startMeetingLedgerFingerprint,
   defineTagFieldLedgerFingerprint,
@@ -388,6 +390,7 @@ import {
   type MigrateLegacyPageLedgerCommandInput,
   type CreateRelationDefinitionLedgerCommandInput,
   type CreateBookmarkLedgerCommandInput,
+  type LinkCalendarEventToNodeLedgerCommandInput,
   type AppendTranscriptSegmentLedgerCommandInput,
   type StartMeetingLedgerCommandInput,
   type DefineTagFieldLedgerCommandInput,
@@ -3474,16 +3477,79 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async linkCalendarEventToNode(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(LinkCalendarEventToNodeInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) {
+          return Effect.fail(new Unauthorized({ message: "An authenticated user is required to link a calendar event." }))
+        }
+        const requestId = decoded.requestId.trim()
+        const commitMessage = decoded.commitMessage.trim()
+        if (requestId.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A non-blank request id is required to link a calendar event." }))
+        }
+        if (commitMessage.length === 0) {
+          return Effect.fail(new ValidationError({ message: "A commit message is required to link a calendar event." }))
+        }
+        return Effect.gen(function* () {
           const calendar = yield* CalendarService
-          const calendarEvent = yield* calendar.linkEventToNode(decoded.workspaceId, decoded.calendarEventId, decoded.nodeId)
+          const sharing = yield* SharingService
+          // Visibility is checked before deriving a request identity and again after replay. A
+          // receipt never becomes a capability to disclose a now-hidden retained event.
+          const initialVisible = yield* calendar.listEvents(decoded.workspaceId, undefined, undefined, currentUser.email)
+          if (!initialVisible.some((event) => event.id === decoded.calendarEventId)) {
+            return yield* Effect.fail(new ValidationError({ message: `No visible calendar event ${decoded.calendarEventId}.` }))
+          }
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `link-calendar-event-to-node:${requestId}`
+          const command: LinkCalendarEventToNodeLedgerCommandInput = {
+            requestIdentity,
+            requestId,
+            workspaceId: decoded.workspaceId,
+            principal: currentUser.email,
+            policy,
+            calendarEventId: decoded.calendarEventId,
+            nodeId: decoded.nodeId,
+            commitMessage,
+            attribution: decoded.attribution,
+            fingerprint: "",
+            createdAt: new Date().toISOString()
+          }
+          const fingerprint = linkCalendarEventToNodeLedgerFingerprint(command)
+          const receipt = yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity,
+              fingerprint,
+              type: "linkCalendarEventToNode",
+              mutate: () => {
+                const exit = Effect.runSyncExit(calendar.linkEventToNode(decoded.workspaceId, decoded.calendarEventId, decoded.nodeId))
+                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+                return new LinkCalendarEventToNodeLedgerReceipt({ calendarEventId: exit.value.id, nodeId: decoded.nodeId })
+              },
+              encodeOutput: (output) => Schema.encodeSync(LinkCalendarEventToNodeLedgerReceipt)(output),
+              decodeOutput: (output) => Schema.decodeUnknownSync(LinkCalendarEventToNodeLedgerReceipt)(output),
+              appendCommand: () => ledger.appendLinkCalendarEventToNode({ ...command, fingerprint }),
+              appendSideEffects: () => {
+                const payload = { calendarEventId: decoded.calendarEventId, nodeId: decoded.nodeId }
+                ledger.appendEvent(requestIdentity, "link-calendar-event-to-node", payload)
+                ledger.appendOutbox(requestIdentity, "link-calendar-event-to-node", payload)
+              }
+            })),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered linkCalendarEventToNode failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+          const visible = yield* calendar.listEvents(decoded.workspaceId, undefined, undefined, currentUser.email)
+          const calendarEvent = visible.find((event) => event.id === receipt.calendarEventId)
+          if (calendarEvent === undefined || calendarEvent.linkedNodeId !== receipt.nodeId) {
+            return yield* Effect.fail(new ValidationError({ message: `Linked calendar event ${receipt.calendarEventId} is no longer visible or no longer linked to the requested node.` }))
+          }
           return new LinkCalendarEventToNodeOutput({ calendarEvent })
         })
-      )
+      })
     )
     return runRpcProgram(this.#runtime, program, LinkCalendarEventToNodeOutput)
   }

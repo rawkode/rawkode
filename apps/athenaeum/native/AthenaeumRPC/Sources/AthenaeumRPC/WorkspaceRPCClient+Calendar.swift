@@ -280,10 +280,20 @@ extension WorkspaceRPCClient {
 
     /// Not wired into the shipped app UI this pass (no linking affordance yet) — see this file's
     /// top doc comment. Proven live by `Phase5Driver`'s `link-calendar-event` subcommand.
-    public func linkCalendarEventToNode(calendarEventId: String, nodeId: String) async throws -> RPCCalendarEvent {
+    public func linkCalendarEventToNode(calendarEventId: String, nodeId: String, requestId: String, commitMessage: String, attribution: MutationAttribution) async throws -> RPCCalendarEvent {
         let result = try await rpc("linkCalendarEventToNode", [
             "calendarEventId": .string(calendarEventId),
-            "nodeId": .string(nodeId)
+            "nodeId": .string(nodeId),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": .object([
+                "version": .string(attribution.version),
+                "kind": .string(attribution.kind),
+                "surface": attribution.surface.map(CapnWebValue.string) ?? .undefined,
+                "jobId": attribution.jobId.map(CapnWebValue.string) ?? .undefined,
+                "runId": attribution.runId.map(CapnWebValue.string) ?? .undefined,
+                "source": attribution.source.map(CapnWebValue.string) ?? .undefined
+            ])
         ])
         return try RPCCalendarEvent(result.field("calendarEvent"))
     }

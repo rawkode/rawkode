@@ -410,9 +410,11 @@ export const makeCalendarServiceLive = (
       const isCalendarContentVisible: CalendarServiceApi["isCalendarContentVisible"] = (workspaceId, callerEmail) =>
         Effect.gen(function* () {
           const bindings = yield* listCalendarBindingsForWorkspace(workspaceId)
-          if (bindings.length === 0) return true // nothing calendar-derived exists to gate
-
           const ownerEmail = yield* sharing.getOwnerEmail
+          // A disconnect removes credentials, not the already-synced private projection. In a
+          // governed workspace retained calendar rows become owner-only until a new binding is
+          // established; otherwise a disconnect would accidentally disclose old event metadata.
+          if (bindings.length === 0) return ownerEmail === null || callerEmail === ownerEmail
           if (callerEmail !== undefined && callerEmail === ownerEmail) return true
           if (callerEmail !== undefined && bindings.some((b) => b.boundBy === callerEmail)) return true
           if (callerEmail === undefined) {
@@ -856,7 +858,13 @@ export const makeCalendarServiceLive = (
 
       const linkEventToNode: CalendarServiceApi["linkEventToNode"] = (workspaceId, calendarEventId, nodeId) =>
         Effect.gen(function* () {
-          yield* nodesRepository.get(nodeId)
+          const node = yield* nodesRepository.get(nodeId)
+          if (node.workspaceId !== workspaceId) {
+            return yield* Effect.fail(new ValidationError({ message: `Node ${nodeId} does not belong to workspace ${workspaceId}.` }))
+          }
+          if (node.pending !== undefined) {
+            return yield* Effect.fail(new ValidationError({ message: `Node ${nodeId} is pending and cannot be linked to a calendar event.` }))
+          }
           const raw = yield* collections.calendarEvents.get(calendarEventId).pipe(Effect.mapError(toUnexpectedError))
           if (raw === undefined) {
             return yield* Effect.fail(new ValidationError({ message: `No calendar event ${calendarEventId}.` }))

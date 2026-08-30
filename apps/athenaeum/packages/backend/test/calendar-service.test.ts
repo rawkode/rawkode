@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { CreateLoroPageInput, CreateWorkspaceInput, CreateWorkspaceOutput, CreationIntent, Email, EntityId, HumanUiMutationAttribution, LocalDate, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, PrepareMeetingInDailyNoteOutput, UnexpectedError } from "@athenaeum/domain"
+import { CreateLoroPageInput, CreateWorkspaceInput, CreateWorkspaceOutput, CreationIntent, Email, EntityId, HumanUiMutationAttribution, LinkCalendarEventToNodeLedgerCommand, LocalDate, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, PrepareMeetingInDailyNoteOutput, UnexpectedError } from "@athenaeum/domain"
 import {
   addObserverStrategyC,
   CalendarAttendee as ScriptedCalendarAttendee,
@@ -30,6 +30,7 @@ import {
 } from "@athenaeum/gatekeeper-google-calendar"
 import type { CalendarGatekeeperClientApi } from "../src/calendar-gatekeeper-client.js"
 import { calendarGatekeeperClientTestHook } from "../src/workspace-durable-object.js"
+import { ledgerExecuteTestHook } from "../src/ledger-service.js"
 import {
   connectToUserAs,
   connectToWorkspace,
@@ -376,9 +377,53 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const linkResult = (await stub.linkCalendarEventToNode({
       workspaceId,
       calendarEventId: standup.id,
-      nodeId
+      nodeId,
+      requestId: "calendar-service-preserved-link",
+      commitMessage: "Link the standup to my annotation.",
+      attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
     })) as { calendarEvent: { linkedNodeId?: string } }
     expect(linkResult.calendarEvent.linkedNodeId).toBe(nodeId)
+    const replay = (await stub.linkCalendarEventToNode({
+      workspaceId, calendarEventId: standup.id, nodeId, requestId: "calendar-service-preserved-link",
+      commitMessage: "Link the standup to my annotation.",
+      attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
+    })) as { calendarEvent: { linkedNodeId?: string } }
+    expect(replay).toEqual(linkResult)
+    const native = workspaceDurableObjectStub(workspaceId)
+    const requestIdentity = "link-calendar-event-to-node:calendar-service-preserved-link"
+    expect(Schema.decodeUnknownSync(LinkCalendarEventToNodeLedgerCommand)(await native.debugGetLedgerCommand(requestIdentity))).toMatchObject({
+      type: "linkCalendarEventToNode", payload: {
+        calendarEventId: standup.id, nodeId, commitMessage: "Link the standup to my annotation.", attribution: { kind: "humanUi", surface: "macos" }
+      }
+    })
+    const storedReceipt = await native.debugGetLedgerReceipt(requestIdentity)
+    expect(storedReceipt).toMatchObject({
+      output: {
+        version: "athenaeum.workspace-ledger-receipt.v2",
+        type: "linkCalendarEventToNode",
+        output: { calendarEventId: standup.id, nodeId }
+      }
+    })
+    expect(storedReceipt).toEqual({
+      fingerprint: expect.any(String),
+      output: {
+        version: "athenaeum.workspace-ledger-receipt.v2",
+        type: "linkCalendarEventToNode",
+        output: { calendarEventId: standup.id, nodeId }
+      }
+    })
+    // The replay witness is intentionally compact: provider title, attendee addresses, recurrence
+    // metadata, and sync timestamps never enter the receipt or either delivery side effect.
+    expect(JSON.stringify(storedReceipt)).not.toContain("Daily Standup")
+    expect(JSON.stringify(storedReceipt)).not.toContain(ACCOUNT_EMAIL)
+    expect(await native.debugGetLedgerEvent(requestIdentity)).toEqual({ kind: "link-calendar-event-to-node", payload: { calendarEventId: standup.id, nodeId } })
+    expect(await native.debugGetLedgerOutboxIntent(requestIdentity)).toEqual({ kind: "link-calendar-event-to-node", payload: { calendarEventId: standup.id, nodeId } })
+
+    const conflict = await rejectionToDomainError(stub.linkCalendarEventToNode({
+      workspaceId, calendarEventId: standup.id, nodeId, requestId: "calendar-service-preserved-link",
+      commitMessage: "A changed reason.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
+    }))
+    expect(conflict._tag).toBe("ValidationError")
 
     // Re-sync (same fixtures) — every provider row already exists, so `sync` upserts in place.
     await stub.syncGoogleCalendar({ workspaceId, bindingId })
@@ -394,6 +439,63 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const nodesResult = (await stub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
     expect(nodesResult.nodes.filter((n) => n.title === "Alice")).toHaveLength(1)
     expect(nodesResult.nodes.filter((n) => n.title === "Bob")).toHaveLength(1)
+  })
+
+  it("rolls back a calendar link and every ledger artifact when command persistence fails", async () => {
+    const { workspaceId, bindingId, stub } = await setUpConnectedWorkspace()
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const events = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ id: string; providerEventId: string; linkedNodeId?: string }> }
+    const standup = events.events.find((event) => event.providerEventId === "standup-1")!
+    const nodeId = freshNodeId()
+    await stub.createNode({ workspaceId, id: nodeId, title: "Rollback annotation" })
+    const requestIdentity = "link-calendar-event-to-node:calendar-link-rollback"
+    const native = workspaceDurableObjectStub(workspaceId)
+    ledgerExecuteTestHook.afterMutation = () => { throw new Error("calendar link ledger failpoint") }
+    try {
+      expect((await rejectionToDomainError(stub.linkCalendarEventToNode({
+        workspaceId, calendarEventId: standup.id, nodeId, requestId: "calendar-link-rollback",
+        commitMessage: "Link this event for rollback testing.",
+        attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
+      })))._tag).toBe("UnexpectedError")
+    } finally {
+      ledgerExecuteTestHook.afterMutation = undefined
+    }
+    const after = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ id: string; linkedNodeId?: string }> }
+    expect(after.events.find((event) => event.id === standup.id)?.linkedNodeId).toBeUndefined()
+    expect(await native.debugGetLedgerCommand(requestIdentity)).toBeNull()
+    expect(await native.debugGetLedgerReceipt(requestIdentity)).toBeNull()
+    expect(await native.debugGetLedgerEvent(requestIdentity)).toBeNull()
+    expect(await native.debugGetLedgerOutboxIntent(requestIdentity)).toBeNull()
+  })
+
+  it("rejects an anonymous calendar link even on an otherwise ungoverned workspace", async () => {
+    const { workspaceId, bindingId, stub } = await setUpConnectedWorkspace()
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const events = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; providerEventId: string; linkedNodeId?: string }>
+    }
+    const standup = events.events.find((event) => event.providerEventId === "standup-1")!
+    const nodeId = freshNodeId()
+    await stub.createNode({ workspaceId, id: nodeId, title: "Authenticated-only annotation" })
+
+    // `freshWorkspaceId()` creates an ungoverned workspace, so the ordinary role gate alone would
+    // allow an anonymous caller. The explicit principal check at the ledger boundary must still
+    // reject the mutation before visibility lookup or any write occurs.
+    const anonymous = await connectToWorkspace(workspaceId)
+    const error = await rejectionToDomainError(anonymous.linkCalendarEventToNode({
+      workspaceId,
+      calendarEventId: standup.id,
+      nodeId,
+      requestId: "anonymous-calendar-link",
+      commitMessage: "Attempt an anonymous calendar link.",
+      attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "macos" }
+    }))
+    expect(error._tag).toBe("Unauthorized")
+
+    const after = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; linkedNodeId?: string }>
+    }
+    expect(after.events.find((event) => event.id === standup.id)?.linkedNodeId).toBeUndefined()
   })
 
   it("prepares the deterministic daily note through the ledger and rejects stale page/date claims", async () => {
@@ -632,6 +734,40 @@ describe("CalendarService — observer verification (Strategy B, selected-mode b
       results: ReadonlyArray<{ nodeId: string }>
     }
     expect(deniedSearch.results.some((r) => r.nodeId === realAliceNodeId)).toBe(false)
+  })
+
+  it("keeps retained calendar projections owner-only after the binding is disconnected", async () => {
+    installScriptedCalendarClient(buildFixtures())
+    const workspaceId = await createGovernedWorkspace(ACCOUNT_EMAIL)
+    const { credential: ownerCred } = await devSignIn(ACCOUNT_EMAIL)
+    const { stub: ownerStub } = await connectToWorkspaceWithSocketAs(workspaceId, ownerCred)
+
+    const connectResult = (await ownerStub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callbackResult = (await ownerStub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: "code",
+      state: connectResult.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callbackResult.binding.id)
+    await ownerStub.syncGoogleCalendar({ workspaceId, bindingId })
+    await ownerStub.addCollaborator({ workspaceId, profileId: grantedObserver, role: "use" })
+
+    const { credential: observerCred } = await devSignIn(grantedObserver)
+    const { stub: observerStub } = await connectToWorkspaceWithSocketAs(workspaceId, observerCred)
+    const beforeDisconnect = (await observerStub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<unknown> }
+    expect(beforeDisconnect.events).toHaveLength(1)
+
+    expect((await ownerStub.disconnectGoogleCalendar({ workspaceId, bindingId })) as { disconnected: boolean }).toEqual({ disconnected: true })
+
+    // Disconnect removes provider credentials, but retained rows are still private projection
+    // data. The owner can audit them; a previously-qualified collaborator cannot use the deleted
+    // binding's old observer grant as a durable capability.
+    const ownerRetained = (await ownerStub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<unknown> }
+    expect(ownerRetained.events).toHaveLength(1)
+    const observerAfterDisconnect = (await observerStub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<unknown> }
+    expect(observerAfterDisconnect.events).toEqual([])
   })
 })
 

@@ -70,6 +70,10 @@ import {
   CreateBookmarkLedgerCommand,
   CreateBookmarkLedgerPayload,
   createBookmarkCommitMessage,
+  LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION,
+  LinkCalendarEventToNodeLedgerCommand,
+  LinkCalendarEventToNodeLedgerPayload,
+  linkCalendarEventToNodeCommitMessage,
   APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION,
   AppendTranscriptSegmentLedgerCommand,
   AppendTranscriptSegmentLedgerPayload,
@@ -257,6 +261,14 @@ export interface CreateBookmarkLedgerCommandInput {
   readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
   readonly workspaceId: string; readonly principal: string; readonly policy: string
   readonly url: string; readonly title?: string; readonly bookmarkId?: string; readonly capturedAt?: string
+  readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
+  readonly createdAt: string
+}
+
+export interface LinkCalendarEventToNodeLedgerCommandInput {
+  readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
+  readonly workspaceId: string; readonly principal: string; readonly policy: string
+  readonly calendarEventId: string; readonly nodeId: string
   readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
   readonly createdAt: string
 }
@@ -544,6 +556,22 @@ export const createBookmarkLedgerFingerprint = (
   commitMessage: command.commitMessage,
   attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
   messageDerivationVersion: CREATE_BOOKMARK_MESSAGE_DERIVATION_VERSION
+}))
+
+export const linkCalendarEventToNodeLedgerFingerprint = (
+  command: Omit<LinkCalendarEventToNodeLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity">
+): string => sha256HexSync(canonicalJsonBytes({
+  version: LEDGER_COMMAND_VERSION,
+  type: "linkCalendarEventToNode",
+  requestId: command.requestId,
+  workspaceId: command.workspaceId,
+  principal: command.principal,
+  policy: command.policy,
+  calendarEventId: command.calendarEventId,
+  nodeId: command.nodeId,
+  commitMessage: command.commitMessage,
+  attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+  messageDerivationVersion: LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION
 }))
 
 /** Canonical identity for one transcript append. The optional speaker marker is explicit so
@@ -1043,6 +1071,33 @@ export class LedgerService {
       policy: command.policy,
       messageDerivationVersion: CREATE_BOOKMARK_MESSAGE_DERIVATION_VERSION,
       message: createBookmarkCommitMessage(),
+      payload,
+      createdAt: command.createdAt
+    })
+    this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
+      persisted.version, persisted.type, persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
+      persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt)
+  }
+
+  appendLinkCalendarEventToNode(command: LinkCalendarEventToNodeLedgerCommandInput): void {
+    const payload = Schema.decodeUnknownSync(LinkCalendarEventToNodeLedgerPayload)({
+      calendarEventId: command.calendarEventId,
+      nodeId: command.nodeId,
+      commitMessage: command.commitMessage,
+      attribution: command.attribution
+    })
+    const persisted = Schema.decodeUnknownSync(LinkCalendarEventToNodeLedgerCommand)({
+      version: LEDGER_COMMAND_VERSION,
+      requestId: command.requestId,
+      fingerprint: command.fingerprint,
+      type: "linkCalendarEventToNode",
+      workspaceId: command.workspaceId,
+      principal: command.principal,
+      capability: "build",
+      policy: command.policy,
+      messageDerivationVersion: LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION,
+      message: linkCalendarEventToNodeCommitMessage(),
       payload,
       createdAt: command.createdAt
     })

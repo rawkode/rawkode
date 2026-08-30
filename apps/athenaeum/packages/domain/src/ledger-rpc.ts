@@ -20,6 +20,7 @@ export const LedgerActivityType = Schema.Literal(
   "syncNoteReferences",
   "createRelationDefinition",
   "createBookmark",
+  "linkCalendarEventToNode",
   "appendTranscriptSegment",
   "startMeeting",
   "prepareMeetingInDailyNote"

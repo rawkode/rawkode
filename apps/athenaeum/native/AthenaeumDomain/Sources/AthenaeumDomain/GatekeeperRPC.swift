@@ -108,10 +108,16 @@ public struct LinkCalendarEventToNodeInput: Codable, Hashable, Sendable {
     public let workspaceId: EntityId
     public let calendarEventId: EntityId
     public let nodeId: EntityId
-    public init(workspaceId: EntityId, calendarEventId: EntityId, nodeId: EntityId) {
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public init(workspaceId: EntityId, calendarEventId: EntityId, nodeId: EntityId, requestId: String, commitMessage: String, attribution: MutationAttribution) {
         self.workspaceId = workspaceId
         self.calendarEventId = calendarEventId
         self.nodeId = nodeId
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
     }
 }
 

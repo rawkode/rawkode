@@ -2,7 +2,7 @@
  * Source-verified routing inventory for the public Workspace RPC mutation surface, including
  * credential minting even though it does not itself persist workspace application state.
  * `createNode`, `createNodeWithIntent`, `acceptChatFork`, `acceptPageProposal`, `decideAgentChangeProposal`, `applySupertag`,
- * `addFact`, `createRelationDefinition`, `createEdge`, `createTag`, `syncNoteReferences`, `defineTagField`, `assignTag`, `unassignTag`, `createBookmark`, and `appendTranscriptSegment` are ledger routes. Every other entry is deliberately a
+ * `addFact`, `createRelationDefinition`, `createEdge`, `createTag`, `syncNoteReferences`, `defineTagField`, `assignTag`, `unassignTag`, `linkCalendarEventToNode`, `createBookmark`, and `appendTranscriptSegment` are ledger routes. Every other entry is deliberately a
  * direct bypass until it receives its own compatible command contract; this manifest prevents
  * silently implying that the ledger governs mutations it does not yet govern.
  * `loroPageSyncMessage` is a direct protocol route only for empty convergence/reset frames: its
@@ -24,7 +24,7 @@ export const WORKSPACE_MUTATION_ROUTING = {
   migrateLegacyPage: "ledger", commitLoroPageContent: "ledger", prepareMeetingInDailyNote: "ledger", startLoroPageSync: "direct", loroPageSyncMessage: "direct",
   addCollaborator: "direct", removeCollaborator: "direct", createShareLink: "direct", redeemShareLink: "direct", revokeShareLink: "direct",
   connectGoogleCalendar: "direct", googleCalendarOAuthCallback: "direct", disconnectGoogleCalendar: "direct", syncGoogleCalendar: "direct",
-  linkCalendarEventToNode: "direct", createBookmark: "ledger",
+  linkCalendarEventToNode: "ledger", createBookmark: "ledger",
   startMeeting: "ledger", endMeeting: "direct", appendTranscriptSegment: "ledger",
   importWorkout: "direct", importWorkouts: "direct",
   startVoiceSession: "direct", endVoiceSession: "direct", openVoiceAudioSession: "direct", sendVoiceAudioChunk: "direct",
