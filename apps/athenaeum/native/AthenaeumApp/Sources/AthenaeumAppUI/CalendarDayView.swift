@@ -4,15 +4,22 @@ import AthenaeumRPC
 
 // Phase 5 native stage — the native mirror of `web/src/CalendarDayView.tsx`: lists today's synced
 // `calendarEvents` (`listCalendarEvents`) inside a real local-day `[from, to)` window, sorted
-// chronologically, same shape as the web-stage's verified slice. Read-only: this stage does not
-// ship a "Connect Google Calendar" affordance in the app UI (see `WorkspaceRPCClient+Calendar.swift`'s
-// top doc comment for why — no real Google OAuth client/account in this environment; the OAuth
-// connect/callback/sync RPC methods are real and proven via `Phase5Driver`, just not wired into
-// this view). If no `GatekeeperBinding` exists yet for this workspace, `listCalendarEvents` simply
-// returns an empty list (`calendar-service-live.ts`'s `listEvents` doesn't require one to answer
-// a read) — this view renders that as "No events today," not an error.
+// chronologically, and exposes the server-authoritative sanitized binding catalog with the same
+// governed `syncGoogleCalendar` action as the web connection surface. OAuth connect/callback and
+// disconnect remain out of this view because they need a real browser redirect/account lifecycle;
+// this view never fabricates a connected account or exposes private provider identity. If no
+// `GatekeeperBinding` exists yet for this workspace, `listCalendarEvents` simply returns an empty
+// list (`calendar-service-live.ts`'s `listEvents` doesn't require one to answer a read) — this
+// view renders that as "No events today," not an error.
 @MainActor
 final class CalendarDayViewModel: ObservableObject {
+    enum SyncState: Equatable {
+        case idle
+        case syncing(bindingId: String)
+        case success(bindingId: String)
+        case failure(bindingId: String)
+    }
+
     struct EventRow: Identifiable, Equatable {
         let id: String
         let title: String
@@ -28,6 +35,10 @@ final class CalendarDayViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedEvents = false
     @Published var errorMessage: String?
+    @Published private(set) var bindings: [RPCGatekeeperBindingSummary] = []
+    @Published private(set) var isLoadingBindings = false
+    @Published private(set) var bindingsErrorMessage: String?
+    @Published private(set) var syncState: SyncState = .idle
 
     private let client: WorkspaceRPCClient
 
@@ -81,11 +92,62 @@ final class CalendarDayViewModel: ObservableObject {
         }
     }
 
+    /// The catalog is a separate read from the event projection. Keeping it independent means a
+    /// temporary catalog failure cannot turn an otherwise successful day read into an empty or
+    /// failed schedule, while the UI can still disable sync until a binding is confirmed.
+    func refreshBindings() async {
+        isLoadingBindings = true
+        defer { isLoadingBindings = false }
+        do {
+            bindings = try await client.listGatekeeperBindings()
+            bindingsErrorMessage = nil
+            if case .syncing(let bindingId) = syncState,
+               !bindings.contains(where: { $0.id == bindingId }) {
+                syncState = .idle
+            }
+        } catch {
+            bindingsErrorMessage = Self.calendarBindingsFailureMessage(for: error)
+        }
+    }
+
+    /// Triggers only a server-confirmed binding and then re-reads the bounded day projection. The
+    /// acknowledgement is intentionally presented as a request, not as a promise that provider
+    /// rows have already arrived.
+    func syncGoogleCalendar(bindingId: String) async {
+        guard bindings.contains(where: { $0.id == bindingId }) else {
+            return
+        }
+        if case .syncing = syncState {
+            return
+        }
+        syncState = .syncing(bindingId: bindingId)
+        do {
+            guard try await client.syncGoogleCalendar(bindingId: bindingId) else {
+                syncState = .failure(bindingId: bindingId)
+                return
+            }
+            syncState = .success(bindingId: bindingId)
+            await refresh()
+        } catch {
+            syncState = .failure(bindingId: bindingId)
+        }
+    }
+
     /// Calendar read failures can contain provider or credential-adjacent detail. The existing
     /// refresh control is the safe recovery path without presenting an unavailable day as empty.
     static func calendarLoadFailureMessage(for _: Error) -> String {
         "Calendar events couldn’t be loaded. Nothing has been changed. Refresh to check today again."
     }
+
+    static func calendarBindingsFailureMessage(for _: Error) -> String {
+        "Calendar connections couldn’t be confirmed. Retry before requesting a sync."
+    }
+
+    static let calendarSyncFailureMessage =
+        "Calendar sync couldn’t be started. Nothing has changed. Retry from this connection."
+
+    static let calendarSyncSuccessMessage =
+        "Sync requested. Calendar events will refresh shortly."
 
     /// A blank result only means "no events" after the current day window has completed a
     /// successful read. Before then, or after a failure, the schedule remains unknown.
@@ -153,6 +215,7 @@ public struct CalendarDayView: View {
     // View-local so rapid header/retry activation is rejected before the model's asynchronous
     // loading state can re-render. The calendar read and its data contract remain model-owned.
     @State private var isRefreshInFlight = false
+    @State private var selectedBindingId: String?
     private let onOpenEntity: ((String) -> Void)?
 
     public init(
@@ -164,6 +227,7 @@ public struct CalendarDayView: View {
         _model = StateObject(
             wrappedValue: CalendarDayViewModel(backendURL: backendURL, workspaceId: workspaceId, bearerCredential: bearerCredential)
         )
+        _selectedBindingId = State(initialValue: nil)
         self.onOpenEntity = onOpenEntity
     }
 
@@ -182,6 +246,8 @@ public struct CalendarDayView: View {
                     Button("Refresh") { startRefresh() }
                 }
             }
+
+            calendarConnectionControls
 
             if CalendarDayViewModel.shouldShowEventsLoading(
                 hasLoadedEvents: model.hasLoadedEvents,
@@ -247,7 +313,147 @@ public struct CalendarDayView: View {
             }
         }
         .padding()
-        .task { await refreshOnAppear() }
+        .task {
+            await refreshOnAppear()
+            await model.refreshBindings()
+        }
+        .onChange(of: model.bindings) { _ in
+            selectDefaultBinding()
+        }
+    }
+
+    @ViewBuilder
+    private var calendarConnectionControls: some View {
+        if model.isLoadingBindings {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Checking calendar connections…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        } else if let error = model.bindingsErrorMessage {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Calendar connections unavailable", systemImage: "exclamationmark.triangle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                Button("Retry connections") {
+                    Task { @MainActor in await model.refreshBindings() }
+                }
+                .disabled(model.isLoadingBindings)
+                .accessibilityHint("Retries checking the workspace calendar connections.")
+            }
+        } else if model.bindings.isEmpty {
+            Label("No Google Calendar connections", systemImage: "calendar.badge.exclamationmark")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let selectedBinding {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label("Google Calendar connected", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    if model.bindings.count > 1 {
+                        Menu {
+                            ForEach(model.bindings.indices, id: \.self) { index in
+                                let binding = model.bindings[index]
+                                Button(bindingLabel(for: binding, index: index)) {
+                                    selectedBindingId = binding.id
+                                }
+                            }
+                        } label: {
+                            Label(selectedBindingLabel, systemImage: "rectangle.stack")
+                                .font(.caption)
+                        }
+                        .disabled(isSyncing)
+                        .accessibilityLabel("Select Google Calendar connection")
+                    }
+                }
+                Text(bindingLabel(for: selectedBinding, index: selectedBindingIndex))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button(isSyncing ? "Syncing…" : "Sync now") {
+                        Task { @MainActor in await model.syncGoogleCalendar(bindingId: selectedBinding.id) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSyncing || model.isLoadingBindings)
+                    .accessibilityLabel("Sync selected Google Calendar")
+                    .accessibilityHint("Requests a server sync, then refreshes today’s events.")
+                    switch selectedSyncState {
+                    case .success:
+                        Text(CalendarDayViewModel.calendarSyncSuccessMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.updatesFrequently)
+                    case .failure:
+                        Text(CalendarDayViewModel.calendarSyncFailureMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    case .idle, .syncing:
+                        EmptyView()
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var selectedBinding: RPCGatekeeperBindingSummary? {
+        guard !model.bindings.isEmpty else { return nil }
+        if let selectedBindingId,
+           let selected = model.bindings.first(where: { $0.id == selectedBindingId }) {
+            return selected
+        }
+        return model.bindings.first
+    }
+
+    private var selectedBindingIndex: Int {
+        guard let selectedBinding,
+              let index = model.bindings.firstIndex(where: { $0.id == selectedBinding.id })
+        else { return 0 }
+        return index
+    }
+
+    private var selectedBindingLabel: String {
+        bindingLabel(for: selectedBinding ?? model.bindings[0], index: selectedBindingIndex)
+    }
+
+    private var selectedSyncState: CalendarDayViewModel.SyncState {
+        guard let selectedBinding else { return .idle }
+        switch model.syncState {
+        case .success(let bindingId) where bindingId == selectedBinding.id:
+            return .success(bindingId: bindingId)
+        case .failure(let bindingId) where bindingId == selectedBinding.id:
+            return .failure(bindingId: bindingId)
+        case .syncing(let bindingId) where bindingId == selectedBinding.id:
+            return .syncing(bindingId: bindingId)
+        default:
+            return .idle
+        }
+    }
+
+    private var isSyncing: Bool {
+        if case .syncing = model.syncState { return true }
+        return false
+    }
+
+    private func bindingLabel(for binding: RPCGatekeeperBindingSummary, index: Int) -> String {
+        let mode = binding.mode == "allVisible" ? "All visible calendars" : "Selected calendar"
+        return "Calendar \(index + 1) · \(mode)"
+    }
+
+    private func selectDefaultBinding() {
+        guard let selectedBindingId,
+              model.bindings.contains(where: { $0.id == selectedBindingId })
+        else {
+            self.selectedBindingId = model.bindings.first?.id
+            return
+        }
     }
 
     private var isLoadingEvents: Bool {
@@ -282,5 +488,6 @@ public struct CalendarDayView: View {
     private func completeRefresh() async {
         defer { isRefreshInFlight = false }
         await model.refresh()
+        await model.refreshBindings()
     }
 }

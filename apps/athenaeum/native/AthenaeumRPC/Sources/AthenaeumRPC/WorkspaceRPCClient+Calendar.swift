@@ -17,16 +17,18 @@ import AthenaeumDomain
 // copy... out of this stage's scope").
 //
 // **What this native stage's "minimum real slice" ships in the app UI** (per the task's own
-// scoping): a calendar day view (`listCalendarEvents`) and a bookmarks capture affordance
-// (`createBookmark`/`listBookmarks`) — see `CalendarDayView.swift`/`BookmarksView.swift`
-// (`AthenaeumAppUI`). All eight methods are implemented here (mechanical, same pattern as every
-// other method), and all eight were independently proven end-to-end against the real backend
+// scoping): a calendar day view (`listCalendarEvents`) with server-authoritative binding status and
+// sync-now control, plus a bookmarks capture affordance (`createBookmark`/`listBookmarks`) — see
+// `CalendarDayView.swift`/`BookmarksView.swift` (`AthenaeumAppUI`). All eight methods are
+// implemented here (mechanical, same pattern as every other method), and all eight were
+// independently proven end-to-end against the real backend
 // (`connectGoogleCalendar`/`googleCalendarOAuthCallback`/`syncGoogleCalendar` to seed real
 // `calendarEvents` rows via the scripted calendar double, `listCalendarEvents` with a real
 // `[from, to)` window filter, `createBookmark`/`listBookmarks`, `linkCalendarEventToNode`, and
 // `disconnectGoogleCalendar`; see `Phase5Driver.swift`'s own verification transcript in this
-// stage's report) — but only `listCalendarEvents`/`createBookmark`/`listBookmarks` are wired into
-// the shipped app UI this pass. `connectGoogleCalendar`/`googleCalendarOAuthCallback` (real native
+// stage's report) — but only `listCalendarEvents`/`listGatekeeperBindings`/`syncGoogleCalendar`/
+// `createBookmark`/`listBookmarks` are wired into the shipped app UI this pass. `connectGoogleCalendar`/
+// `googleCalendarOAuthCallback` (real native
 // OAuth browser-redirect handling) and a `disconnectGoogleCalendar`/`linkCalendarEventToNode` UI
 // affordance are explicitly out of scope for the app-UI slice this pass (verified only via the CLI
 // driver) — see this stage's report for why (no real Google OAuth client/account in this
@@ -253,8 +255,8 @@ extension WorkspaceRPCClient {
     }
 
     /// Manually triggers an incremental sync pass for `bindingId` — see `gatekeeper-rpc.ts`'s own
-    /// doc comment: returns only an acknowledgement, not the synced events themselves (poll
-    /// `listCalendarEvents` after).
+    /// doc comment: returns only an acknowledgement, not the synced events themselves (the native
+    /// day view re-reads `listCalendarEvents` after the acknowledgement).
     public func syncGoogleCalendar(bindingId: String) async throws -> Bool {
         let result = try await rpc("syncGoogleCalendar", ["bindingId": .string(bindingId)])
         return try result.field("triggered").boolValue ?? false

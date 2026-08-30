@@ -141,6 +141,19 @@ final class CalendarDayViewTests: XCTestCase {
         ])
     }
 
+    private func bindingSummary(
+        id: String = "calendar-binding-1",
+        mode: String = "selected"
+    ) -> CapnWebValue {
+        .object([
+            "id": .string(id),
+            "workspaceId": .string(workspaceId),
+            "gatekeeperKind": .string("google-calendar"),
+            "mode": .string(mode),
+            "createdAt": .string("2026-08-28T08:00:00.000Z")
+        ])
+    }
+
     func testLoadFailureMessageSuppressesUnderlyingTransportDetails() {
         let error = PrivateTransportError()
         let message = CalendarDayViewModel.calendarLoadFailureMessage(for: error)
@@ -320,5 +333,70 @@ final class CalendarDayViewTests: XCTestCase {
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(try requestMethod(from: requests[0]), "listCalendarEvents")
         XCTAssertEqual(try requestMethod(from: requests[1]), "listCalendarEvents")
+    }
+
+    func testRefreshBindingsUsesSanitizedCatalog() async throws {
+        let model = makeModel(
+            responses: [
+                try resolved(.object(["bindings": .array([bindingSummary()])]))
+            ]
+        )
+
+        await model.refreshBindings()
+
+        XCTAssertNil(model.bindingsErrorMessage)
+        XCTAssertEqual(model.bindings.map(\.id), ["calendar-binding-1"])
+        XCTAssertEqual(model.bindings.first?.mode, "selected")
+        let requests = CalendarDayURLProtocol.requestBodies()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(try requestMethod(from: requests[0]), "listGatekeeperBindings")
+    }
+
+    func testRefreshBindingsSuppressesPrivateTransportDetails() async throws {
+        let privateFailure = "provider=https://calendar.example/api?credential=private-token"
+        let model = makeModel(
+            responses: [
+                CalendarDayHTTPResponse(statusCode: 500, body: Data(privateFailure.utf8))
+            ]
+        )
+
+        await model.refreshBindings()
+
+        XCTAssertEqual(
+            model.bindingsErrorMessage,
+            "Calendar connections couldn’t be confirmed. Retry before requesting a sync."
+        )
+        XCTAssertFalse(model.bindingsErrorMessage?.contains(privateFailure) ?? true)
+    }
+
+    func testSyncGoogleCalendarRequestsConfirmedBindingThenRefreshesEvents() async throws {
+        let model = makeModel(
+            responses: [
+                try resolved(.object(["bindings": .array([bindingSummary()])])),
+                try resolved(.object(["triggered": .bool(true)])),
+                try resolved(.object(["events": .array([])]))
+            ]
+        )
+
+        await model.refreshBindings()
+        await model.syncGoogleCalendar(bindingId: "calendar-binding-1")
+
+        XCTAssertEqual(model.syncState, .success(bindingId: "calendar-binding-1"))
+        XCTAssertTrue(model.hasLoadedEvents)
+        XCTAssertTrue(model.events.isEmpty)
+        let requests = CalendarDayURLProtocol.requestBodies()
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(try requestMethod(from: requests[0]), "listGatekeeperBindings")
+        XCTAssertEqual(try requestMethod(from: requests[1]), "syncGoogleCalendar")
+        XCTAssertEqual(try requestMethod(from: requests[2]), "listCalendarEvents")
+    }
+
+    func testSyncGoogleCalendarRejectsUnconfirmedBinding() async throws {
+        let model = makeModel(responses: [])
+
+        await model.syncGoogleCalendar(bindingId: "not-confirmed")
+
+        XCTAssertEqual(model.syncState, .idle)
+        XCTAssertTrue(CalendarDayURLProtocol.requestBodies().isEmpty)
     }
 }
