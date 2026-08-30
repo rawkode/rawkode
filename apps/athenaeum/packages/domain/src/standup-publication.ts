@@ -116,12 +116,19 @@ export const StandupPublicationReference = Schema.Struct({ kind: Schema.Literal(
 export type StandupPublicationReference = typeof StandupPublicationReference.Type
 export const StandupPublicationCompanionStatus = Schema.Literal("verified-original", "modified", "missing", "unavailable")
 export type StandupPublicationCompanionStatus = typeof StandupPublicationCompanionStatus.Type
+/** The terminal workforce outcome, when this publication has a matching durable run receipt.
+ *
+ * It is deliberately optional: pre-workforce publications are still valid public history and
+ * must not be made unreadable merely because they have no companion receipt row. */
+export const StandupPublicationResultKind = Schema.Literal("completed", "blocked", "failed", "skipped")
+export type StandupPublicationResultKind = typeof StandupPublicationResultKind.Type
 /** Workspace-readable publication projection. It intentionally excludes provenance, authority, commands, receipts, and diagnostics. */
 export class StandupPublication extends Schema.Class<StandupPublication>("StandupPublication")({
   id: EntityId, civilDate: Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/)),
   microEmployeeLabel: Schema.String.pipe(Schema.minLength(1)), jobLabel: Schema.String.pipe(Schema.minLength(1)), workflowLabel: Schema.String.pipe(Schema.minLength(1)), scheduleLabel: Schema.String.pipe(Schema.minLength(1)),
   microEmployee: StandupPublicationReference, job: StandupPublicationReference, workflow: StandupPublicationReference, schedule: StandupPublicationReference, councilRefs: Schema.Array(StandupPublicationReference),
-  originalText: Schema.String.pipe(Schema.minLength(1)), publishedAt: IsoDateTimeString, childNodeId: EntityId, companionStatus: StandupPublicationCompanionStatus
+  originalText: Schema.String.pipe(Schema.minLength(1)), publishedAt: IsoDateTimeString, childNodeId: EntityId, companionStatus: StandupPublicationCompanionStatus,
+  resultKind: Schema.optional(StandupPublicationResultKind)
 }) {}
 export class ListStandupPublicationsInput extends Schema.Class<ListStandupPublicationsInput>("ListStandupPublicationsInput")({ workspaceId: EntityId, dailyNoteId: EntityId }) {}
 export class ListStandupPublicationsOutput extends Schema.Class<ListStandupPublicationsOutput>("ListStandupPublicationsOutput")({ publications: Schema.Array(StandupPublication) }) {}

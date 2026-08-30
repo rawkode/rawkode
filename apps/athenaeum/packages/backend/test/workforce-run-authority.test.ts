@@ -30,7 +30,11 @@ import { connectToWorkspaceAsTestUser, freshWorkspaceId, rejectionToDomainError,
 
 const ref = (kind: string, id: string, version = "v1") => ({ kind, id, version })
 
-const workforceInput = (workspaceId: string, reportText = "Profile enriched") => {
+const workforceInput = (
+  workspaceId: string,
+  reportText = "Profile enriched",
+  resultKind: "completed" | "blocked" | "failed" | "skipped" = "completed"
+) => {
   const microEmployee = ref("microEmployee", "assistant")
   const job = ref("job", "enrich")
   const workflow = ref("workflow", "daily")
@@ -38,7 +42,7 @@ const workforceInput = (workspaceId: string, reportText = "Profile enriched") =>
   const council = ref("council", "review")
   const run = { microEmployee, job, workflow, runId: "run-1" }
   const occurrence = { schedule, occurrenceId: "morning", civilDate: "2026-08-29" }
-  const result = { kind: "completed", summary: reportText }
+  const result = { kind: resultKind, summary: reportText }
   return {
     workspaceId,
     reportText,
@@ -151,6 +155,7 @@ describe("workforce run authority", () => {
     ))
     expect(publications.publications).toHaveLength(1)
     expect(publications.publications[0]?.companionStatus).toBe("modified")
+    expect(publications.publications[0]?.resultKind).toBe("completed")
 
     const beforeReplay = await native.debugGetLedgerArtifactCounts()
     const replay = await native.admitWorkforceRun(input)
@@ -167,6 +172,64 @@ describe("workforce run authority", () => {
     expect(conflict.message).toMatch(/workforce run conflict|request identity|different immutable/i)
     expect(await native.debugGetLedgerArtifactCounts()).toEqual(beforeReplay)
   })
+
+  it.each(["completed", "blocked", "failed", "skipped"] as const)(
+    "projects the immutable %s terminal outcome and keeps it stable on replay",
+    async (resultKind) => {
+      const workspaceId = freshWorkspaceId()
+      const native = workspaceDurableObjectStub(workspaceId) as unknown as {
+        admitWorkforceRun(input: unknown): Promise<Record<string, unknown>>
+      }
+      const input = workforceInput(workspaceId, `Outcome: ${resultKind}`, resultKind)
+      const first = await native.admitWorkforceRun(input)
+      expect(first).toMatchObject({ replayed: false, resultKind })
+
+      const workspace = await connectToWorkspaceAsTestUser(workspaceId)
+      try {
+        const publications = Schema.decodeUnknownSync(ListStandupPublicationsOutput)(await workspace.listStandupPublications(
+          Schema.encodeSync(ListStandupPublicationsInput)(new ListStandupPublicationsInput({ workspaceId, dailyNoteId: first.dailyNoteId as EntityId }))
+        ))
+        expect(publications.publications).toHaveLength(1)
+        expect(publications.publications[0]).toMatchObject({
+          id: first.publicationId,
+          originalText: `Outcome: ${resultKind}`,
+          resultKind
+        })
+
+        const replay = await native.admitWorkforceRun(input)
+        expect(replay).toMatchObject({ replayed: true, publicationId: first.publicationId, resultKind })
+        const replayedProjection = Schema.decodeUnknownSync(ListStandupPublicationsOutput)(await workspace.listStandupPublications(
+          Schema.encodeSync(ListStandupPublicationsInput)(new ListStandupPublicationsInput({ workspaceId, dailyNoteId: first.dailyNoteId as EntityId }))
+        ))
+        expect(replayedProjection.publications[0]?.resultKind).toBe(resultKind)
+      } finally {
+        workspace[Symbol.dispose]()
+      }
+    }
+  )
+
+  it.each(["resultKind", "workspaceRow"] as const)(
+    "fails closed when the workforce receipt %s binding is tampered",
+    async (corruption) => {
+      const workspaceId = freshWorkspaceId()
+      const native = workspaceDurableObjectStub(workspaceId) as unknown as {
+        admitWorkforceRun(input: unknown): Promise<Record<string, unknown>>
+        debugCorruptWorkforceRunReceipt(publicationId: string, corruption: "resultKind" | "workspaceRow"): Promise<void>
+      }
+      const first = await native.admitWorkforceRun(workforceInput(workspaceId))
+      await native.debugCorruptWorkforceRunReceipt(first.publicationId as string, corruption)
+      const workspace = await connectToWorkspaceAsTestUser(workspaceId)
+      try {
+        const failure = await rejectionToDomainError(workspace.listStandupPublications(
+          Schema.encodeSync(ListStandupPublicationsInput)(new ListStandupPublicationsInput({ workspaceId, dailyNoteId: first.dailyNoteId as EntityId }))
+        ))
+        expect(failure._tag).toBe("UnexpectedError")
+        expect(failure.message).toBe("standup publication workforce receipt failure")
+      } finally {
+        workspace[Symbol.dispose]()
+      }
+    }
+  )
 
   it("rejects a cross-workspace admission before any durable write", async () => {
     const workspaceId = freshWorkspaceId()

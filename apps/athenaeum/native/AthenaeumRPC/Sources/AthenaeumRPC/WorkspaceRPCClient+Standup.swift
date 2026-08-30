@@ -23,7 +23,21 @@ private func decodeStandupReference(_ value: CapnWebValue) throws -> StandupPubl
     return StandupPublicationReference(kind: kind, id: id, version: version)
 }
 
-private func decodeStandupPublication(_ value: CapnWebValue) throws -> StandupPublication {
+private func decodeStandupPublicationResultKind(_ value: CapnWebValue) throws -> StandupPublicationResultKind? {
+    switch value {
+    case .null, .undefined:
+        return nil
+    case .string(let rawValue):
+        guard let resultKind = StandupPublicationResultKind(rawValue: rawValue) else {
+            throw StandupPublicationRPCError.malformedResponse
+        }
+        return resultKind
+    default:
+        throw StandupPublicationRPCError.malformedResponse
+    }
+}
+
+func decodeStandupPublication(_ value: CapnWebValue) throws -> StandupPublication {
     do {
         guard let id = try value.field("id").stringValue,
               let civilDate = try value.field("civilDate").stringValue,
@@ -60,7 +74,8 @@ private func decodeStandupPublication(_ value: CapnWebValue) throws -> StandupPu
             originalText: originalText,
             publishedAt: try IsoDateTimeString(validating: publishedAt),
             childNodeId: try EntityId(validating: childNodeId),
-            companionStatus: status
+            companionStatus: status,
+            resultKind: try decodeStandupPublicationResultKind(value.field("resultKind"))
         )
     } catch is StandupPublicationRPCError {
         throw StandupPublicationRPCError.malformedResponse

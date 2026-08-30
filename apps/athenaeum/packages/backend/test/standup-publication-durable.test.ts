@@ -413,6 +413,9 @@ describe.sequential("durable standup publication authority adapter", () => {
 					companionStatus: "verified-original",
 				}),
 			]);
+			// A publication written before workforce receipts existed remains readable, with no
+			// invented terminal outcome in its public projection.
+			expect(beforeEviction.publications[0]?.resultKind).toBeUndefined();
 
 			stub[Symbol.dispose]();
 			await evictDurableObject(workspaceDurableObjectStub(workspaceId));

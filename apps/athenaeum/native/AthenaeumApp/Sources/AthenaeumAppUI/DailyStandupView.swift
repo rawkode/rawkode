@@ -298,13 +298,42 @@ public struct DailyStandupView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(publications, id: \.id) { publication in
-                        EmployeeUpdateRow(
-                            publication: publication,
-                            onOpen: onOpenEmployeeUpdate
+                    let partitions = EmployeeUpdatePresentation.partition(publications)
+                    if !partitions.needsAttention.isEmpty {
+                        employeeUpdateGroup(
+                            title: "Needs attention",
+                            publications: partitions.needsAttention,
+                            isAttention: true
+                        )
+                    }
+                    if !partitions.updates.isEmpty {
+                        employeeUpdateGroup(
+                            title: "Updates",
+                            publications: partitions.updates,
+                            isAttention: false
                         )
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func employeeUpdateGroup(
+        title: String,
+        publications: [StandupPublication],
+        isAttention: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(isAttention ? .red : .primary)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(publications, id: \.id) { publication in
+                EmployeeUpdateRow(
+                    publication: publication,
+                    onOpen: onOpenEmployeeUpdate
+                )
             }
         }
     }
@@ -477,6 +506,48 @@ private struct DailyStandupEntryRow: View {
 }
 
 enum EmployeeUpdatePresentation {
+    struct Outcome: Equatable, Sendable {
+        let label: String
+        let systemImage: String
+        let isAttention: Bool
+    }
+
+    struct Partitions: Equatable, Sendable {
+        let needsAttention: [StandupPublication]
+        let updates: [StandupPublication]
+    }
+
+    /// Keep the server's publication order within each section. The order is already a durable
+    /// projection order, so client-side timestamp sorting would make equal timestamps unstable.
+    static func partition(_ publications: [StandupPublication]) -> Partitions {
+        var needsAttention: [StandupPublication] = []
+        var updates: [StandupPublication] = []
+        for publication in publications {
+            switch publication.resultKind {
+            case .blocked, .failed:
+                needsAttention.append(publication)
+            case .completed, .skipped, .none:
+                updates.append(publication)
+            }
+        }
+        return Partitions(needsAttention: needsAttention, updates: updates)
+    }
+
+    static func outcome(for resultKind: StandupPublicationResultKind?) -> Outcome? {
+        switch resultKind {
+        case .completed:
+            return Outcome(label: "Completed", systemImage: "checkmark.circle", isAttention: false)
+        case .blocked:
+            return Outcome(label: "Blocked", systemImage: "exclamationmark.triangle", isAttention: true)
+        case .failed:
+            return Outcome(label: "Failed", systemImage: "xmark.octagon", isAttention: true)
+        case .skipped:
+            return Outcome(label: "Skipped", systemImage: "minus.circle", isAttention: false)
+        case .none:
+            return nil
+        }
+    }
+
     static func canOpenCompanion(
         status: StandupPublicationCompanionStatus,
         hasOpenAction: Bool
@@ -501,6 +572,11 @@ private struct EmployeeUpdateRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             VStack(alignment: .leading, spacing: 5) {
+                if let outcome = EmployeeUpdatePresentation.outcome(for: publication.resultKind) {
+                    Label(outcome.label, systemImage: outcome.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(outcome.isAttention ? .red : .secondary)
+                }
                 Text(publication.originalText)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)

@@ -5,10 +5,16 @@ import { createRoot, type Root } from "react-dom/client"
 import { MemoryRouter } from "react-router"
 import { EntityId, type StandupPublication } from "@athenaeum/domain"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { EmployeeUpdates, type EmployeeUpdatesState } from "./EmployeeUpdates.js"
+import {
+  EmployeeUpdates,
+  partitionEmployeeUpdates,
+  type EmployeeUpdatePublication,
+  type EmployeeUpdateResultKind,
+  type EmployeeUpdatesState,
+} from "./EmployeeUpdates.js"
 
 const childNodeId = EntityId.make("00000000-0000-4000-8000-000000000011")
-const publication: StandupPublication = {
+const publication: EmployeeUpdatePublication = {
   id: EntityId.make("00000000-0000-4000-8000-000000000010"), civilDate: "2026-08-28",
   microEmployeeLabel: "Researcher", jobLabel: "Daily scan", workflowLabel: "Morning", scheduleLabel: "Weekdays",
   microEmployee: { kind: "microEmployee" as const, id: "researcher", version: "1" },
@@ -16,6 +22,19 @@ const publication: StandupPublication = {
   schedule: { kind: "schedule" as const, id: "weekdays", version: "1" }, councilRefs: [], publishedAt: "2026-08-28T08:00:00.000Z" as StandupPublication["publishedAt"],
   originalText: "Finished line one\n<script>alert('x')</script>", childNodeId, companionStatus: "verified-original" as const
 }
+
+const makePublication = (
+  suffix: string,
+  resultKind?: EmployeeUpdateResultKind,
+  companionStatus: EmployeeUpdatePublication["companionStatus"] = "verified-original",
+): EmployeeUpdatePublication => ({
+  ...publication,
+  id: EntityId.make(`00000000-0000-4000-8000-${suffix.padStart(12, "0")}`),
+  childNodeId: EntityId.make(`00000000-0000-4000-8000-1${suffix.padStart(11, "0")}`),
+  originalText: `Update ${suffix}`,
+  resultKind,
+  companionStatus,
+})
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const mount = async (state: EmployeeUpdatesState, onRetry?: () => void) => {
@@ -38,6 +57,35 @@ describe("EmployeeUpdates presentation", () => {
     expect(host.textContent).toContain("Schedule: Weekdays")
     expect(host.textContent).toContain("Original update verified.")
     expect(host.querySelector("a")?.getAttribute("href")).toBe(`/node/${childNodeId}`)
+    expect(host.querySelector(".employee-update-outcome")).toBeNull()
+  })
+
+  it("stably partitions every outcome while preserving source order and leaving nil unlabeled", async () => {
+    const mixed = [
+      makePublication("020", "completed"),
+      makePublication("021", "blocked"),
+      makePublication("022", "failed"),
+      makePublication("023", "skipped"),
+      makePublication("024"),
+    ]
+    const partitions = partitionEmployeeUpdates(mixed)
+    expect(partitions.needsAttention.map(({ id }) => id)).toEqual([mixed[1]!.id, mixed[2]!.id])
+    expect(partitions.updates.map(({ id }) => id)).toEqual([mixed[0]!.id, mixed[3]!.id, mixed[4]!.id])
+
+    const host = await mount({ status: "success", publications: mixed })
+    expect(host.querySelector("#employee-updates-attention-title")?.textContent).toBe("Needs attention")
+    expect(host.querySelector("#employee-updates-updates-title")?.textContent).toBe("Updates")
+    expect(host.querySelectorAll(".employee-updates-list")).toHaveLength(2)
+    expect(host.querySelector(".employee-updates-group-attention")?.textContent).toContain("Blocked")
+    expect(host.querySelector(".employee-updates-group-attention")?.textContent).toContain("Failed")
+    expect(host.querySelector(".employee-updates-group-updates")?.textContent).toContain("Completed")
+    expect(host.querySelector(".employee-updates-group-updates")?.textContent).toContain("Skipped")
+    expect(host.querySelectorAll(".employee-update-outcome")).toHaveLength(4)
+
+    const attentionTexts = [...host.querySelectorAll(".employee-updates-group-attention .employee-update-text")].map((node) => node.textContent)
+    const updateTexts = [...host.querySelectorAll(".employee-updates-group-updates .employee-update-text")].map((node) => node.textContent)
+    expect(attentionTexts).toEqual(["Update 021", "Update 022"])
+    expect(updateTexts).toEqual(["Update 020", "Update 023", "Update 024"])
   })
 
   it("keeps loading and failure distinct from a successful empty result", async () => {
@@ -54,5 +102,18 @@ describe("EmployeeUpdates presentation", () => {
     expect(missing.querySelector("a")).toBeNull()
     const unavailable = await mount({ status: "success", publications: [{ ...publication, companionStatus: "unavailable" }] })
     expect(unavailable.querySelector("a")).toBeNull()
+  })
+
+  it("keeps companion status and link policy independent from outcome grouping", async () => {
+    const modifiedBlocked = makePublication("030", "blocked", "modified")
+    const missingCompleted = makePublication("031", "completed", "missing")
+    const host = await mount({ status: "success", publications: [modifiedBlocked, missingCompleted] })
+
+    expect(host.querySelector(".employee-updates-group-attention")?.textContent).toContain("Blocked")
+    expect(host.querySelector(".employee-updates-group-attention")?.textContent).toContain("This update may have changed since publication.")
+    expect(host.querySelector(".employee-updates-group-attention a")?.getAttribute("href")).toBe(`/node/${modifiedBlocked.childNodeId}`)
+    expect(host.querySelector(".employee-updates-group-updates")?.textContent).toContain("Completed")
+    expect(host.querySelector(".employee-updates-group-updates")?.textContent).toContain("The companion update is no longer available.")
+    expect(host.querySelector(".employee-updates-group-updates a")).toBeNull()
   })
 })

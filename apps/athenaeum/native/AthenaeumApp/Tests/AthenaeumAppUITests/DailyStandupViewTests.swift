@@ -27,6 +27,32 @@ private actor EmployeePublicationCallCounter {
 
 @MainActor
 final class DailyStandupViewTests: XCTestCase {
+    func testEmployeeUpdatesPartitionOutcomesWithoutReorderingOrLabelingLegacyRows() throws {
+        let publications = try [
+            makePublication(id: "00000000-0000-4000-8000-000000000201", resultKind: .completed),
+            makePublication(id: "00000000-0000-4000-8000-000000000202", resultKind: .blocked),
+            makePublication(id: "00000000-0000-4000-8000-000000000203", resultKind: .failed),
+            makePublication(id: "00000000-0000-4000-8000-000000000204", resultKind: .skipped),
+            makePublication(id: "00000000-0000-4000-8000-000000000205")
+        ]
+
+        let partitions = EmployeeUpdatePresentation.partition(publications)
+
+        XCTAssertEqual(
+            partitions.needsAttention.map(\.id),
+            [publications[1].id, publications[2].id]
+        )
+        XCTAssertEqual(
+            partitions.updates.map(\.id),
+            [publications[0].id, publications[3].id, publications[4].id]
+        )
+        XCTAssertEqual(EmployeeUpdatePresentation.outcome(for: .completed)?.label, "Completed")
+        XCTAssertEqual(EmployeeUpdatePresentation.outcome(for: .blocked)?.label, "Blocked")
+        XCTAssertEqual(EmployeeUpdatePresentation.outcome(for: .failed)?.label, "Failed")
+        XCTAssertEqual(EmployeeUpdatePresentation.outcome(for: .skipped)?.label, "Skipped")
+        XCTAssertNil(EmployeeUpdatePresentation.outcome(for: nil))
+    }
+
     func testEmployeeUpdateOpenActionRequiresHealthyCompanionAndCallback() {
         let statuses: [StandupPublicationCompanionStatus] = [
             .verifiedOriginal, .modified, .missing, .unavailable
@@ -258,7 +284,10 @@ final class DailyStandupViewTests: XCTestCase {
         }
     }
 
-    private func makePublication(id: String) throws -> StandupPublication {
+    private func makePublication(
+        id: String,
+        resultKind: StandupPublicationResultKind? = nil
+    ) throws -> StandupPublication {
         let reference = StandupPublicationReference(kind: "job", id: "daily-standup", version: "v1")
         return StandupPublication(
             id: try EntityId(validating: id),
@@ -275,7 +304,8 @@ final class DailyStandupViewTests: XCTestCase {
             originalText: "Prepared the daily brief.",
             publishedAt: try IsoDateTimeString(validating: "2026-08-30T08:00:00.000Z"),
             childNodeId: try EntityId(validating: "00000000-0000-4000-8000-000000000115"),
-            companionStatus: .verifiedOriginal
+            companionStatus: .verifiedOriginal,
+            resultKind: resultKind
         )
     }
 }

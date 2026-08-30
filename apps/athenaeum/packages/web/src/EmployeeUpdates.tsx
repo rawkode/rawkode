@@ -1,10 +1,41 @@
 import { Link } from "react-router"
-import type { StandupPublication } from "@athenaeum/domain"
+import type { StandupPublication, StandupPublicationResultKindType } from "@athenaeum/domain"
+
+export type EmployeeUpdateResultKind = StandupPublicationResultKindType
+export type EmployeeUpdatePublication = StandupPublication & {
+  /** Optional while older publications are read during the resultKind rollout. */
+  readonly resultKind?: EmployeeUpdateResultKind
+}
 
 export type EmployeeUpdatesState =
   | { readonly status: "loading" }
   | { readonly status: "failure" }
-  | { readonly status: "success"; readonly publications: readonly StandupPublication[] }
+  | { readonly status: "success"; readonly publications: readonly EmployeeUpdatePublication[] }
+
+export type EmployeeUpdatePartitions = {
+  readonly needsAttention: readonly EmployeeUpdatePublication[]
+  readonly updates: readonly EmployeeUpdatePublication[]
+}
+
+/**
+ * Partitions publications without changing their source order. In particular, no timestamp
+ * sort belongs here: publication order is the server's deliberate order, and stable partitioning
+ * keeps equal timestamps deterministic while still separating exceptions from routine updates.
+ */
+export const partitionEmployeeUpdates = (
+  publications: readonly EmployeeUpdatePublication[],
+): EmployeeUpdatePartitions => {
+  const needsAttention: EmployeeUpdatePublication[] = []
+  const updates: EmployeeUpdatePublication[] = []
+  for (const publication of publications) {
+    if (publication.resultKind === "blocked" || publication.resultKind === "failed") {
+      needsAttention.push(publication)
+    } else {
+      updates.push(publication)
+    }
+  }
+  return { needsAttention, updates }
+}
 
 const companionStatusMessage = (status: StandupPublication["companionStatus"]): string => {
   switch (status) {
@@ -15,11 +46,49 @@ const companionStatusMessage = (status: StandupPublication["companionStatus"]): 
   }
 }
 
+const resultKindPresentation: Record<EmployeeUpdateResultKind, { readonly label: string; readonly icon: string }> = {
+  completed: { label: "Completed", icon: "✓" },
+  blocked: { label: "Blocked", icon: "!" },
+  failed: { label: "Failed", icon: "×" },
+  skipped: { label: "Skipped", icon: "–" },
+}
+
+const canOpenCompanion = (publication: EmployeeUpdatePublication): boolean =>
+  publication.companionStatus === "verified-original" || publication.companionStatus === "modified"
+
 /** A read-only, privacy-safe projection of workforce updates attached to a daily note. */
 export function EmployeeUpdates({ state, onRetry }: {
   readonly state: EmployeeUpdatesState
   readonly onRetry?: () => void
 }) {
+  const partitions = state.status === "success" ? partitionEmployeeUpdates(state.publications) : undefined
+
+  const renderPublication = (publication: EmployeeUpdatePublication) => {
+    const result = publication.resultKind === undefined ? undefined : resultKindPresentation[publication.resultKind]
+    return (
+      <li key={publication.id} className="employee-update">
+        <div className="employee-update-labels">
+          <span>Employee: {publication.microEmployeeLabel}</span>
+          <span>Job: {publication.jobLabel}</span>
+          <span>Workflow: {publication.workflowLabel}</span>
+          <span>Schedule: {publication.scheduleLabel}</span>
+        </div>
+        <p className="employee-update-text">{publication.originalText}</p>
+        <div className="employee-update-status">
+          {result !== undefined && (
+            <span className={`employee-update-outcome employee-update-outcome-${publication.resultKind}`}>
+              <span aria-hidden="true">{result.icon}</span>{" "}{result.label}
+            </span>
+          )}
+          <span>{companionStatusMessage(publication.companionStatus)}</span>
+          {canOpenCompanion(publication) && (
+            <Link to={`/node/${publication.childNodeId}`}>Open update</Link>
+          )}
+        </div>
+      </li>
+    )
+  }
+
   return (
     <section className="employee-updates" aria-labelledby="employee-updates-title">
       <div className="employee-updates-heading">
@@ -39,26 +108,21 @@ export function EmployeeUpdates({ state, onRetry }: {
       {state.status === "success" && state.publications.length === 0 && (
         <p className="ledger-activity-state">No published employee updates for this note yet.</p>
       )}
-      {state.status === "success" && state.publications.length > 0 && (
-        <ol className="employee-updates-list">
-          {state.publications.map((publication) => (
-            <li key={publication.id} className="employee-update">
-              <div className="employee-update-labels">
-                <span>Employee: {publication.microEmployeeLabel}</span>
-                <span>Job: {publication.jobLabel}</span>
-                <span>Workflow: {publication.workflowLabel}</span>
-                <span>Schedule: {publication.scheduleLabel}</span>
-              </div>
-              <p className="employee-update-text">{publication.originalText}</p>
-              <p className="employee-update-status">
-                {companionStatusMessage(publication.companionStatus)}{" "}
-                {(publication.companionStatus === "verified-original" || publication.companionStatus === "modified") && (
-                  <Link to={`/node/${publication.childNodeId}`}>Open update</Link>
-                )}
-              </p>
-            </li>
-          ))}
-        </ol>
+      {state.status === "success" && partitions !== undefined && partitions.needsAttention.length > 0 && (
+        <div className="employee-updates-group employee-updates-group-attention">
+          <h3 id="employee-updates-attention-title">Needs attention</h3>
+          <ol className="employee-updates-list" aria-labelledby="employee-updates-attention-title">
+            {partitions.needsAttention.map(renderPublication)}
+          </ol>
+        </div>
+      )}
+      {state.status === "success" && partitions !== undefined && partitions.updates.length > 0 && (
+        <div className="employee-updates-group employee-updates-group-updates">
+          <h3 id="employee-updates-updates-title">Updates</h3>
+          <ol className="employee-updates-list" aria-labelledby="employee-updates-updates-title">
+            {partitions.updates.map(renderPublication)}
+          </ol>
+        </div>
       )}
     </section>
   )

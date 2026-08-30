@@ -646,8 +646,26 @@ const projectStandupPublication = (
   nodes: Context.Tag.Service<typeof NodesRepository>,
   loro: Context.Tag.Service<typeof LoroPageService>,
   row: StandupPublicationAuthorityRead,
+  workforceReceipt: WorkforceRunReceiptV1 | undefined,
 ): Effect.Effect<StandupPublication, UnexpectedError> =>
   Effect.gen(function* () {
+    const resultKind = yield* Effect.try({
+      try: () => {
+        if (workforceReceipt === undefined) return undefined
+        const publication = row.publication
+        if (
+          workforceReceipt.publicationId !== publication.publicationId ||
+          workforceReceipt.workspaceId !== publication.workspaceId ||
+          workforceReceipt.dailyNoteId !== publication.dailyNoteId ||
+          workforceReceipt.civilDate !== publication.civilDate ||
+          workforceReceipt.childNodeId !== publication.childNodeId ||
+          workforceReceipt.committedAt !== publication.publishedAt ||
+          workforceReceipt.resultSummary !== publication.originalText
+        ) throw new Error("receipt does not bind to its publication")
+        return workforceReceipt.resultKind
+      },
+      catch: () => new UnexpectedError({ message: "corrupt standup publication workforce receipt" }),
+    })
     const childNodeId = yield* Effect.try({
       try: () =>
         Schema.decodeUnknownSync(EntityId)(row.publication.childNodeId),
@@ -680,6 +698,7 @@ const projectStandupPublication = (
           publishedAt: row.publication.publishedAt,
           childNodeId,
           companionStatus,
+          ...(resultKind === undefined ? {} : { resultKind }),
         }),
       catch: (error) =>
         new UnexpectedError({
@@ -1006,6 +1025,7 @@ class WorkspaceRpcApi extends RpcTarget {
   readonly #ledger: LedgerService
   readonly #storage: DurableObjectStorage
   readonly #standupPublicationStore: DurableStandupPublicationAuthorityStore
+  readonly #workforceRunStore: DurableWorkforceRunReceiptStore
 
   constructor(
     runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>,
@@ -1017,7 +1037,8 @@ class WorkspaceRpcApi extends RpcTarget {
     liveVoiceAudioSessions: Map<string, LiveVoiceAudioSessionHandle>,
     devAuthHmacSecret: string | undefined,
     storage: DurableObjectStorage,
-    standupPublicationStore: DurableStandupPublicationAuthorityStore
+    standupPublicationStore: DurableStandupPublicationAuthorityStore,
+    workforceRunStore: DurableWorkforceRunReceiptStore
   ) {
     super()
     this.#runtime = runtime
@@ -1030,6 +1051,7 @@ class WorkspaceRpcApi extends RpcTarget {
     this.#devAuthHmacSecret = devAuthHmacSecret
     this.#storage = storage
     this.#standupPublicationStore = standupPublicationStore
+    this.#workforceRunStore = workforceRunStore
     this.#ledger = new LedgerService(sql)
   }
 
@@ -3112,6 +3134,7 @@ class WorkspaceRpcApi extends RpcTarget {
   async listStandupPublications(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
     const store = this.#standupPublicationStore
+    const workforceRunStore = this.#workforceRunStore
     const program = decodeRpcInput(ListStandupPublicationsInput, input).pipe(
       Effect.tap((decoded) =>
         requireOwnWorkspace(this.#workspaceId, decoded.workspaceId),
@@ -3133,8 +3156,16 @@ class WorkspaceRpcApi extends RpcTarget {
               }),
           })
           const publications: StandupPublication[] = []
-          for (const row of rows)
-            publications.push(yield* projectStandupPublication(nodes, loro, row))
+          for (const row of rows) {
+            // The receipt table is joined solely through the immutable public publication id.
+            // `getByPublicationId` rebinds its denormalized SQL row before projection; the
+            // projection below then proves the complete public counterpart identity.
+            const receipt = yield* Effect.try({
+              try: () => workforceRunStore.getByPublicationId(row.publication.publicationId),
+              catch: () => new UnexpectedError({ message: "standup publication workforce receipt failure" }),
+            })
+            publications.push(yield* projectStandupPublication(nodes, loro, row, receipt))
+          }
           return new ListStandupPublicationsOutput({ publications })
         }),
       ),
@@ -4960,7 +4991,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.#liveVoiceAudioSessions,
           this.env.DEV_AUTH_HMAC_SECRET,
           this.#storage,
-          this.#standupPublicationStore
+          this.#standupPublicationStore,
+          this.#workforceRunStore
         )
       )
       return new Response(null, { status: 101, webSocket: client })
@@ -4979,7 +5011,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.#liveVoiceAudioSessions,
           this.env.DEV_AUTH_HMAC_SECRET,
           this.#storage,
-          this.#standupPublicationStore
+          this.#standupPublicationStore,
+          this.#workforceRunStore
         )
       )
       response.headers.set("Access-Control-Allow-Origin", "*")
@@ -5673,6 +5706,37 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
   async debugDeleteWorkforceChild(nodeId: string): Promise<void> {
     const decodedNodeId = Schema.decodeUnknownSync(EntityId)(nodeId)
     await Effect.runPromise(this.#collections.nodes.delete(decodedNodeId))
+  }
+
+  /** Test-only hostile-storage seam for the receipt/public-projection boundary. It is deliberately
+   * native-RPC-only and accepts just the two mismatches the durable reader must reject: a stored
+   * terminal kind that disagrees with the immutable definition bundle, or a SQL workspace column
+   * that disagrees with an otherwise valid receipt payload. */
+  async debugCorruptWorkforceRunReceipt(
+    publicationId: string,
+    corruption: "resultKind" | "workspaceRow",
+  ): Promise<void> {
+    const decodedPublicationId = Schema.decodeUnknownSync(EntityId)(publicationId)
+    const row = this.#sql.exec<{ value: string }>(
+      "SELECT value FROM workforce_runs WHERE publicationId = ?",
+      decodedPublicationId,
+    ).toArray()[0]
+    if (row === undefined) throw new Error("workforce receipt not found")
+    if (corruption === "resultKind") {
+      const receipt = JSON.parse(row.value) as { resultKind?: unknown }
+      receipt.resultKind = receipt.resultKind === "completed" ? "failed" : "completed"
+      this.#sql.exec(
+        "UPDATE workforce_runs SET value = ? WHERE publicationId = ?",
+        JSON.stringify(receipt),
+        decodedPublicationId,
+      )
+      return
+    }
+    this.#sql.exec(
+      "UPDATE workforce_runs SET workspaceId = ? WHERE publicationId = ?",
+      "00000000-0000-4000-8000-000000000099",
+      decodedPublicationId,
+    )
   }
 
   /** Test-only aggregate witness for the workforce transaction. Collection rows and the SQL

@@ -3839,6 +3839,19 @@
   justify-content: space-between;
 }
 
+.employee-updates-group + .employee-updates-group {
+  margin-top: var(--space-5);
+}
+
+.employee-updates-group h3 {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+
+.employee-updates-group-attention h3 {
+  color: var(--color-danger, var(--color-text));
+}
+
 .employee-updates-list {
   display: grid;
   gap: var(--space-3);
@@ -3858,8 +3871,25 @@
 }
 
 .employee-update-status {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
   color: var(--color-text-faint);
   font-size: var(--text-xs);
+}
+
+.employee-update-outcome {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.employee-update-outcome-blocked,
+.employee-update-outcome-failed {
+  color: var(--color-danger, var(--color-text));
 }
 
 @media (max-width: 36rem) {

@@ -420,6 +420,7 @@ const parseReceipt = (value: string): WorkforceRunReceiptV1 => {
     admission.terminalEventDigest !== record.terminalEventDigest ||
     admission.terminalFact.factId !== record.terminalFactId ||
     admission.terminalFactDigest !== record.terminalFactDigest ||
+    admission.terminal.result.kind !== record.resultKind ||
     admission.reportDigest !== record.reportDigest ||
     admission.reportByteLength !== record.reportByteLength ||
     admission.commitMessage !== record.commitMessage ||
@@ -487,6 +488,31 @@ export class DurableWorkforceRunReceiptStore {
       occurrenceId
     ).toArray()[0]
     return row === undefined ? undefined : parseReceipt(row.value)
+  }
+
+  /** Resolve the receipt companion for one immutable publication. The SQL index is only an
+   * accelerator: each denormalized key is rebound to the self-validating receipt before callers
+   * can use it, so a substituted row can never acquire another publication's public outcome. */
+  getByPublicationId(publicationId: string): WorkforceRunReceiptV1 | undefined {
+    const row = this.sql.exec<{
+      publicationId: string
+      workspaceId: string
+      runId: string
+      occurrenceId: string
+      value: string
+    }>(
+      "SELECT publicationId, workspaceId, runId, occurrenceId, value FROM workforce_runs WHERE publicationId = ?",
+      publicationId
+    ).toArray()[0]
+    if (row === undefined) return undefined
+    const receipt = parseReceipt(row.value)
+    if (
+      row.publicationId !== receipt.publicationId ||
+      row.workspaceId !== receipt.workspaceId ||
+      row.runId !== receipt.runId ||
+      row.occurrenceId !== receipt.occurrenceId
+    ) throw new Error("corrupt workforce run receipt row binding")
+    return receipt
   }
 
   stage(receipt: WorkforceRunReceiptV1): void {
