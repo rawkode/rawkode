@@ -25,9 +25,10 @@
 // good enough to give every occurrence a real, stable `masterRecordId` to point at, which is the
 // property `calendar-event.ts`'s own doc comment names as the important one: "what lets a client
 // resolve which master row does this occurrence belong to with a single indexed lookup").
-// `occurrenceId` uses the occurrence's CURRENT `start` (not its ORIGINAL pre-any-edit start, which
-// this stage has no way to know on a first sync) — another documented simplification of
-// `calendar-event.ts`'s own "stable across a cancel-then-reappear cycle" ideal.
+// `occurrenceId` uses Google's `originalStartTime`, which remains stable when an instance is moved,
+// cancelled, or reissued with a new provider id. Older/scripted payloads without that field use
+// `start` as an explicitly bounded migration fallback; real Google payloads carry the stable
+// original occurrence coordinate.
 //
 // **Observer verification (task: "wire the observer verification mechanism into the REAL Phase 4
 // SharingService")** — `verifyObserver`/`isCalendarContentVisible`/`hiddenCalendarDerivedNodeIds`

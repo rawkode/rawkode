@@ -11,8 +11,9 @@
 //     a handful of bindings total across every gatekeeper kind it will ever have).
 //   - `calendarEvents` — one row per synced `CalendarEvent` (domain's own entity, see that
 //     file's header comment for the master/occurrence identity semantics), keyed by `id`, with a
-//     `byWorkspaceId` index (`listCalendarEvents`) and a `byProviderEventId` index (sync-loop upsert:
-//     "does a row for this provider event already exist" without a full-workspace scan).
+//     `byWorkspaceId` index (`listCalendarEvents`) and a `byProviderEventId` compatibility index.
+//     Private v2 source identities, not this provider-id index, decide whether a sync revises an
+//     existing row; recurring instance ids are aliases that can change across revisions.
 //   - `bookmarks` — one row per captured `Bookmark`, keyed by `id`, with a `byWorkspaceId` index.
 //
 // Two more, added for the observer-verification wiring task ("wire the observer verification
@@ -101,7 +102,9 @@ export interface CalendarSourceRevisionRecord {
 
 /** Private binding-scoped ownership for a provider event. CalendarEvent remains public-schema
  * compatible; this record is the sole authority that prevents two connected accounts with the
- * same provider event id from colliding. */
+ * same provider event id from colliding. V2 keys are kind-specific: standalone events use the
+ * provider id, masters use the series id, and occurrences use series + original occurrence id.
+ * Rows written before V2 may omit `kind` and are adopted only through the guarded migration path. */
 export interface CalendarEventSourceIdentityRecord {
   readonly id: string
   readonly workspaceId: EntityId

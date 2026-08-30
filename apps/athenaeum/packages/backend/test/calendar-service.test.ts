@@ -142,7 +142,8 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
             end: e.end,
             status: e.status,
             ...(e.attendees ? { attendees: e.attendees } : {}),
-            ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {})
+            ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {}),
+            ...(e.originalStartTime ? { originalStartTime: e.originalStartTime } : {})
           })),
           ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
           ...(page.nextSyncToken ? { nextSyncToken: page.nextSyncToken } : {})
@@ -217,7 +218,8 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
               end: e.end,
               status: e.status,
               ...(e.attendees ? { attendees: e.attendees } : {}),
-              ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {})
+              ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {}),
+              ...(e.originalStartTime ? { originalStartTime: e.originalStartTime } : {})
             })),
             ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
             ...(page.nextSyncToken ? { nextSyncToken: page.nextSyncToken } : {})
@@ -387,38 +389,59 @@ describe("CalendarService — connect/callback/disconnect", () => {
   it("keeps two opaque accounts for one principal isolated across reverse callbacks, response recovery, sync, replay, and disconnect", async () => {
     const accountA = "google-a@example.test"
     const accountB = "google-b@example.test"
-    const calendarA = "calendar-a@group.calendar.google.test"
-    const calendarB = "calendar-b@group.calendar.google.test"
+    // Deliberately identical provider identities: only the binding-scoped source identity may
+    // distinguish these records. Different payloads make accidental cross-account replacement
+    // observable.
+    const sharedCalendarId = "shared@group.calendar.google.test"
+    const sharedProviderEventId = "shared-provider-event"
     const codeA = "code-account-a"
     const codeB = "code-account-b-response-lost"
     const scripted = installScriptedCalendarClient(
       {
         accounts: {
           [accountA]: {
-            calendars: { [calendarA]: "owner" },
+            calendars: { [sharedCalendarId]: "owner" },
             freeBusyReadableCalendarIds: [],
             events: {
-              [calendarA]: [
+              [sharedCalendarId]: [
                 new ScriptedCalendarEvent({
-                  id: "event-account-a",
+                  id: sharedProviderEventId,
                   title: "Account A only",
                   start: { kind: "dateTime", dateTime: new Date().toISOString() },
                   end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+                  status: "confirmed"
+                }),
+                new ScriptedCalendarEvent({
+                  id: "shared-recurring-instance",
+                  title: "Account A recurring",
+                  start: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+                  end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+                  originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+                  recurringEventId: "shared-recurring-series",
                   status: "confirmed"
                 })
               ]
             }
           },
           [accountB]: {
-            calendars: { [calendarB]: "owner" },
+            calendars: { [sharedCalendarId]: "owner" },
             freeBusyReadableCalendarIds: [],
             events: {
-              [calendarB]: [
+              [sharedCalendarId]: [
                 new ScriptedCalendarEvent({
-                  id: "event-account-b",
+                  id: sharedProviderEventId,
                   title: "Account B only",
                   start: { kind: "dateTime", dateTime: new Date().toISOString() },
                   end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+                  status: "confirmed"
+                }),
+                new ScriptedCalendarEvent({
+                  id: "shared-recurring-instance",
+                  title: "Account B recurring",
+                  start: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+                  end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+                  originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+                  recurringEventId: "shared-recurring-series",
                   status: "confirmed"
                 })
               ]
@@ -444,14 +467,14 @@ describe("CalendarService — connect/callback/disconnect", () => {
       workspaceId,
       code: codeB,
       state: pendingB.state,
-      calendarId: calendarB,
+      calendarId: sharedCalendarId,
       mode: "selected"
     })) as { binding: { id: string } }
     const bindingA = (await stub.googleCalendarOAuthCallback({
       workspaceId,
       code: codeA,
       state: pendingA.state,
-      calendarId: calendarA,
+      calendarId: sharedCalendarId,
       mode: "selected"
     })) as { binding: { id: string } }
 
@@ -459,7 +482,7 @@ describe("CalendarService — connect/callback/disconnect", () => {
       workspaceId,
       code: codeB,
       state: pendingB.state,
-      calendarId: calendarB,
+      calendarId: sharedCalendarId,
       mode: "selected"
     })) as { binding: { id: string } }
     expect(replayB.binding.id).toBe(bindingB.binding.id)
@@ -468,8 +491,32 @@ describe("CalendarService — connect/callback/disconnect", () => {
 
     await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
     await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingB.binding.id })
-    const events = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ title: string }> }
-    expect(events.events.map((event) => event.title).sort()).toEqual(["Account A only", "Account B only"])
+    const events = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; providerEventId: string; title: string; status: string; seriesId?: string; occurrenceId?: string; masterRecordId?: string }>
+    }
+    expect(events.events.map((event) => event.title).sort()).toEqual([
+      "Account A only", "Account A recurring", "Account A recurring",
+      "Account B only", "Account B recurring", "Account B recurring"
+    ])
+    expect(events.events.filter((event) => event.providerEventId === sharedProviderEventId)).toHaveLength(2)
+    const recurring = events.events.filter((event) => event.seriesId === "shared-recurring-series" && event.masterRecordId !== undefined)
+    expect(recurring).toHaveLength(2)
+    expect(new Set(recurring.map((event) => event.id))).toHaveLength(2)
+    expect(new Set(recurring.map((event) => event.masterRecordId))).toHaveLength(2)
+    expect(new Set(recurring.map((event) => event.occurrenceId))).toEqual(new Set(["2026-09-07T09:00:00.000Z"]))
+    const initialRecurringA = recurring.find((event) => event.title === "Account A recurring")!
+    const initialRecurringB = recurring.find((event) => event.title === "Account B recurring")!
+    const initialBrief = (await stub.getTodayBrief({
+      workspaceId,
+      localDate: Schema.decodeUnknownSync(LocalDate)("2026-09-07"),
+      timeZone: "UTC"
+    })) as { events: ReadonlyArray<{ title: string; occurrenceKey: string }> }
+    const initialBriefRecurring = initialBrief.events.filter((event) => event.title.includes("recurring"))
+    expect(initialBriefRecurring).toHaveLength(2)
+    expect(new Set(initialBriefRecurring.map((event) => event.occurrenceKey))).toHaveLength(2)
+    expect(initialBriefRecurring.every((event) => /^[a-f0-9]{64}$/.test(event.occurrenceKey))).toBe(true)
+    const native = workspaceDurableObjectStub(workspaceId)
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarEvents: 6, calendarSourceRevisions: 4 })
 
     const connectionA = scripted.opaqueExchangeCalls.find((call) => call.code === codeA)!.providerConnectionId
     const connectionB = scripted.opaqueExchangeCalls.find((call) => call.code === codeB)!.providerConnectionId
@@ -477,12 +524,127 @@ describe("CalendarService — connect/callback/disconnect", () => {
     expect(scripted.opaqueAccountByConnection.get(connectionB)).toBe(accountB)
     expect(scripted.legacyRouteCalls).toEqual([])
 
+    // A cancellation of A's provider event must tombstone only its own binding-scoped projection;
+    // B has the exact same provider calendar/event ids and must remain visible and unchanged.
+    scripted.fixtures.accounts[accountA] = {
+      ...scripted.fixtures.accounts[accountA]!,
+      events: {
+        [sharedCalendarId]: [
+          new ScriptedCalendarEvent({
+            id: sharedProviderEventId,
+            title: "Account A cancelled",
+            start: { kind: "dateTime", dateTime: new Date().toISOString() },
+            end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+            status: "cancelled"
+          }),
+          new ScriptedCalendarEvent({
+            id: "shared-recurring-instance-a-cancelled",
+            title: "Account A recurring cancelled",
+            start: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+            end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+            originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+            recurringEventId: "shared-recurring-series",
+            status: "cancelled"
+          })
+        ]
+      }
+    }
+    await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
+    const afterACancellation = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; providerEventId: string; title: string; status: string; masterRecordId?: string }>
+    }
+    expect(afterACancellation.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerEventId: sharedProviderEventId, title: "Account A cancelled", status: "cancelled" }),
+      expect.objectContaining({ providerEventId: sharedProviderEventId, title: "Account B only", status: "confirmed" })
+    ]))
+    const cancelledRecurringA = afterACancellation.events.find((event) => event.title === "Account A recurring cancelled")!
+    const unchangedRecurringB = afterACancellation.events.find((event) => event.title === "Account B recurring" && event.masterRecordId !== undefined)!
+    expect(cancelledRecurringA).toMatchObject({
+      id: initialRecurringA.id,
+      providerEventId: "shared-recurring-instance-a-cancelled",
+      status: "cancelled",
+      masterRecordId: initialRecurringA.masterRecordId
+    })
+    expect(unchangedRecurringB).toMatchObject({
+      id: initialRecurringB.id,
+      providerEventId: "shared-recurring-instance",
+      status: "confirmed",
+      masterRecordId: initialRecurringB.masterRecordId
+    })
+    const briefAfterCancellation = (await stub.getTodayBrief({
+      workspaceId,
+      localDate: Schema.decodeUnknownSync(LocalDate)("2026-09-07"),
+      timeZone: "UTC"
+    })) as { events: ReadonlyArray<{ title: string }> }
+    expect(briefAfterCancellation.events.filter((event) => event.title.includes("recurring")).map((event) => event.title)).toEqual(["Account B recurring"])
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarEvents: 6, calendarSourceRevisions: 6 })
+
+    // A later confirmed payload for the same binding and original occurrence must resurrect A's
+    // projection in place. It must not adopt or modify B's identically keyed occurrence.
+    scripted.fixtures.accounts[accountA] = {
+      ...scripted.fixtures.accounts[accountA]!,
+      events: {
+        [sharedCalendarId]: [
+          new ScriptedCalendarEvent({
+            id: sharedProviderEventId,
+            title: "Account A cancelled",
+            start: { kind: "dateTime", dateTime: new Date().toISOString() },
+            end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+            status: "cancelled"
+          }),
+          new ScriptedCalendarEvent({
+            id: "shared-recurring-instance-a-restored",
+            title: "Account A recurring restored",
+            start: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+            end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+            originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T09:00:00.000Z" },
+            recurringEventId: "shared-recurring-series",
+            status: "confirmed"
+          })
+        ]
+      }
+    }
+    await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
+    const afterAResurrection = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ id: string; providerEventId: string; title: string; status: string; masterRecordId?: string }>
+    }
+    expect(afterAResurrection.events.find((event) => event.title === "Account A recurring restored")).toMatchObject({
+      id: initialRecurringA.id,
+      providerEventId: "shared-recurring-instance-a-restored",
+      status: "confirmed",
+      masterRecordId: initialRecurringA.masterRecordId
+    })
+    expect(afterAResurrection.events.find((event) => event.title === "Account B recurring" && event.masterRecordId !== undefined)).toMatchObject({
+      id: initialRecurringB.id,
+      providerEventId: "shared-recurring-instance",
+      status: "confirmed",
+      masterRecordId: initialRecurringB.masterRecordId
+    })
+    const briefAfterResurrection = (await stub.getTodayBrief({
+      workspaceId,
+      localDate: Schema.decodeUnknownSync(LocalDate)("2026-09-07"),
+      timeZone: "UTC"
+    })) as { events: ReadonlyArray<{ title: string; occurrenceKey: string }> }
+    const resurrectedBriefRecurring = briefAfterResurrection.events.filter((event) => event.title.includes("recurring"))
+    expect(resurrectedBriefRecurring.map((event) => event.title)).toEqual(["Account A recurring restored", "Account B recurring"])
+    expect(new Set(resurrectedBriefRecurring.map((event) => event.occurrenceKey))).toHaveLength(2)
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarEvents: 6, calendarSourceRevisions: 8 })
+
     await stub.disconnectGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
     const bCallsBeforeResync = scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionB).length
     const aCallsBeforeResync = scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionA).length
     await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingB.binding.id })
     expect(scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionB).length).toBeGreaterThan(bCallsBeforeResync)
     expect(scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionA).length).toBe(aCallsBeforeResync)
+    const afterADisconnect = (await stub.listCalendarEvents({ workspaceId })) as {
+      events: ReadonlyArray<{ providerEventId: string; title: string; status: string }>
+    }
+    expect(afterADisconnect.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerEventId: sharedProviderEventId, title: "Account A cancelled", status: "cancelled" }),
+      expect.objectContaining({ providerEventId: sharedProviderEventId, title: "Account B only", status: "confirmed" }),
+      expect.objectContaining({ providerEventId: "shared-recurring-instance", title: "Account B recurring", status: "confirmed" })
+    ]))
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarEvents: 6, calendarSourceRevisions: 8 })
     expect(scripted.legacyRouteCalls).toEqual([])
   })
 
@@ -777,6 +939,77 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       title: "Newer title",
       status: "confirmed"
     })
+  })
+
+  it("keeps a recurring occurrence stable when Google changes its provider instance id", async () => {
+    const originalStartTime = { kind: "dateTime" as const, dateTime: "2026-09-07T09:00:00.000Z" }
+    const confirmed = new ScriptedCalendarEvent({
+      id: "instance-current",
+      title: "Weekly planning",
+      start: originalStartTime,
+      end: { kind: "dateTime", dateTime: "2026-09-07T09:30:00.000Z" },
+      status: "confirmed",
+      updatedAt: "2026-09-01T10:00:00.000Z",
+      recurringEventId: "weekly-series",
+      originalStartTime
+    })
+    const scripted = installScriptedCalendarClient({
+      accounts: {
+        [ACCOUNT_EMAIL]: {
+          calendars: { [CALENDAR_ID]: "owner" },
+          freeBusyReadableCalendarIds: [],
+          events: { [CALENDAR_ID]: [confirmed] }
+        }
+      }
+    })
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const workspaceId = freshWorkspaceId()
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+    const pending = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callback = (await stub.googleCalendarOAuthCallback({ workspaceId, code: "code", state: pending.state, calendarId: CALENDAR_ID, mode: "selected" })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callback.binding.id)
+
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const first = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ id: string; providerEventId: string; seriesId?: string; occurrenceId?: string; masterRecordId?: string; status: string }> }
+    const firstOccurrence = first.events.find((row) => row.providerEventId === "instance-current")!
+    expect(firstOccurrence).toMatchObject({ seriesId: "weekly-series", occurrenceId: originalStartTime.dateTime })
+    expect(firstOccurrence.masterRecordId).toBeDefined()
+
+    const cancelledOldAlias = new ScriptedCalendarEvent({
+      ...confirmed,
+      id: "instance-old-alias",
+      title: "Weekly planning cancelled",
+      status: "cancelled",
+      updatedAt: "2026-09-01T11:00:00.000Z"
+    })
+    scripted.fixtures.accounts[ACCOUNT_EMAIL] = {
+      ...scripted.fixtures.accounts[ACCOUNT_EMAIL]!,
+      events: { [CALENDAR_ID]: [cancelledOldAlias] }
+    }
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const afterCancellation = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ id: string; providerEventId: string; masterRecordId?: string; status: string }> }
+    const cancelled = afterCancellation.events.find((row) => row.id === firstOccurrence.id)!
+    expect(cancelled).toMatchObject({ providerEventId: "instance-old-alias", status: "cancelled", masterRecordId: firstOccurrence.masterRecordId })
+    expect(afterCancellation.events.filter((row) => row.masterRecordId !== undefined)).toHaveLength(1)
+
+    const resurrected = new ScriptedCalendarEvent({
+      ...confirmed,
+      id: "instance-resurrected",
+      title: "Weekly planning restored",
+      updatedAt: "2026-09-01T12:00:00.000Z"
+    })
+    scripted.fixtures.accounts[ACCOUNT_EMAIL] = {
+      ...scripted.fixtures.accounts[ACCOUNT_EMAIL]!,
+      events: { [CALENDAR_ID]: [resurrected] }
+    }
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const afterResurrection = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ id: string; providerEventId: string; masterRecordId?: string; status: string }> }
+    expect(afterResurrection.events.find((row) => row.id === firstOccurrence.id)).toMatchObject({
+      providerEventId: "instance-resurrected",
+      status: "confirmed",
+      masterRecordId: firstOccurrence.masterRecordId
+    })
+    expect(afterResurrection.events.filter((row) => row.masterRecordId !== undefined)).toHaveLength(1)
   })
 
   it("does not import attendees from a first-seen cancelled event", async () => {
