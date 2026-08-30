@@ -294,7 +294,7 @@ public struct DailyNoteView: View {
                 wideNoteHeaderRow
                 compactNoteHeader
             }
-            Text("Capture what matters, then let the workspace connect it.")
+            Text(LoroNativeRichEmptyStatePresentation.promptText)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
