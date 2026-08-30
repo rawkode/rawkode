@@ -82,7 +82,17 @@ afterEach(() => {
 const mount = async (
   onClose = vi.fn(),
   onSaved = vi.fn(),
-  queryState: unknown = successState
+  queryState: unknown = successState,
+  tagOverrides: Partial<{
+    readonly anchorRect: {
+      readonly top: number
+      readonly right: number
+      readonly bottom: number
+      readonly left: number
+      readonly width: number
+      readonly height: number
+    }
+  }> = {}
 ) => {
   queryStateMock.current = queryState
   const host = document.createElement("div")
@@ -94,7 +104,7 @@ const mount = async (
       root.render(
         <SupertagFieldPopover
           nodeId={nodeId}
-          tag={{ tagId, name: "Person" }}
+          tag={{ tagId, name: "Person", ...tagOverrides }}
           onClose={onClose}
           onSaved={onSaved}
         />
@@ -118,6 +128,76 @@ const fieldRefreshGenerations = (): ReadonlyArray<number> =>
   )
 
 describe("SupertagFieldPopover", () => {
+  it("anchors to the invoking chip instead of falling back to the stylesheet corner", async () => {
+    const { host } = await mount(vi.fn(), vi.fn(), successState, {
+      anchorRect: { top: 700, right: 760, bottom: 724, left: 700, width: 60, height: 24 }
+    })
+    const popover = host.querySelector<HTMLElement>(".supertag-popover")
+    expect(popover).not.toBeNull()
+
+    vi.spyOn(popover!, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      right: 320,
+      bottom: 180,
+      left: 0,
+      width: 320,
+      height: 180,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 })
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 })
+
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"))
+      await flush()
+    })
+
+    expect(popover?.dataset.placement).toBe("above")
+    expect(popover?.style.top).toBe("510px")
+    expect(popover?.style.left).toBe("700px")
+    expect(popover?.style.right).toBe("auto")
+    expect(popover?.style.bottom).toBe("auto")
+  })
+
+  it("commits a field on plain Enter and exposes the saved result", async () => {
+    runtimeMock.runPromise.mockResolvedValue({ fact: { id: factId } })
+    const { host, onSaved } = await mount()
+    const field = host.querySelector<HTMLInputElement>("#supertag-field-" + fieldId)
+    expect(field).not.toBeNull()
+
+    await act(async () => {
+      setInput(field!, "person@example.com")
+      field?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      await flush()
+    })
+
+    expect(runtimeMock.runPromise).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(host.querySelector(".supertag-field-status")?.textContent).toContain("✓ Saved")
+  })
+
+  it("closes on idle Escape but leaves an editor-owned Escape alone", async () => {
+    const onClose = vi.fn()
+    const { host } = await mount(onClose)
+
+    await act(async () => {
+      const prevented = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      prevented.preventDefault()
+      document.dispatchEvent(prevented)
+      await flush()
+    })
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      await flush()
+    })
+    expect(host.querySelector("[role='dialog']")).not.toBeNull()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it("shows a generic retryable load failure without inventing an empty schema and retries only one matching field read at a time", async () => {
     const { host, render } = await mount(
       vi.fn(),
