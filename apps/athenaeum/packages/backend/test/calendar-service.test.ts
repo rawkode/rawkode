@@ -951,7 +951,8 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       status: "confirmed",
       updatedAt: "2026-09-01T10:00:00.000Z",
       recurringEventId: "weekly-series",
-      originalStartTime
+      originalStartTime,
+      attendees: [new ScriptedCalendarAttendee({ email: "alias-attendee@example.test", displayName: "Alias attendee" })]
     })
     const scripted = installScriptedCalendarClient({
       accounts: {
@@ -974,6 +975,15 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const firstOccurrence = first.events.find((row) => row.providerEventId === "instance-current")!
     expect(firstOccurrence).toMatchObject({ seriesId: "weekly-series", occurrenceId: originalStartTime.dateTime })
     expect(firstOccurrence.masterRecordId).toBeDefined()
+    const native = workspaceDurableObjectStub(workspaceId)
+    await drainWorkforceRuns(workspaceId)
+    const firstRuns = await native.debugGetWorkforceRuntimeRuns()
+    expect(firstRuns).toHaveLength(1)
+    expect(firstRuns[0]).toMatchObject({ workflowId: "calendar-relationship-concierge", state: "completed" })
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarAttendeeObservations: 1 })
+    const dailyNoteId = Schema.decodeUnknownSync(EntityId)("00000000-0000-0000-0000-000020260907")
+    const firstPublications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as { publications: ReadonlyArray<unknown> }
+    const firstPublicationCount = firstPublications.publications.length
 
     const cancelledOldAlias = new ScriptedCalendarEvent({
       ...confirmed,
@@ -991,6 +1001,11 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const cancelled = afterCancellation.events.find((row) => row.id === firstOccurrence.id)!
     expect(cancelled).toMatchObject({ providerEventId: "instance-old-alias", status: "cancelled", masterRecordId: firstOccurrence.masterRecordId })
     expect(afterCancellation.events.filter((row) => row.masterRecordId !== undefined)).toHaveLength(1)
+    await drainWorkforceRuns(workspaceId)
+    expect(await native.debugGetWorkforceRuntimeRuns()).toHaveLength(1)
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarAttendeeObservations: 1 })
+    const afterCancellationPublications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as { publications: ReadonlyArray<unknown> }
+    expect(afterCancellationPublications.publications).toHaveLength(firstPublicationCount)
 
     const resurrected = new ScriptedCalendarEvent({
       ...confirmed,
@@ -1010,6 +1025,11 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       masterRecordId: firstOccurrence.masterRecordId
     })
     expect(afterResurrection.events.filter((row) => row.masterRecordId !== undefined)).toHaveLength(1)
+    await drainWorkforceRuns(workspaceId)
+    expect(await native.debugGetWorkforceRuntimeRuns()).toHaveLength(1)
+    expect(await native.debugGetCalendarStorageCounts()).toMatchObject({ calendarAttendeeObservations: 1 })
+    const afterResurrectionPublications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as { publications: ReadonlyArray<unknown> }
+    expect(afterResurrectionPublications.publications).toHaveLength(firstPublicationCount)
   })
 
   it("does not import attendees from a first-seen cancelled event", async () => {

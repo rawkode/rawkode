@@ -39,4 +39,22 @@ describe("CalendarRemoteEventPlan", () => {
     expect(lower.sourceEventKeyDigest).not.toBe(otherSecret.sourceEventKeyDigest)
     expect(lower.sourceRevisionDigest).not.toBe(planCalendarRemoteEvent(workspaceId, bindingId, event([{ email: "a@example.test" }])).sourceRevisionDigest)
   })
+  it("keeps recurring attendee observations stable across provider instance aliases while revisions remain distinct", async () => {
+    const originalStartTime = { kind: "dateTime" as const, dateTime: "2026-09-07T09:00:00.000Z" }
+    const recurring = (id: string, status: "confirmed" | "cancelled") => ({
+      ...event([{ email: "a@example.test" }], status),
+      id,
+      recurringEventId: "weekly-series",
+      originalStartTime
+    })
+    const first = planCalendarRemoteEvent(workspaceId, bindingId, recurring("instance-a", "confirmed"))
+    const cancelled = planCalendarRemoteEvent(workspaceId, bindingId, recurring("instance-b", "cancelled"))
+    const restored = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, recurring("instance-c", "confirmed"), "secret-a")
+    const firstSecret = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, recurring("instance-a", "confirmed"), "secret-a")
+
+    expect(cancelled.sourceEventKeyDigest).toBe(first.sourceEventKeyDigest)
+    expect(cancelled.sourceRevisionDigest).not.toBe(first.sourceRevisionDigest)
+    expect(restored.sourceEventKeyDigest).toBe(firstSecret.sourceEventKeyDigest)
+    expect(restored.sourceRevisionDigest).not.toBe(firstSecret.sourceRevisionDigest)
+  })
 })
