@@ -72,6 +72,26 @@ final class LoroNativeRichTextCodecTests: XCTestCase {
         ), "an end-of-document insertion point is not a character")
     }
 
+    func testUIKitReferenceHitUsesTextContainerInsetWithoutDoubleApplyingScrollOrPadding() {
+        let viewPoint = CGPoint(x: 42, y: 29)
+        let inset = CGPoint(x: 12, y: 8)
+        let lineFragmentPadding: CGFloat = 5
+        let contentOffset = CGPoint(x: 100, y: 200)
+
+        XCTAssertEqual(
+            LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: inset),
+            CGPoint(x: 30, y: 21)
+        )
+        XCTAssertNotEqual(
+            LoroNativeRichTextCodec.textContainerPoint(
+                viewPoint,
+                origin: CGPoint(x: inset.x + lineFragmentPadding - contentOffset.x, y: inset.y - contentOffset.y)
+            ),
+            CGPoint(x: 30, y: 21),
+            "padding and scroll are already accounted for by the UIKit touch coordinate"
+        )
+    }
+
     func testReferenceMarkerRejectsForgedAndMalformedAttributedPayloads() throws {
         for value: Any in ["10000000-0000-4000-8000-000000000001", ["nodeId": "10000000-0000-4000-8000-000000000001", "label": "Alice"]] {
             let source = NSMutableAttributedString(string: "Alice")

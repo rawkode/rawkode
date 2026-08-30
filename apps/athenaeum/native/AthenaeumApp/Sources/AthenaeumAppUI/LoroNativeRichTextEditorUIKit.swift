@@ -376,9 +376,12 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private func referenceHit(atViewPoint point: CGPoint) -> Int? {
+        // `location(in: textView)` is already in the scroll view's bounds/content coordinate
+        // space. TextKit's container origin is the inset only; line-fragment padding belongs to
+        // glyph layout and contentOffset must not be applied a second time here.
         let origin = CGPoint(
-            x: textView.textContainerInset.left + textView.textContainer.lineFragmentPadding - textView.contentOffset.x,
-            y: textView.textContainerInset.top - textView.contentOffset.y
+            x: textView.textContainerInset.left,
+            y: textView.textContainerInset.top
         )
         let containerPoint = LoroNativeRichTextCodec.textContainerPoint(point, origin: origin)
         let index = textView.layoutManager.characterIndex(for: containerPoint, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
