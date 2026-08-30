@@ -314,6 +314,20 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(responderAttempts, 1)
     }
 
+    func testNativeFocusChangesAreForwardedForWritingSurfacePresentation() {
+        var changes: [Bool] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("focus"),
+            isEditable: true,
+            onFocusChange: { changes.append($0) }
+        )
+
+        editor.testingNotifyFocusChanged(true)
+        editor.testingNotifyFocusChanged(false)
+
+        XCTAssertEqual(changes, [true, false])
+    }
+
     func testDisabledFocusRequestIsDeferredUntilTheEditorBecomesEditable() {
         let editor = LoroNativeRichTextEditorController(document: paragraph("focus"), isEditable: false)
         editor.testingRequestFocus(generation: 1)

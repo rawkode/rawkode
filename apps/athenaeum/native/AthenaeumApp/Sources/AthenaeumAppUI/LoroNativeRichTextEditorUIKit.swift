@@ -13,6 +13,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    /// Presentation-only responder state. Durable editing semantics stay in the engine.
+    let onFocusChange: (Bool) -> Void
     /// Semantic activation stays typed; routing belongs to the parent workspace surface.
     let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
@@ -23,6 +25,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             onDocumentChange: onDocumentChange,
             onSelectionChange: onSelectionChange,
             onRejectedInput: onRejectedInput,
+            onFocusChange: onFocusChange,
             onOpenReference: onOpenReference
         )
     }
@@ -64,6 +67,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    private let onFocusChange: (Bool) -> Void
     private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     init(
@@ -72,6 +76,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void = { _ in },
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in },
+        onFocusChange: @escaping (Bool) -> Void = { _ in },
         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
     ) {
         engine = .init(document: document)
@@ -79,6 +84,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         self.onDocumentChange = onDocumentChange
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
+        self.onFocusChange = onFocusChange
         self.onOpenReference = onOpenReference
         super.init()
         textView.richController = self
@@ -180,6 +186,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         onSelectionChange(selection)
     }
 
+    fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
+
     // MARK: Text input / IME hooks from GuardedUIKitRichTextView
 
     fileprivate func beginComposition(range: NSRange) {
@@ -230,6 +238,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     func testingFinalizeComposition(_ text: String) { finalizeComposition(text) }
     func testingEndComposition() { endComposition() }
     func testingUpdate(document: LoroNativeRichDocumentV1, isEditable: Bool) { update(document: document, isEditable: isEditable) }
+    func testingNotifyFocusChanged(_ isFocused: Bool) { didChangeFocus(isFocused) }
     static func testingAllowsOnlyLonePlainTextProvider(_ provider: NSItemProvider) -> Bool { isLonePlainTextProvider(provider) }
 
     // MARK: Paste / drop admission
@@ -499,6 +508,18 @@ private final class GuardedUIKitRichTextView: UITextView {
     weak var richController: LoroNativeRichTextEditorUIKitController?
     private var suppressCompositionCallbacks = false
     private var unmarking = false
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome { richController?.didChangeFocus(true) }
+        return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { richController?.didChangeFocus(false) }
+        return didResign
+    }
 
     override func paste(_ sender: Any?) { richController?.paste(.general) }
 

@@ -98,6 +98,20 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(opened, 1)
     }
 
+    func testNativeFocusChangesAreForwardedForWritingSurfacePresentation() {
+        var changes: [Bool] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("focus"),
+            isEditable: true,
+            onFocusChange: { changes.append($0) }
+        )
+
+        controller.testingNotifyFocusChanged(true)
+        controller.testingNotifyFocusChanged(false)
+
+        XCTAssertEqual(changes, [true, false])
+    }
+
     private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
     }

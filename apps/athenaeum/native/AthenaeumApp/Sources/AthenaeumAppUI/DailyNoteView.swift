@@ -70,6 +70,45 @@ enum DailyNotePreparationAnnouncementPresentation {
     }
 }
 
+/// The settled note should recede into the background. Only active saving or an actionable
+/// exception earns a persistent status line; the editor itself keeps a modest writing floor
+/// instead of occupying dashboard-sized empty space.
+enum DailyNoteWritingPresentation {
+    static let minimumEditorHeight: CGFloat = 180
+
+    static func borderOpacity(isFocused: Bool) -> Double {
+        isFocused ? 0.35 : 0.12
+    }
+
+    static func borderLineWidth(isFocused: Bool) -> CGFloat {
+        isFocused ? 1.5 : 1
+    }
+
+    static func showsStatus(_ status: AthenaeumViewModel.SyncStatus) -> Bool {
+        switch status {
+        case .syncing, .pending, .conflict, .error:
+            return true
+        case .idle, .loading, .synced:
+            return false
+        }
+    }
+
+    static func accessibilityLabel(for status: AthenaeumViewModel.SyncStatus) -> String? {
+        switch status {
+        case .syncing:
+            return "Syncing daily note."
+        case .pending:
+            return "A local change is pending."
+        case .conflict:
+            return "Local changes need resolution."
+        case .error:
+            return "Daily note sync needs attention."
+        case .idle, .loading, .synced:
+            return nil
+        }
+    }
+}
+
 /// Native mirror of `web/src/DailyNote.tsx`: resolves/creates today's note (via
 /// `AthenaeumViewModel.start()`), then routes active Loro pages to the native plain-text editor
 /// and explicit legacy descriptors to a server-owned, read-only projection. It also owns the sync
@@ -92,6 +131,9 @@ public struct DailyNoteView: View {
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
     @State private var richEditorFocusGeneration = 0
+    /// Rich representables own the actual responder, so this state is presentation-only and is
+    /// fed by their native focus callbacks rather than the plain-text FocusState binding.
+    @State private var richEditorIsFocused = false
     @FocusState private var editorFocused: Bool
 
     public init(model: AthenaeumViewModel) {
@@ -221,7 +263,7 @@ public struct DailyNoteView: View {
         }
         .onChange(of: model.pagePresentation) { presentation in
             if presentation != .automergeEditable && presentation != .loroPlainEditable && presentation != .loroRichEditable {
-                editorFocused = false
+                clearEditorFocus()
                 hasAutofocused = false
             } else {
                 // A format transition replaces the underlying editing control. Let that control
@@ -231,7 +273,7 @@ public struct DailyNoteView: View {
             }
         }
         .onChange(of: model.selectedDate) { _ in
-            editorFocused = false
+            clearEditorFocus()
             hasAutofocused = false
             preparationNotice = nil
         }
@@ -300,7 +342,7 @@ public struct DailyNoteView: View {
             Text(DailyNoteFailurePresentation.message(for: rawMessage))
                 .foregroundStyle(.secondary)
             Button(DailyNoteFailurePresentation.retryLabel) {
-                editorFocused = false
+                clearEditorFocus()
                 hasAutofocused = false
                 model.retryCurrentNote()
             }
@@ -326,11 +368,17 @@ public struct DailyNoteView: View {
         guard case .synced = model.status else { return }
         hasAutofocused = true
         if model.pagePresentation == .loroRichEditable {
-            editorFocused = false
+            clearEditorFocus()
             richEditorFocusGeneration += 1
         } else {
+            richEditorIsFocused = false
             editorFocused = true
         }
+    }
+
+    private func clearEditorFocus() {
+        editorFocused = false
+        richEditorIsFocused = false
     }
 
     private func consumePreparationCompletion() {
@@ -467,7 +515,7 @@ public struct DailyNoteView: View {
 
     private var previousDayButton: some View {
         Button {
-            editorFocused = false
+            clearEditorFocus()
             model.showPreviousDay()
         } label: {
             Image(systemName: "chevron.left")
@@ -484,7 +532,7 @@ public struct DailyNoteView: View {
             selection: Binding(
                 get: { model.selectedDate },
                 set: { newDate in
-                    editorFocused = false
+                    clearEditorFocus()
                     model.showDate(newDate)
                 }
             ),
@@ -497,7 +545,7 @@ public struct DailyNoteView: View {
 
     private var nextDayButton: some View {
         Button {
-            editorFocused = false
+            clearEditorFocus()
             model.showNextDay()
         } label: {
             Image(systemName: "chevron.right")
@@ -512,7 +560,7 @@ public struct DailyNoteView: View {
     private var todayButton: some View {
         if !isToday {
             Button("Today") {
-                editorFocused = false
+                clearEditorFocus()
                 model.showToday()
             }
             .buttonStyle(.borderless)
@@ -697,13 +745,7 @@ public struct DailyNoteView: View {
                     .accessibilityHidden(true)
             }
         }
-        .frame(minHeight: 360)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.secondary.opacity(editorFocused ? 0.45 : 0.2), lineWidth: editorFocused ? 1.5 : 1)
-        )
-        .animation(.easeOut(duration: 0.18), value: editorFocused)
+        .writingSurface(isFocused: editorFocused)
     }
 
     private var loroPlainEditor: some View {
@@ -733,13 +775,7 @@ public struct DailyNoteView: View {
                     .accessibilityHidden(true)
             }
         }
-        .frame(minHeight: 360)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.secondary.opacity(editorFocused ? 0.45 : 0.2), lineWidth: editorFocused ? 1.5 : 1)
-        )
-        .animation(.easeOut(duration: 0.18), value: editorFocused)
+        .writingSurface(isFocused: editorFocused)
     }
 
     @ViewBuilder
@@ -754,6 +790,7 @@ public struct DailyNoteView: View {
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: { model.handleLoroRichSelectionChange($0) },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
+                    onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) }
                 )
                 #elseif os(iOS)
@@ -764,6 +801,7 @@ public struct DailyNoteView: View {
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: { model.handleLoroRichSelectionChange($0) },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
+                    onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) }
                 )
                 #endif
@@ -780,8 +818,7 @@ public struct DailyNoteView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .frame(minHeight: 360)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .writingSurface(isFocused: richEditorIsFocused)
             .accessibilityLabel("Native Loro rich-text daily note")
         } else {
             Text("Rich-text state is unavailable. Reload this page.")
@@ -804,7 +841,7 @@ public struct DailyNoteView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(navigationMessage)
             .accessibilityAddTraits(.updatesFrequently)
-        } else {
+        } else if DailyNoteWritingPresentation.showsStatus(model.status), let accessibilityLabel = DailyNoteWritingPresentation.accessibilityLabel(for: model.status) {
             HStack(spacing: 6) {
                 switch model.status {
                 case .syncing:
@@ -813,22 +850,38 @@ public struct DailyNoteView: View {
                 case .pending(let message):
                     Label(message, systemImage: "clock.arrow.circlepath")
                         .foregroundStyle(.orange)
-                case .synced:
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Synced")
                 case .conflict:
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Text("Local changes need resolution")
                 case .error(let message):
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Text(DailyNoteFailurePresentation.message(for: message))
-                default:
+                case .idle, .loading, .synced:
                     EmptyView()
                 }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAddTraits(.updatesFrequently)
         }
+    }
+}
+
+private extension View {
+    func writingSurface(isFocused: Bool) -> some View {
+        self
+            .frame(minHeight: DailyNoteWritingPresentation.minimumEditorHeight)
+            .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(
+                        .secondary.opacity(DailyNoteWritingPresentation.borderOpacity(isFocused: isFocused)),
+                        lineWidth: DailyNoteWritingPresentation.borderLineWidth(isFocused: isFocused)
+                    )
+            )
+            .animation(.easeOut(duration: 0.18), value: isFocused)
     }
 }
 

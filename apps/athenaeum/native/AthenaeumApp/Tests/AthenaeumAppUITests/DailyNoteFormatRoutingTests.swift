@@ -44,6 +44,36 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         )
     }
 
+    func testWritingPresentationKeepsTheEditorCompactAndMakesOnlyActiveOrProblemStatesPersistent() {
+        XCTAssertEqual(DailyNoteWritingPresentation.minimumEditorHeight, 180)
+        XCTAssertFalse(DailyNoteWritingPresentation.showsStatus(.idle))
+        XCTAssertFalse(DailyNoteWritingPresentation.showsStatus(.loading))
+        XCTAssertFalse(DailyNoteWritingPresentation.showsStatus(.synced))
+        XCTAssertTrue(DailyNoteWritingPresentation.showsStatus(.syncing))
+        XCTAssertTrue(DailyNoteWritingPresentation.showsStatus(.pending("private pending detail")))
+        XCTAssertTrue(DailyNoteWritingPresentation.showsStatus(.conflict("private conflict detail")))
+        XCTAssertTrue(DailyNoteWritingPresentation.showsStatus(.error("private token=secret")))
+    }
+
+    func testWritingPresentationUsesSafeAccessibilityAnnouncements() {
+        XCTAssertEqual(DailyNoteWritingPresentation.accessibilityLabel(for: .syncing), "Syncing daily note.")
+        XCTAssertEqual(DailyNoteWritingPresentation.accessibilityLabel(for: .pending("private detail")), "A local change is pending.")
+        XCTAssertEqual(DailyNoteWritingPresentation.accessibilityLabel(for: .conflict("private detail")), "Local changes need resolution.")
+        XCTAssertEqual(DailyNoteWritingPresentation.accessibilityLabel(for: .error("token=secret")), "Daily note sync needs attention.")
+        XCTAssertNil(DailyNoteWritingPresentation.accessibilityLabel(for: .synced))
+    }
+
+    func testWritingSurfaceMakesNativeFocusVisuallyObservable() {
+        XCTAssertGreaterThan(
+            DailyNoteWritingPresentation.borderOpacity(isFocused: true),
+            DailyNoteWritingPresentation.borderOpacity(isFocused: false)
+        )
+        XCTAssertGreaterThan(
+            DailyNoteWritingPresentation.borderLineWidth(isFocused: true),
+            DailyNoteWritingPresentation.borderLineWidth(isFocused: false)
+        )
+    }
+
     func testPreparationFocusIsLimitedToEditableLoroPresentations() {
         XCTAssertTrue(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .loroPlainEditable))
         XCTAssertTrue(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .loroRichEditable))

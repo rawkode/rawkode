@@ -14,6 +14,8 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    /// Presentation-only responder state. Durable editing semantics stay in the engine.
+    let onFocusChange: (Bool) -> Void
     /// Semantic activation stays typed; routing belongs to the parent workspace surface.
     let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
@@ -22,6 +24,7 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
                                            onDocumentChange: onDocumentChange,
                                            onSelectionChange: onSelectionChange,
                                            onRejectedInput: onRejectedInput,
+                                           onFocusChange: onFocusChange,
                                            onOpenReference: onOpenReference)
     }
 
@@ -69,15 +72,17 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (Rejection) -> Void
+    private let onFocusChange: (Bool) -> Void
     private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
 
     init(document: LoroNativeRichDocumentV1, isEditable: Bool,
          onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
          onSelectionChange: @escaping (LoroNativeRichTextCodec.ScalarSelection) -> Void = { _ in },
          onRejectedInput: @escaping (Rejection) -> Void = { _ in },
+         onFocusChange: @escaping (Bool) -> Void = { _ in },
          onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }) {
         engine = .init(document: document); isEditableInput = isEditable
-        self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput; self.onOpenReference = onOpenReference
+        self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput; self.onFocusChange = onFocusChange; self.onOpenReference = onOpenReference
         textView = GuardedRichTextView(frame: .zero)
         super.init()
         textView.controller = self
@@ -152,6 +157,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         guard !rendering, let selection = scalarSelection() else { return }
         engine.setSelection(selection); onSelectionChange(selection)
     }
+
+    fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
 
     fileprivate func paste(_ pasteboard: NSPasteboard) {
         guard isEditableInput, !pendingComposition else { reject(.disabled); return }
@@ -254,6 +261,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         #endif
     }
     func testingNotifyViewDidMoveToWindow() { didMoveToWindow() }
+    func testingNotifyFocusChanged(_ isFocused: Bool) { didChangeFocus(isFocused) }
     func testingCompletedFocusGeneration() -> Int { completedFocusGeneration }
     fileprivate func beginComposition(range: NSRange) { testingBeginComposition(range: range) }
     fileprivate func updateComposition(_ replacement: String) { testingChangeComposition(replacement) }
@@ -415,6 +423,16 @@ private final class GuardedRichTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.didMoveToWindow()
+    }
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome { controller?.didChangeFocus(true) }
+        return didBecome
+    }
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { controller?.didChangeFocus(false) }
+        return didResign
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if controller?.handleFormattingShortcut(
