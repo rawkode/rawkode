@@ -17,6 +17,7 @@ public struct WorkspaceCommandCenterView: View {
     @State private var browseExpanded = false
     @State private var selectedSearchNodeId: String?
     @State private var selectedGraphNodeId: String?
+    @State private var selectedPersonNodeId: EntityId?
     #if !os(macOS)
     @State private var iOSPath = NavigationPath()
     @State private var showingIOSBrowse = false
@@ -126,6 +127,7 @@ public struct WorkspaceCommandCenterView: View {
             .onChange(of: selection) { _ in
                 selectedSearchNodeId = nil
                 selectedGraphNodeId = nil
+                selectedPersonNodeId = nil
                 if !WorkspaceSection.coreSections.contains(selection) {
                     browseExpanded = true
                 }
@@ -319,6 +321,12 @@ public struct WorkspaceCommandCenterView: View {
             } else {
                 EmptyStateView(title: "Workspace entity unavailable", systemImage: "exclamationmark.triangle", message: "This entity is no longer available.")
             }
+        case .person(let personNodeId):
+            WorkspaceDirectEntityDetailView(
+                personNodeId: personNodeId,
+                client: host.readClient,
+                onClose: nil
+            )
         }
     }
     @ViewBuilder private func iOSContent(_ section: WorkspaceSection, model: AthenaeumViewModel) -> some View {
@@ -337,10 +345,14 @@ public struct WorkspaceCommandCenterView: View {
                     bearerCredential: session.credential,
                     preparer: { brief, event in
                         try await model.prepareMeetingInDailyNote(brief: brief, event: event)
+                    },
+                    onOpenDailyNote: { localDate in
+                        openDailyNote(localDate, model: model)
+                    },
+                    onOpenPerson: { personNodeId in
+                        openPerson(personNodeId)
                     }
-                ) { localDate in
-                    openDailyNote(localDate, model: model)
-                }
+                )
                 Divider()
                 CalendarDayView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential) { iOSPath.append(WorkspaceRoute.graphID($0)) }
             }
@@ -356,6 +368,12 @@ public struct WorkspaceCommandCenterView: View {
                 result: result,
                 client: host.readClient,
                 onClose: { selectedSearchNodeId = nil }
+            )
+        } else if let personNodeId = selectedPersonNodeId {
+            WorkspaceDirectEntityDetailView(
+                personNodeId: personNodeId,
+                client: host.readClient,
+                onClose: { selectedPersonNodeId = nil }
             )
         } else if let node = selectedGraphNode {
             GraphNodeDetailView(
@@ -418,7 +436,8 @@ public struct WorkspaceCommandCenterView: View {
                 preparer: { brief, event in
                     try await model.prepareMeetingInDailyNote(brief: brief, event: event)
                 },
-                onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) }
+                onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
+                onOpenPerson: { personNodeId in openPerson(personNodeId) }
             )
         case .supertags:
             SupertagsView(
@@ -469,7 +488,8 @@ public struct WorkspaceCommandCenterView: View {
                     preparer: { brief, event in
                         try await model.prepareMeetingInDailyNote(brief: brief, event: event)
                     },
-                    onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) }
+                    onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
+                    onOpenPerson: { personNodeId in openPerson(personNodeId) }
                 )
                 Divider()
                 CalendarDayView(
@@ -535,6 +555,16 @@ public struct WorkspaceCommandCenterView: View {
             .accessibilityHint("Returns to the workspace chooser so you can recover with another workspace.")
         }
         .padding(32)
+    }
+
+    private func openPerson(_ personNodeId: EntityId) {
+        #if os(macOS)
+        selectedSearchNodeId = nil
+        selectedGraphNodeId = nil
+        selectedPersonNodeId = personNodeId
+        #else
+        iOSPath.append(WorkspaceRoute.personID(personNodeId))
+        #endif
     }
 }
 
@@ -623,6 +653,182 @@ private struct GraphNodeDetailView: View {
         }
         .frame(maxWidth: 900, maxHeight: .infinity, alignment: .topLeading)
         .padding(32)
+    }
+}
+
+/// A verified direct entity reference.  The route keeps the opaque `EntityId` all the way to the
+/// RPC reader; the decoded wire ID must match before a page preview may be composed.
+struct WorkspaceDirectEntityNode: Equatable, Sendable {
+    let id: EntityId
+    let title: String
+}
+
+typealias WorkspaceDirectEntityReader = (EntityId) async throws -> WorkspaceDirectEntityNode
+
+enum WorkspaceDirectEntityLoadError: Error {
+    case mismatchedNodeIdentity
+}
+
+enum WorkspaceDirectEntityLoadState: Equatable {
+    case idle
+    case loading
+    case loaded(WorkspaceDirectEntityNode)
+    case notFound
+    case failed
+}
+
+enum WorkspaceDirectEntityPresentation {
+    static let title = "Person"
+    static let missingMessage = "This person is no longer available in this workspace."
+    static let failureMessage = "Person details are unavailable right now."
+
+    static func state(for error: Error) -> WorkspaceDirectEntityLoadState {
+        guard let domainError = error as? AthenaeumDomainError else { return .failed }
+        if case .nodeNotFound = domainError {
+            return .notFound
+        }
+        return .failed
+    }
+
+    static func canComposePagePreview(
+        state: WorkspaceDirectEntityLoadState,
+        for personNodeId: EntityId
+    ) -> Bool {
+        guard case .loaded(let node) = state else { return false }
+        return node.id == personNodeId
+    }
+
+    static func canRetry(state: WorkspaceDirectEntityLoadState) -> Bool {
+        state == .failed
+    }
+}
+
+@MainActor
+final class WorkspaceDirectEntityLoader: ObservableObject {
+    @Published private(set) var state: WorkspaceDirectEntityLoadState = .idle
+
+    private let readNode: WorkspaceDirectEntityReader
+    private var generation = 0
+
+    init(readNode: @escaping WorkspaceDirectEntityReader) {
+        self.readNode = readNode
+    }
+
+    /// A newer route or retry wins. A late result is intentionally invisible rather than being
+    /// able to overwrite the current person destination.
+    func load(personNodeId: EntityId) async {
+        generation &+= 1
+        let activeGeneration = generation
+        state = .loading
+        do {
+            let node = try await readNode(personNodeId)
+            guard activeGeneration == generation else { return }
+            guard node.id == personNodeId else {
+                state = .failed
+                return
+            }
+            state = .loaded(node)
+        } catch {
+            guard activeGeneration == generation else { return }
+            state = WorkspaceDirectEntityPresentation.state(for: error)
+        }
+    }
+}
+
+private struct WorkspaceDirectEntityDetailView: View {
+    let personNodeId: EntityId
+    let client: WorkspaceRPCClient
+    let onClose: (() -> Void)?
+    @StateObject private var loader: WorkspaceDirectEntityLoader
+    @State private var isRetrying = false
+
+    init(
+        personNodeId: EntityId,
+        client: WorkspaceRPCClient,
+        onClose: (() -> Void)?
+    ) {
+        self.personNodeId = personNodeId
+        self.client = client
+        self.onClose = onClose
+        _loader = StateObject(
+            wrappedValue: WorkspaceDirectEntityLoader(readNode: { requestedNodeId in
+                let node = try await client.getNode(nodeId: requestedNodeId.rawValue)
+                guard node.id == requestedNodeId.rawValue else {
+                    throw WorkspaceDirectEntityLoadError.mismatchedNodeIdentity
+                }
+                return WorkspaceDirectEntityNode(id: requestedNodeId, title: node.title)
+            })
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label(WorkspaceDirectEntityPresentation.title, systemImage: "person")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                #if os(macOS)
+                if let onClose {
+                    Button("Back", action: onClose)
+                        .keyboardShortcut(.escape, modifiers: [])
+                        .accessibilityHint("Returns to the current workspace destination.")
+                }
+                #endif
+            }
+
+            switch loader.state {
+            case .idle, .loading:
+                ProgressView("Loading person…")
+                    .foregroundStyle(.secondary)
+            case .loaded(let node) where node.id == personNodeId:
+                Text(node.title)
+                    .font(.largeTitle.bold())
+                    .textSelection(.enabled)
+                EntityPagePreview(nodeId: node.id.rawValue, client: client)
+                    .id(node.id)
+            case .loaded:
+                ProgressView("Loading person…")
+                    .foregroundStyle(.secondary)
+            case .notFound:
+                EmptyStateView(
+                    title: "Person unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    message: WorkspaceDirectEntityPresentation.missingMessage
+                )
+            case .failed:
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        WorkspaceDirectEntityPresentation.failureMessage,
+                        systemImage: "exclamationmark.triangle"
+                    )
+                        .foregroundStyle(.secondary)
+                    Button(isRetrying ? "Retrying person…" : "Retry person") {
+                        retry()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        isRetrying || !WorkspaceDirectEntityPresentation.canRetry(state: loader.state)
+                    )
+                    .accessibilityHint("Retries the person details read.")
+                }
+            }
+        }
+        .frame(maxWidth: 900, maxHeight: .infinity, alignment: .topLeading)
+        .padding(32)
+        .task(id: personNodeId) {
+            isRetrying = false
+            await loader.load(personNodeId: personNodeId)
+        }
+    }
+
+    private func retry() {
+        guard !isRetrying else { return }
+        isRetrying = true
+        Task { @MainActor in
+            await loader.load(personNodeId: personNodeId)
+            isRetrying = false
+        }
     }
 }
 
@@ -877,10 +1083,12 @@ enum WorkspaceRoute: Hashable {
     case search(String)
     case dailyNote(LocalDate)
     case graph(String)
+    case person(EntityId)
     static let voiceAction = WorkspaceRoute.section(.voice)
     static let agentAction = WorkspaceRoute.section(.agent)
     static func graphID(_ id: String) -> WorkspaceRoute { .graph(id) }
     static func searchID(_ id: String) -> WorkspaceRoute { .search(id) }
+    static func personID(_ id: EntityId) -> WorkspaceRoute { .person(id) }
 }
 
 enum WorkspaceGraphDetailPresentation {

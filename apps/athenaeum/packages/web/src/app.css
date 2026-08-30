@@ -2220,6 +2220,32 @@
   font-size: var(--text-xs);
 }
 
+.today-brief-event-people {
+  align-items: flex-start;
+}
+
+.today-brief-person {
+  width: fit-content;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.today-brief-person:hover,
+.today-brief-person:focus-visible {
+  color: var(--color-accent-strong, var(--color-accent));
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .today-brief-event-action {
   align-items: flex-start;
   margin-top: var(--space-1);

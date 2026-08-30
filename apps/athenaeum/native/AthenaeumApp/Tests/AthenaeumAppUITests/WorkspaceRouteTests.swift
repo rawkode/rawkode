@@ -1,7 +1,9 @@
 import XCTest
 @testable import AthenaeumAppUI
 import AthenaeumDomain
+@testable import AthenaeumRPC
 
+@MainActor
 final class WorkspaceRouteTests: XCTestCase {
     func testActionAndEntityRouteMappingsPreserveIntent() {
         XCTAssertEqual(WorkspaceRoute.voiceAction, .section(.voice))
@@ -9,6 +11,13 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertEqual(WorkspaceRoute.graphID("calendar-node"), .graph("calendar-node"))
         XCTAssertEqual(WorkspaceRoute.searchID("search-node"), .search("search-node"))
         XCTAssertNotEqual(WorkspaceRoute.searchID("node"), WorkspaceRoute.graphID("node"))
+    }
+
+    func testPersonRouteCarriesTheValidatedEntityIDWithoutUsingGraphRows() throws {
+        let personNodeId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+
+        XCTAssertEqual(WorkspaceRoute.personID(personNodeId), .person(personNodeId))
+        XCTAssertNotEqual(WorkspaceRoute.personID(personNodeId), .graph(personNodeId.rawValue))
     }
 
     func testSidebarKeepsCoreWorkSurfacesSeparateFromBrowseDestinations() {
@@ -203,5 +212,138 @@ final class WorkspaceRouteTests: XCTestCase {
                 retryingNodeId: retryingNodeId
             )
         )
+    }
+
+    func testDirectEntityLoaderVerifiesTheRequestedIdentityBeforeComposingAPreview() async throws {
+        let requested = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let loaded = WorkspaceDirectEntityNode(id: requested, title: "Alice")
+        let loader = WorkspaceDirectEntityLoader { nodeId in
+            XCTAssertEqual(nodeId, requested)
+            return loaded
+        }
+
+        await loader.load(personNodeId: requested)
+
+        XCTAssertEqual(loader.state, .loaded(loaded))
+        XCTAssertTrue(
+            WorkspaceDirectEntityPresentation.canComposePagePreview(
+                state: loader.state,
+                for: requested
+            )
+        )
+
+        let unexpected = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440001")
+        let mismatchedLoader = WorkspaceDirectEntityLoader { _ in
+            WorkspaceDirectEntityNode(id: unexpected, title: "Wrong person")
+        }
+        await mismatchedLoader.load(personNodeId: requested)
+
+        XCTAssertEqual(mismatchedLoader.state, .failed)
+        XCTAssertFalse(
+            WorkspaceDirectEntityPresentation.canComposePagePreview(
+                state: mismatchedLoader.state,
+                for: requested
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceDirectEntityPresentation.canComposePagePreview(
+                state: .loaded(WorkspaceDirectEntityNode(id: unexpected, title: "Stale person")),
+                for: requested
+            )
+        )
+        XCTAssertEqual(WorkspaceDirectEntityPresentation.failureMessage, "Person details are unavailable right now.")
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.failureMessage.contains(requested.rawValue))
+    }
+
+    func testDirectEntityLoaderKeepsMissingAndGenericFailuresDistinctAndSafe() async throws {
+        let requested = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let missingLoader = WorkspaceDirectEntityLoader { _ in
+            throw AthenaeumDomainError.nodeNotFound(nodeId: "provider-private-node")
+        }
+
+        await missingLoader.load(personNodeId: requested)
+
+        XCTAssertEqual(missingLoader.state, .notFound)
+        XCTAssertFalse(
+            WorkspaceDirectEntityPresentation.canComposePagePreview(
+                state: missingLoader.state,
+                for: requested
+            )
+        )
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.canRetry(state: missingLoader.state))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.missingMessage.contains("provider-private-node"))
+
+        let genericLoader = WorkspaceDirectEntityLoader { _ in
+            throw NSError(domain: "private.workspace.backend", code: 500, userInfo: [NSLocalizedDescriptionKey: "token=secret"])
+        }
+        await genericLoader.load(personNodeId: requested)
+
+        XCTAssertEqual(genericLoader.state, .failed)
+        XCTAssertTrue(WorkspaceDirectEntityPresentation.canRetry(state: genericLoader.state))
+        XCTAssertFalse(WorkspaceDirectEntityPresentation.failureMessage.contains("token=secret"))
+    }
+
+    func testDirectEntityLoaderIgnoresALateOlderRouteCompletion() async throws {
+        let first = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let latest = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440001")
+        let reader = DeferredDirectEntityReader()
+        let loader = WorkspaceDirectEntityLoader { nodeId in
+            try await reader.read(nodeId)
+        }
+
+        let firstLoad = Task { await loader.load(personNodeId: first) }
+        await waitForReader(reader, toStart: first)
+        let latestLoad = Task { await loader.load(personNodeId: latest) }
+        await waitForReader(reader, toStart: latest)
+
+        await reader.resume(
+            latest,
+            with: .success(WorkspaceDirectEntityNode(id: latest, title: "Latest person"))
+        )
+        await latestLoad.value
+        XCTAssertEqual(loader.state, .loaded(WorkspaceDirectEntityNode(id: latest, title: "Latest person")))
+
+        await reader.resume(
+            first,
+            with: .success(WorkspaceDirectEntityNode(id: first, title: "Stale person"))
+        )
+        await firstLoad.value
+
+        XCTAssertEqual(loader.state, .loaded(WorkspaceDirectEntityNode(id: latest, title: "Latest person")))
+    }
+
+    private func waitForReader(
+        _ reader: DeferredDirectEntityReader,
+        toStart nodeId: EntityId
+    ) async {
+        for _ in 0..<100 {
+            if await reader.isWaiting(for: nodeId) {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for deferred direct entity read")
+    }
+}
+
+private actor DeferredDirectEntityReader {
+    private var continuations: [EntityId: CheckedContinuation<WorkspaceDirectEntityNode, Error>] = [:]
+
+    func read(_ nodeId: EntityId) async throws -> WorkspaceDirectEntityNode {
+        try await withCheckedThrowingContinuation { continuation in
+            continuations[nodeId] = continuation
+        }
+    }
+
+    func isWaiting(for nodeId: EntityId) -> Bool {
+        continuations[nodeId] != nil
+    }
+
+    func resume(
+        _ nodeId: EntityId,
+        with result: Result<WorkspaceDirectEntityNode, Error>
+    ) {
+        guard let continuation = continuations.removeValue(forKey: nodeId) else { return }
+        continuation.resume(with: result)
     }
 }

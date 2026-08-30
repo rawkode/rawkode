@@ -4,16 +4,22 @@ import { act, createElement, useCallback, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GetTodayBriefOutput } from "@athenaeum/domain"
-import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefSchedule, TodayBriefFreshness, todayBriefScheduleSignature } from "./TodayBrief.js"
+import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefPeople, projectTodayBriefSchedule, TodayBriefFreshness, todayBriefScheduleSignature } from "./TodayBrief.js"
 
 type TodayBriefEvent = GetTodayBriefOutput["events"][number]
-const event = (id: string, start: string, end: string, occurrenceKey = "0".repeat(64)): TodayBriefEvent => ({
+const event = (
+  id: string,
+  start: string,
+  end: string,
+  occurrenceKey = "0".repeat(64),
+  people: TodayBriefEvent["people"] = []
+): TodayBriefEvent => ({
   id: id as TodayBriefEvent["id"],
   occurrenceKey,
   title: id,
   start: start as TodayBriefEvent["start"],
   end: end as TodayBriefEvent["end"],
-  people: []
+  people
 })
 const now = new Date("2026-08-26T10:00:00.000Z")
 
@@ -402,5 +408,70 @@ describe("projectTodayBriefSchedule", () => {
       await act(async () => { preparation.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
     }
     expect(container.querySelectorAll(".today-brief-event-error")).toHaveLength(0)
+  })
+})
+
+describe("Today Brief person navigation", () => {
+  const aliceId = "550e8400-e29b-41d4-a716-446655440000" as NonNullable<TodayBriefEvent["people"][number]["personNodeId"]>
+  const personOnlyId = "550e8400-e29b-41d4-a716-446655440001" as NonNullable<TodayBriefEvent["people"][number]["personNodeId"]>
+
+  it("preserves source order while keeping opaque IDs callback-only", () => {
+    const people: TodayBriefEvent["people"] = [
+      { displayName: "Alice", personNodeId: aliceId },
+      { displayName: "Guest" },
+      { personNodeId: personOnlyId },
+      {}
+    ]
+
+    expect(projectTodayBriefPeople(people, true)).toEqual([
+      { title: "Alice", personNodeId: aliceId },
+      { title: "Guest" },
+      { title: "Person", personNodeId: personOnlyId }
+    ])
+    expect(projectTodayBriefPeople(people, false)).toEqual([
+      { title: "Alice" },
+      { title: "Guest" }
+    ])
+  })
+
+  it("exposes each person navigation control independently without rendering its ID", async () => {
+    const people: TodayBriefEvent["people"] = [
+      { displayName: "Alice", personNodeId: aliceId },
+      { displayName: "Guest" },
+      { personNodeId: personOnlyId },
+      {}
+    ]
+    const value = {
+      localDate: "2026-08-26",
+      timeZone: "UTC",
+      calendarHistory: { status: "found" },
+      events: [event("people", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z", "p".repeat(64), people)]
+    } as unknown as GetTodayBriefOutput
+    const onOpenPerson = vi.fn()
+    const container = await mount(createElement(TodayBriefFreshness, {
+      value,
+      isToday: true,
+      now,
+      stale: false,
+      clock: () => now,
+      onBoundary: () => undefined,
+      onOpenPerson
+    }))
+
+    const peopleGroup = container.querySelector<HTMLElement>(".today-brief-event-people")
+    expect(peopleGroup?.getAttribute("role")).toBe("group")
+    expect(peopleGroup?.getAttribute("aria-label")).toBe("People")
+    expect(peopleGroup?.textContent).toContain("Guest")
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>(".today-brief-person"))
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Open Alice", "Open Person"])
+    expect(container.textContent).not.toContain(aliceId)
+    expect(container.textContent).not.toContain(personOnlyId)
+
+    await act(async () => {
+      buttons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    expect(onOpenPerson).toHaveBeenNthCalledWith(1, aliceId)
+    expect(onOpenPerson).toHaveBeenNthCalledWith(2, personOnlyId)
   })
 })

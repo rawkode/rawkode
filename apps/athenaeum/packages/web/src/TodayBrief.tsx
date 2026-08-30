@@ -36,6 +36,27 @@ export type TodayBriefEvent = GetTodayBriefOutput["events"][number]
 
 export type TodayBriefPrepareMeeting = (event: TodayBriefEvent, localDate: LocalDate, timeZone: GetTodayBriefOutput["timeZone"]) => Promise<void>
 
+type TodayBriefPerson = TodayBriefEvent["people"][number]
+export type TodayBriefOpenPerson = (personNodeId: NonNullable<TodayBriefPerson["personNodeId"]>) => void
+
+export type TodayBriefPersonNavigationItem = {
+  readonly title: string
+  readonly personNodeId?: NonNullable<TodayBriefPerson["personNodeId"]>
+}
+
+/** Projects the privacy-safe attendee projection in server order. Opaque IDs are callback-only. */
+export function projectTodayBriefPeople(
+  people: readonly TodayBriefPerson[],
+  canOpenPerson: boolean
+): readonly TodayBriefPersonNavigationItem[] {
+  return people.flatMap((person) => {
+    if (person.personNodeId !== undefined && canOpenPerson) {
+      return [{ title: person.displayName ?? "Person", personNodeId: person.personNodeId }]
+    }
+    return person.displayName === undefined ? [] : [{ title: person.displayName }]
+  })
+}
+
 /** An occurrence is identified by its source position, never its provider id. */
 export function todayBriefScheduleSignature(schedule: TodayBriefSchedule, events: readonly TodayBriefEvent[]): string {
   // `events` is retained in the API for callers that already pass the source
@@ -126,7 +147,7 @@ export function projectTodayBriefSchedule(
   }
 }
 
-export function TodayBrief({ id, reference = new Date(), isToday = true, clock = defaultClock, onPrepareMeeting }: { readonly id?: string; readonly reference?: Date; readonly isToday?: boolean; readonly clock?: () => Date; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }) {
+export function TodayBrief({ id, reference = new Date(), isToday = true, clock = defaultClock, onPrepareMeeting, onOpenPerson }: { readonly id?: string; readonly reference?: Date; readonly isToday?: boolean; readonly clock?: () => Date; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly onOpenPerson?: TodayBriefOpenPerson }) {
   const [now, setNow] = useState<Date | undefined>(() => isToday ? clock() : undefined)
   const [stale, setStale] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -196,12 +217,12 @@ export function TodayBrief({ id, reference = new Date(), isToday = true, clock =
         <p className="today-brief-state" role="status">Loading {isToday ? "today’s" : "daily"} brief&hellip;</p>
       )}
       {query.status === "failure" && <p className="today-brief-state error" role="alert">{formatTodayBriefError(query.error)}</p>}
-      {query.status === "success" && <TodayBriefFreshness value={query.value} isToday={isToday} now={now} stale={stale} clock={clock} onBoundary={onBoundary} onRefresh={refresh} isRefreshing={isRefreshing} onPrepareMeeting={onPrepareMeeting} />}
+      {query.status === "success" && <TodayBriefFreshness value={query.value} isToday={isToday} now={now} stale={stale} clock={clock} onBoundary={onBoundary} onRefresh={refresh} isRefreshing={isRefreshing} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} />}
     </aside>
   )
 }
 
-export function TodayBriefFreshness({ value, isToday, now, stale, clock, onBoundary, onRefresh, isRefreshing = false, onPrepareMeeting }: { readonly value: GetTodayBriefOutput; readonly isToday: boolean; readonly now: Date | undefined; readonly stale: boolean; readonly clock: () => Date; readonly onBoundary: (now: Date, stale: boolean) => void; readonly onRefresh?: () => void; readonly isRefreshing?: boolean; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }) {
+export function TodayBriefFreshness({ value, isToday, now, stale, clock, onBoundary, onRefresh, isRefreshing = false, onPrepareMeeting, onOpenPerson }: { readonly value: GetTodayBriefOutput; readonly isToday: boolean; readonly now: Date | undefined; readonly stale: boolean; readonly clock: () => Date; readonly onBoundary: (now: Date, stale: boolean) => void; readonly onRefresh?: () => void; readonly isRefreshing?: boolean; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly onOpenPerson?: TodayBriefOpenPerson }) {
   const generation = useRef(0)
   const visible = useRef(typeof document === "undefined" || document.visibilityState === "visible")
   useEffect(() => {
@@ -243,17 +264,17 @@ export function TodayBriefFreshness({ value, isToday, now, stale, clock, onBound
       <p className="today-brief-state">This brief is no longer current.</p>
       {onRefresh !== undefined && <button type="button" className="today-brief-refresh" onClick={onRefresh} disabled={isRefreshing}>{isRefreshing ? "Refreshing…" : "Refresh brief"}</button>}
     </div>
-  ) : <TodayBriefContent value={value} isToday={isToday} now={now} onPrepareMeeting={onPrepareMeeting} />
+  ) : <TodayBriefContent value={value} isToday={isToday} now={now} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} />
 }
 
-function TodayBriefContent({ value, isToday, now, onPrepareMeeting }: { readonly value: GetTodayBriefOutput; readonly isToday: boolean; readonly now: Date | undefined; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }) {
+function TodayBriefContent({ value, isToday, now, onPrepareMeeting, onOpenPerson }: { readonly value: GetTodayBriefOutput; readonly isToday: boolean; readonly now: Date | undefined; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly onOpenPerson?: TodayBriefOpenPerson }) {
   const formatter = timeFormatter(value.timeZone)
   const schedule = isToday && now !== undefined ? projectTodayBriefSchedule(value.events, now) : undefined
   const isEmptyCurrentDaySchedule = schedule !== undefined && schedule.active.length === 0 && schedule.upcoming.length === 0 && schedule.past.length === 0
   const renderEvents = (events: readonly GetTodayBriefOutput["events"][number][], label: string, allowPreparation = true) => (
     <section aria-labelledby={`today-brief-${label}`}>
       <h3 id={`today-brief-${label}`}>{label}</h3>
-      {events.length === 0 ? <p className="today-brief-state">No events.</p> : <EventList events={events} formatter={formatter} localDate={value.localDate} timeZone={value.timeZone} onPrepareMeeting={onPrepareMeeting} allowPreparation={allowPreparation} sectionLabel={label} />}
+      {events.length === 0 ? <p className="today-brief-state">No events.</p> : <EventList events={events} formatter={formatter} localDate={value.localDate} timeZone={value.timeZone} onPrepareMeeting={onPrepareMeeting} onOpenPerson={onOpenPerson} allowPreparation={allowPreparation} sectionLabel={label} />}
     </section>
   )
   const previousSignature = useRef<string | undefined>(undefined)
@@ -284,7 +305,7 @@ function TodayBriefContent({ value, isToday, now, onPrepareMeeting }: { readonly
   )
 }
 
-function EventList({ events, formatter, localDate, timeZone, onPrepareMeeting, allowPreparation, sectionLabel }: { readonly events: readonly GetTodayBriefOutput["events"][number][]; readonly formatter: Intl.DateTimeFormat; readonly localDate: LocalDate; readonly timeZone: GetTodayBriefOutput["timeZone"]; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly allowPreparation: boolean; readonly sectionLabel: string }) {
+function EventList({ events, formatter, localDate, timeZone, onPrepareMeeting, onOpenPerson, allowPreparation, sectionLabel }: { readonly events: readonly GetTodayBriefOutput["events"][number][]; readonly formatter: Intl.DateTimeFormat; readonly localDate: LocalDate; readonly timeZone: GetTodayBriefOutput["timeZone"]; readonly onPrepareMeeting?: TodayBriefPrepareMeeting; readonly onOpenPerson?: TodayBriefOpenPerson; readonly allowPreparation: boolean; readonly sectionLabel: string }) {
   const [states, setStates] = useState<Record<string, "preparing" | "prepared" | "error">>({})
   const preparingOccurrenceKeys = useRef(new Set<string>())
   const preparationReady = onPrepareMeeting !== undefined
@@ -309,9 +330,15 @@ function EventList({ events, formatter, localDate, timeZone, onPrepareMeeting, a
       : preparationState === "prepared"
         ? "Meeting added to daily note."
         : undefined
+    const people = projectTodayBriefPeople(event.people, onOpenPerson !== undefined)
     return <li key={`${event.occurrenceKey}-${occurrence}`} className="today-brief-event">
       <time dateTime={event.start}>{formatter.format(new Date(event.start))}</time>
-      <div className="today-brief-event-content"><strong>{event.title}</strong>{event.people.length > 0 && <span>{event.people.map((person) => person.displayName).filter(Boolean).join(", ")}</span>}
+      <div className="today-brief-event-content"><strong>{event.title}</strong>{people.length > 0 && <div className="today-brief-event-people" role="group" aria-label="People">{people.map((person, personIndex) => {
+        const personNodeId = person.personNodeId
+        return personNodeId === undefined
+          ? <span key={personIndex}>{person.title}</span>
+          : <button key={personIndex} type="button" className="today-brief-person" onClick={() => onOpenPerson?.(personNodeId)} aria-label={`Open ${person.title}`} aria-describedby={`today-brief-person-hint-${sectionLabel}-${occurrence}-${personIndex}`}>{person.title}<span id={`today-brief-person-hint-${sectionLabel}-${occurrence}-${personIndex}`} className="sr-only">Opens this person in the workspace.</span></button>
+      })}</div>}
         {allowPreparation && <div className="today-brief-event-action">
           <button type="button" className="today-brief-prepare" onClick={preparationReady ? () => void prepare(event) : undefined} disabled={!preparationReady || preparationState === "preparing" || preparationState === "prepared"} aria-describedby={preparationReady ? undefined : `today-brief-preparation-readiness-${sectionLabel}-${occurrence}`}>
             {preparationState === "preparing" ? "Preparing…" : preparationState === "prepared" ? "Added to daily note" : preparationReady ? "Prepare in daily note" : "Daily note not ready"}

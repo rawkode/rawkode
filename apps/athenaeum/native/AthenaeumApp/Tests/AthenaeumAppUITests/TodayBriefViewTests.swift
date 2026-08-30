@@ -155,6 +155,46 @@ final class TodayBriefViewTests: XCTestCase {
         )
     }
 
+    func testPersonNavigationPresentationPreservesSourceOrderAndAccessibleActions() throws {
+        let aliceId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
+        let idOnly = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440001")
+        let items = TodayBriefPersonNavigationPresentation.items(
+            people: [
+                RPCTodayBriefPerson(displayName: "Alice", personNodeId: aliceId),
+                RPCTodayBriefPerson(displayName: "Guest"),
+                RPCTodayBriefPerson(personNodeId: idOnly),
+                RPCTodayBriefPerson()
+            ],
+            canOpenPerson: true
+        )
+
+        XCTAssertEqual(items.map(\.title), ["Alice", "Guest", "Person"])
+        XCTAssertEqual(items[0].destination, .person(aliceId))
+        XCTAssertEqual(items[1].destination, .staticText)
+        XCTAssertEqual(items[2].destination, .person(idOnly))
+        XCTAssertEqual(items[0].accessibilityLabel, "Open Alice")
+        XCTAssertEqual(items[2].accessibilityLabel, "Open Person")
+        XCTAssertEqual(items[0].accessibilityHint, "Opens this person in the workspace.")
+        XCTAssertFalse(items.compactMap(\.accessibilityLabel).joined(separator: " ").contains(aliceId.rawValue))
+        XCTAssertFalse(items.compactMap(\.accessibilityLabel).joined(separator: " ").contains(idOnly.rawValue))
+
+        XCTAssertEqual(
+            TodayBriefPersonNavigationPresentation.items(
+                people: [
+                    RPCTodayBriefPerson(displayName: "Alice", personNodeId: aliceId),
+                    RPCTodayBriefPerson(displayName: "Guest"),
+                    RPCTodayBriefPerson(personNodeId: idOnly),
+                    RPCTodayBriefPerson()
+                ],
+                canOpenPerson: false
+            ),
+            [
+                .init(title: "Alice", destination: .staticText),
+                .init(title: "Guest", destination: .staticText)
+            ]
+        )
+    }
+
     func testScheduleClassifiesHalfOpenIntervalsAndPreservesSourceOrder() throws {
         let result = TodayBriefSchedule.project([
             try event("active", start: "2026-08-26T09:00:00Z", end: "2026-08-26T10:00:00Z"),

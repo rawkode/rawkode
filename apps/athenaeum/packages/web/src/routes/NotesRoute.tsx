@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { useSearchParams } from "react-router"
+import { useNavigate, useSearchParams } from "react-router"
 import { DailyNote } from "../DailyNote.js"
 import { TodayBrief, type TodayBriefEvent, type TodayBriefPrepareMeeting } from "../TodayBrief.js"
 import type { LocalDate } from "@athenaeum/domain"
@@ -24,6 +24,8 @@ import { localDateStamp, parseDateStamp } from "../daily-note-id.js"
 // re-resolve. Past days are read-write in the same editor — same deterministic-id resolve-or-create
 // + sync mechanism, different day.
 export function NotesRoute() {
+  const navigate = useNavigate()
+  const onOpenPerson = useCallback((personNodeId: string) => navigate(`/node/${personNodeId}`), [navigate])
   const [searchParams, setSearchParams] = useSearchParams()
   const rawDate = searchParams.get("date")
   const [todayStamp, setTodayStamp] = useState(() => localDateStamp(new Date()))
@@ -112,6 +114,7 @@ export function NotesRoute() {
             reference={date}
             isToday={isToday}
             onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined}
+            onOpenPerson={onOpenPerson}
           />
         </div>
       </div>

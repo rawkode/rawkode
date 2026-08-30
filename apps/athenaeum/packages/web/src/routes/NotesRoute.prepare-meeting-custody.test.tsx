@@ -20,6 +20,7 @@ const rendered = vi.hoisted(() => ({
 }))
 
 vi.mock("react-router", () => ({
+  useNavigate: () => () => undefined,
   useSearchParams: () => [
     new URLSearchParams(rendered.search),
     (next: Record<string, string>) => { rendered.search = new URLSearchParams(next).toString() }

@@ -266,15 +266,18 @@ public struct TodayBriefView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isRefreshInFlight = false
     private let onOpenDailyNote: ((LocalDate) -> Void)?
+    private let onOpenPerson: ((EntityId) -> Void)?
 
     public init(
         backendURL: URL,
         workspaceId: EntityId,
         bearerCredential: String?,
         preparer: TodayBriefPreparer? = nil,
-        onOpenDailyNote: ((LocalDate) -> Void)? = nil
+        onOpenDailyNote: ((LocalDate) -> Void)? = nil,
+        onOpenPerson: ((EntityId) -> Void)? = nil
     ) {
         self.onOpenDailyNote = onOpenDailyNote
+        self.onOpenPerson = onOpenPerson
         _model = StateObject(
             wrappedValue: TodayBriefViewModel(
                 backendURL: backendURL,
@@ -349,6 +352,7 @@ public struct TodayBriefView: View {
                     brief: brief,
                     now: model.currentDate(),
                     isPreparationReady: onOpenDailyNote != nil,
+                    onOpenPerson: onOpenPerson,
                     onPrepareMeeting: { event in
                         guard await model.prepare(event, in: brief) else { return false }
                         onOpenDailyNote?(brief.localDate)
@@ -408,6 +412,7 @@ private struct TodayBriefContent: View {
     let brief: RPCTodayBrief
     let now: Date
     let isPreparationReady: Bool
+    let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
 
     var body: some View {
@@ -422,10 +427,10 @@ private struct TodayBriefContent: View {
                     .foregroundStyle(.secondary)
             } else {
                 let schedule = TodayBriefSchedule.project(brief.events, now: now)
-                TodayBriefSection(title: "Active", events: schedule.active, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Up next", events: schedule.next, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Later", events: schedule.later, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onPrepareMeeting: onPrepareMeeting)
-                TodayBriefSection(title: "Past", events: schedule.past, brief: brief, offersPreparation: false, isPreparationReady: false, onPrepareMeeting: onPrepareMeeting)
+                TodayBriefSection(title: "Active", events: schedule.active, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
+                TodayBriefSection(title: "Up next", events: schedule.next, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
+                TodayBriefSection(title: "Later", events: schedule.later, brief: brief, offersPreparation: true, isPreparationReady: isPreparationReady, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
+                TodayBriefSection(title: "Past", events: schedule.past, brief: brief, offersPreparation: false, isPreparationReady: false, onOpenPerson: onOpenPerson, onPrepareMeeting: onPrepareMeeting)
             }
         }
     }
@@ -452,6 +457,7 @@ private struct TodayBriefSection: View {
     let brief: RPCTodayBrief
     let offersPreparation: Bool
     let isPreparationReady: Bool
+    let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
 
     var body: some View {
@@ -469,6 +475,7 @@ private struct TodayBriefSection: View {
                         event: event,
                         timeZone: brief.timeZone.rawValue,
                         offersPreparation: offersPreparation,
+                        onOpenPerson: onOpenPerson,
                         onPrepareMeeting: isPreparationReady ? { await onPrepareMeeting(event) } : nil
                     )
                 }
@@ -476,6 +483,48 @@ private struct TodayBriefSection: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
+    }
+}
+
+/// Keeps the server's attendee order while exposing only its safe projection.  The opaque
+/// `EntityId` is retained only as a callback value; it is never a visible or accessibility label.
+enum TodayBriefPersonNavigationPresentation {
+    enum Destination: Equatable {
+        case staticText
+        case person(EntityId)
+    }
+
+    struct Item: Equatable {
+        let title: String
+        let destination: Destination
+
+        var accessibilityLabel: String? {
+            guard case .person = destination else { return nil }
+            return "Open \(title)"
+        }
+
+        var accessibilityHint: String? {
+            guard case .person = destination else { return nil }
+            return "Opens this person in the workspace."
+        }
+    }
+
+    static func items(
+        people: [RPCTodayBriefPerson],
+        canOpenPerson: Bool
+    ) -> [Item] {
+        people.compactMap { person in
+            switch (person.displayName, person.personNodeId) {
+            case let (.some(displayName), .some(personNodeId)) where canOpenPerson:
+                return Item(title: displayName, destination: .person(personNodeId))
+            case let (.some(displayName), _):
+                return Item(title: displayName, destination: .staticText)
+            case let (.none, .some(personNodeId)) where canOpenPerson:
+                return Item(title: "Person", destination: .person(personNodeId))
+            case (.none, .none), (.none, .some):
+                return nil
+            }
+        }
     }
 }
 
@@ -564,54 +613,82 @@ private struct TodayBriefEventRow: View {
     let event: RPCTodayBriefEvent
     let timeZone: String
     let offersPreparation: Bool
+    let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (() async -> Bool)?
     @State private var preparationState = TodayBriefPreparationState()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(timeLabel)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
+        let people = TodayBriefPersonNavigationPresentation.items(
+            people: event.people,
+            canOpenPerson: onOpenPerson != nil
+        )
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(timeLabel)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 72, alignment: .leading)
                 Text(event.title).bold()
-                let names = event.people.compactMap(\.displayName).joined(separator: ", ")
-                if !names.isEmpty {
-                    Text(names)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+
+            if !people.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(people.enumerated()), id: \.offset) { _, person in
+                        switch person.destination {
+                        case .staticText:
+                            Text(person.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        case .person(let personNodeId):
+                            Button(person.title) {
+                                onOpenPerson?(personNodeId)
+                            }
+                            #if os(macOS)
+                                .buttonStyle(.link)
+                            #else
+                                .buttonStyle(.borderless)
+                            #endif
+                                .font(.caption)
+                                .accessibilityLabel(person.accessibilityLabel ?? person.title)
+                                .accessibilityHint(person.accessibilityHint ?? "")
+                        }
+                    }
                 }
-                if let preparation = TodayBriefPreparationPresentation.action(
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("People")
+            }
+
+            if let preparation = TodayBriefPreparationPresentation.action(
                     offersPreparation: offersPreparation,
                     isReady: onPrepareMeeting != nil,
                     isPreparing: preparationState.isPreparing,
                     isPrepared: preparationState.isPrepared(for: event.occurrenceKey)
                 ) {
-                    Button(preparation.title) {
-                        let occurrenceKey = event.occurrenceKey
-                        guard let onPrepareMeeting, preparationState.begin(for: occurrenceKey) else { return }
-                        Task { @MainActor in
-                            let succeeded = await onPrepareMeeting()
-                            preparationState.complete(for: occurrenceKey, succeeded: succeeded)
-                        }
+                Button(preparation.title) {
+                    let occurrenceKey = event.occurrenceKey
+                    guard let onPrepareMeeting, preparationState.begin(for: occurrenceKey) else { return }
+                    Task { @MainActor in
+                        let succeeded = await onPrepareMeeting()
+                        preparationState.complete(for: occurrenceKey, succeeded: succeeded)
                     }
-                    #if os(macOS)
-                        .buttonStyle(.link)
-                    #else
-                        .buttonStyle(.borderless)
-                    #endif
+                }
+                #if os(macOS)
+                    .buttonStyle(.link)
+                #else
+                    .buttonStyle(.borderless)
+                #endif
+                    .font(.caption)
+                    .disabled(preparation.isDisabled)
+                    .accessibilityHint(preparation.accessibilityHint)
+                if let readinessMessage = preparation.readinessMessage {
+                    Text(readinessMessage)
                         .font(.caption)
-                        .disabled(preparation.isDisabled)
-                        .accessibilityHint(preparation.accessibilityHint)
-                    if let readinessMessage = preparation.readinessMessage {
-                        Text(readinessMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                        .foregroundStyle(.secondary)
                 }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var timeLabel: String {
