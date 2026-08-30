@@ -400,7 +400,14 @@ export const startMeetingCommitMessage = (): string => "Started a meeting."
  * fingerprint, and side-effect metadata so retries cannot disagree with the stored tag. */
 export const normalizeTagName = (name: string): string => name.normalize("NFKC").trim().replace(/\s+/gu, " ")
 export const normalizeCreateTagName = normalizeTagName
-export const tagNameKey = (name: string): string => normalizeTagName(name).toLocaleLowerCase("en-US")
+/**
+ * The persisted uniqueness key is deliberately narrower than Unicode Default Case Folding.
+ * It uses ECMAScript's locale-independent simple lowercase after NFKC and is versioned so a
+ * future full UAX #44 case-fold migration can be explicit. In v1, `İ` differs from `i` and
+ * `ß` differs from `ss`; do not treat either pair as duplicate names.
+ */
+export const TAG_NAME_KEY_VERSION = "unicode-nfkc-simple-lower.v1" as const
+export const tagNameKey = (name: string): string => normalizeTagName(name).toLowerCase()
 /** Stable server-issued optimistic-concurrency token. Parent order is part of the persisted tag
  * contract and therefore part of the revision; a reorder must conflict with another edit rather
  * than silently overwriting it with the same token. */

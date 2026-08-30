@@ -22,7 +22,7 @@ vi.mock("./use-effect-query.js", () => ({
   }
 }))
 
-import { resolveVisibleTag, SupertagsManager } from "./SupertagsManager.js"
+import { mergeTagEditBaseline, requestForTagEditDraft, resolveVisibleTag, SupertagsManager, tagEditRequestSignature } from "./SupertagsManager.js"
 
 const person = new Tag({
   id: EntityId.make("00000000-0000-4000-8000-000000000001"),
@@ -104,6 +104,29 @@ afterEach(() => {
 })
 
 describe("SupertagsManager schema selection", () => {
+  it("mints a new request after a failed save is edited, while an unchanged retry is identical", () => {
+    const base = { revision: "a".repeat(64), name: "Project", parentIds: new Set<EntityId>([person.id]) }
+    const retry = { ...base, parentIds: new Set(base.parentIds) }
+    const editedName = { ...base, name: "Project Atlas" }
+    const editedParents = { ...base, parentIds: new Set<EntityId>([person.id, project.id]) }
+    expect(tagEditRequestSignature(retry)).toBe(tagEditRequestSignature(base))
+    expect(tagEditRequestSignature(editedName)).not.toBe(tagEditRequestSignature(base))
+    expect(tagEditRequestSignature(editedParents)).not.toBe(tagEditRequestSignature(base))
+    let next = 0
+    const mint = () => `request-${++next}`
+    const failed = requestForTagEditDraft(undefined, base, mint)
+    expect(requestForTagEditDraft(failed, retry, mint)).toBe(failed)
+    expect(requestForTagEditDraft(failed, editedName, mint)).toMatchObject({ id: "request-2" })
+  })
+
+  it("keeps unsaved values when a conflict reload supplies a current revision", () => {
+    const draft = { revision: "a".repeat(64), name: "Project Atlas", parentIds: new Set<EntityId>([person.id]) }
+    const refreshed = mergeTagEditBaseline(draft, "b".repeat(64))
+    expect(refreshed).toEqual({ ...draft, revision: "b".repeat(64) })
+    expect(refreshed.name).toBe("Project Atlas")
+    expect([...refreshed.parentIds]).toEqual([person.id])
+  })
+
   it("falls back deterministically for no or stale selections but preserves a valid explicit choice", () => {
     const sorted = [person, project]
     const tagsById = new Map(sorted.map((tag) => [tag.id as string, tag]))

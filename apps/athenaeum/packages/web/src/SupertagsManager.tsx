@@ -45,6 +45,35 @@ interface FieldQueryScope {
   readonly tagId: EntityId
 }
 
+export interface TagEditDraft {
+  readonly revision: string
+  readonly name: string
+  readonly parentIds: ReadonlySet<EntityId>
+}
+
+export interface TagEditRequest {
+  readonly id: string
+  readonly signature: string
+}
+
+/** Must cover every client-supplied UpdateTag semantic field. Only this exact shape may reuse a
+ * request id after an uncertain failure; any edit mints a new command identity. */
+export const tagEditRequestSignature = (draft: TagEditDraft): string =>
+  JSON.stringify({ expectedRevision: draft.revision, name: draft.name, parentIds: [...draft.parentIds] })
+
+export const requestForTagEditDraft = (
+  current: TagEditRequest | undefined,
+  draft: TagEditDraft,
+  mint: () => string = () => crypto.randomUUID()
+): TagEditRequest => {
+  const signature = tagEditRequestSignature(draft)
+  return current?.signature === signature ? current : { id: mint(), signature }
+}
+
+/** A conflict reload refreshes only the server-issued revision. The user's unsaved values remain
+ * explicit until they save or cancel, rather than being silently overwritten by the catalog. */
+export const mergeTagEditBaseline = (draft: TagEditDraft, revision: string): TagEditDraft => ({ ...draft, revision })
+
 const tagCreationFailureMessage =
   "We couldn’t confirm that this Supertag was created. The name and parents are still here. Review your tags before taking another action."
 
@@ -293,30 +322,35 @@ function TagDetail({
   readonly tagsById: ReadonlyMap<string, Tag>
   readonly onUpdated: (tagId: EntityId) => void
 }) {
-  const [draft, setDraft] = useState<{ readonly revision: string; readonly name: string; readonly parentIds: ReadonlySet<EntityId> } | undefined>()
+  const [draft, setDraft] = useState<TagEditDraft | undefined>()
   const [editError, setEditError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
-  const requestId = useRef<string | undefined>(undefined)
+  const request = useRef<TagEditRequest | undefined>(undefined)
   const parents = tag.parentIds.flatMap((id) => {
     const parent = tagsById.get(id)
     return parent === undefined ? [] : [parent]
   })
   const children = tags.filter((candidate) => candidate.parentIds.includes(tag.id))
-  const startEdit = () => {
+  const loadBaseline = (preserveDraft: boolean) => {
     if (busy || loading || tag.builtin) return
-    // A deliberate reload starts a fresh semantic attempt. A failed save keeps its request id
-    // for an exact retry, but accepting the latest server revision must not reuse that old input.
-    requestId.current = undefined
+    if (!preserveDraft) request.current = undefined
     setLoading(true)
     setEditError(null)
     runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getTag(new GetTagInput({ workspaceId, tagId: tag.id })))))
       .addObserver((exit) => {
         setLoading(false)
-        if (Exit.isSuccess(exit)) setDraft({ revision: exit.value.tag.revision, name: exit.value.tag.tag.name, parentIds: new Set(exit.value.tag.tag.parentIds) })
+        if (Exit.isSuccess(exit)) {
+          request.current = undefined
+          setDraft((current) => preserveDraft && current !== undefined
+            ? mergeTagEditBaseline(current, exit.value.tag.revision)
+            : { revision: exit.value.tag.revision, name: exit.value.tag.tag.name, parentIds: new Set(exit.value.tag.tag.parentIds) })
+        }
         else if (!Exit.isInterrupted(exit)) setEditError("We couldn’t load the latest schema. Retry before editing.")
       })
   }
+  const startEdit = () => loadBaseline(false)
+  const reloadLatest = () => loadBaseline(true)
   const toggleParent = (id: EntityId) => setDraft((current) => {
     if (current === undefined) return current
     const parentIds = new Set(current.parentIds)
@@ -325,17 +359,17 @@ function TagDetail({
   })
   const save = () => {
     if (draft === undefined || busy || loading) return
-    const currentRequestId = requestId.current ?? crypto.randomUUID()
-    requestId.current = currentRequestId
+    const currentRequest = requestForTagEditDraft(request.current, draft)
+    request.current = currentRequest
     setBusy(true); setEditError(null)
     runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.updateTag(new UpdateTagInput({
-      workspaceId, tagId: tag.id, expectedRevision: draft.revision, name: draft.name, parentIds: [...draft.parentIds], requestId: currentRequestId,
+      workspaceId, tagId: tag.id, expectedRevision: draft.revision, name: draft.name, parentIds: [...draft.parentIds], requestId: currentRequest.id,
       commitMessage: `Update the ${draft.name.trim() || tag.name} Supertag schema.`,
       attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager" })
     })))))
       .addObserver((exit) => {
         setBusy(false)
-        if (Exit.isSuccess(exit)) { requestId.current = undefined; setDraft(undefined); onUpdated(tag.id) }
+        if (Exit.isSuccess(exit)) { request.current = undefined; setDraft(undefined); onUpdated(tag.id) }
         else if (!Exit.isInterrupted(exit)) {
           const message = exit.cause.toString().includes("changed elsewhere")
             ? "This Supertag changed elsewhere. Your draft is still here; reload the latest version or retry after reconciling it."
@@ -369,8 +403,8 @@ function TagDetail({
             </label>)}
           </fieldset>
           <button type="button" onClick={save} disabled={busy || loading || trimmedEmpty(draft.name)}>{busy ? "Saving…" : loading ? "Reloading…" : "Save"}</button>
-          <button type="button" onClick={() => { requestId.current = undefined; setDraft(undefined); setEditError(null) }} disabled={busy || loading}>Cancel</button>
-          {editError !== null && <div className="error" role="alert"><p>{editError}</p><button type="button" onClick={save} disabled={busy || loading}>Retry save</button><button type="button" onClick={startEdit} disabled={busy || loading}>Reload latest</button></div>}
+          <button type="button" onClick={() => { request.current = undefined; setDraft(undefined); setEditError(null) }} disabled={busy || loading}>Cancel</button>
+          {editError !== null && <div className="error" role="alert"><p>{editError}</p><button type="button" onClick={save} disabled={busy || loading}>Retry save</button><button type="button" onClick={reloadLatest} disabled={busy || loading}>Reload latest</button></div>}
         </section>
       )}
 

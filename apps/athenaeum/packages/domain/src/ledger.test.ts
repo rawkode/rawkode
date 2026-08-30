@@ -41,6 +41,7 @@ import {
   normalizeCreateNodeTitle,
   normalizeCreateTagName,
   normalizeTagName,
+  tagNameKey,
   tagRevision,
   unassignTagCommitMessage,
   syncNoteReferencesCommitMessage,
@@ -78,6 +79,17 @@ describe("transitional ledger domain contract", () => {
     const base = { id: "00000000-0000-4000-8000-000000000001", name: "Project", parentIds: ["parent-a", "parent-b"] }
     expect(tagRevision(base)).not.toBe(tagRevision({ ...base, parentIds: ["parent-b", "parent-a"] }))
     expect(tagRevision(base)).toBe(tagRevision({ ...base, name: "  Project  " }))
+  })
+
+  it("uses the documented versioned tag-name key compatibility contract", () => {
+    // NFKC collapses compatibility and combining spellings before the stable, locale-neutral
+    // simple lowercase mapping. This is intentionally not full Unicode case folding.
+    expect(tagNameKey("\uFB00LOW")).toBe("fflow")
+    expect(tagNameKey("Cafe\u0301")).toBe(tagNameKey("CAFÉ"))
+    expect(tagNameKey("İ")).toBe("i\u0307")
+    expect(tagNameKey("İ")).not.toBe(tagNameKey("i"))
+    expect(tagNameKey("ß")).toBe("ß")
+    expect(tagNameKey("ß")).not.toBe(tagNameKey("ss"))
   })
 
   it("keeps exact meeting titles private while requiring a strict start command", () => {

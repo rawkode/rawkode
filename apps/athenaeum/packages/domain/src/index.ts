@@ -116,6 +116,7 @@ export {
   startMeetingCommitMessage,
   normalizeCreateTagName,
   normalizeTagName,
+  TAG_NAME_KEY_VERSION,
   tagNameKey,
   tagRevision
 } from "./ledger.js"
