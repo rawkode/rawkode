@@ -348,16 +348,34 @@ public struct TodayBriefView: View {
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityAddTraits(.updatesFrequently)
-            case .failed(let message):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .accessibilityAddTraits(.isStaticText)
-                    Button(isRefreshInFlight ? "Retrying…" : "Retry") { startRefresh() }
-                        .disabled(isRefreshInFlight)
+            case .failed:
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(
+                        TodayBriefFailurePresentation.title(isToday: showsToday),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    Text(TodayBriefFailurePresentation.message(isToday: showsToday))
+                        .foregroundStyle(.secondary)
+                    Button(
+                        isRefreshInFlight
+                            ? TodayBriefFailurePresentation.retryingLabel(isToday: showsToday)
+                            : TodayBriefFailurePresentation.retryLabel(isToday: showsToday)
+                    ) { startRefresh() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRefreshInFlight)
+                    .accessibilityHint(TodayBriefFailurePresentation.retryHint(isToday: showsToday))
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.orange.opacity(0.35), lineWidth: 1)
+                )
                 .accessibilityElement(children: .contain)
+                .accessibilityLabel(TodayBriefFailurePresentation.accessibilityLabel(isToday: showsToday))
             case .stale:
                 VStack(alignment: .leading, spacing: 8) {
                     Text("This brief is no longer current. Refresh to load today’s brief.")
@@ -470,6 +488,37 @@ enum TodayBriefHistoryLabel {
         case .noneInRetainedData: return "No calendar history retained for this day"
         case .unavailable: return "Calendar history unavailable"
         }
+    }
+}
+
+/// The brief keeps provider and credential diagnostics in the model, but the native surface
+/// presents a stable recovery contract. This mirrors the daily-note warning card so a missing
+/// projection reads as a recoverable state rather than a red transport error.
+enum TodayBriefFailurePresentation {
+    static func title(isToday: Bool) -> String {
+        isToday ? "Today’s brief is unavailable" : "Daily brief is unavailable"
+    }
+
+    static func message(isToday: Bool) -> String {
+        isToday
+            ? "We couldn’t resolve today’s calendar context. Retry to load it safely."
+            : "We couldn’t resolve this calendar context. Retry to load it safely."
+    }
+
+    static func retryLabel(isToday: Bool) -> String {
+        isToday ? "Retry today’s brief" : "Retry daily brief"
+    }
+
+    static func retryingLabel(isToday: Bool) -> String {
+        isToday ? "Retrying today’s brief…" : "Retrying daily brief…"
+    }
+
+    static func retryHint(isToday: Bool) -> String {
+        isToday ? "Retries loading today’s calendar context." : "Retries loading this calendar context."
+    }
+
+    static func accessibilityLabel(isToday: Bool) -> String {
+        title(isToday: isToday) + ". " + message(isToday: isToday)
     }
 }
 

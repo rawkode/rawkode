@@ -47,6 +47,31 @@ final class TodayBriefViewTests: XCTestCase {
         XCTAssertFalse(TodayBriefViewModel.safeErrorMessage.contains(privateWireValue))
     }
 
+    func testFailurePresentationUsesSafeContextualCopyAndRetryContract() {
+        let privateWireValue = "backend=https://internal.example/api?credential=private-token"
+
+        XCTAssertEqual(TodayBriefFailurePresentation.title(isToday: true), "Today’s brief is unavailable")
+        XCTAssertEqual(
+            TodayBriefFailurePresentation.message(isToday: true),
+            "We couldn’t resolve today’s calendar context. Retry to load it safely."
+        )
+        XCTAssertEqual(TodayBriefFailurePresentation.retryLabel(isToday: true), "Retry today’s brief")
+        XCTAssertEqual(TodayBriefFailurePresentation.retryingLabel(isToday: true), "Retrying today’s brief…")
+        XCTAssertEqual(
+            TodayBriefFailurePresentation.retryHint(isToday: true),
+            "Retries loading today’s calendar context."
+        )
+        XCTAssertEqual(
+            TodayBriefFailurePresentation.accessibilityLabel(isToday: true),
+            "Today’s brief is unavailable. We couldn’t resolve today’s calendar context. Retry to load it safely."
+        )
+
+        XCTAssertEqual(TodayBriefFailurePresentation.title(isToday: false), "Daily brief is unavailable")
+        XCTAssertEqual(TodayBriefFailurePresentation.retryLabel(isToday: false), "Retry daily brief")
+        XCTAssertFalse(TodayBriefFailurePresentation.message(isToday: true).contains(privateWireValue))
+        XCTAssertFalse(TodayBriefFailurePresentation.accessibilityLabel(isToday: false).contains(privateWireValue))
+    }
+
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresTheControl() {
         var isRefreshInFlight = false
 
