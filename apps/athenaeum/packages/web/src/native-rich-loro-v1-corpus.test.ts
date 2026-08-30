@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from "vitest"
-import { LoroDoc, LoroList, LoroMap } from "loro-crdt"
+import { LoroDoc, LoroList, LoroMap, LoroText } from "loro-crdt"
 import { LoroSyncPlugin, type LoroDocType } from "loro-prosemirror"
 import { EditorState } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { Node as PMNode } from "prosemirror-model"
 import checkedInCorpus from "./fixtures/native-rich-loro-v1-source-corpus.json"
-import { buildNativeRichLoroV1Corpus, inspectNativeRichLoroRejection, nativeRichLoroSourceCanonicalContent, replayNativeRichLoroOperations, NATIVE_RICH_LORO_SCALAR_UNIT, type NativeRichOperation, type NativeRichLoroV1Corpus } from "./native-rich-loro-v1-corpus.js"
+import { buildNativeRichLoroV1Corpus, inspectNativeRichLoroRejection, nativeRichLoroSourceCanonicalContent, replayNativeRichLoroOperations, NATIVE_RICH_ENTITY_REFERENCE_ID, NATIVE_RICH_LORO_SCALAR_UNIT, NATIVE_RICH_SUPERTAG_REFERENCE_ID, type NativeRichOperation, type NativeRichLoroV1Corpus } from "./native-rich-loro-v1-corpus.js"
 import { richTextSchemaAdapter } from "./rich-text/schema.js"
 
 const digest = async (encoded: string): Promise<string> => {
@@ -18,6 +18,19 @@ const digest = async (encoded: string): Promise<string> => {
 const digestText = async (value: string): Promise<string> => {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+const firstText = (doc: LoroDoc): LoroText => {
+  const root = doc.getMap("athenaeum-prosemirror-v1")
+  const blocks = root.get("children")
+  if (!(blocks instanceof LoroList)) throw new Error("missing official block list")
+  const block = blocks.get(0)
+  if (!(block instanceof LoroMap)) throw new Error("missing official block")
+  const children = block.get("children")
+  if (!(children instanceof LoroList)) throw new Error("missing official inline list")
+  const value = children.get(0)
+  if (!(value instanceof LoroText)) throw new Error("missing official inline text")
+  return value
 }
 
 describe("native rich Loro v1 source corpus", () => {
@@ -65,12 +78,38 @@ describe("native rich Loro v1 source corpus", () => {
     } } finally { vi.useRealTimers() }
   })
 
+  it("pins the official Loro reference wire shape separately from legacy Automerge names", () => {
+    expect(richTextSchemaAdapter.schema.marks.entityRef.spec.inclusive).toBe(false)
+    expect(richTextSchemaAdapter.schema.marks.supertagRef.spec.inclusive).toBe(false)
+    const expected = [
+      {
+        fixtureId: "entity-reference-surrounding-edit",
+        markName: "entityRef",
+        payload: { nodeId: NATIVE_RICH_ENTITY_REFERENCE_ID, label: "Alice" }
+      },
+      {
+        fixtureId: "supertag-reference-surrounding-edit",
+        markName: "supertagRef",
+        payload: { tagId: NATIVE_RICH_SUPERTAG_REFERENCE_ID, label: "Project" }
+      }
+    ] as const
+    for (const expectation of expected) {
+      const fixture = checkedInCorpus.cases.find((candidate) => candidate.id === expectation.fixtureId)
+      expect(fixture, expectation.fixtureId).toBeDefined()
+      const doc = new LoroDoc()
+      doc.import(Uint8Array.from(atob(fixture!.baseSnapshotBase64), (character) => character.charCodeAt(0)))
+      const matchingDelta = firstText(doc).toDelta().find((part) => part.attributes?.[expectation.markName] !== undefined)
+      expect(matchingDelta?.attributes?.[expectation.markName]).toEqual(expectation.payload)
+      expect(matchingDelta?.attributes).not.toHaveProperty(expectation.markName === "entityRef" ? "entity-ref" : "supertag-ref")
+    }
+  })
+
   it("covers the complete eligible operation matrix", () => {
     expect(checkedInCorpus.cases.map((fixture) => fixture.id)).toEqual([
       "empty-page", "paragraph-insertion", "paragraph-deletion", "paragraph-replacement",
       "heading-1-to-2", "heading-2-to-3", "heading-3-to-paragraph", "multi-block-insert-delete",
       "strong-em-code-add", "strong-em-code-remove", "strong-adjacency", "emoji-combining-mark-range", "empty-terminal-paragraph",
-      "emoji-and-combining", "whole-document-replacement"
+      "emoji-and-combining", "whole-document-replacement", "entity-reference-surrounding-edit", "supertag-reference-surrounding-edit"
     ])
     expect(checkedInCorpus.cases.flatMap((fixture) => fixture.operations.map((operation) => operation.kind))).toEqual(expect.arrayContaining([
       "insert-block", "delete-block", "replace-block", "replace-document", "add-mark", "remove-mark"
@@ -86,16 +125,21 @@ describe("native rich Loro v1 source corpus", () => {
   })
 
   it("classifies unsupported and malformed shapes without presenting them as plugin output", () => {
-    expect(checkedInCorpus.rejections.map((entry) => entry.reason)).toEqual([
-      "link", "entity-ref", "supertag-ref", "strike", "list", "task-list", "quote", "code-block", "divider",
-      "unknown-node", "unknown-mark", "unknown-attribute", "malformed-known-shape", "bounds-plus-one"
+    expect(checkedInCorpus.rejections.map((entry) => entry.id)).toEqual([
+      "reject-link", "reject-strike", "reject-list", "reject-task-list", "reject-quote", "reject-code-block", "reject-divider",
+      "reject-unknown-node", "reject-unknown-mark", "reject-unknown-attribute", "reject-malformed-known-shape",
+      "reject-entity-reference-malformed-payload", "reject-entity-reference-wrong-payload", "reject-entity-reference-extra-payload",
+      "reject-supertag-reference-malformed-payload", "reject-supertag-reference-wrong-payload", "reject-supertag-reference-extra-payload",
+      "reject-bounds-plus-one"
     ])
     expect(checkedInCorpus.rejections.every((entry) => entry.classification === "rejected")).toBe(true)
     for (const entry of sourceCorpus.rejections) {
       expect(inspectNativeRichLoroRejection(entry), entry.id).toBe(true)
     }
-    expect(sourceCorpus.rejections.filter((entry) => entry.origin === "adversarial-wire").map((entry) => entry.reason)).toEqual([
-      "unknown-node", "unknown-mark", "unknown-attribute", "malformed-known-shape"
+    expect(sourceCorpus.rejections.filter((entry) => entry.origin === "adversarial-wire").map((entry) => entry.id)).toEqual([
+      "reject-unknown-node", "reject-unknown-mark", "reject-unknown-attribute", "reject-malformed-known-shape",
+      "reject-entity-reference-malformed-payload", "reject-entity-reference-wrong-payload", "reject-entity-reference-extra-payload",
+      "reject-supertag-reference-malformed-payload", "reject-supertag-reference-wrong-payload", "reject-supertag-reference-extra-payload"
     ])
   })
 })

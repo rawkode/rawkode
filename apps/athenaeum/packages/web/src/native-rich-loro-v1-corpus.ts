@@ -18,6 +18,14 @@ export type NativeRichOperation =
   | { readonly kind: "replace-document"; readonly document: NativeRichCanonicalDocument }
   | { readonly kind: "add-mark" | "remove-mark"; readonly blockIndex: number; readonly scalarUnit: typeof NATIVE_RICH_LORO_SCALAR_UNIT; readonly mark: "strong" | "em" | "code"; readonly from: number; readonly to: number; readonly text: string }
 
+/**
+ * These fixed v4 values are corpus fixtures, not product ids. They make the cross-client
+ * reference contract testable without accepting the old placeholder ids (for example `node-1`)
+ * that a strict native decoder must reject.
+ */
+export const NATIVE_RICH_ENTITY_REFERENCE_ID = "10000000-0000-4000-8000-000000000001"
+export const NATIVE_RICH_SUPERTAG_REFERENCE_ID = "10000000-0000-4000-8000-000000000002"
+
 export interface NativeRichLoroCase {
   readonly id: string
   readonly classification: "eligible"
@@ -109,8 +117,8 @@ const newPage = (): { readonly doc: LoroDoc; readonly root: LoroMap } => {
   doc.setPeerId(NATIVE_RICH_LORO_PEER_ID)
   doc.getMap(LORO_PAGE_META_CONTAINER).set("schemaVersion", LORO_PAGE_SCHEMA_VERSION)
   const root = doc.getMap(LORO_PROSEMIRROR_CONTAINER)
-  // These are the only marks eligible for native rich-text projection. `after` is intentional:
-  // adjacent typing inherits a style, matching the web editor's rich-text contract.
+  // Formatting marks expand after adjacent typing; reference marks use the Web schema's
+  // `inclusive: false` contract and therefore materialize with `expand: "none"`.
   doc.configTextStyle(Object.fromEntries(Object.entries(schema.marks).map(([name, type]) => [name, { expand: name === "strong" || name === "em" || name === "code" ? "after" : (type.spec.inclusive === false ? "none" : "after") }])))
   return { doc, root }
 }
@@ -221,18 +229,51 @@ const rejectedOfficial = (id: string, reason: NativeRichLoroRejection["reason"],
   return { id, classification: "rejected", reason, origin: "official-web-schema-plugin", probe, baseSnapshotBase64: snapshot(doc), baseVVBase64: version(doc), baseDocument: json(base), proposedDocument: json(proposed) }
 }
 
-const rejectedWire = (id: string, reason: NativeRichLoroRejection["reason"], mutate: (doc: LoroDoc, root: LoroMap) => void): NativeRichLoroRejection => {
+const rejectedWire = (
+  id: string,
+  reason: NativeRichLoroRejection["reason"],
+  mutate: (doc: LoroDoc, root: LoroMap) => void,
+  probe: Record<string, unknown> = {}
+): NativeRichLoroRejection => {
   const base = sourceState(document(paragraph(text("seed"))))
   const baseSnapshot = snapshot(base.doc)
   const baseVV = version(base.doc)
   mutate(base.doc, base.root)
-  return { id, classification: "rejected", reason, origin: "adversarial-wire", probe: {}, baseSnapshotBase64: baseSnapshot, baseVVBase64: baseVV, adversarialSnapshotBase64: snapshot(base.doc), adversarialBaseVVBase64: baseVV }
+  return { id, classification: "rejected", reason, origin: "adversarial-wire", probe, baseSnapshotBase64: baseSnapshot, baseVVBase64: baseVV, adversarialSnapshotBase64: snapshot(base.doc), adversarialBaseVVBase64: baseVV }
+}
+
+/**
+ * Deliberately inject a raw mark value after an official base state exists. These are not
+ * ProseMirror outputs: they are adversarial fixtures that pin the native decoder's closed-world
+ * map-valued Loro contract for the two reference marks. The legacy Automerge mapping names
+ * (`entity-ref` and `supertag-ref`) are deliberately not part of this Loro corpus.
+ */
+const rejectedReferenceWire = (
+  id: string,
+  reason: "entity-ref" | "supertag-ref",
+  payload: unknown
+): NativeRichLoroRejection => {
+  const markName = reason === "entity-ref" ? "entityRef" : "supertagRef"
+  return rejectedWire(
+    id,
+    reason,
+    (doc, root) => {
+      const block = (root.get("children") as LoroList).get(0) as LoroMap
+      const children = block.get("children") as LoroList
+      const content = children.get(0) as LoroText
+      doc.configTextStyle({ [markName]: { expand: "none" } })
+      content.mark({ start: 0, end: 4 }, markName, payload)
+    },
+    { markName, payload }
+  )
 }
 
 export const buildNativeRichLoroV1Corpus = (): NativeRichLoroV1Corpus => {
   const strong = mark("strong")
   const em = mark("em")
   const code = mark("code")
+  const entityRef = schema.marks.entityRef.create({ nodeId: NATIVE_RICH_ENTITY_REFERENCE_ID, label: "Alice" })
+  const supertagRef = schema.marks.supertagRef.create({ tagId: NATIVE_RICH_SUPERTAG_REFERENCE_ID, label: "Project" })
   const empty = document(paragraph())
   const one = document(paragraph(text("one")))
   const two = document(paragraph(text("two")))
@@ -258,16 +299,27 @@ export const buildNativeRichLoroV1Corpus = (): NativeRichLoroV1Corpus => {
     eligible("emoji-combining-mark-range", document(paragraph(text("prefix")), paragraph(text("A🦜café"))), document(paragraph(text("prefix")), paragraph(text("A"), text("🦜café", [strong]))), [{ kind: "add-mark", blockIndex: 1, scalarUnit: NATIVE_RICH_LORO_SCALAR_UNIT, mark: "strong", from: 1, to: 7, text: "A🦜café" }]),
     eligible("empty-terminal-paragraph", document(paragraph(text("body"))), document(paragraph(text("body")), paragraph()), [{ kind: "insert-block", blockIndex: 1, block: block(document(paragraph(text("body")), paragraph()), 1) }]),
     eligible("emoji-and-combining", document(paragraph(text("A🦜café"))), document(paragraph(text("A🦜café"))), [{ kind: "replace-document", document: full(document(paragraph(text("A🦜café")))) }]),
-    eligible("whole-document-replacement", document(heading(1, text("Old")), paragraph(text("content"))), document(heading(3, text("New")), paragraph(text("replacement")), paragraph()), [{ kind: "replace-document", document: full(document(heading(3, text("New")), paragraph(text("replacement")), paragraph())) }])
+    eligible("whole-document-replacement", document(heading(1, text("Old")), paragraph(text("content"))), document(heading(3, text("New")), paragraph(text("replacement")), paragraph()), [{ kind: "replace-document", document: full(document(heading(3, text("New")), paragraph(text("replacement")), paragraph())) }]),
+    // Reference marks are official Web-plugin output. Each case changes only prose around the
+    // reference while preserving its immutable id, snapshot label, non-expanding mark, and a
+    // formatting mark that coexists on the same run.
+    eligible(
+      "entity-reference-surrounding-edit",
+      document(paragraph(text("Met "), text("Alice", [strong, entityRef]), text(" today"))),
+      document(paragraph(text("Met with "), text("Alice", [strong, entityRef]), text(" today."))),
+      [{ kind: "replace-document", document: full(document(paragraph(text("Met with "), text("Alice", [strong, entityRef]), text(" today.")))) }]
+    ),
+    eligible(
+      "supertag-reference-surrounding-edit",
+      document(paragraph(text("Review "), text("#Project", [em, supertagRef]), text(" scope"))),
+      document(paragraph(text("Review the "), text("#Project", [em, supertagRef]), text(" scope today."))),
+      [{ kind: "replace-document", document: full(document(paragraph(text("Review the "), text("#Project", [em, supertagRef]), text(" scope today.")))) }]
+    )
   ]
   const link = document(paragraph(text("link", [schema.marks.link.create({ href: "https://example.com", title: null })])))
-  const entity = document(paragraph(text("entity", [schema.marks.entityRef.create({ nodeId: "node-1", label: "Entity" })])))
-  const tag = document(paragraph(text("tag", [schema.marks.supertagRef.create({ tagId: "tag-1", label: "Tag" })])))
   const strike = document(paragraph(text("strike", [schema.marks.strike.create()])))
   const rejections: NativeRichLoroRejection[] = [
     rejectedOfficial("reject-link", "link", empty, link),
-    rejectedOfficial("reject-entity-ref", "entity-ref", empty, entity),
-    rejectedOfficial("reject-supertag-ref", "supertag-ref", empty, tag),
     rejectedOfficial("reject-strike", "strike", empty, strike),
     rejectedOfficial("reject-list", "list", empty, document(schema.nodes.bullet_list.create(null, [schema.nodes.list_item.create(null, [paragraph(text("item"))])]))),
     rejectedOfficial("reject-task-list", "task-list", empty, document(schema.nodes.task_list.create(null, [schema.nodes.task_item.create({ checked: false }, [paragraph(text("task"))])]))),
@@ -278,6 +330,12 @@ export const buildNativeRichLoroV1Corpus = (): NativeRichLoroV1Corpus => {
     rejectedWire("reject-unknown-mark", "unknown-mark", (doc, root) => { doc.configTextStyle({ "future-mark": { expand: "after" } }); const block = (root.get("children") as LoroList).get(0) as LoroMap; const children = block.get("children") as LoroList; (children.get(0) as LoroText).mark({ start: 0, end: 1 }, "future-mark", true) }),
     rejectedWire("reject-unknown-attribute", "unknown-attribute", (_doc, root) => { const block = (root.get("children") as LoroList).get(0) as LoroMap; (block.get("attributes") as LoroMap).set("future", true) }),
     rejectedWire("reject-malformed-known-shape", "malformed-known-shape", (_doc, root) => { const block = (root.get("children") as LoroList).get(0) as LoroMap; block.set("nodeName", "heading"); (block.get("attributes") as LoroMap).set("level", 4) }),
+    rejectedReferenceWire("reject-entity-reference-malformed-payload", "entity-ref", "not-a-reference-map"),
+    rejectedReferenceWire("reject-entity-reference-wrong-payload", "entity-ref", { tagId: NATIVE_RICH_SUPERTAG_REFERENCE_ID, label: "Alice" }),
+    rejectedReferenceWire("reject-entity-reference-extra-payload", "entity-ref", { nodeId: NATIVE_RICH_ENTITY_REFERENCE_ID, label: "Alice", extra: true }),
+    rejectedReferenceWire("reject-supertag-reference-malformed-payload", "supertag-ref", "not-a-reference-map"),
+    rejectedReferenceWire("reject-supertag-reference-wrong-payload", "supertag-ref", { nodeId: NATIVE_RICH_ENTITY_REFERENCE_ID, label: "Project" }),
+    rejectedReferenceWire("reject-supertag-reference-extra-payload", "supertag-ref", { tagId: NATIVE_RICH_SUPERTAG_REFERENCE_ID, label: "Project", extra: true }),
     rejectedOfficial("reject-bounds-plus-one", "bounds-plus-one", one, document(paragraph(text("A"), text("B", [strong]), text("C", [em]), text("D", [code]))), { dimension: "maxInlineRunsPerBlock", bound: 3 })
   ]
   return {
@@ -334,8 +392,18 @@ export const inspectNativeRichLoroRejection = (entry: NativeRichLoroRejection): 
   const nestedUnknown = children instanceof LoroList && Array.from({ length: children.length }, (_, index) => children.get(index)).some((value) => value instanceof LoroMap && value.get("nodeName") === "future-block")
   const text = block instanceof LoroMap && block.get("children") instanceof LoroList ? block.get("children")!.get(0) : undefined
   const unknownMark = text instanceof LoroText && text.toDelta().some((part) => part.attributes && Object.prototype.hasOwnProperty.call(part.attributes, "future-mark"))
+  const referencePayload = text instanceof LoroText && typeof entry.probe.markName === "string" && entry.probe.payload !== undefined
+    ? text.toDelta().some((part) => JSON.stringify(part.attributes?.[entry.probe.markName]) === JSON.stringify(entry.probe.payload))
+    : false
   const attrs = block instanceof LoroMap ? block.get("attributes") : undefined
   const unknownAttribute = attrs instanceof LoroMap && attrs.get("future") === true
   const malformed = block instanceof LoroMap && block.get("nodeName") === "heading" && attrs instanceof LoroMap && attrs.get("level") === 4 && block.get("children") instanceof LoroList
-  return entry.adversarialSnapshotBase64 !== entry.baseSnapshotBase64 && (entry.reason === "unknown-node" ? nestedUnknown : entry.reason === "unknown-mark" ? unknownMark : entry.reason === "unknown-attribute" ? unknownAttribute : entry.reason === "malformed-known-shape" ? malformed : false)
+  return entry.adversarialSnapshotBase64 !== entry.baseSnapshotBase64 && (
+    entry.reason === "unknown-node" ? nestedUnknown
+      : entry.reason === "unknown-mark" ? unknownMark
+        : entry.reason === "unknown-attribute" ? unknownAttribute
+          : entry.reason === "malformed-known-shape" ? malformed
+            : entry.reason === "entity-ref" || entry.reason === "supertag-ref" ? referencePayload
+              : false
+  )
 }

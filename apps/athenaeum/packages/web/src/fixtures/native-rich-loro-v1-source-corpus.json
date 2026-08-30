@@ -1803,6 +1803,368 @@
       ],
       "baseSnapshotSHA256": "a66ddbdfb5a3773700bb7a08d21cd11201e543034aff926d1f70723439b8040c",
       "baseVVSHA256": "f1d7a716b369b8c2bfb75d7ff11401e2045ed293625b0f8ce66da736c802cee2"
+    },
+    {
+      "id": "entity-reference-surrounding-edit",
+      "classification": "eligible",
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAABtR8I4AA8UBAABMT1JPAAQiTRhgQIKKAQAAsAAfAB8BEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAFAUAsBYEAAAABAQAAQAKCgAQDAUAEBAPAPThFAQAAgAWkQENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuBnN0cm9uZwllbnRpdHlSZWYGbm9kZUlkBWxhYmVsFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxADgBBBAZAAIAAgABBAIAAgEEAggAEAEACgIBCQYCDQQJAAgHCAcMCAsBCA4LCQUMAAwABhgBAQ8IAQBtAwEFA2RvYwkAAgkBBwEJAAUJcGFyYWdyYXBoFADyEQIPTWV0IEFsaWNlIHRvZGF5hAUGCACABgcIAggFJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAEExCQUFPwDwAAACAGZyAbLyGTwAAgB2dgoAkD4AAIIBjAEDAAAAAAC4wHUFAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmKIBAAAdAgAATE9STwAEIk0YYECCyQEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIA9QMUAg9NZXQgQWxpY2UgdG9kYXlyAOEDBAIOAAgNGCIDFRwDDQwA8BAIBwAKCwAOAgllbnRpdHlSZWYGc3Ryb25nAgMABgIGQAFiSWQEJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAJExBWxhYmVsBAV6ALeAAwEGAIQAGACAFuoB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgOLAV8AABoAgCUCBj0AAQDuARcE7gFKA2RvY+gBGApdAPAIAgAFAAEAAEcAngDIABIBRwHqASUCCAAAAAAAXOn4BgEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R54QEAAAAAAAA=",
+      "baseVVBase64": "AbLyGT4=",
+      "baseDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Met "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong"
+                  },
+                  {
+                    "type": "entityRef",
+                    "attrs": {
+                      "nodeId": "10000000-0000-4000-8000-000000000001",
+                      "label": "Alice"
+                    }
+                  }
+                ],
+                "text": "Alice"
+              },
+              {
+                "type": "text",
+                "text": " today"
+              }
+            ]
+          }
+        ]
+      },
+      "proposedDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Met with "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong"
+                  },
+                  {
+                    "type": "entityRef",
+                    "attrs": {
+                      "nodeId": "10000000-0000-4000-8000-000000000001",
+                      "label": "Alice"
+                    }
+                  }
+                ],
+                "text": "Alice"
+              },
+              {
+                "type": "text",
+                "text": " today."
+              }
+            ]
+          }
+        ]
+      },
+      "expectedDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Met with "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong"
+                  },
+                  {
+                    "type": "entityRef",
+                    "attrs": {
+                      "nodeId": "10000000-0000-4000-8000-000000000001",
+                      "label": "Alice"
+                    }
+                  }
+                ],
+                "text": "Alice"
+              },
+              {
+                "type": "text",
+                "text": " today."
+              }
+            ]
+          }
+        ]
+      },
+      "operations": [
+        {
+          "kind": "replace-document",
+          "document": {
+            "type": "doc",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "paragraph",
+                "attrs": {
+                  "isAmgBlock": false,
+                  "unknownAttrs": null
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Met with "
+                  },
+                  {
+                    "type": "text",
+                    "marks": [
+                      {
+                        "type": "strong"
+                      },
+                      {
+                        "type": "entityRef",
+                        "attrs": {
+                          "nodeId": "10000000-0000-4000-8000-000000000001",
+                          "label": "Alice"
+                        }
+                      }
+                    ],
+                    "text": "Alice"
+                  },
+                  {
+                    "type": "text",
+                    "text": " today."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "baseSnapshotSHA256": "b80c3c24f83515b3a2cd96da49d01c6ec948c4b34db939084ae344f7a14a7e04",
+      "baseVVSHA256": "fa9db71092e310daa53266346406612807cc2af032a7923c91e93565b6bc228f"
+    },
+    {
+      "id": "supertag-reference-surrounding-edit",
+      "classification": "eligible",
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAA/JsYQAA8gBAABMT1JPAAQiTRhgQIKNAQAAsAAlACUBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAFAUAsBYEAAAABAQAAQAKCgAQDAUAEBAPAPTeFAQAAgAWjgENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuAmVtC3N1cGVydGFnUmVmBXRhZ0lkBWxhYmVsFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxADgBBBAZAAIAAgABBAIAAgEEAggAEAEACgIBCQYCDQQJAA4NDg0MCAsBCA4LCQUMAAwABhgBARUIAQB1AwEFA2RvYwkAAgkBBwEJAAUJcGFyYWdyYXBoFADxGAIVUmV2aWV3ICNQcm9qZWN0IHNjb3BlhAgGCACACQcIAggFJDEwMAIAES0FAGA0MDAwLTgFAAAPAAMCAEMyCQUHQQDwAAACAGZyAbLyGUgAAgB2dgoAkEoAAIcBkQEDAAAAAACJRotJAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmKUBAAAhAgAATE9STwAEIk0YYECCzQEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIA9QkUAhVSZXZpZXcgI1Byb2plY3Qgc2NvcGV4AOEDBAIOAAgNGC4DGyIDDQwA8RgODQAQEQAOAgtzdXBlcnRhZ1JlZgJlbQIDAAYCBXRhZ0lkBCQxMDACABEtBQBgNDAwMC04BQAADwADAgCTMgVsYWJlbAQHeQC3gAMBBgCEABgAgBbvAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DkAFfAAAaAIAqAgY9AAEA8wEXBPMBSgNkb2PtARgKXQDwCAIABQABAABHAJ4AyAASAUcB7wEqAggAAAAAAEDytGEBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeeUBAAAAAAAA",
+      "baseVVBase64": "AbLyGUo=",
+      "baseDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Review "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "em"
+                  },
+                  {
+                    "type": "supertagRef",
+                    "attrs": {
+                      "tagId": "10000000-0000-4000-8000-000000000002",
+                      "label": "Project"
+                    }
+                  }
+                ],
+                "text": "#Project"
+              },
+              {
+                "type": "text",
+                "text": " scope"
+              }
+            ]
+          }
+        ]
+      },
+      "proposedDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Review the "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "em"
+                  },
+                  {
+                    "type": "supertagRef",
+                    "attrs": {
+                      "tagId": "10000000-0000-4000-8000-000000000002",
+                      "label": "Project"
+                    }
+                  }
+                ],
+                "text": "#Project"
+              },
+              {
+                "type": "text",
+                "text": " scope today."
+              }
+            ]
+          }
+        ]
+      },
+      "expectedDocument": {
+        "type": "doc",
+        "attrs": {
+          "isAmgBlock": false,
+          "unknownAttrs": null
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Review the "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "em"
+                  },
+                  {
+                    "type": "supertagRef",
+                    "attrs": {
+                      "tagId": "10000000-0000-4000-8000-000000000002",
+                      "label": "Project"
+                    }
+                  }
+                ],
+                "text": "#Project"
+              },
+              {
+                "type": "text",
+                "text": " scope today."
+              }
+            ]
+          }
+        ]
+      },
+      "operations": [
+        {
+          "kind": "replace-document",
+          "document": {
+            "type": "doc",
+            "attrs": {
+              "isAmgBlock": false,
+              "unknownAttrs": null
+            },
+            "content": [
+              {
+                "type": "paragraph",
+                "attrs": {
+                  "isAmgBlock": false,
+                  "unknownAttrs": null
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Review the "
+                  },
+                  {
+                    "type": "text",
+                    "marks": [
+                      {
+                        "type": "em"
+                      },
+                      {
+                        "type": "supertagRef",
+                        "attrs": {
+                          "tagId": "10000000-0000-4000-8000-000000000002",
+                          "label": "Project"
+                        }
+                      }
+                    ],
+                    "text": "#Project"
+                  },
+                  {
+                    "type": "text",
+                    "text": " scope today."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "baseSnapshotSHA256": "97bc36a37465b9fd6149bf498f246bf16e1aa99f97b9b6d8e002875121d9443f",
+      "baseVVSHA256": "2f926e3549752e26c0e402743fd9da20e9bde8c4e04bc9a0aeb85f808cc5127b"
     }
   ],
   "rejections": [
@@ -1856,118 +2218,6 @@
                   }
                 ],
                 "text": "link"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "reject-entity-ref",
-      "classification": "rejected",
-      "reason": "entity-ref",
-      "origin": "official-web-schema-plugin",
-      "probe": {},
-      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJNocxEAA0ABAABMT1JPAAALAAsBEAEyeQYAAAAAAAEBAAAAAAAFAQAAAQAfBgQBAAAMBAEAAA4EAAAABAQAAQAKBAAAAAwEAAAAEHMNc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxACQBBAwVAAIAAgABBAIAAgEKAQAKAgEJBgIBBAYICwEIDAsCFgEAIAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaAkAAgkBAAIAZnIBsvIZFAACAHZ2AbLyGRYAAPgAAgEDAFPPYLYBAAAABQAAAAwAAAAAAAAGeTIAAAAAAAIAdnY7TVx9HQEAAIwBAABMT1JPAAQiTRhgQII4AQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAEfQAAJgAAjQBHGACAFjIB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgPTAF8AABoAgG0BBj0AAQA2ARcENgFKA2RvYzABGApdAPAGAgAFAAEAAEcAngDIABIBMgFtAQcAAAAAAHwGTTABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeVABAAAAAAAA",
-      "baseVVBase64": "AbLyGRY=",
-      "baseDocument": {
-        "type": "doc",
-        "attrs": {
-          "isAmgBlock": false,
-          "unknownAttrs": null
-        },
-        "content": [
-          {
-            "type": "paragraph",
-            "attrs": {
-              "isAmgBlock": false,
-              "unknownAttrs": null
-            }
-          }
-        ]
-      },
-      "proposedDocument": {
-        "type": "doc",
-        "attrs": {
-          "isAmgBlock": false,
-          "unknownAttrs": null
-        },
-        "content": [
-          {
-            "type": "paragraph",
-            "attrs": {
-              "isAmgBlock": false,
-              "unknownAttrs": null
-            },
-            "content": [
-              {
-                "type": "text",
-                "marks": [
-                  {
-                    "type": "entityRef",
-                    "attrs": {
-                      "nodeId": "node-1",
-                      "label": "Entity"
-                    }
-                  }
-                ],
-                "text": "entity"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "reject-supertag-ref",
-      "classification": "rejected",
-      "reason": "supertag-ref",
-      "origin": "official-web-schema-plugin",
-      "probe": {},
-      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJNocxEAA0ABAABMT1JPAAALAAsBEAEyeQYAAAAAAAEBAAAAAAAFAQAAAQAfBgQBAAAMBAEAAA4EAAAABAQAAQAKBAAAAAwEAAAAEHMNc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxACQBBAwVAAIAAgABBAIAAgEKAQAKAgEJBgIBBAYICwEIDAsCFgEAIAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaAkAAgkBAAIAZnIBsvIZFAACAHZ2AbLyGRYAAPgAAgEDAFPPYLYBAAAABQAAAAwAAAAAAAAGeTIAAAAAAAIAdnY7TVx9HQEAAIwBAABMT1JPAAQiTRhgQII4AQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAEfQAAJgAAjQBHGACAFjIB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgPTAF8AABoAgG0BBj0AAQA2ARcENgFKA2RvYzABGApdAPAGAgAFAAEAAEcAngDIABIBMgFtAQcAAAAAAHwGTTABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeVABAAAAAAAA",
-      "baseVVBase64": "AbLyGRY=",
-      "baseDocument": {
-        "type": "doc",
-        "attrs": {
-          "isAmgBlock": false,
-          "unknownAttrs": null
-        },
-        "content": [
-          {
-            "type": "paragraph",
-            "attrs": {
-              "isAmgBlock": false,
-              "unknownAttrs": null
-            }
-          }
-        ]
-      },
-      "proposedDocument": {
-        "type": "doc",
-        "attrs": {
-          "isAmgBlock": false,
-          "unknownAttrs": null
-        },
-        "content": [
-          {
-            "type": "paragraph",
-            "attrs": {
-              "isAmgBlock": false,
-              "unknownAttrs": null
-            },
-            "content": [
-              {
-                "type": "text",
-                "marks": [
-                  {
-                    "type": "supertagRef",
-                    "attrs": {
-                      "tagId": "tag-1",
-                      "label": "Tag"
-                    }
-                  }
-                ],
-                "text": "tag"
               }
             ]
           }
@@ -2346,6 +2596,104 @@
       "adversarialBaseVVBase64": "AbLyGSA="
     },
     {
+      "id": "reject-entity-reference-malformed-payload",
+      "classification": "rejected",
+      "reason": "entity-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "entityRef",
+        "payload": "not-a-reference-map"
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAALAcobcAA4QBAABMT1JPAAQiTRhgQIJJAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPddFAQAAgAWfQ1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4JZW50aXR5UmVmFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYFwD0UHJvc2VtaXJyb3ItdjEAMwEEEBkAAgACAAEEAgACAQQCBAANAQAKAgEJBgIDBAkGAAoICwEIDgsFBQwABhgBAQQEAQBBAwEFA2RvYwkAAgkBBwEJAAUJcGFyYWdyYXBoFADwKwIEc2VlZIAEBgUTbm90LWEtcmVmZXJlbmNlLW1hcAACAGZyAbLyGSIAAgB2dgGy8hkkAAA8AUYBAwAAAAAAB8Wn/AEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5hhAQAA4wEAAExPUk8ABCJNGGBAgo8BAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwChAwQCBgAEBSAHCggA9x0ACAkBCWVudGl0eVJlZgEDAAQTbm90LWEtcmVmZXJlbmNlLW1hcIAAGACAFqQB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgNFAV8AABoAgN8BBj0AAQCoARcEqAFKA2RvY6IBGApdAPAIAgAFAAEAAEcAngDIABIBRwGkAd8BCAAAAAAAMfWmPwEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5pwEAAAAAAAA=",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
+      "id": "reject-entity-reference-wrong-payload",
+      "classification": "rejected",
+      "reason": "entity-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "entityRef",
+        "payload": {
+          "tagId": "10000000-0000-4000-8000-000000000002",
+          "label": "Alice"
+        }
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAGAskBEAA6oBAABMT1JPAAQiTRhgQIJvAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAEgUAsBQEAAAABAQAAQAKCgAQDAUAEBAPAPTUFAQAAgAWiQENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuCWVudGl0eVJlZgV0YWdJZAVsYWJlbBZhdGhlbmFldW0tcGFnZS1tZXRhLXYxGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQAzAQQQGQACAAIAAQQCAAIBBAIEAA0BAAoCAQkGAgMECQYACggLAQgOCwUFDAAGGAEBBAQBAF0DAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPIBAgRzZWVkgAQGCAIHBSQxMAEAEC0HAHAtNDAwMC04BQAADwADAgDwCTIIBQVBbGljZQACAGZyAbLyGSIAAgB2dgoAkCQAAGUBbwEDAAAAAADPIuvjAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmIcBAAAAAgAATE9STwAEIk0YYECCrAEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAdRQCBHNlZWRnAKEDBAIGAAQFIAcKCADyDgAICQEJZW50aXR5UmVmAQMABgIFdGFnSWQEJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAPcFMgVsYWJlbAQFQWxpY2WAABgAgBbKAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DawFfAAAaAIAFAgY9AAEAzgEXBM4BSgNkb2PIARgKXQDwCAIABQABAABHAJ4AyAASAUcBygEFAggAAAAAAP5HbioBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUecQBAAAAAAAA",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
+      "id": "reject-entity-reference-extra-payload",
+      "classification": "rejected",
+      "reason": "entity-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "entityRef",
+        "payload": {
+          "nodeId": "10000000-0000-4000-8000-000000000001",
+          "label": "Alice",
+          "extra": true
+        }
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAGGQngsAA6wBAABMT1JPAAQiTRhgQIJxAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAFAUAsBYEAAAABAQAAQAKCgAQDAUAEBAPAPBHFAQAAgAWkAENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuCWVudGl0eVJlZgY/APcXSWQFbGFiZWwFZXh0cmEWYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRQcm9zZW1pcnJvci12MQAzAQQQGQACAAIAAQQCAAIBBAIEAA0BAAoCAQkGAgMECQYACggLAQgOCwUFDAAGGAEBBAQBAF8DAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPIBAgRzZWVkgAQGCAMHBSQxMAEAEC0HAHAtNDAwMC04BQAADwADAgDwCzEIBQVBbGljZQkBAAIAZnIBsvIZIgACAHZ2CgCQJAAAbgF4AQMAAAAAAHsRnUIBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYiQEAAAgCAABMT1JPAAQiTRhgQIK0AQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgB1FAIEc2VlZGcAoQMEAgYABAUgBwoIAPAFAAgJAQllbnRpdHlSZWYBAwAGAwYmAWJJZAQkMTABABAtBwBwLTQwMDAtOAUAAA8AAwIA9w0xBWxhYmVsBAVBbGljZQVleHRyYQEBgAAYAIAW0wH4D2FnZS1tZXRhLXYxAAEAAQ1zY2hlbWFWZXJzaW9uA3QBXwAAGgCADgIGPQABANcBFwTXAUoDZG9j0QEYCl0A8AgCAAUAAQAARwCeAMgAEgFHAdMBDgIIAAAAAAA2jVVDAQAAAAUAAAANAAAyeQYAAAAAAAIAAAABGgCAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MbQX1HnMAQAAAAAAAA==",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
+      "id": "reject-supertag-reference-malformed-payload",
+      "classification": "rejected",
+      "reason": "supertag-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "supertagRef",
+        "payload": "not-a-reference-map"
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAA5D64EAA4YBAABMT1JPAAQiTRhgQIJLAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPdfFAQAAgAWfw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4Lc3VwZXJ0YWdSZWYWYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRQcm9zZW1pcnJvci12MQAzAQQQGQACAAIAAQQCAAIBBAIEAA0BAAoCAQkGAgMECQYACggLAQgOCwUFDAAGGAEBBAQBAEEDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPArAgRzZWVkgAQGBRNub3QtYS1yZWZlcmVuY2UtbWFwAAIAZnIBsvIZIgACAHZ2AbLyGSQAAD4BSAEDAAAAAAAsPvm9AQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmGMBAADlAQAATE9STwAEIk0YYECCkQEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAdRQCBHNlZWRnAKEDBAIGAAQFIAcKCAD3HwAICQELc3VwZXJ0YWdSZWYBAwAEE25vdC1hLXJlZmVyZW5jZS1tYXCAABgAgBamAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DRwFfAAAaAIDhAQY9AAEAqgEXBKoBSgNkb2OkARgKXQDwCAIABQABAABHAJ4AyAASAUcBpgHhAQgAAAAAAG5rFuUBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeakBAAAAAAAA",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
+      "id": "reject-supertag-reference-wrong-payload",
+      "classification": "rejected",
+      "reason": "supertag-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "supertagRef",
+        "payload": {
+          "nodeId": "10000000-0000-4000-8000-000000000001",
+          "label": "Project"
+        }
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJunL+8AA6gBAABMT1JPAAQiTRhgQIJtAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAEgUAsBQEAAAABAQAAQAKCgAQDAUAEBAPAPBJFAQAAgAWjAENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuC3N1cGVydGFnUmVmBkEA9xFJZAVsYWJlbBZhdGhlbmFldW0tcGFnZS1tZXRhLXYxGBcA9FByb3NlbWlycm9yLXYxADMBBBAZAAIAAgABBAIAAgEEAgQADQEACgIBCQYCAwQJBgAKCAsBCA4LBQUMAAYYAQEEBAEAXwMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8gECBHNlZWSABAYIAgcFJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAPALMQgFB1Byb2plY3QAAgBmcgGy8hkiAAIAdnYKAJAkAABqAXQBAwAAAAAAHOZFAQEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5iFAQAABAIAAExPUk8ABCJNGGBAgrABAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwChAwQCBgAEBSAHCggA8AcACAkBC3N1cGVydGFnUmVmAQMABgIGKAFiSWQEJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAPcHMQVsYWJlbAQHUHJvamVjdIAAGACAFs8B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgNwAV8AABoAgAoCBj0AAQDTARcE0wFKA2RvY80BGApdAPAIAgAFAAEAAEcAngDIABIBRwHPAQoCCAAAAAAA7BHggwEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5yAEAAAAAAAA=",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
+      "id": "reject-supertag-reference-extra-payload",
+      "classification": "rejected",
+      "reason": "supertag-ref",
+      "origin": "adversarial-wire",
+      "probe": {
+        "markName": "supertagRef",
+        "payload": {
+          "tagId": "10000000-0000-4000-8000-000000000002",
+          "label": "Project",
+          "extra": true
+        }
+      },
+      "baseSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJbahUUAA1oBAABMT1JPAAQiTRhgQIIfAQAAsAAQABABEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQQAKQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AYCBHNlZWQAAgBmcgGy8hkeAAIAdnYKAJAgAAATAR0BAwAAAAAA5rC4awEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g3AQAAuQEAAExPUk8ABCJNGGBAgmUBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAQbawewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fQEAAAAAAAA=",
+      "baseVVBase64": "AbLyGSA=",
+      "adversarialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAMoWdnUAA7YBAABMT1JPAAQiTRhgQIJ7AQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAAFAUAsBYEAAAABAQAAQAKCgAQDAUAEBAPAPTcFAQAAgAWkQENc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuC3N1cGVydGFnUmVmBXRhZ0lkBWxhYmVsBWV4dHJhFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxADMBBBAZAAIAAgABBAIAAgEEAgQADQEACgIBCQYCAwQJBgAKCAsBCA4LBQUMAAYYAQEEBAEAYQMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8gECBHNlZWSABAYIAwcFJDEwAQAQLQcAcC00MDAwLTgFAAAPAAMCAPANMggFB1Byb2plY3QJAQACAGZyAbLyGSIAAgB2dgoAkCQAAHEBewEDAAAAAAALPrkdAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmJMBAAAMAgAATE9STwAEIk0YYECCuAEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAdRQCBHNlZWRnAKEDBAIGAAQFIAcKCADyEAAICQELc3VwZXJ0YWdSZWYBAwAGAwV0YWdJZAQkMTABABAtBwBwLTQwMDAtOAUAAA8AAwIA9w8yBWxhYmVsBAdQcm9qZWN0BWV4dHJhAQGAABgAgBbWAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DdwFfAAAaAIARAgY9AAEA2gEXBNoBSgNkb2PUARgKXQDwCAIABQABAABHAJ4AyAASAUcB1gERAggAAAAAABwz1KYBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUedABAAAAAAAA",
+      "adversarialBaseVVBase64": "AbLyGSA="
+    },
+    {
       "id": "reject-bounds-plus-one",
       "classification": "rejected",
       "reason": "bounds-plus-one",
@@ -2429,5 +2777,5 @@
       }
     }
   ],
-  "sourceDigest": "1c060b9ab41d379461c27babd008623f09e11571c654473eae33803ead8ec97b"
+  "sourceDigest": "da085e37f0afc40179afc102bedce480cb179c340e7dc73f5bfa0ec02d29050e"
 }
