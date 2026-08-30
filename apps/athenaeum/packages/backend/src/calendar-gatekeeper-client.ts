@@ -34,9 +34,57 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import { GatekeeperNotConnected, OAuthExchangeFailed, UnexpectedError, type DomainError } from "@athenaeum/domain"
+import * as Schema from "effect/Schema"
+import { Email, GatekeeperNotConnected, OAuthExchangeFailed, UnexpectedError, type DomainError } from "@athenaeum/domain"
 import { signGatekeeperCallerCredential } from "./gatekeeper-service-credential.js"
 import type { GatekeeperConnectionLocator } from "./calendar-connection-identity.js"
+
+/**
+ * Transitional input accepted only so legacy CalendarService call sites retain their explicit
+ * email adapter until PCR-04 moves them to `GatekeeperConnectionLocator`. New callers must pass
+ * a locator; a string is always normalized to legacy-email and can never represent an opaque
+ * connection.
+ */
+export type CalendarGatekeeperLocatorInput = GatekeeperConnectionLocator | string
+
+/** Private, immutable proof returned by the future receipt-bound opaque OAuth exchange. */
+export interface CalendarOAuthCompletionReceipt {
+  readonly receiptDigest: string
+  readonly completionFactDigest: string
+}
+
+const OPAQUE_ACCOUNT_ENDPOINT = "/gatekeeper/google-calendar/account"
+
+/**
+ * Private locator-first transport surface. PCR-04 migrates CalendarService to these operations;
+ * keeping it nested prevents accidental public/RPC use during the compatibility interval.
+ */
+export interface CalendarGatekeeperConnectionOperations {
+  readonly completeOAuth: (
+    locator: GatekeeperConnectionLocator,
+    attemptId: string,
+    code: string,
+    redirectUri: string
+  ) => Effect.Effect<CalendarOAuthCompletionReceipt, DomainError>
+  readonly isConnected: (locator: GatekeeperConnectionLocator) => Effect.Effect<{ readonly connected: boolean }, DomainError>
+  readonly disconnect: (locator: GatekeeperConnectionLocator) => Effect.Effect<void, DomainError>
+  readonly listCalendars: (
+    locator: GatekeeperConnectionLocator
+  ) => Effect.Effect<ReadonlyArray<RemoteGoogleCalendarInfo>, DomainError>
+  readonly eventsPage: (
+    locator: GatekeeperConnectionLocator,
+    calendarId: string,
+    query: RemoteCalendarEventsListQuery
+  ) => Effect.Effect<RemoteCalendarEventsPage, DomainError>
+  readonly createEvent: (locator: GatekeeperConnectionLocator, calendarId: string, draft: unknown, sendUpdates?: unknown) => Effect.Effect<RemoteCalendarEvent, DomainError>
+  readonly updateEvent: (locator: GatekeeperConnectionLocator, calendarId: string, eventId: string, patch: unknown, sendUpdates?: unknown) => Effect.Effect<RemoteCalendarEvent, DomainError>
+  readonly deleteEvent: (locator: GatekeeperConnectionLocator, calendarId: string, eventId: string, sendUpdates?: unknown) => Effect.Effect<void, DomainError>
+  readonly freeBusy: (locator: GatekeeperConnectionLocator, calendarIds: ReadonlyArray<string>, timeMin: string, timeMax: string) => Effect.Effect<unknown, DomainError>
+  readonly mintObserverVerifier: (locator: GatekeeperConnectionLocator) => Effect.Effect<{ readonly token: string }, DomainError>
+  readonly addObserver: (locator: GatekeeperConnectionLocator, bindingId: string, observerId: string, verifierToken: string, mode: "selected" | "allVisible", calendarId: string) => Effect.Effect<void, DomainError>
+  readonly removeObserver: (locator: GatekeeperConnectionLocator, bindingId: string, observerId: string) => Effect.Effect<void, DomainError>
+  readonly notifyCalendarTouched: (locator: GatekeeperConnectionLocator, bindingId: string, calendarId: string) => Effect.Effect<{ readonly failedObserverIds: ReadonlyArray<string> }, DomainError>
+}
 
 export type RemoteCalendarTime =
   | { readonly kind: "date"; readonly date: string }
@@ -101,7 +149,7 @@ export interface CalendarGatekeeperClientApi {
     state: string,
     redirectUri: string
   ) => Effect.Effect<{ readonly url: string }, DomainError>
-  /** Completes the OAuth code exchange for `email`'s `GatekeeperAccountDurableObject`, creating
+  /** Completes the legacy OAuth code exchange for `email`'s `GatekeeperAccountDurableObject`, creating
    *  it on first success (idempotent per this stage's own "DO constructed on first request"
    *  Cloudflare semantics — see `gatekeeper-account-durable-object.ts`). Fails
    *  `OAuthExchangeFailed` (domain, errors.ts) on any gatekeeper-side failure. */
@@ -151,6 +199,18 @@ export interface CalendarGatekeeperClientApi {
     bindingId: string,
     calendarId: string
   ) => Effect.Effect<{ readonly failedObserverIds: ReadonlyArray<string> }, DomainError>
+
+  /**
+   * PCR-03's receipt-bound opaque exchange seam. Optional only while PCR-04 has not yet moved
+   * the existing CalendarService/test doubles onto it; production binding always supplies it.
+   */
+  readonly completeOAuth?: (
+    locator: GatekeeperConnectionLocator,
+    attemptId: string,
+    code: string,
+    redirectUri: string
+  ) => Effect.Effect<CalendarOAuthCompletionReceipt, DomainError>
+  readonly byConnection?: CalendarGatekeeperConnectionOperations
 }
 
 export class CalendarGatekeeperClient extends Context.Tag("@athenaeum/backend/CalendarGatekeeperClient")<
@@ -195,6 +255,40 @@ export const gatekeeperAccountPathForLocator = (
   locator.kind === "legacy-email"
     ? Effect.succeed(`/gatekeeper/google-calendar/account/${encodeURIComponent(locator.email)}/${operation}`)
     : Effect.fail(new UnexpectedError({ message: "Opaque calendar provider connections are not supported by this gatekeeper." }))
+
+const normalizeLocator = (input: CalendarGatekeeperLocatorInput): GatekeeperConnectionLocator =>
+  typeof input === "string"
+    ? { kind: "legacy-email", email: Schema.decodeUnknownSync(Email)(input) }
+    : input
+
+interface GatekeeperRequest {
+  readonly path: string
+  readonly body: Record<string, unknown>
+}
+
+/**
+ * Opaque connection IDs are deliberately body-only: they must never become a URL path segment
+ * that platform request logging may retain. The legacy branch stays on its historical email path
+ * until the gatekeeper's fixed endpoint is deployed, and an opaque routing failure never retries
+ * through that branch.
+ */
+export const gatekeeperRequestForLocator = (
+  input: CalendarGatekeeperLocatorInput,
+  operation: string,
+  payload: Record<string, unknown>
+): GatekeeperRequest => {
+  const locator = normalizeLocator(input)
+  if (locator.kind === "legacy-email") {
+    return {
+      path: `/gatekeeper/google-calendar/account/${encodeURIComponent(locator.email)}/${operation}`,
+      body: payload
+    }
+  }
+  return {
+    path: OPAQUE_ACCOUNT_ENDPOINT,
+    body: { locator, operation, ...payload }
+  }
+}
 
 /**
  * `POST`s `body` to `path` on `fetcher`, signing the request with a fresh, short-lived
@@ -252,39 +346,52 @@ export const makeCalendarGatekeeperClientServiceBindingLive = (
   fetcher: Fetcher,
   callerHmacSecret: string
 ): Layer.Layer<CalendarGatekeeperClient> => {
-  const accountPath = (email: string, op: string): string =>
-    `/gatekeeper/google-calendar/account/${encodeURIComponent(email)}/${op}`
+  const call = <A>(input: CalendarGatekeeperLocatorInput, operation: string, payload: Record<string, unknown>) => {
+    const request = gatekeeperRequestForLocator(input, operation, payload)
+    return postJson(fetcher, callerHmacSecret, request.path, request.body) as Effect.Effect<A, DomainError>
+  }
+
+  const legacy = (email: string): GatekeeperConnectionLocator => ({
+    kind: "legacy-email",
+    email: Schema.decodeUnknownSync(Email)(email)
+  })
 
   const api: CalendarGatekeeperClientApi = {
     buildAuthorizationUrl: (state, redirectUri) =>
-      postJson(fetcher, callerHmacSecret, "/gatekeeper/google-calendar/connect", { state, redirectUri }) as Effect.Effect<
+      postJson(fetcher, callerHmacSecret, "/gatekeeper/google-calendar/connect", {
+        state,
+        redirectUri,
+        // PCR-02 consumes these explicit OAuth requirements. Current workers safely ignore
+        // unknown JSON fields, preserving legacy behavior during rollout.
+        authorizationOptions: { prompt: "select_account consent", accessType: "offline" }
+      }) as Effect.Effect<
         { readonly url: string },
         DomainError
       >,
 
     exchangeAndConnect: (email, code, redirectUri) =>
-      postJson(fetcher, callerHmacSecret, accountPath(email, "oauth-exchange"), { code, redirectUri }).pipe(Effect.asVoid),
+      call<void>(legacy(email), "oauth-exchange", { code, redirectUri }).pipe(Effect.asVoid),
 
     listCalendars: (email) =>
-      postJson(fetcher, callerHmacSecret, accountPath(email, "list-calendars"), {}) as Effect.Effect<
+      call<ReadonlyArray<RemoteGoogleCalendarInfo>>(legacy(email), "list-calendars", {}) as Effect.Effect<
         ReadonlyArray<RemoteGoogleCalendarInfo>,
         DomainError
       >,
 
     eventsPage: (email, calendarId, query) =>
-      postJson(fetcher, callerHmacSecret, accountPath(email, "events-page"), { calendarId, query }) as Effect.Effect<
+      call<RemoteCalendarEventsPage>(legacy(email), "events-page", { calendarId, query }) as Effect.Effect<
         RemoteCalendarEventsPage,
         DomainError
       >,
 
     mintObserverVerifier: (observerEmail) =>
-      postJson(fetcher, callerHmacSecret, accountPath(observerEmail, "get-verifier"), {}) as Effect.Effect<
+      call<{ readonly token: string }>(legacy(observerEmail), "get-verifier", {}) as Effect.Effect<
         { readonly token: string },
         DomainError
       >,
 
     addObserver: (boundByEmail, bindingId, observerId, verifierToken, mode, calendarId) =>
-      postJson(fetcher, callerHmacSecret, accountPath(boundByEmail, "add-observer"), {
+      call<void>(legacy(boundByEmail), "add-observer", {
         bindingId,
         observerId,
         verifierToken,
@@ -293,10 +400,46 @@ export const makeCalendarGatekeeperClientServiceBindingLive = (
       }).pipe(Effect.asVoid),
 
     notifyCalendarTouched: (boundByEmail, bindingId, calendarId) =>
-      postJson(fetcher, callerHmacSecret, accountPath(boundByEmail, "on-calendar-touched"), {
+      call<{ readonly failedObserverIds: ReadonlyArray<string> }>(legacy(boundByEmail), "on-calendar-touched", {
         bindingId,
         calendarId
-      }) as Effect.Effect<{ readonly failedObserverIds: ReadonlyArray<string> }, DomainError>
+      }),
+
+    completeOAuth: (locator, attemptId, code, redirectUri) =>
+      call<CalendarOAuthCompletionReceipt>(locator, "oauth-exchange", { attemptId, code, redirectUri }),
+
+    byConnection: {
+      completeOAuth: (locator, attemptId, code, redirectUri) =>
+        call<CalendarOAuthCompletionReceipt>(locator, "oauth-exchange", { attemptId, code, redirectUri }),
+      isConnected: (locator) => call<{ readonly connected: boolean }>(locator, "is-connected", {}),
+      disconnect: (locator) => call<void>(locator, "disconnect", {}).pipe(Effect.asVoid),
+      listCalendars: (locator) => call<ReadonlyArray<RemoteGoogleCalendarInfo>>(locator, "list-calendars", {}),
+      eventsPage: (locator, calendarId, query) => call<RemoteCalendarEventsPage>(locator, "events-page", { calendarId, query }),
+      createEvent: (locator, calendarId, draft, sendUpdates) =>
+        call<RemoteCalendarEvent>(locator, "create-event", { calendarId, draft, ...(sendUpdates === undefined ? {} : { sendUpdates }) }),
+      updateEvent: (locator, calendarId, eventId, patch, sendUpdates) =>
+        call<RemoteCalendarEvent>(locator, "update-event", {
+          calendarId,
+          eventId,
+          patch,
+          ...(sendUpdates === undefined ? {} : { sendUpdates })
+        }),
+      deleteEvent: (locator, calendarId, eventId, sendUpdates) =>
+        call<void>(locator, "delete-event", {
+          calendarId,
+          eventId,
+          ...(sendUpdates === undefined ? {} : { sendUpdates })
+        }).pipe(Effect.asVoid),
+      freeBusy: (locator, calendarIds, timeMin, timeMax) =>
+        call<unknown>(locator, "free-busy", { calendarIds, timeMin, timeMax }),
+      mintObserverVerifier: (locator) => call<{ readonly token: string }>(locator, "get-verifier", {}),
+      addObserver: (locator, bindingId, observerId, verifierToken, mode, calendarId) =>
+        call<void>(locator, "add-observer", { bindingId, observerId, verifierToken, mode, calendarId }).pipe(Effect.asVoid),
+      removeObserver: (locator, bindingId, observerId) =>
+        call<void>(locator, "remove-observer", { bindingId, observerId }).pipe(Effect.asVoid),
+      notifyCalendarTouched: (locator, bindingId, calendarId) =>
+        call<{ readonly failedObserverIds: ReadonlyArray<string> }>(locator, "on-calendar-touched", { bindingId, calendarId })
+    }
   }
 
   return Layer.succeed(CalendarGatekeeperClient, api)

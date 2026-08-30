@@ -16,7 +16,12 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
 import { Email } from "@athenaeum/domain"
-import { makeCalendarGatekeeperClientServiceBindingLive, CalendarGatekeeperClient, gatekeeperAccountPathForLocator } from "../src/calendar-gatekeeper-client.js"
+import {
+  makeCalendarGatekeeperClientServiceBindingLive,
+  CalendarGatekeeperClient,
+  gatekeeperAccountPathForLocator,
+  gatekeeperRequestForLocator
+} from "../src/calendar-gatekeeper-client.js"
 import { ProviderConnectionId } from "../src/calendar-connection-identity.js"
 
 const SECRET = "test-gatekeeper-caller-hmac-secret"
@@ -90,6 +95,66 @@ describe("calendar-gatekeeper-client.ts: real service-binding client signs every
       expect(rendered).not.toContain("alice@example.com")
       expect(rendered).not.toContain("/account/")
     }
+  })
+
+  it("keeps opaque provider connection IDs out of request paths and carries every active operation through the fixed body endpoint", async () => {
+    const opaqueId = Schema.decodeUnknownSync(ProviderConnectionId)("gpc_3fa85f64-5717-4562-b3fc-2c963f66afa9")
+    const locator = { kind: "provider-connection" as const, providerConnectionId: opaqueId }
+    const request = gatekeeperRequestForLocator(locator, "events-page", { calendarId: "primary", query: { mode: "syncToken" } })
+    expect(request.path).toBe("/gatekeeper/google-calendar/account")
+    expect(request.path).not.toContain(opaqueId)
+    expect(request.body).toMatchObject({ locator, operation: "events-page", calendarId: "primary" })
+
+    const { fetcher, requests } = mockFetcher(() => Response.json({ connected: true, token: "opaque", items: [], failedObserverIds: [] }))
+    const layer = makeCalendarGatekeeperClientServiceBindingLive(fetcher, SECRET)
+    await Effect.runPromise(
+      Effect.flatMap(CalendarGatekeeperClient, (client) =>
+        Effect.all([
+          client.byConnection!.completeOAuth(locator, "attempt-private", "code-private", "https://example.test/cb"),
+          client.byConnection!.isConnected(locator),
+          client.byConnection!.disconnect(locator),
+          client.byConnection!.listCalendars(locator),
+          client.byConnection!.eventsPage(locator, "primary", { mode: "syncToken", syncToken: "cursor", singleEvents: true }),
+          client.byConnection!.createEvent(locator, "primary", { title: "private" }),
+          client.byConnection!.updateEvent(locator, "primary", "event", { title: "private" }),
+          client.byConnection!.deleteEvent(locator, "primary", "event"),
+          client.byConnection!.freeBusy(locator, ["primary"], "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"),
+          client.byConnection!.mintObserverVerifier(locator),
+          client.byConnection!.addObserver(locator, "binding", "observer", "verifier", "selected", "primary"),
+          client.byConnection!.removeObserver(locator, "binding", "observer"),
+          client.byConnection!.notifyCalendarTouched(locator, "binding", "primary")
+        ])
+      ).pipe(Effect.provide(layer))
+    )
+
+    expect(requests).toHaveLength(13)
+    const operations = await Promise.all(
+      requests.map(async (request) => {
+        expect(new URL(request.url).pathname).toBe("/gatekeeper/google-calendar/account")
+        expect(new URL(request.url).pathname).not.toContain(opaqueId)
+        const body = (await request.json()) as {
+          locator: { kind: string; providerConnectionId: string }
+          operation: string
+        }
+        expect(body.locator).toEqual(locator)
+        return body.operation
+      })
+    )
+    expect(operations).toEqual([
+      "oauth-exchange",
+      "is-connected",
+      "disconnect",
+      "list-calendars",
+      "events-page",
+      "create-event",
+      "update-event",
+      "delete-event",
+      "free-busy",
+      "get-verifier",
+      "add-observer",
+      "remove-observer",
+      "on-calendar-touched"
+    ])
   })
 
   it("attaches an Authorization: Bearer credential that independently verifies against the SAME secret the caller was configured with", async () => {
