@@ -20,12 +20,14 @@ import {
   StartLoroPageSyncOutput,
   SyncFeedInput,
   SyncFeedOutput,
-  ValidationError
+  ValidationError,
+  sha256HexSync
 } from "@athenaeum/domain"
 import { connectToWorkspace, connectToWorkspaceAsTestUser, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
-import { ledgerCustodyTestHook, ledgerExecuteTestHook } from "../src/ledger-service.js"
+import { commitLoroPageContentLedgerFingerprint, LedgerConflict, ledgerCustodyTestHook, ledgerExecuteTestHook } from "../src/ledger-service.js"
 import { pagePersistenceTestHook } from "../src/workspace-durable-object.js"
 import { loroVersionVectorIdentity } from "../src/loro-page-service-live.js"
+import { WorkspaceLoroMutationGateway } from "../src/workspace-loro-mutation-gateway.js"
 import versionVectorIdentityFixture from "../../../fixtures/loro-version-vector-identity.json"
 
 const fixture = versionVectorIdentityFixture as {
@@ -241,6 +243,55 @@ describe.sequential("commitLoroPageContent ledger contract", () => {
       expect(await native.debugGetLedgerReceipt(identity)).toBeNull()
       expect(await native.debugGetLedgerEvent(identity)).toBeNull()
       expect(await native.debugGetLedgerOutboxIntent(identity)).toBeNull()
+      expect(await descriptor(fixture)).toEqual(fixture.created.descriptor)
+    } finally { fixture.stub[Symbol.dispose]() }
+  })
+
+  it("rejects a gateway command identity/custody mismatch before it can mutate or append an artifact", async () => {
+    const fixture = await prepare()
+    try {
+      const requestIdentity = "commit-loro-page-content:gateway-custody-request"
+      const commandIdentity = "commit-loro-page-content:gateway-command-mismatch"
+      const command = {
+        requestIdentity: commandIdentity,
+        requestId: commandIdentity,
+        workspaceId: fixture.workspaceId,
+        principal: "gateway-test@example.com",
+        policy: "ungoverned-authenticated-v1",
+        nodeId: fixture.node.id,
+        expectedStorageVersion: fixture.created.descriptor.storageVersion,
+        expectedSnapshotSha256: fixture.created.descriptor.loro!.snapshotSha256,
+        baseVersionVectorSha256: loroVersionVectorIdentity(VersionVector.decode(fixture.started.serverVersion)),
+        updateSha256: sha256HexSync(fixture.update),
+        updateLength: fixture.update.length,
+        commitMessage: "Reject mismatched gateway custody",
+        attribution: attribution()
+      }
+      const fingerprint = commitLoroPageContentLedgerFingerprint(command)
+      const custody = {
+        requestIdentity,
+        fingerprint,
+        type: "commitLoroPageContent" as const,
+        workspaceId: fixture.workspaceId,
+        actorKind: "user" as const,
+        actorLabel: "You",
+        targetKind: "node" as const,
+        targetId: fixture.node.id
+      }
+      // Validation is intentionally before the gateway touches either dependency. Supplying
+      // impossible dependencies proves a bad command cannot reach Loro or Ledger at all.
+      const gateway = new WorkspaceLoroMutationGateway(undefined as never, undefined as never)
+      expect(() => gateway.commitContentWithinTransaction({
+        requestIdentity, fingerprint, command, custody,
+        expectedVersionVector: fixture.started.serverVersion, update: fixture.update
+      })).toThrow(LedgerConflict)
+      const native = workspaceDurableObjectStub(fixture.workspaceId)
+      expect(await native.debugGetLedgerCommand(requestIdentity)).toBeNull()
+      expect(await native.debugGetLedgerCommand(commandIdentity)).toBeNull()
+      expect(await native.debugGetLedgerCustody(requestIdentity)).toBeNull()
+      expect(await native.debugGetLedgerReceipt(requestIdentity)).toBeNull()
+      expect(await native.debugGetLedgerEvent(requestIdentity)).toBeNull()
+      expect(await native.debugGetLedgerOutboxIntent(requestIdentity)).toBeNull()
       expect(await descriptor(fixture)).toEqual(fixture.created.descriptor)
     } finally { fixture.stub[Symbol.dispose]() }
   })
