@@ -44,8 +44,10 @@ export class DurableWorkforceRuntimeStore {
     return this.get(runId)!
   }
   nextDueAt(): Date | undefined { const row = this.sql.exec<{ nextAttemptAt: string }>("SELECT nextAttemptAt FROM workforce_runtime_runs WHERE state IN ('queued','retryable') ORDER BY nextAttemptAt LIMIT 1").toArray()[0]; return row ? new Date(row.nextAttemptAt) : undefined }
-  claimDue(now: Date, owner: string, token: string, leaseMs: number): WorkforceRunRecord | undefined {
-    const candidate = this.sql.exec<Row>(`SELECT * FROM workforce_runtime_runs WHERE (state IN ('queued','retryable') AND nextAttemptAt <= ?) OR (state = 'claimed' AND leaseExpiresAt <= ?) ORDER BY nextAttemptAt, createdAt LIMIT 1`, now.toISOString(), now.toISOString()).toArray()[0]
+  claimDue(now: Date, owner: string, token: string, leaseMs: number, workflowIds?: readonly string[]): WorkforceRunRecord | undefined {
+    if (workflowIds !== undefined && workflowIds.length === 0) return undefined
+    const filter = workflowIds === undefined ? "" : ` AND workflowId IN (${workflowIds.map(() => "?").join(",")})`
+    const candidate = this.sql.exec<Row>(`SELECT * FROM workforce_runtime_runs WHERE ((state IN ('queued','retryable') AND nextAttemptAt <= ?) OR (state = 'claimed' AND leaseExpiresAt <= ?))${filter} ORDER BY nextAttemptAt, createdAt LIMIT 1`, now.toISOString(), now.toISOString(), ...(workflowIds ?? [])).toArray()[0]
     if (!candidate) return undefined
     const expiry = new Date(now.getTime() + leaseMs).toISOString()
     this.sql.exec(`UPDATE workforce_runtime_runs SET state='claimed', attempts=attempts+1, claimOwner=?, claimToken=?, leaseExpiresAt=?, updatedAt=?
