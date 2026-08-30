@@ -9,6 +9,9 @@ export interface CalendarRemoteEventPlan {
   readonly bindingId: EntityId
   readonly remote: RemoteCalendarEvent
   readonly sourceRevisionDigest: string
+  /** Stable, opaque identity for the provider event across revisions. It is used only for
+   * private attendee-observation de-duplication; it never leaves the Workspace DO. */
+  readonly sourceEventKeyDigest: string
   readonly attendeeObservationDigests: ReadonlyArray<string>
   readonly cancelled: boolean
 }
@@ -23,13 +26,15 @@ export const planCalendarRemoteEvent = (
   remote: RemoteCalendarEvent
 ): CalendarRemoteEventPlan => {
   const attendeeEmails = [...new Set((remote.attendees ?? []).map((attendee) => normalizedEmail(attendee.email)).filter(Boolean))].sort()
+  const workflowVersion = "calendar-relationship-concierge.v1"
+  const sourceEventKeyDigest = sha256HexSync(canonicalJsonBytes({ workspaceId, bindingId, providerEventId: remote.id }))
   const sourceRevisionDigest = sha256HexSync(canonicalJsonBytes({
     workspaceId, bindingId, providerEventId: remote.id, recurringEventId: remote.recurringEventId ?? null,
     title: remote.title, start: remote.start, end: remote.end, status: remote.status,
-    attendees: attendeeEmails
+    attendees: attendeeEmails, workflowVersion
   }))
   return {
-    workspaceId, bindingId, remote, sourceRevisionDigest,
+    workspaceId, bindingId, remote, sourceRevisionDigest, sourceEventKeyDigest,
     attendeeObservationDigests: attendeeEmails.map((email) => sha256HexSync(canonicalJsonBytes({
       workspaceId, bindingId, providerEventId: remote.id, email
     }))),

@@ -357,6 +357,7 @@ import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
 import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeServiceLive } from "./app-runtime-service-live.js"
 import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
 import { makeCalendarCollections } from "./calendar-collections.js"
+import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
 import {
   CalendarGatekeeperClient,
   CalendarGatekeeperClientUnconfigured,
@@ -4577,7 +4578,11 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     )
     const calendarServiceLive = makeCalendarServiceLive(calendarCollections, {
       stateSecret: env.CALENDAR_OAUTH_STATE_SECRET ?? "",
-      redirectUri: env.CALENDAR_OAUTH_REDIRECT_URI ?? ""
+      redirectUri: env.CALENDAR_OAUTH_REDIRECT_URI ?? "",
+      // The CalendarService performs provider I/O only. This DO-owned gateway is the one
+      // transaction that applies its second-brain projection, ledger custody, outbox signal,
+      // and durable workforce enqueue.
+      projectionGateway: new CalendarProjectionGateway(this.#storage, this.#ledger, this.#workforceRuntimeStore)
     }).pipe(
       Layer.provide(
         Layer.mergeAll(repositoriesLayer, graphServiceLive, calendarGatekeeperClientLive, sharingServiceLive)

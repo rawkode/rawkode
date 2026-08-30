@@ -1,6 +1,7 @@
 /** Atomic, replay-safe write boundary for one already-fetched provider event plan. Provider I/O
  * is intentionally outside; raw provider ids and addresses stay in private collections. */
 import { canonicalJsonBytes, sha256HexSync, type EntityId, type MutationAttribution } from "@athenaeum/domain"
+import type { DurableObjectStorage } from "@cloudflare/workers-types"
 import { calendarProjectionLedgerFingerprint, LedgerService, type LedgerCustodyInput } from "./ledger-service.js"
 import { DurableWorkforceRuntimeStore } from "./workforce-runtime-store.js"
 
@@ -15,11 +16,14 @@ export interface CalendarProjectionPlan {
   readonly requestIdentity: string
   readonly requestId: string
   readonly sourceRevisionDigest: string
+  readonly sourceEventKeyDigest: string
   readonly attendeeObservationDigests: ReadonlyArray<string>
   readonly commitMessage: string
   readonly attribution: MutationAttribution
   /** Applies only backend-private projection rows and must not contact the provider. */
-  readonly applyProjection: () => void
+  /** Returns observations first seen for this stable provider event. A later title/status
+   * revision can update private projection state without re-enqueuing the concierge. */
+  readonly applyProjection: () => ReadonlyArray<string>
 }
 
 export interface CalendarProjectionReceipt {
@@ -44,10 +48,11 @@ export class CalendarProjectionGateway {
     })
     let replayed = false
     const enqueuedRunIds: string[] = []
+    let newAttendeeObservationDigests: ReadonlyArray<string> = []
     const receipt = this.storage.transactionSync(() => this.ledger.executeV2({
       requestIdentity: plan.requestIdentity, fingerprint, type: "calendarProjection",
       mutate: () => {
-        plan.applyProjection()
+        newAttendeeObservationDigests = [...new Set(plan.applyProjection())].sort()
         calendarProjectionGatewayTestHook.afterProjectionBeforeLedger?.()
         return { calendarEventId: plan.calendarEventId }
       },
@@ -75,13 +80,14 @@ export class CalendarProjectionGateway {
         actorKind: "system", actorLabel: "Calendar sync", targetKind: "calendarEvent", targetId: plan.calendarEventId
       }),
       appendSideEffects: () => {
+        if (newAttendeeObservationDigests.length === 0) return
         const event = { eventType: CALENDAR_ATTENDEE_OBSERVED_EVENT, workspaceId: plan.workspaceId,
           bindingIdDigest: sha256HexSync(canonicalJsonBytes({ bindingId: plan.bindingId })),
-          sourceRevisionDigest: plan.sourceRevisionDigest, calendarEventId: plan.calendarEventId,
-          attendeeObservationDigests }
+          sourceRevisionDigest: plan.sourceRevisionDigest,
+          attendeeObservationDigests: newAttendeeObservationDigests }
         this.ledger.appendEvent(plan.requestIdentity, CALENDAR_ATTENDEE_OBSERVED_EVENT, event)
         this.ledger.appendOutbox(plan.requestIdentity, CALENDAR_ATTENDEE_OBSERVED_EVENT, event)
-        for (const digest of attendeeObservationDigests) {
+        for (const digest of newAttendeeObservationDigests) {
           const run = this.runtime.enqueue({ workflowId: CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW,
             scheduleVersion: CALENDAR_RELATIONSHIP_CONCIERGE_VERSION,
             occurrenceId: `${plan.sourceRevisionDigest}:${digest}`,

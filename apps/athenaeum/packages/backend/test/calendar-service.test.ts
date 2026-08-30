@@ -425,8 +425,13 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     }))
     expect(conflict._tag).toBe("ValidationError")
 
-    // Re-sync (same fixtures) — every provider row already exists, so `sync` upserts in place.
+    // Re-sync (same fixtures) — every provider row already exists, so `sync` replays each
+    // calendar-projection receipt rather than appending a second command/event/outbox artifact.
+    // This goes through the real scripted provider -> CalendarService -> Workspace DO gateway
+    // path; it is intentionally not a unit seam around the gateway itself.
+    const artifactsBeforeResync = await native.debugGetLedgerArtifactCounts()
     await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(artifactsBeforeResync)
 
     const secondList = (await stub.listCalendarEvents({ workspaceId })) as {
       events: ReadonlyArray<{ id: string; providerEventId: string; linkedNodeId?: string }>
