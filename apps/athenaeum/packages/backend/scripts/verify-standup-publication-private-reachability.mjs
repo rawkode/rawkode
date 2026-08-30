@@ -5,11 +5,10 @@ import { tmpdir } from "node:os"
 import ts from "typescript"
 
 const defaultSourceRoot = realpathSync(new URL("../src", import.meta.url).pathname)
-// The durable authority adapter and its private record contract are production infrastructure
-// now. The publisher/issuer remain deliberately unwired: no external RPC can mint a grant or
-// publish an employee report until the trusted workforce ingress is implemented separately.
+// The trusted Workforce Durable Object ingress now reaches the private publisher so it can commit
+// a fully validated run atomically. The grant issuer remains deliberately unreachable: no public
+// RPC or production root may mint a bearer outside that trusted ingress.
 const forbiddenNames = new Set([
-  "standup-publication-service-live.ts",
   "standup-run-grant-issuer-private-contract.ts",
   "standup-run-grant-issuer-private-service.ts"
 ])
@@ -54,8 +53,9 @@ const localModuleSpecifiers = (file, source) => {
 }
 
 /**
- * A positive, transitive import-closure check. The private publisher and grant issuer must remain
- * unreachable from all production entry roots until a separately gated workforce ingress exists.
+ * A positive, transitive import-closure check. The grant issuer must remain unreachable from all
+ * production entry roots; the trusted Workforce DO may reach the private publisher, but only via
+ * its static native admission method.
  */
 export const verifyStandupPublicationPrivateReachability = (sourceRoot = defaultSourceRoot) => {
   const root = realpathSync(sourceRoot)
@@ -71,7 +71,7 @@ export const verifyStandupPublicationPrivateReachability = (sourceRoot = default
     seen.add(real)
     for (const specifier of localModuleSpecifiers(real, readFileSync(real, "utf8"))) {
       const target = resolveLocalSource(real, specifier)
-      if (forbidden.has(target)) throw new Error(`production root reaches dormant private standup module: ${real} -> ${target}`)
+      if (forbidden.has(target)) throw new Error(`production root reaches forbidden standup module: ${real} -> ${target}`)
       visit(target, seen)
     }
   }
@@ -100,7 +100,7 @@ try {
   for (const forbiddenName of forbiddenNames) {
     const specifier = `./${forbiddenName.replace(/\.ts$/, ".js")}`
     write("nested/helper.ts", `export { dormant as value } from '../${forbiddenName.replace(/\.ts$/, ".js")}';`)
-    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /reaches dormant private standup module/)
+    assert.throws(() => verifyStandupPublicationPrivateReachability(fixtureRoot), /reaches forbidden standup module/)
     write("nested/helper.ts", "export const value = 1")
 
     write("index.ts", `const path = '${specifier}'; export const run = import(path)`)
@@ -119,4 +119,4 @@ try {
 }
 
 verifyStandupPublicationPrivateReachability()
-console.log("standup publication publisher and grant issuer remain unreachable from production roots")
+console.log("standup publication publisher is trusted-ingress reachable; grant issuer remains unreachable")

@@ -88,6 +88,14 @@ export interface PreparedLoroContentCommit {
   readonly updateSha256: string
 }
 
+/** A durable Loro snapshot loaded without mutating the service cache. Internal authorities use
+ * this as the replay candidate so later user edits are never replaced by the original report. */
+export interface PreparedCurrentLoroPage {
+  readonly descriptor: PageDocumentDescriptor
+  readonly candidate: LoroDoc
+  readonly text: string
+}
+
 /** A server-derived semantic text splice and the exact CAS evidence required to commit it.
  * This never crosses an RPC boundary: callers hand the update straight to `commitContent` in
  * the same Durable Object transaction. */
@@ -124,6 +132,11 @@ export const loroPageServiceSessionCapTestHook: { maxSessions: number } = { maxS
 
 /** Test-only observer for the legacy projection's single authoritative service read. */
 export const legacyPageProjectionTestHook: { onRead?: () => void } = {}
+/** Test-only post-commit seam. Production leaves this unset; tests can force a cache publication
+ * failure after durable storage commits, then prove an exact replay repairs the cache from disk. */
+export const loroPageServicePostCommitTestHook: {
+  beforePublish?: (nodeId: EntityId) => void
+} = {}
 
 const storageFailure = (error: unknown): UnexpectedError =>
   error instanceof UnexpectedError
@@ -283,7 +296,7 @@ const classifyLegacyPage = (doc: Automerge.Doc<{ text: string; schemaVersion?: u
   return { kind: "plainText", text }
 }
 
-const derivePlainTextLoroPage = (text: string): LoroDoc => {
+const createLoroPageWithText = (text: string): LoroDoc => {
   const doc = createEmptyLoroPage()
   const root = doc.getMap(LORO_PROSEMIRROR_CONTAINER)
   const children = root.get("children")
@@ -298,6 +311,8 @@ const derivePlainTextLoroPage = (text: string): LoroDoc => {
   doc.commit()
   return doc
 }
+
+const derivePlainTextLoroPage = (text: string): LoroDoc => createLoroPageWithText(text)
 
 /** A migrated Loro page keeps its Automerge source as an immutable witness. Validate that witness
  * on every migrated read/replay before trusting the Loro snapshot: the source row, exact bytes,
@@ -575,6 +590,16 @@ export class LoroPageService extends Context.Tag("@athenaeum/backend/LoroPageSer
       PreparedLoroActivation,
       NodeNotFound | PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError
     >
+    /** Creates a native page with its initial report text in one persistence operation. */
+    readonly createWithText: (nodeId: EntityId, text: string) => Effect.Effect<
+      PreparedLoroActivation,
+      NodeNotFound | PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError
+    >
+    /** Loads the current durable page without changing the cache. */
+    readonly prepareCurrent: (nodeId: EntityId) => Effect.Effect<
+      PreparedCurrentLoroPage,
+      NodeNotFound | PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError
+    >
     readonly getDescriptor: (
       nodeId: EntityId
     ) => Effect.Effect<PageDocumentDescriptor, PageNotFound | ValidationError | UnexpectedError>
@@ -719,7 +744,10 @@ export const makeLoroPageServiceLive = (
         }).pipe(Effect.mapError(storageFailure))
 
       const publishCommittedDocument = (nodeId: EntityId, candidate: LoroDoc | undefined): void => {
-        if (candidate !== undefined) docCache.set(nodeId, candidate)
+        if (candidate !== undefined) {
+          loroPageServicePostCommitTestHook.beforePublish?.(nodeId)
+          docCache.set(nodeId, candidate)
+        }
       }
 
       const getDescriptor = (nodeId: EntityId): Effect.Effect<PageDocumentDescriptor, PageNotFound | ValidationError | UnexpectedError> =>
@@ -840,70 +868,79 @@ export const makeLoroPageServiceLive = (
       const getText = (nodeId: EntityId): Effect.Effect<string, PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError> =>
         loadDoc(nodeId).pipe(Effect.map(pageText))
 
-      return {
-        create: (nodeId) =>
-          Effect.gen(function* () {
-            // Resolve the node before any page-format or document writes. A missing node is a
-            // caller error, not a reindex/storage defect, and must remain a typed NodeNotFound at
-            // the RPC boundary.
-            yield* nodesRepository.get(nodeId)
+      const createPage = (nodeId: EntityId, initialText: string): Effect.Effect<PreparedLoroActivation, NodeNotFound | PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError> =>
+        Effect.gen(function* () {
+          // Resolve the node before any page-format or document writes. A missing node is a
+          // caller error, not a reindex/storage defect, and must remain typed at the boundary.
+          yield* nodesRepository.get(nodeId)
 
-            const existingFormat = yield* readPageDocumentFormatRow(collections, nodeId)
-            if (existingFormat !== undefined) {
-              if (existingFormat.activeFormat === "loro-v1") {
-                // Replaying creation is idempotent for both native and migrated Loro pages. Load
-                // and validate the durable snapshot, but do not append another feed entry.
-                yield* validateMigratedAutomergeWitness(collections, pagesRepository, nodeId, existingFormat)
-                yield* loadPersistedLoroPage(collections, nodeId, existingFormat)
-                return { descriptor: descriptorFromRow(existingFormat), candidate: undefined }
-              }
-              return yield* Effect.fail(
-                new PageFormatMismatch({ nodeId, expected: "loro-v1", actual: "automerge-v1" })
-              )
+          const existingFormat = yield* readPageDocumentFormatRow(collections, nodeId)
+          if (existingFormat !== undefined) {
+            if (existingFormat.activeFormat === "loro-v1") {
+              yield* validateMigratedAutomergeWitness(collections, pagesRepository, nodeId, existingFormat)
+              yield* loadPersistedLoroPage(collections, nodeId, existingFormat)
+              return { descriptor: descriptorFromRow(existingFormat), candidate: undefined }
             }
+            return yield* Effect.fail(new PageFormatMismatch({ nodeId, expected: "loro-v1", actual: "automerge-v1" }))
+          }
 
-            // A legacy page created before the format row existed must not be shadowed by a native
-            // Loro document. Reject before touching any Loro rows.
-            const existingLegacyPage = yield* collections.pages.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
-            if (existingLegacyPage !== undefined) {
-              return yield* Effect.fail(
-                new PageFormatMismatch({ nodeId, expected: "loro-v1", actual: "automerge-v1" })
-              )
-            }
+          // A legacy page created before the format row existed must not be shadowed by a native
+          // Loro document. Reject before touching any Loro rows.
+          const existingLegacyPage = yield* collections.pages.get(nodeId).pipe(Effect.mapError(toUnexpectedError))
+          if (existingLegacyPage !== undefined) {
+            return yield* Effect.fail(new PageFormatMismatch({ nodeId, expected: "loro-v1", actual: "automerge-v1" }))
+          }
 
-            const doc = createEmptyLoroPage()
-            yield* validatePageDocument(doc, LORO_PAGE_SCHEMA_VERSION)
-            const snapshot = doc.export({ mode: "snapshot" })
-            const snapshotSha256 = sha256HexSync(snapshot)
-            const row: PageDocumentFormatRow = {
+          const doc = createLoroPageWithText(initialText)
+          yield* validatePageDocument(doc, LORO_PAGE_SCHEMA_VERSION)
+          const snapshot = doc.export({ mode: "snapshot" })
+          const snapshotSha256 = sha256HexSync(snapshot)
+          const row: PageDocumentFormatRow = {
+            nodeId,
+            activeFormat: "loro-v1",
+            storageVersion: 1,
+            loro: { schemaVersion: LORO_PAGE_SCHEMA_VERSION, snapshotSha256 }
+          }
+          yield* collections.loroPageDocs.put({
+            nodeId,
+            snapshot,
+            snapshotSha256,
+            schemaVersion: LORO_PAGE_SCHEMA_VERSION,
+            updatedAt: timestamp()
+          } satisfies LoroPageDocRow).pipe(Effect.mapError(toUnexpectedError))
+          yield* collections.pageDocumentFormats.put(row).pipe(Effect.mapError(toUnexpectedError))
+          yield* reindex(nodeId, pageText(doc))
+          yield* syncFeed.append("page", nodeId, "put", { nodeId, format: "loro-v1", snapshotSha256 })
+          return {
+            descriptor: new NativeLoroPageDocumentDescriptor({
               nodeId,
               activeFormat: "loro-v1",
               storageVersion: 1,
-              loro: { schemaVersion: LORO_PAGE_SCHEMA_VERSION, snapshotSha256 }
-            }
-            yield* collections.loroPageDocs.put({
-              nodeId,
-              snapshot,
-              snapshotSha256,
-              schemaVersion: LORO_PAGE_SCHEMA_VERSION,
-              updatedAt: timestamp()
-            } satisfies LoroPageDocRow).pipe(Effect.mapError(toUnexpectedError))
-            yield* collections.pageDocumentFormats.put(row).pipe(Effect.mapError(toUnexpectedError))
-            yield* reindex(nodeId, pageText(doc))
-            yield* syncFeed.append("page", nodeId, "put", { nodeId, format: "loro-v1", snapshotSha256 })
-            return {
-              descriptor: new NativeLoroPageDocumentDescriptor({
-                nodeId,
-                activeFormat: "loro-v1",
-                storageVersion: 1,
-                loro: new LoroPageDocumentDescriptor({
-                  schemaVersion: LORO_PAGE_SCHEMA_VERSION,
-                  snapshotSha256
-                })
-              }),
-              candidate: doc
-            }
-          }),
+              loro: new LoroPageDocumentDescriptor({
+                schemaVersion: LORO_PAGE_SCHEMA_VERSION,
+                snapshotSha256
+              })
+            }),
+            candidate: doc
+          }
+        })
+
+      const prepareCurrent = (nodeId: EntityId): Effect.Effect<PreparedCurrentLoroPage, NodeNotFound | PageNotFound | PageFormatMismatch | ValidationError | UnexpectedError> =>
+        Effect.gen(function* () {
+          yield* nodesRepository.get(nodeId)
+          const stored = yield* readPageDocumentFormatRow(collections, nodeId)
+          if (stored?.activeFormat !== "loro-v1" || stored.loro === undefined) {
+            if (stored === undefined) yield* pagesRepository.get(nodeId).pipe(Effect.asVoid)
+            return yield* Effect.fail(new PageFormatMismatch({ nodeId, expected: "loro-v1", actual: "automerge-v1" }))
+          }
+          const candidate = yield* loadPersistedLoroPage(collections, nodeId, stored)
+          return { descriptor: descriptorFromRow(stored), candidate, text: pageText(candidate) }
+        })
+
+      return {
+        create: (nodeId) => createPage(nodeId, ""),
+        createWithText: (nodeId, text) => createPage(nodeId, text),
+        prepareCurrent,
         getText,
         // Ledger replay has no candidate to publish. It must replace a potentially stale cache
         // with the durable snapshot, rather than treating the normal hot-path cache as authority.

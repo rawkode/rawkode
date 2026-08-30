@@ -221,6 +221,7 @@ import {
   AgentJobMutationAttribution,
   HumanUiMutationAttribution,
   MutationAttribution,
+  MutationCommitMessage,
   NodeAlreadyExists,
   NodeNotFound,
   SystemMutationAttribution,
@@ -330,7 +331,7 @@ import {
   makeRelationDefinitionsRepositoryLive
 } from "./relation-definitions-repository-live.js"
 import { makeGraphIssuesCollections, makeGraphIssuesRepositoryLive } from "./graph-issues-repository-live.js"
-import { makeSyncFeedCollections, makeSyncFeedServiceLive, SyncFeedService } from "./sync-feed-service-live.js"
+import { makeSyncFeedCollections, makeSyncFeedServiceLive, SyncFeedService, type SyncFeedCollections } from "./sync-feed-service-live.js"
 import { makeNodeTagsCollections } from "./node-tags-live.js"
 import { makeTagFieldDefinitionsCollections } from "./tag-field-definitions-live.js"
 import { ensureBaseTagsSeeded } from "./seed-base-tags.js"
@@ -428,8 +429,31 @@ import {
   type StandupPublicationEventV1,
   type StandupPublicationGrantConsumptionV1,
   type StandupPublicationOutboxIntentV1,
-  type StandupPublicationRecordV1
+  type StandupPublicationRecordV1,
+  type PreparedStandupCompanionPage
 } from "./standup-publication-collections.js"
+import {
+  StandupPublicationService,
+  type CommittedPublication
+} from "./standup-publication-service-live.js"
+import {
+  STANDUP_PRIVATE_REQUEST_VERSION,
+  resolvePrivatePublicationIntent,
+  type OpaqueStandupRunGrantToken,
+  type ResolvedStandupRunGrantV1
+} from "./standup-publication-private-contract.js"
+import {
+  AdmitWorkforceRunInput,
+  DurableWorkforceRunReceiptStore,
+  WorkforceRunAdmissionError,
+  WorkforceRunConflictError,
+  WORKFORCE_RUN_RECEIPT_VERSION,
+  decodeWorkforceRunAdmission,
+  grantForWorkforceAdmission,
+  publicWorkforceReceipt,
+  type WorkforceRunReceiptV1,
+  type WorkforceRunReceiptOutputV1
+} from "./workforce-run-authority.js"
 import { makeCloudTranscriptionClientOpenAILive } from "./cloud-transcription-client-openai.js"
 import { makeRealtimeVoiceClientOpenAILive } from "./realtime-voice-client-openai.js"
 import { WebSocketTransportLive } from "./websocket-transport.js"
@@ -588,11 +612,17 @@ type StandupCompanionProjectionStatus =
  * state; malformed authority data is rejected by the durable reader before this function runs.
  */
 const currentStandupCompanionStatus = (
+  nodes: Context.Tag.Service<typeof NodesRepository>,
   loro: Context.Tag.Service<typeof LoroPageService>,
   row: StandupPublicationAuthorityRead,
   childNodeId: EntityId,
 ): Effect.Effect<StandupCompanionProjectionStatus> =>
-  loro.getText(childNodeId).pipe(
+  nodes.get(childNodeId).pipe(
+    Effect.flatMap((node) =>
+      node.workspaceId === row.publication.workspaceId
+        ? loro.getText(childNodeId)
+        : Effect.fail(new UnexpectedError({ message: "standup companion node belongs to another workspace" }))
+    ),
     Effect.map((text): StandupCompanionProjectionStatus => {
       try {
         return canonicalStandupPublicationText(text).sha256 ===
@@ -605,7 +635,7 @@ const currentStandupCompanionStatus = (
     }),
     Effect.catchAll((error) =>
       Effect.succeed(
-        (error._tag === "PageNotFound"
+        (error._tag === "NodeNotFound" || error._tag === "PageNotFound"
           ? "missing"
           : "unavailable") as StandupCompanionProjectionStatus,
       ),
@@ -613,6 +643,7 @@ const currentStandupCompanionStatus = (
   )
 
 const projectStandupPublication = (
+  nodes: Context.Tag.Service<typeof NodesRepository>,
   loro: Context.Tag.Service<typeof LoroPageService>,
   row: StandupPublicationAuthorityRead,
 ): Effect.Effect<StandupPublication, UnexpectedError> =>
@@ -626,6 +657,7 @@ const projectStandupPublication = (
         }),
     })
     const companionStatus = yield* currentStandupCompanionStatus(
+      nodes,
       loro,
       row,
       childNodeId,
@@ -3087,6 +3119,7 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
+          const nodes = yield* NodesRepository
           const loro = yield* LoroPageService
           const rows = yield* Effect.try({
             try: () =>
@@ -3101,7 +3134,7 @@ class WorkspaceRpcApi extends RpcTarget {
           })
           const publications: StandupPublication[] = []
           for (const row of rows)
-            publications.push(yield* projectStandupPublication(loro, row))
+            publications.push(yield* projectStandupPublication(nodes, loro, row))
           return new ListStandupPublicationsOutput({ publications })
         }),
       ),
@@ -4261,9 +4294,12 @@ class WorkspaceRpcApi extends RpcTarget {
 export class WorkspaceDurableObject extends DurableObject<Env> {
   readonly #runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>
   readonly #collections: WorkspaceCollections
+  readonly #syncFeedCollections: SyncFeedCollections
   readonly #pageCollections: PagesCollections
   readonly #workspaceId: EntityId
   readonly #sql: SqlStorage
+  /** Shared workspace ledger used by trusted native authorities as well as public RPC shims. */
+  readonly #ledger: LedgerService
   /**
    * Every currently-live WebSocket connection to this workspace, mapped to the identity that opened
    * it (`undefined` for an anonymous connection) — populated/removed in `fetch()`, never touched
@@ -4301,9 +4337,11 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
    *  `DurableObjectStorage` handle rather than a typed-storage-effect collection/singleton. */
   readonly #storage: DurableObjectStorage
   /** Durable private workforce publication authority. The current tranche exposes only its
-   *  read projection; a trusted workforce ingress will construct the publisher against this
-   *  same store in a later package. */
+   *  read projection and is also the transaction owner for the trusted workforce ingress below. */
   readonly #standupPublicationStore: DurableStandupPublicationAuthorityStore
+  /** Terminal run receipts are keyed by the canonical run/occurrence identity and staged in the
+   *  same SQLite transaction as the node, Loro page, and standup publication authority records. */
+  readonly #workforceRunStore: DurableWorkforceRunReceiptStore
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -4312,6 +4350,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     // `ctx.id.name` is always set here.
     this.#workspaceId = Schema.decodeUnknownSync(EntityId)(ctx.id.name)
     this.#sql = ctx.storage.sql
+    this.#ledger = new LedgerService(this.#sql)
     this.#storage = ctx.storage
     this.#workspaceMeta = makeWorkspaceMetaSingleton(ctx.storage)
     this.#sharingCollections = makeSharingCollections(ctx.storage)
@@ -4319,6 +4358,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       ctx.storage,
       this.#sql,
     )
+    this.#workforceRunStore = new DurableWorkforceRunReceiptStore(this.#sql)
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
     // "read directly off env" pattern every other optional binding in this constructor uses.
@@ -4349,6 +4389,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     const tagFieldDefinitionsCollections = makeTagFieldDefinitionsCollections(ctx.storage)
     const syncFeedCollections = makeSyncFeedCollections(ctx.storage)
     this.#collections = nodesCollections
+    this.#syncFeedCollections = syncFeedCollections
     this.#pageCollections = pagesCollections
 
     // App Library backend-implementation stage: same "own small collections module" shape as
@@ -5238,6 +5279,433 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
             : "standup publication fixture rejected",
       }
     }
+  }
+
+  /**
+   * Trusted workforce-run admission. This method is intentionally a native Durable Object
+   * export only: it is not part of `WorkspaceRpcApi`, the Worker HTTP surface, or browser DTOs.
+   * A future scheduler/agent host may call this same-Worker boundary, but every accepted run
+   * must first pass the immutable bundle checks and then commit its node, real Loro companion,
+   * standup authority records, and terminal receipt in one SQLite transaction. The only action
+   * after commit is publishing the prepared Loro document to the service cache; replay never
+   * restores historical report bytes and never recreates a deleted child page.
+   */
+  async admitWorkforceRun(input: unknown): Promise<WorkforceRunReceiptOutputV1> {
+    const ownWorkspaceId = this.#workspaceId
+    const standupPublicationStore = this.#standupPublicationStore
+    const workforceRunStore = this.#workforceRunStore
+    const sql = this.#sql
+    const ledger = this.#ledger
+    const program = decodeRpcInput(AdmitWorkforceRunInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(ownWorkspaceId, decoded.workspaceId)),
+      Effect.flatMap((decoded) => Effect.try({
+        try: () => decodeWorkforceRunAdmission(decoded),
+        catch: (error): DomainError => error instanceof WorkforceRunAdmissionError
+          ? new ValidationError({ message: error.message })
+          : new UnexpectedError({ message: `workforce run admission failed: ${error instanceof Error ? error.message : String(error)}` })
+      })),
+      Effect.flatMap((admission) => Effect.gen(function* () {
+        const repository = yield* NodesRepository
+        const syncFeed = yield* SyncFeedService
+        const loro = yield* LoroPageService
+        const workspaceId = Schema.decodeUnknownSync(EntityId)(admission.workspaceId)
+        const now = new Date().toISOString()
+        const request = Object.freeze({ version: STANDUP_PRIVATE_REQUEST_VERSION, originalText: admission.reportText })
+        const commitMessage = Schema.decodeUnknownSync(MutationCommitMessage)(admission.commitMessage)
+        const attribution = new AgentJobMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "agentJob",
+          jobId: admission.terminal.run.job.id,
+          runId: admission.terminal.run.runId
+        })
+        let postCommitCandidate: LoroDoc | undefined
+        const result = yield* Effect.try({
+          try: () => standupPublicationStore.transactionSync((transaction) => {
+            const identityReceipt = workforceRunStore.get(admission.requestIdentity)
+            const slotReceipt = workforceRunStore.getBySlot(
+              admission.workspaceId,
+              admission.terminal.run.runId,
+              admission.terminal.occurrence.occurrenceId
+            )
+            if (identityReceipt !== undefined && slotReceipt !== undefined && identityReceipt.requestIdentity !== slotReceipt.requestIdentity) {
+              throw new WorkforceRunConflictError("run slot has multiple receipt identities")
+            }
+            const existing = identityReceipt ?? slotReceipt
+            if (existing !== undefined && (
+              existing.workspaceId !== admission.workspaceId ||
+              existing.requestIdentity !== admission.requestIdentity ||
+              existing.admissionFingerprint !== admission.admissionFingerprint ||
+              existing.definitionBundleDigest !== admission.bundleDigest ||
+              existing.definitionBundle !== admission.bundleCanonical ||
+              existing.terminalEventDigest !== admission.terminalEventDigest ||
+              existing.terminalFactDigest !== admission.terminalFactDigest ||
+              existing.reportDigest !== admission.reportDigest ||
+              existing.reportByteLength !== admission.reportByteLength ||
+              existing.resultSummary !== admission.terminal.result.summary ||
+              existing.commitMessage !== admission.commitMessage
+            )) throw new WorkforceRunConflictError()
+
+            const grant = existing?.grant ?? grantForWorkforceAdmission(
+              admission,
+              now,
+              `workforce-run-grant:${admission.requestIdentity}`
+            )
+            const intent = resolvePrivatePublicationIntent(grant, request)
+            const childNodeId = Schema.decodeUnknownSync(EntityId)(intent.childNodeId)
+            if (
+              intent.requestIdentity !== admission.requestIdentity ||
+              intent.grant.workspaceId !== ownWorkspaceId ||
+              intent.grant.dailyNoteId !== admission.dailyNoteId
+            ) throw new WorkforceRunConflictError("derived publication identity does not match the admitted run")
+            const committedAuthority = transaction.committedRequestFor(intent.slotDigest)
+            if (existing === undefined && committedAuthority !== undefined) {
+              throw new WorkforceRunConflictError("standup authority already owns this run slot")
+            }
+            if (existing !== undefined && committedAuthority === undefined) {
+              throw new WorkforceRunConflictError("workforce receipt exists but standup authority receipt is missing")
+            }
+
+            let currentText: string | undefined
+            type LoroActivationRecord = Readonly<{
+              readonly nodeId: string
+              readonly storageVersion: number
+              readonly schemaVersion: number
+              readonly snapshotSha256: string
+            }>
+            const decodeActivationRecord = (value: unknown): LoroActivationRecord => {
+              if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("corrupt Loro activation receipt")
+              const record = value as Record<string, unknown>
+              if (
+                typeof record.nodeId !== "string" ||
+                !Number.isSafeInteger(record.storageVersion) || (record.storageVersion as number) < 1 ||
+                !Number.isSafeInteger(record.schemaVersion) || (record.schemaVersion as number) < 1 ||
+                typeof record.snapshotSha256 !== "string" || record.snapshotSha256.length === 0
+              ) throw new Error("corrupt Loro activation receipt")
+              return Object.freeze({
+                nodeId: record.nodeId,
+                storageVersion: record.storageVersion as number,
+                schemaVersion: record.schemaVersion as number,
+                snapshotSha256: record.snapshotSha256
+              })
+            }
+            const descriptorKey = (descriptor: PageDocumentDescriptor): string => {
+              if (descriptor.activeFormat !== "loro-v1" || descriptor.loro === undefined) throw new Error("workforce companion is not a Loro page")
+              return JSON.stringify({
+                activeFormat: descriptor.activeFormat,
+                nodeId: descriptor.nodeId,
+                storageVersion: descriptor.storageVersion,
+                loro: {
+                  schemaVersion: descriptor.loro.schemaVersion,
+                  snapshotSha256: descriptor.loro.snapshotSha256
+                }
+              })
+            }
+            const preparedFromActivation = (activation: {
+              readonly descriptor: PageDocumentDescriptor
+              readonly candidate: LoroDoc
+              readonly text: string
+            }): PreparedStandupCompanionPage => {
+              const text = canonicalStandupPublicationText(activation.text)
+              if (existing === undefined && text.sha256 !== intent.originalTextDigest) {
+                throw new WorkforceRunConflictError("new companion content is not bound to the terminal report")
+              }
+              postCommitCandidate = activation.candidate
+              currentText = activation.text
+              return Object.freeze({
+                format: "loro-v1",
+                childNodeId: intent.childNodeId,
+                originalTextDigest: intent.originalTextDigest,
+                preparedDescriptor: descriptorKey(activation.descriptor),
+                contentUtf8: activation.text,
+                contentDigest: text.sha256,
+                contentByteLength: text.byteLength
+              })
+            }
+            const companion = {
+              prepare: (companionInput: Readonly<{
+                readonly childNodeId: string
+                readonly originalText: string
+                readonly originalTextDigest: string
+              }>): PreparedStandupCompanionPage => {
+                if (existing !== undefined) throw new WorkforceRunConflictError("workforce receipt exists but standup authority replay is missing")
+                if (
+                  companionInput.childNodeId !== intent.childNodeId ||
+                  companionInput.originalText !== intent.originalText ||
+                  companionInput.originalTextDigest !== intent.originalTextDigest
+                ) throw new WorkforceRunConflictError("companion input is not the admitted terminal report")
+
+                const existingNode = Effect.runSyncExit(repository.get(childNodeId))
+                if (Exit.isSuccess(existingNode)) throw new WorkforceRunConflictError("deterministic workforce child node already exists")
+                const missingNode = domainErrorFromCause(existingNode.cause)
+                if (!(missingNode instanceof NodeNotFound)) throw missingNode
+
+                const nodeRequestIdentity = `workforce-node:${admission.requestIdentity}`
+                const nodeCommandBase: CreateNodeWithIntentLedgerCommandInput = {
+                  requestIdentity: nodeRequestIdentity,
+                  requestId: nodeRequestIdentity,
+                  fingerprint: "",
+                  workspaceId: admission.workspaceId,
+                  principal: intent.grant.subject,
+                  policy: "workforce-authority-v1",
+                  nodeId: childNodeId,
+                  requestedNodeId: childNodeId,
+                  title: `${intent.grant.microEmployeeLabel} — ${intent.grant.jobLabel} — ${intent.grant.civilDate}`.slice(0, 500),
+                  commitMessage,
+                  attribution,
+                  createdAt: now
+                }
+                const nodeCommand = Object.freeze({
+                  ...nodeCommandBase,
+                  fingerprint: createNodeWithIntentLedgerFingerprint(nodeCommandBase)
+                })
+                const nodeOutput = ledger.executeV2<CreateNodeOutput>({
+                  requestIdentity: nodeCommand.requestIdentity,
+                  fingerprint: nodeCommand.fingerprint,
+                  type: "createNodeWithIntent",
+                  mutate: () => {
+                    const current = Effect.runSyncExit(repository.get(childNodeId))
+                    if (Exit.isSuccess(current)) throw new NodeAlreadyExists({ nodeId: childNodeId })
+                    const error = domainErrorFromCause(current.cause)
+                    if (!(error instanceof NodeNotFound)) throw error
+                    const node = new NodeEntity({
+                      id: childNodeId,
+                      workspaceId,
+                      title: nodeCommand.title,
+                      createdAt: Schema.decodeUnknownSync(IsoDateTimeString)(now)
+                    })
+                    const persisted = Effect.runSyncExit(repository.put(node))
+                    if (Exit.isFailure(persisted)) throw domainErrorFromCause(persisted.cause)
+                    const projections = Effect.runSyncExit(Effect.gen(function* () {
+                      yield* upsertNode(sql, persisted.value)
+                      yield* indexNodeText(sql, persisted.value.id, persisted.value.title, "")
+                      yield* syncFeed.append("node", persisted.value.id, "put", persisted.value)
+                    }))
+                    if (Exit.isFailure(projections)) throw domainErrorFromCause(projections.cause)
+                    return new CreateNodeOutput({ node: persisted.value })
+                  },
+                  encodeOutput: (output: CreateNodeOutput) => Schema.encodeSync(CreateNodeOutput)(output),
+                  decodeOutput: (output: unknown) => Schema.decodeUnknownSync(CreateNodeOutput)(output),
+                  appendCommand: () => ledger.appendCreateNodeWithIntent(nodeCommand),
+                  appendSideEffects: () => {
+                    const payload = { nodeId: childNodeId, runId: intent.grant.runId }
+                    ledger.appendEvent(nodeRequestIdentity, "workforce-node-created", payload)
+                    ledger.appendOutbox(nodeRequestIdentity, "workforce-node-created", payload)
+                  }
+                })
+                if (nodeOutput.node.id !== childNodeId || nodeOutput.node.workspaceId !== admission.workspaceId) {
+                  throw new WorkforceRunConflictError("workforce node ledger receipt is not bound to the admitted workspace")
+                }
+
+                const pageRequestIdentity = `workforce-loro:${admission.requestIdentity}`
+                const pageCommandBase: EnsureLoroPageLedgerCommandInput = {
+                  requestIdentity: pageRequestIdentity,
+                  requestId: pageRequestIdentity,
+                  fingerprint: "",
+                  workspaceId: admission.workspaceId,
+                  principal: intent.grant.subject,
+                  policy: "workforce-authority-v1",
+                  nodeId: childNodeId,
+                  outcome: "created",
+                  storageVersion: 1,
+                  schemaVersion: 1,
+                  commitMessage,
+                  attribution,
+                  createdAt: now
+                }
+                const pageCommandFingerprint = ensureLoroPageLedgerFingerprint(pageCommandBase)
+                let freshActivation: { readonly descriptor: PageDocumentDescriptor; readonly candidate: LoroDoc } | undefined
+                let freshPageRecord: LoroActivationRecord | undefined
+                const pageRecord = ledger.executeV2<LoroActivationRecord>({
+                  requestIdentity: pageRequestIdentity,
+                  fingerprint: pageCommandFingerprint,
+                  type: "ensureLoroPage",
+                  mutate: () => {
+                    const prepared = Effect.runSyncExit(loro.createWithText(childNodeId, intent.originalText))
+                    if (Exit.isFailure(prepared)) throw domainErrorFromCause(prepared.cause)
+                    if (prepared.value.candidate === undefined) throw new WorkforceRunConflictError("new workforce page unexpectedly already existed")
+                    if (prepared.value.descriptor.activeFormat !== "loro-v1" || prepared.value.descriptor.loro === undefined) {
+                      throw new WorkforceRunConflictError("workforce companion did not produce a native Loro descriptor")
+                    }
+                    freshActivation = { descriptor: prepared.value.descriptor, candidate: prepared.value.candidate }
+                    freshPageRecord = Object.freeze({
+                      nodeId: childNodeId,
+                      storageVersion: prepared.value.descriptor.storageVersion,
+                      schemaVersion: prepared.value.descriptor.loro.schemaVersion,
+                      snapshotSha256: prepared.value.descriptor.loro.snapshotSha256
+                    })
+                    return freshPageRecord
+                  },
+                  encodeOutput: (output: LoroActivationRecord) => output,
+                  decodeOutput: decodeActivationRecord,
+                  appendCommand: () => {
+                    if (freshPageRecord === undefined) throw new Error("Loro activation did not produce a receipt")
+                    ledger.appendEnsureLoroPage({
+                      ...pageCommandBase,
+                      fingerprint: pageCommandFingerprint,
+                      storageVersion: freshPageRecord.storageVersion,
+                      schemaVersion: freshPageRecord.schemaVersion
+                    })
+                  },
+                  appendSideEffects: () => {
+                    if (freshPageRecord === undefined) throw new Error("Loro activation did not produce a receipt")
+                    const payload = { nodeId: childNodeId, snapshotSha256: freshPageRecord.snapshotSha256 }
+                    ledger.appendEvent(pageRequestIdentity, "workforce-loro-created", payload)
+                    ledger.appendOutbox(pageRequestIdentity, "workforce-loro-created", payload)
+                  }
+                })
+                if (freshActivation === undefined) {
+                  const current = Effect.runSyncExit(loro.prepareCurrent(childNodeId))
+                  if (Exit.isFailure(current)) throw domainErrorFromCause(current.cause)
+                  if (
+                    current.value.descriptor.activeFormat !== "loro-v1" ||
+                    current.value.descriptor.loro === undefined ||
+                    current.value.descriptor.storageVersion !== pageRecord.storageVersion ||
+                    current.value.descriptor.loro.snapshotSha256 !== pageRecord.snapshotSha256
+                  ) throw new WorkforceRunConflictError("Loro activation receipt does not match the durable page")
+                  freshActivation = current.value
+                }
+                return preparedFromActivation({
+                  descriptor: freshActivation.descriptor,
+                  candidate: freshActivation.candidate,
+                  text: currentText ?? intent.originalText
+                })
+              },
+              restore: (restoreInput: Readonly<{
+                readonly publication: StandupPublicationRecordV1
+                readonly link: StandupPublicationCompanionLinkV1
+                readonly page: StandupPublicationCompanionPageV1
+              }>): PreparedStandupCompanionPage | undefined => {
+                const current = Effect.runSyncExit(loro.prepareCurrent(childNodeId))
+                if (Exit.isFailure(current)) {
+                  const error = domainErrorFromCause(current.cause)
+                  if (error instanceof NodeNotFound || error instanceof PageNotFound || error instanceof PageFormatMismatch) return undefined
+                  throw error
+                }
+                if (
+                  restoreInput.publication.workspaceId !== admission.workspaceId ||
+                  restoreInput.link.childNodeId !== intent.childNodeId ||
+                  restoreInput.page.childNodeId !== intent.childNodeId ||
+                  current.value.descriptor.nodeId !== intent.childNodeId ||
+                  current.value.descriptor.activeFormat !== "loro-v1"
+                ) throw new WorkforceRunConflictError("current Loro companion is not bound to the committed publication")
+                return preparedFromActivation(current.value)
+              },
+              publishAfterCommit: () => {
+                loro.publishCommittedDocument(childNodeId, postCommitCandidate)
+              }
+            }
+            const resolver = {
+              resolve: (_token: OpaqueStandupRunGrantToken): ResolvedStandupRunGrantV1 => grant,
+              recheckFresh: (candidate: ResolvedStandupRunGrantV1, context: Readonly<{ readonly now: string; readonly slotDigest: string; readonly grantAlreadyConsumed: boolean }>) =>
+                candidate.grantId === grant.grantId && context.slotDigest === intent.slotDigest
+                  ? { status: "admitted" as const }
+                  : { status: "denied" as const }
+            }
+            const publicationService = new StandupPublicationService({
+              resolver,
+              store: standupPublicationStore,
+              companion,
+              clock: { now: () => now }
+            })
+            const committed: CommittedPublication = publicationService.publishWithinTransaction(
+              {} as OpaqueStandupRunGrantToken,
+              request,
+              transaction
+            )
+
+            if (existing !== undefined) {
+              if (
+                committed.receipt.output.publicationId !== existing.publicationId ||
+                committed.receipt.output.childNodeId !== existing.childNodeId ||
+                committed.receipt.committedAt !== existing.committedAt
+              ) throw new WorkforceRunConflictError("standup replay receipt does not match the workforce receipt")
+              return { receipt: existing, prepared: committed.prepared, replayed: true as const }
+            }
+
+            const receipt: WorkforceRunReceiptV1 = Object.freeze({
+              version: WORKFORCE_RUN_RECEIPT_VERSION,
+              requestIdentity: admission.requestIdentity,
+              admissionFingerprint: admission.admissionFingerprint,
+              workspaceId: admission.workspaceId,
+              runId: admission.terminal.run.runId,
+              occurrenceId: admission.terminal.occurrence.occurrenceId,
+              civilDate: admission.terminal.occurrence.civilDate,
+              terminalEventId: admission.terminal.eventId,
+              terminalEventDigest: admission.terminalEventDigest,
+              terminalFactId: admission.terminalFact.factId,
+              terminalFactDigest: admission.terminalFactDigest,
+              resultKind: admission.terminal.result.kind,
+              resultSummary: admission.terminal.result.summary,
+              reportDigest: admission.reportDigest,
+              reportByteLength: admission.reportByteLength,
+              definitionBundleDigest: admission.bundleDigest,
+              definitionBundle: admission.bundleCanonical,
+              grant,
+              commitMessage: admission.commitMessage,
+              publicationId: committed.receipt.output.publicationId,
+              dailyNoteId: committed.receipt.output.dailyNoteId,
+              childNodeId: committed.receipt.output.childNodeId,
+              custodyFingerprint: committed.receipt.custodyFingerprint,
+              committedAt: committed.receipt.committedAt
+            })
+            workforceRunStore.stage(receipt)
+            return { receipt, prepared: committed.prepared, replayed: false as const }
+          }),
+          catch: (error): DomainError =>
+            error instanceof WorkforceRunAdmissionError || error instanceof WorkforceRunConflictError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error)
+                ? error
+                : new UnexpectedError({ message: `workforce run transaction failed: ${error instanceof Error ? error.message : String(error)}` })
+        })
+        if (result.prepared !== undefined) {
+          const nodeId = Schema.decodeUnknownSync(EntityId)(result.receipt.childNodeId)
+          loro.publishCommittedDocument(nodeId, postCommitCandidate)
+        }
+        return publicWorkforceReceipt(result.receipt, result.replayed)
+      }))
+    )
+    return runOrThrowRpcError(this.#runtime, program)
+  }
+
+  /** Test-only graph deletion seam. It intentionally leaves page rows behind so replay and the
+   * public projection must prove that an orphaned Loro snapshot is not treated as a live child. */
+  async debugDeleteWorkforceChild(nodeId: string): Promise<void> {
+    const decodedNodeId = Schema.decodeUnknownSync(EntityId)(nodeId)
+    await Effect.runPromise(this.#collections.nodes.delete(decodedNodeId))
+  }
+
+  /** Test-only aggregate witness for the workforce transaction. Collection rows and the SQL
+   * ledger/authority rows are counted together so a failed admission can prove that no partial
+   * node, Loro, index, feed, publication, receipt, or outbox state survived. */
+  async debugGetWorkforceStorageCounts(): Promise<Readonly<Record<string, number>>> {
+    const [nodes, formats, loroPages, feed] = await Promise.all([
+      Effect.runPromise(this.#collections.nodes.list()),
+      Effect.runPromise(this.#pageCollections.pageDocumentFormats.list()),
+      Effect.runPromise(this.#pageCollections.loroPageDocs.list()),
+      Effect.runPromise(this.#syncFeedCollections.syncFeedEntries.list())
+    ])
+    const count = (table: string): number => this.#sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${table}`).one().count
+    return Object.freeze({
+      nodes: nodes.length,
+      pageDocumentFormats: formats.length,
+      loroPages: loroPages.length,
+      syncFeedEntries: feed.length,
+      graphTextSearch: count("graph_text_search"),
+      readModelNodes: count("rm_nodes"),
+      workforceRuns: count("workforce_runs"),
+      standupRequests: count("standup_publication_requests"),
+      standupPublications: count("standup_publications"),
+      standupCompanions: count("standup_publication_companions"),
+      standupCompanionPages: count("standup_publication_companion_pages"),
+      standupGrantConsumptions: count("standup_publication_grants"),
+      standupEvents: count("standup_publication_events"),
+      standupOutbox: count("standup_publication_outbox"),
+      ledgerCommands: count("ledger_commands"),
+      ledgerReceipts: count("ledger_receipts"),
+      ledgerEvents: count("ledger_events"),
+      ledgerOutboxIntents: count("ledger_outbox_intents")
+    })
   }
 
   /** Test-only corruption seam for proving durable Loro reload validation. It remains native-RPC

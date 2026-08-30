@@ -145,11 +145,16 @@ export interface StandupPublicationCompanionAdapter {
     readonly originalText: string
     readonly originalTextDigest: string
   }>) => PreparedStandupCompanionPage
+  /**
+   * Restore the current durable companion after a replay. Returning `undefined` means the
+   * immutable publication receipt is still valid but the child page is currently unavailable
+   * (for example, a user deleted it); callers must not recreate or restore historical content.
+   */
   readonly restore: (input: Readonly<{
     readonly publication: StandupPublicationRecordV1
     readonly link: StandupPublicationCompanionLinkV1
     readonly page: StandupPublicationCompanionPageV1
-  }>) => PreparedStandupCompanionPage
+  }>) => PreparedStandupCompanionPage | undefined
   /** Must be synchronous. It is invoked only after the authority transaction commits. */
   readonly publishAfterCommit: (prepared: PreparedStandupCompanionPage) => void
 }

@@ -21,6 +21,8 @@ export const STANDUP_PRIVATE_GRANT_VERSION = "athenaeum.standup-run-grant.v1" as
 export const STANDUP_PRIVATE_REQUEST_VERSION = "athenaeum.publish-standup-request.v1" as const
 export const STANDUP_PRIVATE_MESSAGE_VERSION = "athenaeum.standup-publication-message.v1" as const
 export const STANDUP_PRIVATE_CUSTODY_FINGERPRINT_VERSION = "athenaeum.standup-publication-custody-fingerprint.v1" as const
+/** Maximum lifetime for a trusted run grant; shared by admission and the future issuer. */
+export const STANDUP_RUN_GRANT_MAX_TTL_MS = 15 * 60 * 1000
 
 declare const opaqueStandupRunGrantToken: unique symbol
 

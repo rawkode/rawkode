@@ -91,13 +91,39 @@ const main = async () => {
   const workspaceId = randomUUID()
   const nodeId = randomUUID()
   const sessionId = `native-probe-${randomUUID()}`
+  const signIn = await fetch(`${backendUrl}/api/dev/sign-in`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: `loro-native-probe-${randomUUID()}@example.com` })
+  })
+  if (!signIn.ok) throw new Error(`dev sign-in failed with ${signIn.status}: ${await signIn.text()}`)
+  const signedIn = await signIn.json()
+  if (typeof signedIn?.credential !== "string" || signedIn.credential.length === 0) {
+    throw new Error("dev sign-in did not return a credential")
+  }
   // HTTP-batch sessions are single request/response batches. Open a fresh session for every
   // dependent call rather than reusing one after its first awaited result (WebSocket sessions are
   // reusable, HTTP batches are deliberately not).
-  const rpc = (method, input) => newHttpBatchRpcSession(`${backendUrl}/api/workspace/${workspaceId}`)[method](input)
+  const rpc = (method, input) => newHttpBatchRpcSession(
+    new Request(`${backendUrl}/api/workspace/${workspaceId}`, {
+      headers: { Authorization: `Bearer ${signedIn.credential}` }
+    })
+  )[method](input)
 
   await rpc("createNode", { workspaceId, id: nodeId, title: "Native Loro interoperability probe" })
-  await rpc("createLoroPage", { workspaceId, nodeId })
+  await rpc("createLoroPage", {
+    workspaceId,
+    nodeId,
+    creationIntent: {
+      requestId: `native-probe-create-${randomUUID()}`,
+      commitMessage: "Create native Loro interoperability probe",
+      attribution: {
+        version: "athenaeum.mutation-attribution.v1",
+        kind: "humanUi",
+        surface: "rich-text-editor"
+      }
+    }
+  })
   const started = await rpc("startLoroPageSync", { workspaceId, nodeId, sessionId })
   const serverSnapshot = bytes(started.message, "startLoroPageSync.message")
   const serverVersion = bytes(started.serverVersion, "startLoroPageSync.serverVersion")
@@ -165,7 +191,9 @@ const main = async () => {
       requireValue(bytes(syncResponse.update, "loroPageSyncMessage.update").byteLength === 0, "server returned an unexpected follow-up update")
     }
 
-    const freshApi = newHttpBatchRpcSession(`${backendUrl}/api/workspace/${workspaceId}`)
+    const freshApi = newHttpBatchRpcSession(new Request(`${backendUrl}/api/workspace/${workspaceId}`, {
+      headers: { Authorization: `Bearer ${signedIn.credential}` }
+    }))
     const fresh = await freshApi.startLoroPageSync({ workspaceId, nodeId, sessionId: `fresh-${randomUUID()}` })
     const persistedDoc = new LoroDoc()
     persistedDoc.import(bytes(fresh.message, "fresh startLoroPageSync.message"))

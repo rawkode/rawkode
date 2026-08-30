@@ -66,9 +66,9 @@ export interface StandupPublicationPrivateDependencies {
   readonly failpoint?: (stage: StandupPublicationPrivateStage) => void
 }
 
-type CommittedPublication = Readonly<{
+export type CommittedPublication = Readonly<{
   readonly receipt: StandupPublicationReceiptV1
-  readonly prepared: PreparedStandupCompanionPage
+  readonly prepared: PreparedStandupCompanionPage | undefined
 }>
 
 const exactPrepared = (value: unknown, expected: Readonly<{
@@ -148,29 +148,18 @@ const assertDurableCompanion = (
     page.format !== "loro-v1" ||
     link.originalTextDigest !== intent.originalTextDigest ||
     page.originalTextDigest !== intent.originalTextDigest ||
-    link.contentDigest !== intent.originalTextDigest ||
-    page.contentDigest !== intent.originalTextDigest ||
-    link.contentByteLength !== intent.originalTextByteLength ||
-    page.contentByteLength !== intent.originalTextByteLength ||
-    page.contentUtf8 !== intent.originalText ||
+    link.contentDigest !== page.contentDigest ||
+    link.contentByteLength !== page.contentByteLength ||
+    (() => {
+      try {
+        const canonical = canonicalStandupPublicationText(page.contentUtf8)
+        return canonical.sha256 !== page.contentDigest || canonical.byteLength !== page.contentByteLength
+      } catch {
+        return true
+      }
+    })() ||
     link.preparedDescriptor !== page.preparedDescriptor
   ) throw new Error("corrupt durable private standup companion page or link")
-  exactPrepared({
-    format: page.format,
-    childNodeId: page.childNodeId,
-    originalTextDigest: page.originalTextDigest,
-    preparedDescriptor: page.preparedDescriptor,
-    contentUtf8: page.contentUtf8,
-    contentDigest: page.contentDigest,
-    contentByteLength: page.contentByteLength
-  }, {
-    childNodeId: intent.childNodeId,
-    originalTextDigest: intent.originalTextDigest,
-    preparedDescriptor: link.preparedDescriptor,
-    contentUtf8: intent.originalText,
-    contentDigest: intent.originalTextDigest,
-    contentByteLength: intent.originalTextByteLength
-  })
 }
 
 const canonicalNow = (value: string): string => {
@@ -232,34 +221,46 @@ export class StandupPublicationService {
   constructor(private readonly dependencies: StandupPublicationPrivateDependencies) {}
 
   publish(grantToken: OpaqueStandupRunGrantToken, request: PublishStandupPublicationRequestV1): PublishStandupPublicationOutputV1 {
+    const committed = this.dependencies.store.transactionSync((transaction) =>
+      this.publishWithinTransaction(grantToken, request, transaction)
+    )
+    this.publishAfterCommit(committed.prepared)
+    return committed.receipt.output
+  }
+
+  /** @internal Runs authority stages in a caller-owned transaction; post-commit work remains with `publish`. */
+  publishWithinTransaction(
+    grantToken: OpaqueStandupRunGrantToken,
+    request: PublishStandupPublicationRequestV1,
+    transaction: StandupPublicationAuthorityTransaction
+  ): CommittedPublication {
     // The opaque token is used exactly once here, to resolve an immutable grant record. It is not
     // retained in an intent, collection, receipt, event, outbox, message, error, or return value.
     const rawGrant = assertSynchronousResult(this.dependencies.resolver.resolve(grantToken), "standup run grant resolver")
     if (rawGrant === undefined) throw new StandupPublicationGrantDeniedError()
     const intent = resolvePrivatePublicationIntent(rawGrant, request)
-    const committed = this.dependencies.store.transactionSync((transaction): CommittedPublication => {
-      const existing = transaction.committedRequestFor(intent.slotDigest)
-      if (existing !== undefined) return this.replayExisting(transaction, intent, existing)
+    const existing = transaction.committedRequestFor(intent.slotDigest)
+    if (existing !== undefined) return this.replayExisting(transaction, intent, existing)
 
-      const now = canonicalNow(this.dependencies.clock.now())
-      if (Date.parse(intent.grant.expiresAt) <= Date.parse(now) || transaction.grantConsumed(intent.grant.grantId)) {
-        throw new StandupPublicationGrantDeniedError()
-      }
-      const admission = assertSynchronousResult(this.dependencies.resolver.recheckFresh(intent.grant, {
+    const now = canonicalNow(this.dependencies.clock.now())
+    if (Date.parse(intent.grant.expiresAt) <= Date.parse(now) || transaction.grantConsumed(intent.grant.grantId)) {
+      throw new StandupPublicationGrantDeniedError()
+    }
+    const admission = assertSynchronousResult(this.dependencies.resolver.recheckFresh(intent.grant, {
         now,
         slotDigest: intent.slotDigest,
         grantAlreadyConsumed: false
-      }), "standup run grant admission")
-      if (admission.status !== "admitted") throw new StandupPublicationGrantDeniedError()
+    }), "standup run grant admission")
+    if (admission.status !== "admitted") throw new StandupPublicationGrantDeniedError()
 
-      transaction.stageGrantConsumption(Object.freeze({
+    transaction.stageGrantConsumption(Object.freeze({
         grantId: intent.grant.grantId,
         grantRecordDigest: intent.grantRecordDigest,
         consumedAt: now
-      }))
-      this.fail("after-grant-consumption")
+    }))
+    this.fail("after-grant-consumption")
 
-      const prepared = exactPrepared(this.dependencies.companion.prepare({
+    const prepared = exactPrepared(this.dependencies.companion.prepare({
         childNodeId: intent.childNodeId,
         originalText: intent.originalText,
         originalTextDigest: intent.originalTextDigest
@@ -269,31 +270,28 @@ export class StandupPublicationService {
         contentUtf8: intent.originalText,
         contentDigest: intent.originalTextDigest,
         contentByteLength: intent.originalTextByteLength
-      })
-      transaction.stagePublication(privatePublicationRecord(intent, now))
-      this.fail("after-publication")
-
-      const page = privateCompanionPage(intent, prepared)
-      transaction.stageCompanionPage(page)
-      this.fail("after-companion-page")
-
-      transaction.stageCompanion(privateCompanionLink(intent, page))
-      this.fail("after-companion")
-
-      const receipt = receiptFor(intent, now)
-      transaction.stageAuthorityRequest(requestFor(intent, receipt))
-      this.fail("after-receipt")
-
-      const event = eventFor(intent, now)
-      transaction.stageEvent(event)
-      this.fail("after-event")
-
-      transaction.stageOutboxIntent(outboxFor(intent, event))
-      this.fail("after-outbox")
-      return Object.freeze({ receipt, prepared })
     })
-    this.publishAfterCommit(committed.prepared)
-    return committed.receipt.output
+    transaction.stagePublication(privatePublicationRecord(intent, now))
+    this.fail("after-publication")
+
+    const page = privateCompanionPage(intent, prepared)
+    transaction.stageCompanionPage(page)
+    this.fail("after-companion-page")
+
+    transaction.stageCompanion(privateCompanionLink(intent, page))
+    this.fail("after-companion")
+
+    const receipt = receiptFor(intent, now)
+    transaction.stageAuthorityRequest(requestFor(intent, receipt))
+    this.fail("after-receipt")
+
+    const event = eventFor(intent, now)
+    transaction.stageEvent(event)
+    this.fail("after-event")
+
+    transaction.stageOutboxIntent(outboxFor(intent, event))
+    this.fail("after-outbox")
+    return Object.freeze({ receipt, prepared })
   }
 
   private replayExisting(
@@ -324,18 +322,18 @@ export class StandupPublicationService {
     const page = transaction.companionPageFor(intent.publicationId)
     if (publication === undefined || link === undefined || page === undefined) throw new Error("corrupt committed private standup publication")
     assertDurableCompanion(intent, publication, link, page)
-    const prepared = exactPrepared(this.dependencies.companion.restore({ publication, link, page }), {
-      childNodeId: intent.childNodeId,
-      originalTextDigest: intent.originalTextDigest,
-      preparedDescriptor: link.preparedDescriptor,
-      contentUtf8: intent.originalText,
-      contentDigest: intent.originalTextDigest,
-      contentByteLength: intent.originalTextByteLength
-    })
+    const restored = this.dependencies.companion.restore({ publication, link, page })
+    const prepared = restored === undefined
+      ? undefined
+      : exactPrepared(restored, {
+          childNodeId: intent.childNodeId,
+          originalTextDigest: intent.originalTextDigest
+        })
     return Object.freeze({ receipt: existing.receipt, prepared })
   }
 
-  private publishAfterCommit(prepared: PreparedStandupCompanionPage): void {
+  private publishAfterCommit(prepared: PreparedStandupCompanionPage | undefined): void {
+    if (prepared === undefined) return
     try {
       assertSynchronousResult(this.dependencies.companion.publishAfterCommit(prepared), "standup companion post-commit publication")
     } catch (error) {

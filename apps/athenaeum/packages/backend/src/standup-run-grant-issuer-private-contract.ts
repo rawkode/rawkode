@@ -10,7 +10,7 @@ import type { ResolvedStandupRunGrantV1 } from "./standup-publication-private-co
  */
 export const STANDUP_RUN_GRANT_ISSUER_VERSION = "athenaeum.standup-run-grant-issuer.v1" as const
 export const STANDUP_RUN_GRANT_ATTESTATION_VERSION = "athenaeum.standup-run-attestation.v1" as const
-export const STANDUP_RUN_GRANT_MAX_TTL_MS = 15 * 60 * 1000
+export { STANDUP_RUN_GRANT_MAX_TTL_MS } from "./standup-publication-private-contract.js"
 
 declare const trustedStandupRunAttestation: unique symbol
 
