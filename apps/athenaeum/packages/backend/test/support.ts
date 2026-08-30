@@ -75,6 +75,7 @@ export interface WorkspaceApi {
 
   syncFeed(input: unknown): Promise<unknown>
   listRecentLedgerActivity(input: unknown): Promise<unknown>
+  listStandupPublications(input: unknown): Promise<unknown>
   rotateEpoch(input: unknown): Promise<unknown>
 
   createChat(input: unknown): Promise<unknown>

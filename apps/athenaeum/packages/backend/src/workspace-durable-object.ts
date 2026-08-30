@@ -163,6 +163,10 @@ import {
   GetPageTextOutput,
   GetTodayBriefInput,
   GetTodayBriefOutput,
+  ListStandupPublicationsInput,
+  ListStandupPublicationsOutput,
+  StandupPublication,
+  canonicalStandupPublicationText,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
   GraphIssuesRepository,
@@ -415,6 +419,17 @@ import { makeVoiceSessionCollections } from "./voice-session-collections.js"
 import { makeVoiceSessionServiceLive, VoiceSessionService } from "./voice-session-service-live.js"
 import { makeWorkoutCollections } from "./workout-collections.js"
 import { makeWorkoutsServiceLive, WorkoutsService } from "./workouts-service-live.js"
+import {
+  DurableStandupPublicationAuthorityStore,
+  type StandupPublicationAuthorityRead,
+  type StandupPublicationAuthorityRequestV1,
+  type StandupPublicationCompanionLinkV1,
+  type StandupPublicationCompanionPageV1,
+  type StandupPublicationEventV1,
+  type StandupPublicationGrantConsumptionV1,
+  type StandupPublicationOutboxIntentV1,
+  type StandupPublicationRecordV1
+} from "./standup-publication-collections.js"
 import { makeCloudTranscriptionClientOpenAILive } from "./cloud-transcription-client-openai.js"
 import { makeRealtimeVoiceClientOpenAILive } from "./realtime-voice-client-openai.js"
 import { WebSocketTransportLive } from "./websocket-transport.js"
@@ -560,6 +575,86 @@ const requireOwnWorkspace = (
           message: `workspaceId ${requestedWorkspaceId} does not match this connection's workspace (${ownWorkspaceId})`
         })
       )
+
+type StandupCompanionProjectionStatus =
+  | "verified-original"
+  | "modified"
+  | "missing"
+  | "unavailable"
+
+/**
+ * Companion integrity is evaluated against the current linked Loro page, never against the
+ * immutable publication row or its stored companion copy. A missing page is a normal projection
+ * state; malformed authority data is rejected by the durable reader before this function runs.
+ */
+const currentStandupCompanionStatus = (
+  loro: Context.Tag.Service<typeof LoroPageService>,
+  row: StandupPublicationAuthorityRead,
+  childNodeId: EntityId,
+): Effect.Effect<StandupCompanionProjectionStatus> =>
+  loro.getText(childNodeId).pipe(
+    Effect.map((text): StandupCompanionProjectionStatus => {
+      try {
+        return canonicalStandupPublicationText(text).sha256 ===
+          row.publication.originalTextDigest
+          ? "verified-original"
+          : "modified"
+      } catch {
+        return "unavailable"
+      }
+    }),
+    Effect.catchAll((error) =>
+      Effect.succeed(
+        (error._tag === "PageNotFound"
+          ? "missing"
+          : "unavailable") as StandupCompanionProjectionStatus,
+      ),
+    ),
+  )
+
+const projectStandupPublication = (
+  loro: Context.Tag.Service<typeof LoroPageService>,
+  row: StandupPublicationAuthorityRead,
+): Effect.Effect<StandupPublication, UnexpectedError> =>
+  Effect.gen(function* () {
+    const childNodeId = yield* Effect.try({
+      try: () =>
+        Schema.decodeUnknownSync(EntityId)(row.publication.childNodeId),
+      catch: (error) =>
+        new UnexpectedError({
+          message: `corrupt standup publication child node id: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    })
+    const companionStatus = yield* currentStandupCompanionStatus(
+      loro,
+      row,
+      childNodeId,
+    )
+    return yield* Effect.try({
+      try: () =>
+        Schema.decodeUnknownSync(StandupPublication)({
+          id: row.publication.publicationId,
+          civilDate: row.publication.civilDate,
+          microEmployeeLabel: row.publication.microEmployeeLabel,
+          jobLabel: row.publication.jobLabel,
+          workflowLabel: row.publication.workflowLabel,
+          scheduleLabel: row.publication.scheduleLabel,
+          microEmployee: row.publication.microEmployee,
+          job: row.publication.job,
+          workflow: row.publication.workflow,
+          schedule: row.publication.schedule,
+          councilRefs: row.publication.councilRefs,
+          originalText: row.publication.originalText,
+          publishedAt: row.publication.publishedAt,
+          childNodeId,
+          companionStatus,
+        }),
+      catch: (error) =>
+        new UnexpectedError({
+          message: `corrupt standup publication projection: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    })
+  })
 
 /** Daily-note ids are deterministic from the civil date. Keep the same reserved UUID family as
  * the web client, but derive it from the validated server input so a caller cannot direct a
@@ -878,6 +973,7 @@ class WorkspaceRpcApi extends RpcTarget {
   readonly #devAuthHmacSecret: string | undefined
   readonly #ledger: LedgerService
   readonly #storage: DurableObjectStorage
+  readonly #standupPublicationStore: DurableStandupPublicationAuthorityStore
 
   constructor(
     runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>,
@@ -888,7 +984,8 @@ class WorkspaceRpcApi extends RpcTarget {
     scheduleEviction: (emails: ReadonlyArray<string>, reason: string) => void,
     liveVoiceAudioSessions: Map<string, LiveVoiceAudioSessionHandle>,
     devAuthHmacSecret: string | undefined,
-    storage: DurableObjectStorage
+    storage: DurableObjectStorage,
+    standupPublicationStore: DurableStandupPublicationAuthorityStore
   ) {
     super()
     this.#runtime = runtime
@@ -900,6 +997,7 @@ class WorkspaceRpcApi extends RpcTarget {
     this.#liveVoiceAudioSessions = liveVoiceAudioSessions
     this.#devAuthHmacSecret = devAuthHmacSecret
     this.#storage = storage
+    this.#standupPublicationStore = standupPublicationStore
     this.#ledger = new LedgerService(sql)
   }
 
@@ -2976,6 +3074,41 @@ class WorkspaceRpcApi extends RpcTarget {
     return runRpcProgram(this.#runtime, program, ListRecentLedgerActivityOutput)
   }
 
+  /** Read-only employee publication projection for one resolved daily note. The private
+   * authority records never cross this boundary; companion integrity is derived from the current
+   * linked Loro page and therefore remains meaningful after an edit or deletion. */
+  async listStandupPublications(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const store = this.#standupPublicationStore
+    const program = decodeRpcInput(ListStandupPublicationsInput, input).pipe(
+      Effect.tap((decoded) =>
+        requireOwnWorkspace(this.#workspaceId, decoded.workspaceId),
+      ),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) =>
+        Effect.gen(function* () {
+          const loro = yield* LoroPageService
+          const rows = yield* Effect.try({
+            try: () =>
+              store.listPublicationsByDailyNote(
+                decoded.workspaceId,
+                decoded.dailyNoteId,
+              ),
+            catch: (error) =>
+              new UnexpectedError({
+                message: `standup publication storage failure: ${error instanceof Error ? error.message : String(error)}`,
+              }),
+          })
+          const publications: StandupPublication[] = []
+          for (const row of rows)
+            publications.push(yield* projectStandupPublication(loro, row))
+          return new ListStandupPublicationsOutput({ publications })
+        }),
+      ),
+    )
+    return runRpcProgram(this.#runtime, program, ListStandupPublicationsOutput)
+  }
+
   // --- App Library (app-rpc.ts's six mainline/direct methods — see `apps-service-live.ts`'s own
   // header comment for why these never take a `chatId`/never produce a pending row, unlike
   // `AgentEditService`'s `createAppTool`/`updateAppCodeTool`). Role gate: `createApp`/
@@ -4167,6 +4300,10 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
    *  (docs/sharing.md's own "flush... first" precaution), the one place this DO needs the raw
    *  `DurableObjectStorage` handle rather than a typed-storage-effect collection/singleton. */
   readonly #storage: DurableObjectStorage
+  /** Durable private workforce publication authority. The current tranche exposes only its
+   *  read projection; a trusted workforce ingress will construct the publisher against this
+   *  same store in a later package. */
+  readonly #standupPublicationStore: DurableStandupPublicationAuthorityStore
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -4178,6 +4315,10 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     this.#storage = ctx.storage
     this.#workspaceMeta = makeWorkspaceMetaSingleton(ctx.storage)
     this.#sharingCollections = makeSharingCollections(ctx.storage)
+    this.#standupPublicationStore = new DurableStandupPublicationAuthorityStore(
+      ctx.storage,
+      this.#sql,
+    )
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
     // "read directly off env" pattern every other optional binding in this constructor uses.
@@ -4777,7 +4918,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           (emails, reason) => this.#scheduleRevocationEviction(emails, reason),
           this.#liveVoiceAudioSessions,
           this.env.DEV_AUTH_HMAC_SECRET,
-          this.#storage
+          this.#storage,
+          this.#standupPublicationStore
         )
       )
       return new Response(null, { status: 101, webSocket: client })
@@ -4795,7 +4937,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           (emails, reason) => this.#scheduleRevocationEviction(emails, reason),
           this.#liveVoiceAudioSessions,
           this.env.DEV_AUTH_HMAC_SECRET,
-          this.#storage
+          this.#storage,
+          this.#standupPublicationStore
         )
       )
       response.headers.set("Access-Control-Allow-Origin", "*")
@@ -5032,6 +5175,68 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       receipts: count("ledger_receipts"),
       events: count("ledger_events"),
       outboxIntents: count("ledger_outbox_intents")
+    }
+  }
+
+  /**
+   * Test-only transaction harness for the durable standup authority adapter. It accepts a bundle
+   * already produced by the dormant private publication service's in-memory contract and stages
+   * the same seven records through the real Workspace DO SQL transaction. This deliberately does
+   * not resolve a bearer, create a grant, publish a worker report, or enter `WorkspaceRpcApi`; it
+   * only gives the Miniflare suite a trusted internal seam for proving durable commit/rollback and
+   * reconstruction without activating the workforce writer in production.
+   */
+  async debugStageStandupPublication(
+    input: unknown,
+  ): Promise<
+    | Readonly<{ status: "staged" }>
+    | Readonly<{ status: "rejected"; message: string }>
+  > {
+    try {
+      if (input === null || typeof input !== "object" || Array.isArray(input)) {
+        throw new ValidationError({
+          message: "standup publication fixture must be an object",
+        })
+      }
+      const fixture = input as {
+        readonly grantConsumption: StandupPublicationGrantConsumptionV1
+        readonly publication: StandupPublicationRecordV1
+        readonly companionPage: StandupPublicationCompanionPageV1
+        readonly companion: StandupPublicationCompanionLinkV1
+        readonly request: StandupPublicationAuthorityRequestV1
+        readonly event: StandupPublicationEventV1
+        readonly outbox: StandupPublicationOutboxIntentV1
+        readonly failAt?: string
+      }
+      const fail = (stage: string): void => {
+        if (fixture.failAt === stage)
+          throw new Error(`standup publication fixture failure at ${stage}`)
+      }
+      this.#standupPublicationStore.transactionSync((transaction) => {
+        transaction.stageGrantConsumption(fixture.grantConsumption)
+        fail("grant-consumption")
+        transaction.stagePublication(fixture.publication)
+        fail("publication")
+        transaction.stageCompanionPage(fixture.companionPage)
+        fail("companion-page")
+        transaction.stageCompanion(fixture.companion)
+        fail("companion")
+        transaction.stageAuthorityRequest(fixture.request)
+        fail("receipt")
+        transaction.stageEvent(fixture.event)
+        fail("event")
+        transaction.stageOutboxIntent(fixture.outbox)
+        fail("outbox")
+      })
+      return { status: "staged" }
+    } catch (cause) {
+      return {
+        status: "rejected",
+        message:
+          cause instanceof Error
+            ? cause.message
+            : "standup publication fixture rejected",
+      }
     }
   }
 

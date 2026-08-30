@@ -118,6 +118,8 @@ import {
   ListPendingChangesOutput,
   ListRecentLedgerActivityInput,
   ListRecentLedgerActivityOutput,
+  ListStandupPublicationsInput,
+  ListStandupPublicationsOutput,
   ListShareLinksInput,
   ListShareLinksOutput,
   ListWorkoutsInput,
@@ -256,6 +258,7 @@ interface WorkspaceApi {
   listChatChanges(input: unknown): Promise<unknown>
   listPendingChanges(input: unknown): Promise<unknown>
   listRecentLedgerActivity(input: unknown): Promise<unknown>
+  listStandupPublications(input: unknown): Promise<unknown>
   // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) — adversarial-review fix:
   // previously missing from this interface entirely, so the web UI had no way to review, accept,
   // or revert an agent's note-body edits (chat-fork-rpc.ts / chat-fork-service-live.ts already
@@ -424,6 +427,9 @@ export interface WorkspaceRpcClientService {
   readonly listRecentLedgerActivity: (
     input: ListRecentLedgerActivityInput
   ) => Effect.Effect<ListRecentLedgerActivityOutput, DomainError>
+  readonly listStandupPublications: (
+    input: ListStandupPublicationsInput
+  ) => Effect.Effect<ListStandupPublicationsOutput, DomainError>
   // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) — see WorkspaceApi's own
   // comment above for why these were added. `forkChatEdit`/`applyChatForkEdit` are the agent-
   // tool-side operations (mirrored here for interface completeness against the backend's full
@@ -743,6 +749,11 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         listRecentLedgerActivity: (input) =>
           callForValue(ListRecentLedgerActivityOutput, () =>
             workspaceStub.listRecentLedgerActivity(Schema.encodeSync(ListRecentLedgerActivityInput)(input))
+          ),
+
+        listStandupPublications: (input) =>
+          callForValue(ListStandupPublicationsOutput, () =>
+            workspaceStub.listStandupPublications(Schema.encodeSync(ListStandupPublicationsInput)(input))
           ),
 
         // --- Phase 3: chat-fork provisional note-body edits (plan risk #4) --------------------

@@ -290,6 +290,42 @@ describe("dormant private workforce standup publication", () => {
     expect(rowCount(store)).toBe(7)
   })
 
+  it("lists only the requested workspace and daily note in publication order", () => {
+    const store = new InMemoryStandupPublicationAuthorityStore()
+    const publish = (grantValue: unknown, text: string, now: string) => {
+      const grantToken = token()
+      return serviceFor({ grantValue, grantToken, store, now }).service.publish(grantToken, request(text))
+    }
+    const laterSameNote = grant({
+      grantId: "grant-2",
+      runId: "run-2",
+      occurrenceId: "morning-2"
+    })
+    const otherNote = grant({
+      grantId: "grant-3",
+      runId: "run-3",
+      occurrenceId: "morning-3",
+      civilDate: "2026-08-30",
+      dailyNoteId: canonicalDailyNoteIdForCivilDate("2026-08-30")
+    })
+    const otherWorkspace = grant({
+      grantId: "grant-4",
+      runId: "run-4",
+      occurrenceId: "morning-4",
+      workspaceId: "workspace-2"
+    })
+
+    publish(grant(), "First report.", "2026-08-29T08:30:00.000Z")
+    publish(laterSameNote, "Second report.", "2026-08-29T08:31:00.000Z")
+    publish(otherNote, "Other note report.", "2026-08-29T08:32:00.000Z")
+    publish(otherWorkspace, "Other workspace report.", "2026-08-29T08:33:00.000Z")
+
+    const rows = store.listPublicationsByDailyNote("workspace-1", dailyNoteId)
+    expect(rows.map(({ publication }) => publication.originalText)).toEqual(["First report.", "Second report."])
+    expect(store.listPublicationsByDailyNote("workspace-2", dailyNoteId)).toHaveLength(1)
+    expect(store.listPublicationsByDailyNote("workspace-1", canonicalDailyNoteIdForCivilDate("2026-08-30"))).toHaveLength(1)
+  })
+
   it("fails closed before cache publication for a coherently substituted durable bundle or receipt redirect", () => {
     const seedStore = new InMemoryStandupPublicationAuthorityStore()
     const seedCompanion = adapter()

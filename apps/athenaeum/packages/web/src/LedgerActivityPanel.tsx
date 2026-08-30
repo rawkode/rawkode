@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
-import type { LedgerActivityEntry } from "@athenaeum/domain"
-import { ListRecentLedgerActivityInput } from "@athenaeum/domain"
+import type { EntityId, LedgerActivityEntry } from "@athenaeum/domain"
+import { ListRecentLedgerActivityInput, ListRecentLedgerActivityOutput, ListStandupPublicationsInput } from "@athenaeum/domain"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { dailyStandupWindow } from "./daily-standup-window.js"
+import { EmployeeUpdates, type EmployeeUpdatesState } from "./EmployeeUpdates.js"
 
 /** Keep the read wide enough for a useful daily picture while the presentation stays calm. */
 export const DAILY_STANDUP_FETCH_LIMIT = 20
@@ -66,24 +67,33 @@ const typeLabel = (type: LedgerActivityEntry["type"]): string => {
  * safe ledger projection: until workforce runs exist, the honest thing to show is recorded work
  * and its commit reason, not a synthetic employee report.
  */
-export function DailyStandup() {
+export function DailyStandup({ dailyNoteId, includeLedger = true }: {
+  readonly dailyNoteId?: EntityId
+  readonly includeLedger?: boolean
+} = {}) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshClaimed, setRefreshClaimed] = useState(false)
   const [showAllEntries, setShowAllEntries] = useState(false)
   const refreshClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const dayWindow = useMemo(() => dailyStandupWindow(), [refreshKey])
-  const query = useEffectQuery(
-    WorkspaceRpcClient.pipe(
-      Effect.flatMap((client) =>
-        client.listRecentLedgerActivity(new ListRecentLedgerActivityInput({
-          workspaceId,
-          limit: DAILY_STANDUP_FETCH_LIMIT,
-          from: dayWindow.from,
-          to: dayWindow.to
-        }))
+  // Historical notes still own their employee updates, but the ledger is a Today-only projection.
+  // Avoid issuing a build-role ledger request for a historical note just because the shared
+  // standup composition is mounted there.
+  const ledgerEffect = includeLedger
+    ? WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) =>
+          client.listRecentLedgerActivity(new ListRecentLedgerActivityInput({
+            workspaceId,
+            limit: DAILY_STANDUP_FETCH_LIMIT,
+            from: dayWindow.from,
+            to: dayWindow.to
+          }))
+        )
       )
-    ),
-    [refreshKey]
+    : Effect.succeed(new ListRecentLedgerActivityOutput({ entries: [] }))
+  const query = useEffectQuery(
+    ledgerEffect,
+    [refreshKey, includeLedger]
   )
   // `useEffectQuery` publishes the preceding settled result until the next generation enters
   // loading. Do not let that older result claim the new generation or its day window.
@@ -150,73 +160,104 @@ export function DailyStandup() {
   const isRefreshing = refreshClaimed || isLoadingActivity
 
   return (
-    <section className="daily-note-standup" aria-labelledby="daily-standup-title">
-      <div className="ledger-activity-heading">
-        <div>
-          <span className="section-kicker">Daily standup</span>
-          <h2 id="daily-standup-title">Recorded work</h2>
-        </div>
-        <div className="ledger-activity-heading-actions">
-          <span className="ledger-activity-badge">ledger</span>
-          <button
-            type="button"
-            className="ledger-activity-refresh"
-            onClick={refresh}
-            disabled={isRefreshing}
-            aria-label="Refresh recorded work"
-          >
-            {isRefreshing ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-      </div>
-      <p className="ledger-activity-intro">Recent recorded changes today (up to {DAILY_STANDUP_FETCH_LIMIT}). Every entry has an actor and a commit reason.</p>
+    <>
+      {dailyNoteId !== undefined && (
+        <EmployeeUpdatesLoader dailyNoteId={dailyNoteId} refreshKey={refreshKey} onRetry={refresh} />
+      )}
+      {includeLedger && (
+        <section className="daily-note-standup" aria-labelledby="daily-standup-title">
+          <div className="ledger-activity-heading">
+            <div>
+              <span className="section-kicker">Daily standup</span>
+              <h2 id="daily-standup-title">Recorded work</h2>
+            </div>
+            <div className="ledger-activity-heading-actions">
+              <span className="ledger-activity-badge">ledger</span>
+              <button
+                type="button"
+                className="ledger-activity-refresh"
+                onClick={refresh}
+                disabled={isRefreshing}
+                aria-label="Refresh recorded work"
+              >
+                {isRefreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+          <p className="ledger-activity-intro">Recent recorded changes today (up to {DAILY_STANDUP_FETCH_LIMIT}). Every entry has an actor and a commit reason.</p>
 
-      {isLoadingActivity && (
-        <p className="ledger-activity-state" role="status">
-          {cachedEntries === undefined ? "Loading activity…" : "Refreshing activity…"}
-        </p>
-      )}
-      {activityLoadFailed && (
-        <p className="ledger-activity-state" role="alert">
-          Recorded activity couldn&rsquo;t be loaded. Nothing has been changed. Refresh to check this workspace again.
-        </p>
-      )}
-      {currentEntries !== undefined && currentEntries.length === 0 && (
-        <p className="ledger-activity-state">No ledgered changes yet.</p>
-      )}
-      {visibleEntries !== undefined && visibleEntries.length > 0 && (
-        <>
-          <StandupSummary summary={summarizeDailyStandup(visibleEntries)} />
-          <ol id="daily-standup-activity-list" className="ledger-activity-list">
-            {displayedEntries?.map((entry, index) => (
-              <li key={`${entry.occurredAt}-${entry.type}-${index}`} className="ledger-activity-entry">
-                <div className="ledger-activity-entry-meta">
-                  <span className="ledger-activity-kind">{typeLabel(entry.type)}</span>
-                  <span className={`ledger-activity-actor ledger-activity-actor-${entry.actor}`}>{actorLabel(entry.actor)}</span>
-                  <time dateTime={entry.occurredAt}>{formatActivityTime(entry.occurredAt)}</time>
-                </div>
-                <div className="ledger-activity-reason">
-                  <span>Commit reason</span>
-                  <p>{entry.message}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-          {additionalEntryCount > 0 && (
-            <button
-              type="button"
-              className="ledger-activity-disclosure"
-              aria-controls="daily-standup-activity-list"
-              aria-expanded={showAllEntries}
-              onClick={() => setShowAllEntries((expanded) => !expanded)}
-            >
-              {showAllEntries ? "Show fewer recorded changes" : `Show ${additionalEntryCount} more recorded ${additionalEntryCount === 1 ? "change" : "changes"}`}
-            </button>
+          {isLoadingActivity && (
+            <p className="ledger-activity-state" role="status">
+              {cachedEntries === undefined ? "Loading activity…" : "Refreshing activity…"}
+            </p>
           )}
-        </>
+          {activityLoadFailed && (
+            <p className="ledger-activity-state" role="alert">
+              Recorded activity couldn&rsquo;t be loaded. Nothing has been changed. Refresh to check this workspace again.
+            </p>
+          )}
+          {currentEntries !== undefined && currentEntries.length === 0 && (
+            <p className="ledger-activity-state">No ledgered changes yet.</p>
+          )}
+          {visibleEntries !== undefined && visibleEntries.length > 0 && (
+            <>
+              <StandupSummary summary={summarizeDailyStandup(visibleEntries)} />
+              <ol id="daily-standup-activity-list" className="ledger-activity-list">
+                {displayedEntries?.map((entry, index) => (
+                  <li key={`${entry.occurredAt}-${entry.type}-${index}`} className="ledger-activity-entry">
+                    <div className="ledger-activity-entry-meta">
+                      <span className="ledger-activity-kind">{typeLabel(entry.type)}</span>
+                      <span className={`ledger-activity-actor ledger-activity-actor-${entry.actor}`}>{actorLabel(entry.actor)}</span>
+                      <time dateTime={entry.occurredAt}>{formatActivityTime(entry.occurredAt)}</time>
+                    </div>
+                    <div className="ledger-activity-reason">
+                      <span>Commit reason</span>
+                      <p>{entry.message}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {additionalEntryCount > 0 && (
+                <button
+                  type="button"
+                  className="ledger-activity-disclosure"
+                  aria-controls="daily-standup-activity-list"
+                  aria-expanded={showAllEntries}
+                  onClick={() => setShowAllEntries((expanded) => !expanded)}
+                >
+                  {showAllEntries ? "Show fewer recorded changes" : `Show ${additionalEntryCount} more recorded ${additionalEntryCount === 1 ? "change" : "changes"}`}
+                </button>
+              )}
+            </>
+          )}
+        </section>
       )}
-    </section>
+    </>
   )
+}
+
+function EmployeeUpdatesLoader({ dailyNoteId, refreshKey, onRetry }: {
+  readonly dailyNoteId: EntityId
+  readonly refreshKey: number
+  readonly onRetry: () => void
+}) {
+  const query = useEffectQuery(
+    WorkspaceRpcClient.pipe(Effect.flatMap((client) =>
+      client.listStandupPublications(new ListStandupPublicationsInput({ workspaceId, dailyNoteId }))
+    )),
+    [dailyNoteId, refreshKey]
+  )
+  const generation = `${dailyNoteId}:${refreshKey}`
+  const activeGeneration = useRef(generation)
+  useEffect(() => {
+    activeGeneration.current = generation
+  }, [generation])
+  const stateIsCurrent = activeGeneration.current === generation
+  let state: EmployeeUpdatesState
+  if (!stateIsCurrent || query.status === "loading") state = { status: "loading" }
+  else if (query.status === "failure") state = { status: "failure" }
+  else state = { status: "success", publications: query.value.publications }
+  return <EmployeeUpdates state={state} onRetry={onRetry} />
 }
 
 function StandupSummary({ summary }: { readonly summary: DailyStandupSummary }) {

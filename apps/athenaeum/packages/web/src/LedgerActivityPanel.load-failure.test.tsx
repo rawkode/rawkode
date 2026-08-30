@@ -111,7 +111,7 @@ describe("DailyStandup activity recovery", () => {
     expect(host.textContent).not.toContain(privateDetail)
     expect(host.textContent).not.toContain("No ledgered changes yet.")
     expect(host.querySelector("#daily-standup-title")?.textContent).toBe("Recorded work")
-    expect(queryStateMock.dependencies).toEqual(expect.arrayContaining([[0]]))
+    expect(queryStateMock.dependencies).toEqual(expect.arrayContaining([[0, true]]))
     expect(queryStateMock.dependencies.every((dependencies) => dependencies[0] === 0)).toBe(true)
 
     queryStateMock.outcomes.set(1, "success")
@@ -123,7 +123,7 @@ describe("DailyStandup activity recovery", () => {
 
     expect(host.querySelector("[role='alert']")).toBeNull()
     expect(host.textContent).toContain("No ledgered changes yet.")
-    expect(queryStateMock.dependencies).toContainEqual([1])
+    expect(queryStateMock.dependencies).toContainEqual([1, true])
   })
 
   it("keeps same-window recorded work visible through refresh and failure until a confirmed empty result replaces it", async () => {
@@ -164,7 +164,7 @@ describe("DailyStandup activity recovery", () => {
     expect(host.querySelector("[role='alert']")).toBeNull()
     expect(host.textContent).not.toContain(activity.message)
     expect(host.textContent).toContain("No ledgered changes yet.")
-    expect(queryStateMock.dependencies).toContainEqual([2])
+    expect(queryStateMock.dependencies).toContainEqual([2, true])
   })
 
   it("does not carry recorded work into a different daily window", async () => {

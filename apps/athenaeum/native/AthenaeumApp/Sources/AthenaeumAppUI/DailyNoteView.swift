@@ -32,6 +32,10 @@ enum DailyNoteStandupPresentation {
     static func shouldShow(isToday: Bool, hasConfiguration: Bool) -> Bool {
         isToday && hasConfiguration
     }
+
+    static func shouldShowEmployeeUpdates(hasConfiguration: Bool) -> Bool {
+        hasConfiguration
+    }
 }
 
 /// Navigation already waits at the view-model's durable-before-navigation boundary. This is only
@@ -144,15 +148,20 @@ public struct DailyNoteView: View {
                     ProgressView("Preparing daily note…")
                 }
                 statusLine
-                if DailyNoteStandupPresentation.shouldShow(
-                    isToday: isToday,
+                if DailyNoteStandupPresentation.shouldShowEmployeeUpdates(
                     hasConfiguration: standupConfiguration != nil
                 ), let standupConfiguration {
                     DailyStandupView(
                         backendURL: standupConfiguration.backendURL,
                         workspaceId: standupConfiguration.workspaceId,
-                        bearerCredential: standupConfiguration.bearerCredential
+                        bearerCredential: standupConfiguration.bearerCredential,
+                        dailyNoteId: model.dailyNoteId,
+                        includeLedger: isToday
                     )
+                    // The loader closure captures the resolved note identity. Key the subtree so
+                    // SwiftUI cannot retain yesterday's StateObject when day navigation changes
+                    // the active note while its employee read is still in flight.
+                    .id(model.dailyNoteId.rawValue)
                 }
                 BacklinksView(model: model)
             }

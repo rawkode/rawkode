@@ -4,6 +4,7 @@ import Foundation
 import SwiftUI
 
 typealias DailyStandupLoader = @Sendable () async throws -> [RPCLedgerActivityEntry]
+typealias EmployeeUpdatesLoader = @Sendable () async throws -> [StandupPublication]
 
 /// The local calendar-day window sent to the ledger projection. Keeping this calculation in the
 /// client means a standup follows the user's day even when the backend stores UTC instants.
@@ -30,36 +31,122 @@ final class DailyStandupViewModel: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var state: State = .idle
-    private let loader: DailyStandupLoader
-
-    init(loader: @escaping DailyStandupLoader) {
-        self.loader = loader
+    enum EmployeeState: Equatable {
+        case idle
+        case loading
+        case loaded([StandupPublication])
+        case failed(String)
     }
 
-    convenience init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
+    @Published private(set) var state: State = .idle
+    @Published private(set) var employeeState: EmployeeState = .idle
+    private let loader: DailyStandupLoader?
+    private let employeeLoader: EmployeeUpdatesLoader?
+    private let employeeLoaderFactory: (@Sendable (EntityId) async throws -> [StandupPublication])?
+    private var selectedDailyNoteId: EntityId?
+
+    var employeeLoaderAvailable: Bool {
+        employeeLoader != nil || (employeeLoaderFactory != nil && selectedDailyNoteId != nil)
+    }
+
+    init(loader: @escaping DailyStandupLoader, employeeLoader: EmployeeUpdatesLoader? = nil) {
+        self.loader = loader
+        self.employeeLoader = employeeLoader
+        self.employeeLoaderFactory = nil
+        self.selectedDailyNoteId = nil
+    }
+
+    init(ledgerLoader: DailyStandupLoader?, employeeLoader: EmployeeUpdatesLoader?) {
+        self.loader = ledgerLoader
+        self.employeeLoader = employeeLoader
+        self.employeeLoaderFactory = nil
+        self.selectedDailyNoteId = nil
+    }
+
+    init(
+        ledgerLoader: DailyStandupLoader?,
+        employeeLoaderFactory: (@Sendable (EntityId) async throws -> [StandupPublication])?,
+        dailyNoteId: EntityId?
+    ) {
+        self.loader = ledgerLoader
+        self.employeeLoader = nil
+        self.employeeLoaderFactory = employeeLoaderFactory
+        self.selectedDailyNoteId = dailyNoteId
+    }
+
+    convenience init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?, dailyNoteId: EntityId? = nil, includeLedger: Bool = true) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
         let client = WorkspaceRPCClient(
             baseURL: workspaceURL,
             workspaceId: workspaceId.rawValue,
             bearerCredential: bearerCredential
         )
-        self.init(loader: {
-            let window = DailyStandupDayWindow()
-            return try await client.listRecentLedgerActivity(
-                limit: DailyStandupPresentation.fetchLimit,
-                from: window.from,
-                to: window.to
-            )
-        })
+        let employeeLoaderFactory: (@Sendable (EntityId) async throws -> [StandupPublication])?
+        if dailyNoteId != nil {
+            employeeLoaderFactory = { noteId in
+                try await client.listStandupPublications(dailyNoteId: noteId.rawValue)
+            }
+        } else {
+            employeeLoaderFactory = nil
+        }
+        let ledgerLoader: DailyStandupLoader?
+        if includeLedger {
+            ledgerLoader = {
+                let window = DailyStandupDayWindow()
+                return try await client.listRecentLedgerActivity(
+                    limit: DailyStandupPresentation.fetchLimit,
+                    from: window.from,
+                    to: window.to
+                )
+            }
+        } else {
+            ledgerLoader = nil
+        }
+        self.init(ledgerLoader: ledgerLoader, employeeLoaderFactory: employeeLoaderFactory, dailyNoteId: dailyNoteId)
+    }
+
+    func updateDailyNoteId(_ dailyNoteId: EntityId?) {
+        guard employeeLoaderFactory != nil, selectedDailyNoteId != dailyNoteId else { return }
+        selectedDailyNoteId = dailyNoteId
+        employeeState = .idle
     }
 
     func refresh() async {
-        state = .loading
-        do {
-            state = .loaded(try await loader())
-        } catch {
-            state = .failed(Self.loadFailureMessage(for: error))
+        if let loader {
+            state = .loading
+            do {
+                state = .loaded(try await loader())
+            } catch {
+                state = .failed(Self.loadFailureMessage(for: error))
+            }
+        } else {
+            state = .idle
+        }
+        let employeeGeneration = selectedDailyNoteId
+        let employeeLoader: EmployeeUpdatesLoader?
+        if let directEmployeeLoader = self.employeeLoader {
+            employeeLoader = directEmployeeLoader
+        } else if let employeeGeneration, let employeeLoaderFactory {
+            employeeLoader = {
+                try await employeeLoaderFactory(employeeGeneration)
+            }
+        } else {
+            employeeLoader = nil
+        }
+        if let employeeLoader {
+            employeeState = .loading
+            do {
+                let publications = try await employeeLoader()
+                // A SwiftUI task can outlive a route transition if its transport ignores
+                // cancellation. Do not let the old note's response populate the new note.
+                if let employeeGeneration, selectedDailyNoteId != employeeGeneration { return }
+                employeeState = .loaded(publications)
+            } catch {
+                if let employeeGeneration, selectedDailyNoteId != employeeGeneration { return }
+                employeeState = .failed(Self.employeeLoadFailureMessage(for: error))
+            }
+        } else {
+            employeeState = .idle
         }
     }
 
@@ -67,6 +154,10 @@ final class DailyStandupViewModel: ObservableObject {
     /// existing Retry control is the safe recovery path, so the visible state stays static.
     static func loadFailureMessage(for _: Error) -> String {
         "Unable to load the daily standup. Please try again."
+    }
+
+    static func employeeLoadFailureMessage(for _: Error) -> String {
+        "Unable to load employee updates. Please try again."
     }
 }
 
@@ -127,18 +218,93 @@ public struct DailyStandupView: View {
     @StateObject private var model: DailyStandupViewModel
     @State private var isRefreshInFlight = false
     @State private var isShowingAllEntries = false
+    private let dailyNoteId: EntityId?
 
-    public init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
+    public init(
+        backendURL: URL,
+        workspaceId: EntityId,
+        bearerCredential: String?,
+        dailyNoteId: EntityId? = nil,
+        includeLedger: Bool = true
+    ) {
         _model = StateObject(
             wrappedValue: DailyStandupViewModel(
                 backendURL: backendURL,
                 workspaceId: workspaceId,
-                bearerCredential: bearerCredential
+                bearerCredential: bearerCredential,
+                dailyNoteId: dailyNoteId,
+                includeLedger: includeLedger
             )
         )
+        self.dailyNoteId = dailyNoteId
+        self.includeLedger = includeLedger
     }
 
+    private let includeLedger: Bool
+
     public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if model.employeeLoaderAvailable {
+                employeeUpdates
+            }
+            if includeLedger {
+                ledgerActivity
+            }
+        }
+        .padding(.vertical, 8)
+        .task(id: dailyNoteId?.rawValue) { await refreshOnAppear() }
+        .onChange(of: dailyNoteId?.rawValue) { _ in
+            model.updateDailyNoteId(dailyNoteId)
+        }
+    }
+
+    @ViewBuilder
+    private var employeeUpdates: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Standup")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Employee updates")
+                        .font(.title2.bold())
+                }
+                Spacer()
+                Label("Workforce", systemImage: "person.3")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            switch model.employeeState {
+            case .idle, .loading:
+                ProgressView("Loading employee updates…")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.updatesFrequently)
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button(DailyStandupRefreshPresentation.retryTitle(isRefreshing: isRefreshing)) {
+                        startRefresh()
+                    }
+                    .disabled(isRefreshing)
+                }
+            case .loaded(let publications):
+                if publications.isEmpty {
+                    Text("No published employee updates for this note yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(publications, id: \.id) { publication in
+                        EmployeeUpdateRow(publication: publication)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ledgerActivity: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -215,13 +381,12 @@ public struct DailyStandupView: View {
                 }
             }
         }
-        .padding(.vertical, 8)
-        .task { await refreshOnAppear() }
     }
 
     private var isRefreshing: Bool {
         if isRefreshInFlight { return true }
         if case .loading = model.state { return true }
+        if case .loading = model.employeeState { return true }
         return false
     }
 
@@ -302,6 +467,37 @@ private struct DailyStandupEntryRow: View {
             formatter.formatOptions = [.withInternetDateTime]
             return formatter.date(from: value)
         }()
+    }
+}
+
+private struct EmployeeUpdateRow: View {
+    let publication: StandupPublication
+
+    private var statusLabel: String {
+        switch publication.companionStatus {
+        case .verifiedOriginal: return "Original update verified."
+        case .modified: return "This update may have changed since publication."
+        case .missing: return "The companion update is no longer available."
+        case .unavailable: return "The companion update is currently unavailable."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(publication.originalText)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Employee: \(publication.microEmployeeLabel) · Job: \(publication.jobLabel)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Workflow: \(publication.workflowLabel) · Schedule: \(publication.scheduleLabel)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(statusLabel)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

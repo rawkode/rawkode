@@ -5,9 +5,10 @@ import { tmpdir } from "node:os"
 import ts from "typescript"
 
 const defaultSourceRoot = realpathSync(new URL("../src", import.meta.url).pathname)
+// The durable authority adapter and its private record contract are production infrastructure
+// now. The publisher/issuer remain deliberately unwired: no external RPC can mint a grant or
+// publish an employee report until the trusted workforce ingress is implemented separately.
 const forbiddenNames = new Set([
-  "standup-publication-private-contract.ts",
-  "standup-publication-collections.ts",
   "standup-publication-service-live.ts",
   "standup-run-grant-issuer-private-contract.ts",
   "standup-run-grant-issuer-private-service.ts"
@@ -53,8 +54,8 @@ const localModuleSpecifiers = (file, source) => {
 }
 
 /**
- * A positive, transitive import-closure check. The new dormant package must remain unreachable
- * from all production entry roots until a separately gated Workspace DO integration exists.
+ * A positive, transitive import-closure check. The private publisher and grant issuer must remain
+ * unreachable from all production entry roots until a separately gated workforce ingress exists.
  */
 export const verifyStandupPublicationPrivateReachability = (sourceRoot = defaultSourceRoot) => {
   const root = realpathSync(sourceRoot)
@@ -118,4 +119,4 @@ try {
 }
 
 verifyStandupPublicationPrivateReachability()
-console.log("standup publication private package is unreachable from production roots")
+console.log("standup publication publisher and grant issuer remain unreachable from production roots")

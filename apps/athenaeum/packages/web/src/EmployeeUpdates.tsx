@@ -52,7 +52,9 @@ export function EmployeeUpdates({ state, onRetry }: {
               <p className="employee-update-text">{publication.originalText}</p>
               <p className="employee-update-status">
                 {companionStatusMessage(publication.companionStatus)}{" "}
-                <Link to={`/node/${publication.childNodeId}`}>Open update</Link>
+                {(publication.companionStatus === "verified-original" || publication.companionStatus === "modified") && (
+                  <Link to={`/node/${publication.childNodeId}`}>Open update</Link>
+                )}
               </p>
             </li>
           ))}

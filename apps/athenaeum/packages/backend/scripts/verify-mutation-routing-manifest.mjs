@@ -27,7 +27,7 @@ const readOnlyRpcMethods = new Set([
   "listTagFields", "runView", "searchNodes", "syncFeed", "listChats", "getChat", "listChatChanges",
   "listPendingChanges", "listApps", "getApp", "getAppCode", "previewRemoveCollaborator", "previewRevokeShareLink",
   "listCollaborators", "listShareLinks", "listCalendarEvents", "listGatekeeperBindings", "getTodayBrief", "listBookmarks", "getMeeting",
-  "listMeetings", "listWorkoutImports", "listWorkouts", "getWorkout", "pollVoiceAudioEvents", "listRecentLedgerActivity",
+  "listMeetings", "listWorkoutImports", "listWorkouts", "getWorkout", "pollVoiceAudioEvents", "listRecentLedgerActivity", "listStandupPublications",
   // A historical endpoint which now throws before decoding input. It has no manifest entry and
   // cannot mutate; retaining it briefly produces a typed upgrade error for stale clients.
   "activateLoroPage"

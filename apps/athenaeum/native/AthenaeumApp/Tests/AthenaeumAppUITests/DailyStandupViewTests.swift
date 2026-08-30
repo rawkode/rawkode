@@ -3,6 +3,28 @@ import AthenaeumDomain
 import AthenaeumRPC
 @testable import AthenaeumAppUI
 
+private actor EmployeePublicationGate {
+    private var continuation: CheckedContinuation<[StandupPublication], Never>?
+    private(set) var waiting = false
+
+    func wait() async -> [StandupPublication] {
+        waiting = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resume(with publications: [StandupPublication]) {
+        continuation?.resume(returning: publications)
+        continuation = nil
+    }
+}
+
+private actor EmployeePublicationCallCounter {
+    private var count = 0
+
+    func increment() { count += 1 }
+    func value() -> Int { count }
+}
+
 @MainActor
 final class DailyStandupViewTests: XCTestCase {
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresControls() {
@@ -87,6 +109,55 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(model.state, .failed("Unable to load the daily standup. Please try again."))
     }
 
+    func testHistoricalRefreshSkipsLedgerAndLoadsEmployeeUpdates() async throws {
+        let employeeCalls = EmployeePublicationCallCounter()
+        let noteId = try EntityId(validating: "00000000-0000-4000-8000-000000000101")
+        let publication = try makePublication(id: "00000000-0000-4000-8000-000000000102")
+        let model = DailyStandupViewModel(
+            ledgerLoader: nil,
+            employeeLoaderFactory: { requestedNoteId in
+                XCTAssertEqual(requestedNoteId, noteId)
+                await employeeCalls.increment()
+                return [publication]
+            },
+            dailyNoteId: noteId
+        )
+
+        // A historical note has no ledger loader at all. This makes the Today-only rule a
+        // runtime property rather than a visual `if` around a still-running request.
+        await model.refresh()
+
+        let callCount = await employeeCalls.value()
+        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(model.state, .idle)
+        XCTAssertEqual(model.employeeState, .loaded([publication]))
+    }
+
+    func testChangingDailyNoteIgnoresAnInFlightOlderEmployeeResponse() async throws {
+        let firstNoteId = try EntityId(validating: "00000000-0000-4000-8000-000000000111")
+        let secondNoteId = try EntityId(validating: "00000000-0000-4000-8000-000000000112")
+        let firstPublication = try makePublication(id: "00000000-0000-4000-8000-000000000113")
+        let secondPublication = try makePublication(id: "00000000-0000-4000-8000-000000000114")
+        let gate = EmployeePublicationGate()
+        let model = DailyStandupViewModel(
+            ledgerLoader: nil,
+            employeeLoaderFactory: { requestedNoteId in
+                if requestedNoteId == firstNoteId { return await gate.wait() }
+                return [secondPublication]
+            },
+            dailyNoteId: firstNoteId
+        )
+
+        let firstRefresh = Task { await model.refresh() }
+        for _ in 0..<20 where !(await gate.waiting) { await Task.yield() }
+        model.updateDailyNoteId(secondNoteId)
+        await model.refresh()
+        await gate.resume(with: [firstPublication])
+        await firstRefresh.value
+
+        XCTAssertEqual(model.employeeState, .loaded([secondPublication]))
+    }
+
     func testLocalizedFailureSuppressesUnderlyingTransportDetails() async {
         let error = PrivateLocalizedFailure()
         let model = DailyStandupViewModel(loader: { throw error })
@@ -169,5 +240,26 @@ final class DailyStandupViewTests: XCTestCase {
         var errorDescription: String? {
             "backend=https://internal.example/api?credential=private-token"
         }
+    }
+
+    private func makePublication(id: String) throws -> StandupPublication {
+        let reference = StandupPublicationReference(kind: "job", id: "daily-standup", version: "v1")
+        return StandupPublication(
+            id: try EntityId(validating: id),
+            civilDate: "2026-08-30",
+            microEmployeeLabel: "Executive",
+            jobLabel: "Daily standup",
+            workflowLabel: "Morning review",
+            scheduleLabel: "Weekdays",
+            microEmployee: StandupPublicationReference(kind: "microEmployee", id: "executive", version: "v1"),
+            job: reference,
+            workflow: StandupPublicationReference(kind: "workflow", id: "morning", version: "v1"),
+            schedule: StandupPublicationReference(kind: "schedule", id: "weekdays", version: "v1"),
+            councilRefs: [],
+            originalText: "Prepared the daily brief.",
+            publishedAt: try IsoDateTimeString(validating: "2026-08-30T08:00:00.000Z"),
+            childNodeId: try EntityId(validating: "00000000-0000-4000-8000-000000000115"),
+            companionStatus: .verifiedOriginal
+        )
     }
 }

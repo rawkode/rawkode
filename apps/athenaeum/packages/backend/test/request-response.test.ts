@@ -16,7 +16,9 @@ import {
   GetNodeInput,
   GetNodeOutput,
   ListNodesInput,
-  ListNodesOutput
+  ListNodesOutput,
+  ListStandupPublicationsInput,
+  ListStandupPublicationsOutput
 } from "@athenaeum/domain"
 import { connectToWorkspace, freshNodeId, freshWorkspaceId, rejectionToDomainError } from "./support.js"
 
@@ -93,6 +95,24 @@ describe("createNode / listNodes round trip", () => {
       )
     )
     expect(fetched.node).toEqual(created.node)
+  })
+})
+
+describe("standup publication projection", () => {
+  it("returns an honest empty projection for a note with no workforce writer yet", async () => {
+    const workspaceId = freshWorkspaceId()
+    const dailyNoteId = freshNodeId()
+    const stub = await connectToWorkspace(workspaceId)
+    try {
+      const result = Schema.decodeUnknownSync(ListStandupPublicationsOutput)(
+        await stub.listStandupPublications(
+          Schema.encodeSync(ListStandupPublicationsInput)(new ListStandupPublicationsInput({ workspaceId, dailyNoteId }))
+        )
+      )
+      expect(result.publications).toEqual([])
+    } finally {
+      stub[Symbol.dispose]()
+    }
   })
 })
 

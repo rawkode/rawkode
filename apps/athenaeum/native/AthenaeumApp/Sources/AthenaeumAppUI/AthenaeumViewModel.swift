@@ -183,6 +183,10 @@ public final class AthenaeumViewModel: ObservableObject {
     @Published public private(set) var isLoroRecoveryInProgress = false
 
     public let workspaceId: EntityId
+    /// The deterministic node currently presented by the daily-note route. Secondary projections
+    /// use this identity rather than the wall clock so historical notes cannot inherit today’s
+    /// workforce updates.
+    public var dailyNoteId: EntityId { activeSelection.nodeId }
     public var dailyNoteTitle: String { dailyNoteTitleForDate(selectedDate, calendar: navigator.calendar) }
     public var isSelectedDateToday: Bool { navigator.calendar.isDateInToday(selectedDate) }
     public var selectedDateLabel: String {

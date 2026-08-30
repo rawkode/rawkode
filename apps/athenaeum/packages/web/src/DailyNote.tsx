@@ -500,7 +500,9 @@ export function DailyNote({
         </div>
       </div>
 
-      {isToday && <DailyStandup />}
+      {state.status === "success" && (
+        <DailyStandup dailyNoteId={state.value.nodeId} includeLedger={isToday} />
+      )}
 
       {state.status === "success" && <Backlinks nodeId={state.value.nodeId} />}
 

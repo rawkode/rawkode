@@ -48,4 +48,11 @@ describe("EmployeeUpdates presentation", () => {
     failed.querySelector("button")?.click(); expect(onRetry).toHaveBeenCalledOnce()
     expect((await mount({ status: "success", publications: [] })).textContent).toContain("No published employee updates")
   })
+
+  it("does not offer a dead companion link when the linked page is missing or unavailable", async () => {
+    const missing = await mount({ status: "success", publications: [{ ...publication, companionStatus: "missing" }] })
+    expect(missing.querySelector("a")).toBeNull()
+    const unavailable = await mount({ status: "success", publications: [{ ...publication, companionStatus: "unavailable" }] })
+    expect(unavailable.querySelector("a")).toBeNull()
+  })
 })
