@@ -409,6 +409,8 @@ import {
   createNodeWithIntentLedgerFingerprint
 } from "./ledger-service.js"
 import { loroVersionVectorIdentity } from "./loro-page-service-live.js"
+import { DurableWorkforceRuntimeStore } from "./workforce-runtime-store.js"
+import { WorkforceScheduler } from "./workforce-scheduler.js"
 import { makeMeetingCollections } from "./meeting-collections.js"
 import {
   makeMeetingAudioBucketR2Live,
@@ -4343,6 +4345,10 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
   /** Terminal run receipts are keyed by the canonical run/occurrence identity and staged in the
    *  same SQLite transaction as the node, Loro page, and standup publication authority records. */
   readonly #workforceRunStore: DurableWorkforceRunReceiptStore
+  /** Generic durable job clock. Its executor is deliberately attached by the calendar/workforce
+   * package; until then this object only persists/re-arms schedules and never claims a job. */
+  readonly #workforceRuntimeStore: DurableWorkforceRuntimeStore
+  readonly #workforceScheduler: WorkforceScheduler
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -4360,6 +4366,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       this.#sql,
     )
     this.#workforceRunStore = new DurableWorkforceRunReceiptStore(this.#sql)
+    this.#workforceRuntimeStore = new DurableWorkforceRuntimeStore(this.#sql)
+    this.#workforceScheduler = new WorkforceScheduler(this.#storage, this.#workforceRuntimeStore)
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
     // "read directly off env" pattern every other optional binding in this constructor uses.
@@ -4717,6 +4725,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         )
       )
     )
+  }
+
+  /** One DO alarm multiplexes durable workforce wakeups. Claim CAS makes this safe against a
+   * concurrent manual drain; a future executor is registered only by its owning package. */
+  async alarm(): Promise<void> {
+    await this.#workforceScheduler.drain(`alarm:${this.#workspaceId}`)
   }
 
   /**

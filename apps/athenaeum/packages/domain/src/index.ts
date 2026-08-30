@@ -754,3 +754,17 @@ export {
 // `app-repository.ts`'s own header comment for why `AppCodeVersion` deliberately has no analogous
 // tag).
 export { AppsRepository } from "./app-repository.js"
+
+export {
+  WORKFORCE_RUNTIME_VERSION,
+  workforceOccurrenceIdentity,
+  workforceScheduledOccurrenceId,
+  workforceRetryDelayMs,
+  nextWorkforceCadenceAt,
+  validateWorkforceSchedule,
+  type WorkforceRunState,
+  type WorkforceMisfirePolicy,
+  type WorkforceTrigger,
+  type WorkforceScheduleDefinition,
+  type WorkforceRunRecord
+} from "./workforce-runtime.js"

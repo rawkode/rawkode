@@ -87,7 +87,7 @@ const authorityContractOnly = new Set([
 for (const file of readdirSync(sourceDirectory).filter((name) => name.endsWith(".ts"))) {
   const contents = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8")
   for (const match of contents.matchAll(/export class (\w+Service) extends Context\.Tag/g)) if (!registry.some((row) => row.adapter === "service-sink" && row.symbol === match[1])) throw new Error(`unmapped service write sink: ${match[1]}`)
-  if (/\basync alarm\(/.test(contents)) throw new Error(`unknown Durable Object alarm entrypoint in ${file}; add a concrete registry row`)
+  if (/\basync alarm\(/.test(contents) && !registry.some((row) => row.adapter === "do-alarm" && row.symbol === "WorkspaceDurableObject.alarm")) throw new Error(`unknown Durable Object alarm entrypoint in ${file}; add a concrete registry row`)
 }
 assertKnownDirectWriteSinks(Object.fromEntries(readdirSync(sourceDirectory).filter((name) => name.endsWith(".ts") && !authorityContractOnly.has(name)).map((file) => [file, readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8")])), registry.filter((row) => row.id.startsWith("direct-storage:")).map((row) => row.symbol))
 const agentTools = readFileSync(new URL("../../domain/src/agent-tools.ts", import.meta.url), "utf8")
