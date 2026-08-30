@@ -101,7 +101,10 @@ import {
 } from "./calendar-gatekeeper-client.js"
 import {
   calendarObserverKey,
-  calendarEventSourceIdentityKey,
+  calendarMasterSourceIdentityKey,
+  calendarOccurrenceSourceIdentityKey,
+  calendarStandaloneSourceIdentityKey,
+  legacyCalendarEventSourceIdentityKey,
   makeCalendarCollections,
   reviveBookmark,
   reviveCalendarEvent,
@@ -917,19 +920,74 @@ export const makeCalendarServiceLive = (
           })
         )
 
+      type CalendarSourceIdentity = {
+        readonly id: string
+        readonly kind: "standalone" | "master" | "occurrence"
+        readonly providerEventId: string
+        readonly seriesId?: string
+        readonly occurrenceId?: string
+      }
+
+      const sourceIdentityForStandalone = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): CalendarSourceIdentity => ({
+        id: calendarStandaloneSourceIdentityKey(workspaceId, bindingId, providerEventId),
+        kind: "standalone",
+        providerEventId
+      })
+
+      const sourceIdentityForMaster = (workspaceId: EntityId, bindingId: EntityId, seriesId: string): CalendarSourceIdentity => ({
+        id: calendarMasterSourceIdentityKey(workspaceId, bindingId, seriesId),
+        kind: "master",
+        providerEventId: seriesId,
+        seriesId
+      })
+
+      /** `originalStartTime` is Google's stable instance identity. The start-time fallback is
+       * deliberately legacy-only compatibility for older/scripted provider payloads. */
+      const remoteOccurrenceId = (remote: RemoteCalendarEvent): string => {
+        const source = remote.originalStartTime ?? remote.start
+        return source.kind === "date" ? source.date : source.dateTime
+      }
+
+      const sourceIdentityForRemote = (workspaceId: EntityId, bindingId: EntityId, remote: RemoteCalendarEvent): CalendarSourceIdentity =>
+        remote.recurringEventId === undefined
+          ? sourceIdentityForStandalone(workspaceId, bindingId, remote.id)
+          : {
+              id: calendarOccurrenceSourceIdentityKey(workspaceId, bindingId, remote.recurringEventId, remoteOccurrenceId(remote)),
+              kind: "occurrence",
+              providerEventId: remote.id,
+              seriesId: remote.recurringEventId,
+              occurrenceId: remoteOccurrenceId(remote)
+            }
+
       /** Resolve a source identity without mutating storage. A pre-identity legacy row may be
        * adopted only from binding-scoped revision evidence; raw provider ids are a narrowly
        * compatible fallback for a workspace with exactly one legacy calendar binding. */
       const resolveLegacySourceEvent = (
         workspaceId: EntityId,
         bindingId: EntityId,
-        providerEventId: string,
+        source: CalendarSourceIdentity,
         expectedSeriesId?: string,
         requireMaster = false
       ): Effect.Effect<CalendarEvent | undefined, DomainError> =>
         Effect.gen(function* () {
+          const legacyIdentity = yield* collections.calendarEventSourceIdentities
+            .get(legacyCalendarEventSourceIdentityKey(workspaceId, bindingId, source.providerEventId))
+            .pipe(Effect.mapError(toUnexpectedError))
+          if (legacyIdentity !== undefined) {
+            const raw = yield* collections.calendarEvents.get(legacyIdentity.calendarEventId).pipe(Effect.mapError(toUnexpectedError))
+            if (raw === undefined) return yield* Effect.fail(new UnexpectedError({ message: "legacy calendar source identity target is missing" }))
+            const candidate = yield* reviveCalendarEvent(raw)
+            if (
+              candidate.workspaceId !== workspaceId ||
+              (source.kind !== "occurrence" && candidate.providerEventId !== source.providerEventId) ||
+              (expectedSeriesId !== undefined && candidate.seriesId !== expectedSeriesId) ||
+              (source.occurrenceId !== undefined && candidate.occurrenceId !== source.occurrenceId) ||
+              (requireMaster && (candidate.seriesId !== expectedSeriesId || candidate.masterRecordId !== undefined))
+            ) return yield* Effect.fail(new UnexpectedError({ message: "legacy calendar source identity conflicts with provider identity" }))
+            return candidate
+          }
           const revisions = yield* collections.calendarSourceRevisions.byBindingAndProviderEvent
-            .get(`${bindingId}:${providerEventId}`)
+            .get(`${bindingId}:${source.providerEventId}`)
             .pipe(Effect.mapError(toUnexpectedError))
           const candidateIds = [...new Set(revisions
             .filter((revision) => revision.workspaceId === workspaceId)
@@ -943,13 +1001,42 @@ export const makeCalendarServiceLive = (
             const candidate = yield* reviveCalendarEvent(raw)
             if (
               candidate.workspaceId !== workspaceId ||
-              candidate.providerEventId !== providerEventId ||
+              // A recurring provider instance id is an alias; series + original occurrence is
+              // its stable identity. Standalone/master rows retain a provider-id primary key.
+              (source.kind !== "occurrence" && candidate.providerEventId !== source.providerEventId) ||
               (expectedSeriesId !== undefined && candidate.seriesId !== expectedSeriesId) ||
+              (source.occurrenceId !== undefined && candidate.occurrenceId !== source.occurrenceId) ||
               (requireMaster && (candidate.seriesId !== expectedSeriesId || candidate.masterRecordId !== undefined))
             ) {
               return yield* Effect.fail(new UnexpectedError({ message: "legacy calendar source revision target conflicts with provider identity" }))
             }
             return candidate
+          }
+
+          // A pre-v2 recurring row may have a different provider instance-id alias. Before
+          // considering any raw-id fallback, recover it from its binding-scoped revision target
+          // by the stable series + original occurrence tuple.
+          if (source.kind === "occurrence" && source.seriesId !== undefined && source.occurrenceId !== undefined) {
+            const bindingRevisions = yield* collections.calendarSourceRevisions.byWorkspaceId
+              .get(workspaceId)
+              .pipe(Effect.mapError(toUnexpectedError))
+            const matchingIds = new Set<EntityId>()
+            for (const revision of bindingRevisions) {
+              if (revision.bindingId !== bindingId) continue
+              const raw = yield* collections.calendarEvents.get(revision.calendarEventId).pipe(Effect.mapError(toUnexpectedError))
+              if (raw === undefined) return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring source revision target is missing" }))
+              const candidate = yield* reviveCalendarEvent(raw)
+              if (candidate.workspaceId !== workspaceId) {
+                return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring source revision crosses workspace custody" }))
+              }
+              if (candidate.seriesId === source.seriesId && candidate.occurrenceId === source.occurrenceId) matchingIds.add(candidate.id)
+            }
+            if (matchingIds.size > 1) return yield* Effect.fail(new UnexpectedError({ message: "ambiguous legacy recurring occurrence ownership" }))
+            if (matchingIds.size === 1) {
+              const raw = yield* collections.calendarEvents.get([...matchingIds][0]!).pipe(Effect.mapError(toUnexpectedError))
+              if (raw === undefined) return yield* Effect.fail(new UnexpectedError({ message: "legacy recurring occurrence target is missing" }))
+              return yield* reviveCalendarEvent(raw)
+            }
           }
 
           const mapping = yield* collections.bindingConnections.get(bindingId).pipe(Effect.mapError(toUnexpectedError))
@@ -960,11 +1047,15 @@ export const makeCalendarServiceLive = (
           )
           if (calendarBindings.length !== 1 || calendarBindings[0]?.id !== bindingId) return undefined
 
-          const matches = yield* collections.calendarEvents.byProviderEventId.get(providerEventId).pipe(
+          const candidates = source.kind === "occurrence"
+            ? collections.calendarEvents.byWorkspaceId.get(workspaceId)
+            : collections.calendarEvents.byProviderEventId.get(source.providerEventId)
+          const matches = yield* candidates.pipe(
             Effect.mapError(toUnexpectedError),
             Effect.flatMap((rows) => Effect.forEach(rows, reviveCalendarEvent)),
             Effect.map((rows) => rows.filter((candidate) =>
               candidate.workspaceId === workspaceId &&
+              (source.kind !== "occurrence" || (candidate.seriesId === source.seriesId && candidate.occurrenceId === source.occurrenceId)) &&
               (expectedSeriesId === undefined || candidate.seriesId === expectedSeriesId) &&
               (!requireMaster || (candidate.seriesId === expectedSeriesId && candidate.masterRecordId === undefined))
             ))
@@ -984,7 +1075,7 @@ export const makeCalendarServiceLive = (
         seriesId: string
       ): Effect.Effect<CalendarEvent | undefined, DomainError> =>
         Effect.gen(function* () {
-          const direct = yield* resolveLegacySourceEvent(workspaceId, bindingId, seriesId, seriesId, true)
+          const direct = yield* resolveLegacySourceEvent(workspaceId, bindingId, sourceIdentityForMaster(workspaceId, bindingId, seriesId), seriesId, true)
           if (direct !== undefined) return direct
           const revisions = yield* collections.calendarSourceRevisions.byWorkspaceId.get(workspaceId).pipe(Effect.mapError(toUnexpectedError))
           const masterIds = new Set<EntityId>()
@@ -1013,30 +1104,50 @@ export const makeCalendarServiceLive = (
       const ensureSourceIdentity = (
         workspaceId: EntityId,
         bindingId: EntityId,
-        providerEventId: string,
+        source: CalendarSourceIdentity,
         calendarEventId: EntityId
       ): Effect.Effect<void, DomainError> =>
         Effect.gen(function* () {
-          const id = calendarEventSourceIdentityKey(workspaceId, bindingId, providerEventId)
-          const current = yield* collections.calendarEventSourceIdentities.get(id).pipe(Effect.mapError(toUnexpectedError))
+          const current = yield* collections.calendarEventSourceIdentities.get(source.id).pipe(Effect.mapError(toUnexpectedError))
           if (current !== undefined) {
             if (
               current.workspaceId !== workspaceId || current.bindingId !== bindingId ||
-              current.providerEventId !== providerEventId || current.calendarEventId !== calendarEventId
+              current.kind !== source.kind || current.calendarEventId !== calendarEventId ||
+              current.seriesId !== source.seriesId || current.occurrenceId !== source.occurrenceId
             ) return yield* Effect.fail(new UnexpectedError({ message: "conflicting calendar source identity" }))
           }
           const reverse = yield* collections.calendarEventSourceIdentities.byCalendarEventId
             .get(calendarEventId)
             .pipe(Effect.mapError(toUnexpectedError))
-          if (reverse.some((record) => record.id !== id)) {
+          const conflictingReverse = reverse.filter((record) => record.id !== source.id)
+          // Old pre-v2 identity rows have no kind. They may be atomically replaced only when
+          // they already name this exact binding/target; any typed or foreign row is custody
+          // evidence and must fail closed.
+          if (conflictingReverse.some((record) => record.kind !== undefined || record.workspaceId !== workspaceId || record.bindingId !== bindingId)) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar event already has a different source identity" }))
           }
-          if (current !== undefined) return
+          for (const legacy of conflictingReverse) {
+            yield* collections.calendarEventSourceIdentities.delete(legacy.id).pipe(Effect.mapError(toUnexpectedError))
+          }
+          if (current !== undefined) {
+            if (current.providerEventId !== source.providerEventId) {
+              yield* collections.calendarEventSourceIdentities.put({
+                ...current,
+                providerEventId: source.providerEventId,
+                ...(source.seriesId === undefined ? {} : { seriesId: source.seriesId }),
+                ...(source.occurrenceId === undefined ? {} : { occurrenceId: source.occurrenceId })
+              }).pipe(Effect.mapError(toUnexpectedError))
+            }
+            return
+          }
           yield* collections.calendarEventSourceIdentities.put({
-            id,
+            id: source.id,
             workspaceId,
             bindingId,
-            providerEventId,
+            kind: source.kind,
+            providerEventId: source.providerEventId,
+            ...(source.seriesId === undefined ? {} : { seriesId: source.seriesId }),
+            ...(source.occurrenceId === undefined ? {} : { occurrenceId: source.occurrenceId }),
             calendarEventId,
             adoptedAt: now()
           }).pipe(Effect.mapError(toUnexpectedError))
@@ -1082,14 +1193,13 @@ export const makeCalendarServiceLive = (
 
           if (remote.recurringEventId !== undefined) {
             seriesId = remote.recurringEventId
-            occurrenceId =
-              remote.start.kind === "date" ? remote.start.date : remote.start.dateTime
+            occurrenceId = remoteOccurrenceId(remote)
             const cached = masterCache.get(seriesId)
             if (cached !== undefined) {
               masterRecordId = cached
             } else {
               const masterIdentity = yield* collections.calendarEventSourceIdentities
-                .get(calendarEventSourceIdentityKey(workspaceId, bindingId, seriesId))
+                .get(sourceIdentityForMaster(workspaceId, bindingId, seriesId).id)
                 .pipe(Effect.mapError(toUnexpectedError))
               const existingMaster = masterIdentity === undefined
                 ? yield* resolveLegacyRecurringMaster(workspaceId, bindingId, seriesId)
@@ -1105,7 +1215,7 @@ export const makeCalendarServiceLive = (
                   existingMaster.workspaceId !== workspaceId || existingMaster.providerEventId !== seriesId ||
                   existingMaster.seriesId !== seriesId || existingMaster.masterRecordId !== undefined
                 ) return yield* Effect.fail(new UnexpectedError({ message: "calendar recurring master conflicts with source identity" }))
-                yield* ensureSourceIdentity(workspaceId, bindingId, seriesId, existingMaster.id)
+                yield* ensureSourceIdentity(workspaceId, bindingId, sourceIdentityForMaster(workspaceId, bindingId, seriesId), existingMaster.id)
                 masterRecordId = existingMaster.id
               } else {
                 // Synthesize a minimal master row — see this file's header comment.
@@ -1122,7 +1232,7 @@ export const makeCalendarServiceLive = (
                   syncedAt: now()
                 })
                 yield* collections.calendarEvents.put(master).pipe(Effect.mapError(toUnexpectedError))
-                yield* ensureSourceIdentity(workspaceId, bindingId, seriesId, master.id)
+                yield* ensureSourceIdentity(workspaceId, bindingId, sourceIdentityForMaster(workspaceId, bindingId, seriesId), master.id)
                 yield* syncFeed.append("calendarEvent", master.id, "put", master)
                 masterRecordId = master.id
               }
@@ -1130,11 +1240,12 @@ export const makeCalendarServiceLive = (
             }
           }
 
+          const sourceIdentity = sourceIdentityForRemote(workspaceId, bindingId, remote)
           const identity = yield* collections.calendarEventSourceIdentities
-            .get(calendarEventSourceIdentityKey(workspaceId, bindingId, remote.id))
+            .get(sourceIdentity.id)
             .pipe(Effect.mapError(toUnexpectedError))
           const existing = identity === undefined
-            ? yield* resolveLegacySourceEvent(workspaceId, bindingId, remote.id, seriesId)
+            ? yield* resolveLegacySourceEvent(workspaceId, bindingId, sourceIdentity, seriesId)
             : yield* collections.calendarEvents.get(identity.calendarEventId).pipe(
               Effect.mapError(toUnexpectedError),
               Effect.flatMap((raw) => raw === undefined ? Effect.succeed(undefined) : reviveCalendarEvent(raw))
@@ -1142,7 +1253,12 @@ export const makeCalendarServiceLive = (
           if (identity !== undefined && existing === undefined) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar source identity target is missing" }))
           }
-          if (existing !== undefined && (existing.workspaceId !== workspaceId || existing.providerEventId !== remote.id || (seriesId !== undefined && existing.seriesId !== seriesId))) {
+          if (existing !== undefined && (
+            existing.workspaceId !== workspaceId ||
+            (sourceIdentity.kind !== "occurrence" && existing.providerEventId !== remote.id) ||
+            (seriesId !== undefined && existing.seriesId !== seriesId) ||
+            (occurrenceId !== undefined && existing.occurrenceId !== occurrenceId)
+          )) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar event conflicts with source identity" }))
           }
           if (expectedCalendarEventId !== undefined && existing !== undefined && existing.id !== expectedCalendarEventId) {
@@ -1167,7 +1283,7 @@ export const makeCalendarServiceLive = (
             syncedAt: now()
           })
           yield* collections.calendarEvents.put(event).pipe(Effect.mapError(toUnexpectedError))
-          yield* ensureSourceIdentity(workspaceId, bindingId, remote.id, event.id)
+          yield* ensureSourceIdentity(workspaceId, bindingId, sourceIdentity, event.id)
           yield* syncFeed.append("calendarEvent", event.id, "put", event)
           return event
         })
@@ -1175,13 +1291,15 @@ export const makeCalendarServiceLive = (
       /** Read-only target allocation before entering the ledger transaction. The projection
        * closure rechecks it and fails closed on a concurrent create so a retry never records
        * custody against a different event than the one it actually wrote. */
-      const existingCalendarEventId = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): Effect.Effect<EntityId | undefined, DomainError> =>
-        collections.calendarEventSourceIdentities.get(calendarEventSourceIdentityKey(workspaceId, bindingId, providerEventId)).pipe(
+      const existingCalendarEventId = (workspaceId: EntityId, bindingId: EntityId, remote: RemoteCalendarEvent): Effect.Effect<EntityId | undefined, DomainError> => {
+        const sourceIdentity = sourceIdentityForRemote(workspaceId, bindingId, remote)
+        return collections.calendarEventSourceIdentities.get(sourceIdentity.id).pipe(
           Effect.mapError(toUnexpectedError),
           Effect.flatMap((identity) => identity === undefined
-            ? resolveLegacySourceEvent(workspaceId, bindingId, providerEventId).pipe(Effect.map((event) => event?.id))
+            ? resolveLegacySourceEvent(workspaceId, bindingId, sourceIdentity, remote.recurringEventId).pipe(Effect.map((event) => event?.id))
             : Effect.succeed(identity.calendarEventId))
         )
+      }
 
       /** Google includes a monotonic `updated` cursor on every Event resource. Keep that cursor
        * in the private revision rows and reject an older snapshot before it can touch the public
@@ -1273,7 +1391,7 @@ export const makeCalendarServiceLive = (
                 })
               })
               const requestIdentity = `calendar-projection:${planned.sourceRevisionDigest}`
-              const calendarEventId = (yield* existingCalendarEventId(workspaceId, bindingId, remote.id)) ?? (crypto.randomUUID() as EntityId)
+              const calendarEventId = (yield* existingCalendarEventId(workspaceId, bindingId, remote)) ?? (crypto.randomUUID() as EntityId)
               // A failed gateway transaction rolls its storage back, not JavaScript maps. Keep
               // local identity/master caches isolated until the atomic projection has committed.
               const eventEmailIndex = new Map(emailIndex)
@@ -1295,9 +1413,12 @@ export const makeCalendarServiceLive = (
                   attribution,
                   applyProjection: () => {
                     const existingRevisions = Effect.runSync(
-                      collections.calendarSourceRevisions.byBindingAndProviderEvent
-                        .get(`${bindingId}:${remote.id}`)
-                        .pipe(Effect.mapError(toUnexpectedError))
+                      collections.calendarSourceRevisions.byCalendarEventId
+                        .get(calendarEventId)
+                        .pipe(
+                          Effect.mapError(toUnexpectedError),
+                          Effect.map((rows) => rows.filter((row) => row.workspaceId === workspaceId && row.bindingId === bindingId))
+                        )
                     )
                     if (isOlderProviderRevision(planned.sourceUpdatedAt, existingRevisions)) return []
                     const event = Effect.runSync(upsertRemoteEvent(workspaceId, bindingId, remote, eventEmailIndex, eventMasterCache, calendarEventId))
@@ -1383,9 +1504,18 @@ export const makeCalendarServiceLive = (
       const todaySourceScope = (workspaceId: EntityId): Effect.Effect<(event: CalendarEvent) => string, DomainError> =>
         collections.calendarEventSourceIdentities.byWorkspaceId.get(workspaceId).pipe(
           Effect.mapError(toUnexpectedError),
-          Effect.map((rows) => {
-            const scopes = new Map(rows.map((row) => [row.calendarEventId, row.id] as const))
-            return (event: CalendarEvent) => scopes.get(event.id) ?? event.id
+          Effect.flatMap((rows) => {
+            const scopes = new Map<EntityId, string>()
+            for (const row of rows) {
+              const existing = scopes.get(row.calendarEventId)
+              if (existing !== undefined && existing !== row.bindingId) {
+                return Effect.fail(new UnexpectedError({ message: "calendar event has conflicting source bindings" }))
+              }
+              // The binding is the stable privacy-preserving scope. An occurrence identity is
+              // intentionally narrower and would make cross-alias Today canonicalization drift.
+              scopes.set(row.calendarEventId, sha256HexSync(canonicalJsonBytes({ version: 1, workspaceId, bindingId: row.bindingId })))
+            }
+            return Effect.succeed((event: CalendarEvent) => scopes.get(event.id) ?? event.id)
           })
         )
 
@@ -1647,7 +1777,7 @@ export const projectTodayBriefEvents = (
     return sha256HexSync(canonicalJsonBytes({
       version: 1,
       scope,
-      providerEventId: event.providerEventId,
+      providerEventId: event.occurrenceId === undefined ? event.providerEventId : null,
       seriesId: event.seriesId ?? null,
       occurrenceId: event.occurrenceId ?? null
     }))

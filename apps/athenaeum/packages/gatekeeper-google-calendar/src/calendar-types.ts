@@ -78,7 +78,9 @@ export class CalendarEvent extends Schema.Class<CalendarEvent>("CalendarEvent")(
   htmlLink: Schema.optional(Schema.String),
   transparency: Schema.optional(Schema.Literal("opaque", "transparent")),
   visibility: Schema.optional(Schema.Literal("default", "public", "private", "confidential")),
-  recurringEventId: Schema.optional(Schema.String)
+  recurringEventId: Schema.optional(Schema.String),
+  /** Google's stable occurrence identity for an expanded recurring instance. */
+  originalStartTime: Schema.optional(CalendarTime)
 }) {}
 
 export class CalendarEventDraft extends Schema.Class<CalendarEventDraft>("CalendarEventDraft")({

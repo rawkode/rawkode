@@ -117,6 +117,8 @@ export interface RemoteCalendarEvent {
   readonly description?: string
   readonly attendees?: ReadonlyArray<RemoteCalendarAttendee>
   readonly recurringEventId?: string
+  /** Google originalStartTime, preserved as the stable identity of a recurring instance. */
+  readonly originalStartTime?: RemoteCalendarTime
 }
 
 export interface RemoteCalendarEventsPage {

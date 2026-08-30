@@ -106,13 +106,28 @@ export interface CalendarEventSourceIdentityRecord {
   readonly id: string
   readonly workspaceId: EntityId
   readonly bindingId: EntityId
+  readonly kind: "standalone" | "master" | "occurrence"
+  /** Latest provider event id alias. It is metadata, never the occurrence primary key. */
   readonly providerEventId: string
+  readonly seriesId?: string
+  readonly occurrenceId?: string
   readonly calendarEventId: EntityId
   readonly adoptedAt: string
 }
 
-/** One canonical private source-scope key for collection storage, replay, and Today projection. */
-export const calendarEventSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): string =>
+/** Canonical private source keys. An occurrence intentionally excludes the provider instance id:
+ * Google may reissue it when an instance moves, is restored, or otherwise changes incarnation. */
+export const calendarStandaloneSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): string =>
+  sha256HexSync(canonicalJsonBytes({ version: 2, kind: "standalone", workspaceId, bindingId, providerEventId }))
+
+export const calendarMasterSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, seriesId: string): string =>
+  sha256HexSync(canonicalJsonBytes({ version: 2, kind: "master", workspaceId, bindingId, seriesId }))
+
+export const calendarOccurrenceSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, seriesId: string, occurrenceId: string): string =>
+  sha256HexSync(canonicalJsonBytes({ version: 2, kind: "occurrence", workspaceId, bindingId, seriesId, occurrenceId }))
+
+/** Read-only migration lookup for source identities written before kind-specific v2 keys. */
+export const legacyCalendarEventSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): string =>
   sha256HexSync(canonicalJsonBytes({ version: 1, workspaceId, bindingId, providerEventId }))
 
 /** Private attendee observation dedupe record. `emailDigest` is a keyed workspace-local
@@ -168,7 +183,8 @@ const calendarSourceRevisionsCollectionSchema = collection<CalendarSourceRevisio
   primaryKey: "id",
   nonUniqueIndexes: {
     byWorkspaceId: (record: CalendarSourceRevisionRecord) => record.workspaceId,
-    byBindingAndProviderEvent: (record: CalendarSourceRevisionRecord) => `${record.bindingId}:${record.providerEventId}`
+    byBindingAndProviderEvent: (record: CalendarSourceRevisionRecord) => `${record.bindingId}:${record.providerEventId}`,
+    byCalendarEventId: (record: CalendarSourceRevisionRecord) => record.calendarEventId
   }
 })
 
@@ -236,6 +252,7 @@ export interface CalendarCollections {
   readonly calendarSourceRevisions: Collection<CalendarSourceRevisionRecord, string> & {
     readonly byWorkspaceId: NonUniqueIndex<CalendarSourceRevisionRecord, EntityId>
     readonly byBindingAndProviderEvent: NonUniqueIndex<CalendarSourceRevisionRecord, string>
+    readonly byCalendarEventId: NonUniqueIndex<CalendarSourceRevisionRecord, EntityId>
   }
   readonly calendarEventSourceIdentities: Collection<CalendarEventSourceIdentityRecord, string> & {
     readonly byWorkspaceId: NonUniqueIndex<CalendarEventSourceIdentityRecord, EntityId>

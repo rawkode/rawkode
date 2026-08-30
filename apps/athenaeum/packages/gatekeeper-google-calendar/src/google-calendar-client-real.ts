@@ -207,6 +207,7 @@ interface GoogleEventWire {
   readonly transparency?: "opaque" | "transparent"
   readonly visibility?: "default" | "public" | "private" | "confidential"
   readonly recurringEventId?: string
+  readonly originalStartTime?: GoogleCalendarTime
 }
 
 const calendarTimeFromGoogle = (value: GoogleCalendarTime | undefined): CalendarTime => {
@@ -241,7 +242,8 @@ const calendarEventFromGoogleWire = (event: GoogleEventWire): CalendarEvent =>
     ...(event.htmlLink ? { htmlLink: event.htmlLink } : {}),
     ...(event.transparency ? { transparency: event.transparency } : {}),
     ...(event.visibility ? { visibility: event.visibility } : {}),
-    ...(event.recurringEventId ? { recurringEventId: event.recurringEventId } : {})
+    ...(event.recurringEventId ? { recurringEventId: event.recurringEventId } : {}),
+    ...(event.originalStartTime ? { originalStartTime: calendarTimeFromGoogle(event.originalStartTime) } : {})
   })
 
 const draftToGoogleWire = (draft: CalendarEventDraft): Record<string, unknown> => ({
