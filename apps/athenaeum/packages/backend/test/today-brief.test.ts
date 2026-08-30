@@ -117,4 +117,32 @@ describe("Today Brief server projection", () => {
       expect(projectTodayBriefEvents(rows, window.from, window.to, "UTC", undefined)).toMatchObject([{ id: confirmed.id, title: "Confirmed copy" }])
     }
   })
+
+  it("keeps identical provider occurrence ids distinct when their private source scopes differ", () => {
+    const window = resolveTodayBriefWindow("2026-11-01", "UTC")
+    const accountA = event({
+      id: id("00000000-0000-4000-8000-000000000014"),
+      providerEventId: "shared-provider-id",
+      title: "Personal planning"
+    })
+    const accountB = event({
+      id: id("00000000-0000-4000-8000-000000000015"),
+      providerEventId: "shared-provider-id",
+      title: "Work planning"
+    })
+
+    const result = projectTodayBriefEvents(
+      [accountA, accountB],
+      window.from,
+      window.to,
+      "UTC",
+      undefined,
+      undefined,
+      (row) => row.id === accountA.id ? "private-source-a" : "private-source-b"
+    )
+
+    expect(result.map((row) => row.title)).toEqual(["Personal planning", "Work planning"])
+    expect(new Set(result.map((row) => row.occurrenceKey))).toHaveLength(2)
+    expect(result.every((row) => /^[a-f0-9]{64}$/.test(row.occurrenceKey))).toBe(true)
+  })
 })
