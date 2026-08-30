@@ -990,7 +990,8 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       id: "instance-old-alias",
       title: "Weekly planning cancelled",
       status: "cancelled",
-      updatedAt: "2026-09-01T11:00:00.000Z"
+      updatedAt: "2026-09-01T11:00:00.000Z",
+      originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T10:00:00+01:00" }
     })
     scripted.fixtures.accounts[ACCOUNT_EMAIL] = {
       ...scripted.fixtures.accounts[ACCOUNT_EMAIL]!,
@@ -1011,7 +1012,8 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       ...confirmed,
       id: "instance-resurrected",
       title: "Weekly planning restored",
-      updatedAt: "2026-09-01T12:00:00.000Z"
+      updatedAt: "2026-09-01T12:00:00.000Z",
+      originalStartTime: { kind: "dateTime", dateTime: "2026-09-07T10:00:00+01:00" }
     })
     scripted.fixtures.accounts[ACCOUNT_EMAIL] = {
       ...scripted.fixtures.accounts[ACCOUNT_EMAIL]!,

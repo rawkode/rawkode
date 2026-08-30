@@ -41,15 +41,16 @@ describe("CalendarRemoteEventPlan", () => {
   })
   it("keeps recurring attendee observations stable across provider instance aliases while revisions remain distinct", async () => {
     const originalStartTime = { kind: "dateTime" as const, dateTime: "2026-09-07T09:00:00.000Z" }
-    const recurring = (id: string, status: "confirmed" | "cancelled") => ({
+    const recurring = (id: string, status: "confirmed" | "cancelled", start = originalStartTime) => ({
       ...event([{ email: "a@example.test" }], status),
       id,
       recurringEventId: "weekly-series",
-      originalStartTime
+      originalStartTime: start
     })
     const first = planCalendarRemoteEvent(workspaceId, bindingId, recurring("instance-a", "confirmed"))
-    const cancelled = planCalendarRemoteEvent(workspaceId, bindingId, recurring("instance-b", "cancelled"))
-    const restored = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, recurring("instance-c", "confirmed"), "secret-a")
+    const equivalentOffset = { kind: "dateTime" as const, dateTime: "2026-09-07T10:00:00+01:00" }
+    const cancelled = planCalendarRemoteEvent(workspaceId, bindingId, recurring("instance-b", "cancelled", equivalentOffset))
+    const restored = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, recurring("instance-c", "confirmed", equivalentOffset), "secret-a")
     const firstSecret = await planCalendarRemoteEventWithSecret(workspaceId, bindingId, recurring("instance-a", "confirmed"), "secret-a")
 
     expect(cancelled.sourceEventKeyDigest).toBe(first.sourceEventKeyDigest)

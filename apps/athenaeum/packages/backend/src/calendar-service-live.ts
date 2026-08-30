@@ -118,7 +118,7 @@ import {
   type CalendarObserverRecord
 } from "./calendar-collections.js"
 import { CalendarProjectionGateway } from "./calendar-projection-gateway.js"
-import { planCalendarRemoteEventWithSecret } from "./calendar-projection-plan.js"
+import { calendarOriginalStartIdentity, planCalendarRemoteEventWithSecret } from "./calendar-projection-plan.js"
 import {
   digestCalendarOAuthStateNonce,
   makeCalendarOAuthStateNonce,
@@ -945,8 +945,7 @@ export const makeCalendarServiceLive = (
       /** `originalStartTime` is Google's stable instance identity. The start-time fallback is
        * deliberately legacy-only compatibility for older/scripted provider payloads. */
       const remoteOccurrenceId = (remote: RemoteCalendarEvent): string => {
-        const source = remote.originalStartTime ?? remote.start
-        return source.kind === "date" ? source.date : source.dateTime
+        return calendarOriginalStartIdentity(remote.originalStartTime ?? remote.start)
       }
 
       const sourceIdentityForRemote = (workspaceId: EntityId, bindingId: EntityId, remote: RemoteCalendarEvent): CalendarSourceIdentity =>
