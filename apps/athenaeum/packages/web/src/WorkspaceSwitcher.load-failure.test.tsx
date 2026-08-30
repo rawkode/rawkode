@@ -48,13 +48,13 @@ const deferred = <A,>() => {
   return { promise, resolve, reject }
 }
 
-const mount = async (): Promise<HTMLDivElement> => {
+const mount = async (variant: "default" | "sidebar-compact" = "default"): Promise<HTMLDivElement> => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   roots.push({ root, host })
   await act(async () => {
-    root.render(<WorkspaceSwitcher session={session} activeWorkspaceId={activeWorkspaceId} onSwitch={vi.fn()} />)
+    root.render(<WorkspaceSwitcher session={session} activeWorkspaceId={activeWorkspaceId} onSwitch={vi.fn()} variant={variant} />)
     await flush()
   })
   return host
@@ -77,6 +77,31 @@ afterEach(() => {
 })
 
 describe("WorkspaceSwitcher catalog recovery", () => {
+  it("keeps the compact location control closed at rest and reveals the existing management flow on demand", async () => {
+    const catalogStub = { label: "catalog" }
+    userRpcMock.openUserSession.mockReturnValue(catalogStub)
+    userRpcMock.listWorkspaces.mockResolvedValue([catalogEntry])
+
+    const host = await mount("sidebar-compact")
+    const disclosure = host.querySelector<HTMLDetailsElement>(".workspace-switcher--compact")
+    const summary = disclosure?.querySelector<HTMLElement>("summary")
+
+    expect(disclosure?.open).toBe(false)
+    expect(summary?.getAttribute("aria-label")).toBe("Current workspace: Personal")
+    expect(summary?.textContent).toContain("Workspace")
+    expect(summary?.textContent).toContain("Personal")
+    expect(host.textContent).not.toContain(activeWorkspaceId)
+
+    await act(async () => {
+      summary?.click()
+      await flush()
+    })
+
+    expect(disclosure?.open).toBe(true)
+    expect(host.querySelector("#workspace-switcher-select")).not.toBeNull()
+    expect(host.querySelector(".workspace-switcher-manage")).not.toBeNull()
+  })
+
   it("suppresses raw catalog failures, preserves management, and retries one catalog read at a time", async () => {
     const firstStub = { label: "first" }
     const secondStub = { label: "second" }

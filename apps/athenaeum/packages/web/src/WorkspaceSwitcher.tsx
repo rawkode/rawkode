@@ -35,11 +35,14 @@ const workspaceCreationFailureMessage =
 export function WorkspaceSwitcher({
   session,
   activeWorkspaceId,
-  onSwitch
+  onSwitch,
+  variant = "default"
 }: {
   readonly session: DevSession
   readonly activeWorkspaceId: EntityId
   readonly onSwitch: (workspaceId: EntityId, title: string) => void
+  /** The compact variant keeps workspace administration behind a disclosure so Today can lead the shell. */
+  readonly variant?: "default" | "sidebar-compact"
 }) {
   const [workspaces, setWorkspaces] = useState<ReadonlyArray<WorkspaceCatalogEntry> | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
@@ -94,6 +97,14 @@ export function WorkspaceSwitcher({
   }
 
   const activeInCatalog = workspaces?.some((workspace) => workspace.workspaceId === activeWorkspaceId) ?? true
+  const activeWorkspace = workspaces?.find((workspace) => workspace.workspaceId === activeWorkspaceId)
+  const activeWorkspaceLabel = loadError
+    ? "Workspace unavailable"
+    : workspaces === undefined
+      ? "Loading workspace…"
+      : activeInCatalog
+        ? activeWorkspace?.title ?? "Workspace"
+        : "Shared workspace"
 
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -128,9 +139,11 @@ export function WorkspaceSwitcher({
     if (decoded._tag === "Right") onSwitch(decoded.right, value)
   }
 
-  return (
-    <div className="workspace-switcher">
-      <label htmlFor="workspace-switcher-select">Workspace</label>
+  const switcherContents = (
+    <>
+      <label htmlFor="workspace-switcher-select">
+        {variant === "sidebar-compact" ? "Switch workspace" : "Workspace"}
+      </label>
       {workspaces === undefined && !loadError && (
         <span className="workspace-switcher-loading" role="status" aria-live="polite">
           loading…
@@ -152,20 +165,14 @@ export function WorkspaceSwitcher({
           onChange={(event) => handleSelect(event.target.value)}
           title={
             activeInCatalog
-              ? (() => {
-                  const active = workspaces.find((workspace) => workspace.workspaceId === activeWorkspaceId)
-                  return active === undefined
-                    ? undefined
-                    : `${active.title}${active.isDefault ? " (default)" : ""} — ${active.role}`
-                })()
-              : `Shared workspace (opened via link) — ${activeWorkspaceId}`
+              ? activeWorkspace === undefined
+                ? undefined
+                : `${activeWorkspace.title}${activeWorkspace.isDefault ? " (default)" : ""} — ${activeWorkspace.role}`
+              : "Shared workspace (opened via link)"
           }
         >
           {!activeInCatalog && (
-            <option
-              value={SHARED_LINK_WORKSPACE_ID}
-              title={`Shared workspace (opened via link) — ${activeWorkspaceId}`}
-            >
+            <option value={SHARED_LINK_WORKSPACE_ID} title="Shared workspace (opened via link)">
               Shared workspace
             </option>
           )}
@@ -182,6 +189,11 @@ export function WorkspaceSwitcher({
       )}
       <details className="ds-disclosure workspace-switcher-manage">
         <summary>Manage workspaces</summary>
+        {!activeInCatalog && (
+          <p className="workspace-switcher-identity">
+            Shared workspace identity <code>{activeWorkspaceId}</code>
+          </p>
+        )}
         <form onSubmit={handleCreate} className="workspace-switcher-create">
           <label htmlFor="workspace-switcher-new-title" className="sr-only">
             New workspace title
@@ -204,6 +216,21 @@ export function WorkspaceSwitcher({
           </p>
         )}
       </details>
-    </div>
+    </>
   )
+
+  if (variant === "sidebar-compact") {
+    return (
+      <details className="workspace-switcher workspace-switcher--compact">
+        <summary className="workspace-switcher-compact-summary" aria-label={`Current workspace: ${activeWorkspaceLabel}`}>
+          <span className="workspace-switcher-compact-kicker">Workspace</span>
+          <span className="workspace-switcher-compact-name">{activeWorkspaceLabel}</span>
+          <span className="workspace-switcher-compact-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div className="workspace-switcher-compact-panel">{switcherContents}</div>
+      </details>
+    )
+  }
+
+  return <div className="workspace-switcher">{switcherContents}</div>
 }

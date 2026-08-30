@@ -274,34 +274,13 @@ export function AppShell({
             <span className="shell-brand-name">Athenaeum</span>
           </div>
 
-          <div className="shell-session ds-surface">
-            <WorkspaceSwitcher session={session} activeWorkspaceId={activeWorkspaceId} onSwitch={onSwitchWorkspace} />
-            <details className="ds-disclosure shell-account-menu">
-              <summary className="shell-account">
-                <span className="shell-account-avatar" aria-hidden="true">
-                  {session.email.slice(0, 1).toUpperCase()}
-                </span>
-                <span className="shell-account-email" title={session.email}>
-                  {session.email}
-                </span>
-                <span className="shell-account-badge">dev</span>
-              </summary>
-              <div className="shell-account-actions">
-                <button
-                  type="button"
-                  className="ds-button ds-button--quiet shell-theme-toggle"
-                  aria-pressed={theme === "paper"}
-                  aria-label={theme === "paper" ? "Switch to dark command-center theme" : "Switch to paper writing theme"}
-                  onClick={() => setTheme((current) => (current === "paper" ? "dark" : "paper"))}
-                >
-                  <span className="shell-theme-icon" aria-hidden="true">{theme === "paper" ? "◐" : "☼"}</span>
-                  <span>{theme === "paper" ? "Paper" : "Dark"}</span>
-                </button>
-                <button type="button" className="ds-button ds-button--quiet shell-sign-out" onClick={onSignOut}>
-                  Sign out
-                </button>
-              </div>
-            </details>
+          <div className="shell-workspace-control">
+            <WorkspaceSwitcher
+              session={session}
+              activeWorkspaceId={activeWorkspaceId}
+              onSwitch={onSwitchWorkspace}
+              variant="sidebar-compact"
+            />
           </div>
 
           <nav className="shell-nav-core" aria-label="Core">
@@ -347,9 +326,32 @@ export function AppShell({
             </nav>
           </details>
 
-          <p className="shell-workspace-id">
-            workspace <code>{activeWorkspaceId}</code>
-          </p>
+          <details className="ds-disclosure shell-account-menu">
+            <summary className="shell-account">
+              <span className="shell-account-avatar" aria-hidden="true">
+                {session.email.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="shell-account-email" title={session.email}>
+                {session.email}
+              </span>
+              <span className="shell-account-badge">dev</span>
+            </summary>
+            <div className="shell-account-actions">
+              <button
+                type="button"
+                className="ds-button ds-button--quiet shell-theme-toggle"
+                aria-pressed={theme === "paper"}
+                aria-label={theme === "paper" ? "Switch to dark command-center theme" : "Switch to paper writing theme"}
+                onClick={() => setTheme((current) => (current === "paper" ? "dark" : "paper"))}
+              >
+                <span className="shell-theme-icon" aria-hidden="true">{theme === "paper" ? "◐" : "☼"}</span>
+                <span>{theme === "paper" ? "Paper" : "Dark"}</span>
+              </button>
+              <button type="button" className="ds-button ds-button--quiet shell-sign-out" onClick={onSignOut}>
+                Sign out
+              </button>
+            </div>
+          </details>
         </Drawer>
 
         <main className="shell-main">
