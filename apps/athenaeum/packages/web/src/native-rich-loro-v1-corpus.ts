@@ -392,8 +392,9 @@ export const inspectNativeRichLoroRejection = (entry: NativeRichLoroRejection): 
   const nestedUnknown = children instanceof LoroList && Array.from({ length: children.length }, (_, index) => children.get(index)).some((value) => value instanceof LoroMap && value.get("nodeName") === "future-block")
   const text = block instanceof LoroMap && block.get("children") instanceof LoroList ? block.get("children")!.get(0) : undefined
   const unknownMark = text instanceof LoroText && text.toDelta().some((part) => part.attributes && Object.prototype.hasOwnProperty.call(part.attributes, "future-mark"))
-  const referencePayload = text instanceof LoroText && typeof entry.probe.markName === "string" && entry.probe.payload !== undefined
-    ? text.toDelta().some((part) => JSON.stringify(part.attributes?.[entry.probe.markName]) === JSON.stringify(entry.probe.payload))
+  const referenceMarkName = entry.probe.markName
+  const referencePayload = text instanceof LoroText && typeof referenceMarkName === "string" && entry.probe.payload !== undefined
+    ? text.toDelta().some((part) => JSON.stringify(part.attributes?.[referenceMarkName]) === JSON.stringify(entry.probe.payload))
     : false
   const attrs = block instanceof LoroMap ? block.get("attributes") : undefined
   const unknownAttribute = attrs instanceof LoroMap && attrs.get("future") === true
