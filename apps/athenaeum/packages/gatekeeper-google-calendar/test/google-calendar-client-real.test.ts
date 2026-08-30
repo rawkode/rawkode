@@ -106,7 +106,7 @@ describe("GoogleCalendarClientReal: OAuth authorization URL", () => {
     expect(url.searchParams.get("access_type")).toBe("offline")
     expect(url.searchParams.get("include_granted_scopes")).toBe("true")
     expect(url.searchParams.get("state")).toBe("csrf-state")
-    expect(url.searchParams.has("prompt")).toBe(false)
+    expect(url.searchParams.get("prompt")).toBe("select_account")
     expect(mock.calls).toHaveLength(0) // pure URL construction, no network call
   })
 
@@ -117,7 +117,7 @@ describe("GoogleCalendarClientReal: OAuth authorization URL", () => {
         c.buildAuthorizationUrl({ state: "s", redirectUri: "https://example.com/cb", scopes: ["a"], forceConsent: true })
       )
     )
-    expect(new URL(result.url).searchParams.get("prompt")).toBe("consent")
+    expect(new URL(result.url).searchParams.get("prompt")).toBe("consent select_account")
   })
 })
 

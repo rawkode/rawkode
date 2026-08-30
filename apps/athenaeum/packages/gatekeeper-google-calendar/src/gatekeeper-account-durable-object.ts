@@ -79,14 +79,15 @@ const decodeEventsListQuery = (value: unknown): CalendarEventsListQuery => {
 
 export class GatekeeperAccountDurableObject extends DurableObject<Env> {
   readonly #runtime: ManagedRuntime.ManagedRuntime<GatekeeperAccountService, never>
-  readonly #accountEmail: string
+  readonly #connectionId: string
   readonly #verifierHmacSecret: string | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    // Populated whenever `worker.ts`/a sibling DO addresses this instance via `getByName(email)`
-    // — mirrors `WorkspaceDurableObject`'s own `ctx.id.name` convention exactly.
-    this.#accountEmail = ctx.id.name ?? "unknown"
+    // New connections are addressed by a random `gpc_…` custody key. The token-owning DO never
+    // derives an Athenaeum email from its name; legacy email-named instances remain reachable only
+    // through the authenticated migration adapter in worker.ts.
+    this.#connectionId = ctx.id.name ?? "unknown"
     this.#verifierHmacSecret = env.GATEKEEPER_VERIFIER_HMAC_SECRET
 
     const tokenSingleton = makeTokenSingleton(ctx.storage)
@@ -100,7 +101,7 @@ export class GatekeeperAccountDurableObject extends DurableObject<Env> {
     const tokenStoreLive = makeTokenStoreTypedStorageLive(tokenSingleton)
 
     const accountServiceLive = makeGatekeeperAccountServiceLive({
-      accountEmail: this.#accountEmail,
+      connectionId: this.#connectionId,
       // A verifier can never be minted/unwrapped without a configured secret — checked at call
       // time (`#requireVerifierSecretConfigured`, not here), so an unconfigured secret fails
       // closed per-call with a clear message rather than at DO construction (every non-observer
@@ -137,8 +138,8 @@ export class GatekeeperAccountDurableObject extends DurableObject<Env> {
   // RPC surface (`connect(socket: Socket): void | Promise<void>`); this method completes the
   // OAuth code exchange, hence `completeOAuth`.
 
-  async completeOAuth(code: string, redirectUri: string): Promise<{ readonly connected: boolean }> {
-    await this.#run((s) => s.connect(code, redirectUri))
+  async completeOAuth(code: string, redirectUri: string, attemptId?: string): Promise<{ readonly connected: boolean }> {
+    await this.#run((s) => s.connect(attemptId, code, redirectUri))
     return { connected: true }
   }
 
@@ -194,9 +195,9 @@ export class GatekeeperAccountDurableObject extends DurableObject<Env> {
 
   // --- Observer verification (docs/observers.md §7) ---------------------------------------------
 
-  async getVerifier(): Promise<{ readonly token: string }> {
+  async getVerifier(observerEmail: string): Promise<{ readonly token: string }> {
     this.#requireVerifierSecretConfigured()
-    const verifier = await this.#run((s) => s.getVerifier)
+    const verifier = await this.#run((s) => s.getVerifier(observerEmail))
     return { token: verifier.token }
   }
 

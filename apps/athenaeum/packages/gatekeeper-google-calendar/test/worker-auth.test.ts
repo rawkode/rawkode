@@ -70,6 +70,7 @@ const makeSpyCtx = (): { ctx: ExecutionContext; getByNameCalls: Array<string> } 
 
 const ENV_NO_SECRET: Env = {}
 const ENV_WITH_SECRET: Env = { GATEKEEPER_CALLER_HMAC_SECRET: SECRET }
+const OPAQUE_CONNECTION_ID = "gpc_11111111-1111-4111-8111-111111111111"
 
 const describeRequest = (headers: Record<string, string> = {}): Request =>
   new Request("https://gatekeeper.internal/gatekeeper/google-calendar/describe", { headers })
@@ -79,6 +80,13 @@ const accountRequest = (op: string, headers: Record<string, string> = {}): Reque
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify({})
+  })
+
+const fixedAccountRequest = (body: Record<string, unknown>, headers: Record<string, string> = {}): Request =>
+  new Request("https://gatekeeper.internal/gatekeeper/google-calendar/account", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body)
   })
 
 describe("worker.ts fetch(): caller-credential gate (adversarial-review fix)", () => {
@@ -169,6 +177,60 @@ describe("worker.ts fetch(): caller-credential gate (adversarial-review fix)", (
     expect(await response.json()).toEqual({ connected: false })
     // Proves the credential didn't just avoid a 401 — it actually reached real dispatch logic.
     expect(getByNameCalls).toEqual(["victim@example.test"])
+  })
+
+  it("dispatches the fixed opaque account endpoint without placing custody in its URL or response", async () => {
+    const credential = await mintCredential(SECRET, 30)
+    const response = await worker.fetch(
+      fixedAccountRequest(
+        {
+          locator: { kind: "provider-connection", providerConnectionId: OPAQUE_CONNECTION_ID },
+          operation: "is-connected"
+        },
+        { Authorization: `Bearer ${credential}` }
+      ),
+      ENV_WITH_SECRET,
+      ctx
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ connected: false })
+    expect(getByNameCalls).toEqual([OPAQUE_CONNECTION_ID])
+    expect(response.url).not.toContain(OPAQUE_CONNECTION_ID)
+  })
+
+  it("rejects malformed and unknown fixed-route operations without actor activation or reflecting attacker input", async () => {
+    const credential = await mintCredential(SECRET, 30)
+    const maliciousOperation = "unknown-operation-with-user@example.test"
+    const malformed = await worker.fetch(
+      fixedAccountRequest(
+        {
+          locator: { kind: "provider-connection", providerConnectionId: "gpc_not-a-uuid" },
+          operation: maliciousOperation
+        },
+        { Authorization: `Bearer ${credential}` }
+      ),
+      ENV_WITH_SECRET,
+      ctx
+    )
+    expect(malformed.status).toBe(400)
+    expect(await malformed.text()).not.toContain(maliciousOperation)
+    expect(getByNameCalls).toHaveLength(0)
+
+    const unknown = await worker.fetch(
+      fixedAccountRequest(
+        {
+          locator: { kind: "provider-connection", providerConnectionId: OPAQUE_CONNECTION_ID },
+          operation: maliciousOperation
+        },
+        { Authorization: `Bearer ${credential}` }
+      ),
+      ENV_WITH_SECRET,
+      ctx
+    )
+    expect(unknown.status).toBe(404)
+    expect(await unknown.text()).not.toContain(maliciousOperation)
+    expect(getByNameCalls).toHaveLength(0)
   })
 
   it("ACCEPTS a valid credential on /describe (no DO involved)", async () => {

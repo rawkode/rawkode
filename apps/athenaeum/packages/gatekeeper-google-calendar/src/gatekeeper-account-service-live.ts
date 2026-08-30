@@ -46,10 +46,9 @@ const ACCESS_TOKEN_REFRESH_SAFETY_MARGIN_MS = 60_000
 const VERIFIER_TTL_SECONDS = 60 * 60
 
 export interface GatekeeperAccountServiceConfig {
-  /** This account's own Athenaeum identity — bound once at Layer-construction time (this Service
-   *  is one-per-DO-instance, one-DO-per-account), the same way every `WorkspaceDurableObject` service
-   *  binds `workspaceId` via closure rather than taking it as a per-call argument. */
-  readonly accountEmail: string
+  /** Opaque DO custody key. An Athenaeum principal is deliberately not retained in this token-owning
+   *  service; the backend verifies that relationship before invoking this Worker. */
+  readonly connectionId: string
   /** Signs/verifies this account's own minted `GatekeeperUserVerifier` tokens — see
    *  `observer-verifier.ts`'s header comment for why this is an HMAC secret local to this
    *  package/Worker, not shared with `athenaeum-backend`'s own `DEV_AUTH_HMAC_SECRET`. */
@@ -76,17 +75,36 @@ export const makeGatekeeperAccountServiceLive = (
           Effect.provideService(ObserverLedger, ledger)
         )
 
-      const connect: GatekeeperAccountServiceApi["connect"] = (code, redirectUri) =>
+      const completionDigest = (attemptId: string, code: string, redirectUri: string): Effect.Effect<string> =>
+        Effect.promise(async () => {
+          const bytes = new TextEncoder().encode(`${config.connectionId}\u0000${attemptId}\u0000${code}\u0000${redirectUri}`)
+          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+          return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
+        })
+
+      const connect: GatekeeperAccountServiceApi["connect"] = (attemptId, code, redirectUri) =>
         Effect.gen(function* () {
-          const exchanged = yield* client.exchangeAuthorizationCode(code, redirectUri)
           const current = yield* tokens.get
+          const requestDigest = attemptId === undefined ? undefined : yield* completionDigest(attemptId, code, redirectUri)
+          if (attemptId !== undefined && current.completion !== undefined) {
+            if (current.completion.attemptId === attemptId && current.completion.requestDigest === requestDigest && current.connected) return
+            return yield* Effect.fail(new GatekeeperAccountNotConnected({ message: "OAuth completion does not match this connection." }))
+          }
+          const exchanged = yield* client.exchangeAuthorizationCode(code, redirectUri)
+          const refreshToken = exchanged.refreshToken ?? current.refreshToken
+          if (refreshToken === undefined || refreshToken.trim().length === 0) {
+            return yield* Effect.fail(new GatekeeperAccountNotConnected({ message: "OAuth completion did not grant durable access." }))
+          }
           yield* tokens.put({
             connected: true,
             accessToken: exchanged.accessToken,
             accessTokenExpiresAtMs: Date.now() + exchanged.expiresInSeconds * 1000,
             // Google only returns a refresh token on the FIRST exchange (OAuthTokens.refreshToken's
             // own doc comment) — keep the original if this exchange didn't return a new one.
-            refreshToken: exchanged.refreshToken ?? current.refreshToken
+            refreshToken,
+            ...(attemptId !== undefined && requestDigest !== undefined
+              ? { completion: { attemptId, requestDigest, completedAt: new Date().toISOString() } }
+              : {})
           })
         })
 
@@ -101,10 +119,10 @@ export const makeGatekeeperAccountServiceLive = (
        *  401-retry path below share identical persistence logic. */
       const refreshNow: Effect.Effect<string, GatekeeperAccountServiceError> = Effect.gen(function* () {
         const current = yield* tokens.get
-        if (current.refreshToken === undefined) {
+        if (current.refreshToken === undefined || current.refreshToken.trim().length === 0) {
           return yield* Effect.fail(
             new GatekeeperAccountNotConnected({
-              message: `Account ${config.accountEmail} has no refresh token — it must complete the OAuth flow (connect) before it can be used.`
+              message: "This calendar connection has no durable authorization."
             })
           )
         }
@@ -115,7 +133,8 @@ export const makeGatekeeperAccountServiceLive = (
           accessTokenExpiresAtMs: Date.now() + refreshed.expiresInSeconds * 1000,
           // Never rotated on this grant type (OAuthTokens.refreshToken's own doc comment) — keep
           // the same one this refresh was called with.
-          refreshToken: current.refreshToken
+          refreshToken: current.refreshToken,
+          ...(current.completion === undefined ? {} : { completion: current.completion })
         })
         return refreshed.accessToken
       })
@@ -125,7 +144,7 @@ export const makeGatekeeperAccountServiceLive = (
         if (!current.connected) {
           return yield* Effect.fail(
             new GatekeeperAccountNotConnected({
-              message: `Account ${config.accountEmail} has not completed the OAuth flow (connect).`
+          message: "This calendar connection has not completed the OAuth flow."
             })
           )
         }
@@ -179,17 +198,17 @@ export const makeGatekeeperAccountServiceLive = (
       const freeBusy: GatekeeperAccountServiceApi["freeBusy"] = (calendarIds, timeMin, timeMax) =>
         withAccessTokenRetry((token) => client.freeBusy(token, calendarIds, timeMin, timeMax))
 
-      const getVerifier: GatekeeperAccountServiceApi["getVerifier"] = Effect.gen(function* () {
+      const getVerifier: GatekeeperAccountServiceApi["getVerifier"] = (observerEmail) => Effect.gen(function* () {
         const current = yield* Effect.orDie(tokens.get)
         if (!current.connected) {
           return yield* Effect.fail(
             new GatekeeperAccountNotConnected({
-              message: `Account ${config.accountEmail} has not completed the OAuth flow (connect) — cannot vouch for it as an observer.`
+            message: "This calendar connection has not completed the OAuth flow."
             })
           )
         }
         return yield* mintGatekeeperUserVerifier(
-          { observerEmail: config.accountEmail, connectionId: config.accountEmail } as ObserverIdentity,
+          { observerEmail, connectionId: config.connectionId } as ObserverIdentity,
           config.verifierHmacSecret,
           VERIFIER_TTL_SECONDS
         )

@@ -117,7 +117,10 @@ const handleConnect = async (request: Request, env: Env): Promise<Response> => {
     redirectUri,
     state,
     scopes: Array.isArray(scopes) && scopes.every((s) => typeof s === "string") ? scopes : DEFAULT_SCOPES,
-    ...(typeof forceConsent === "boolean" ? { forceConsent } : {})
+    // A newly started connection must make the Google account choice explicit and request an
+    // offline grant.  An explicit `false` remains available for the legacy caller contract, but
+    // the normal fresh-flow path asks Google to show consent so a durable refresh token is issued.
+    forceConsent: forceConsent !== false
   }
   const clientLayer = makeGoogleCalendarClientRealLive({
     clientId: env.GOOGLE_OAUTH_CLIENT_ID,
@@ -156,37 +159,58 @@ const DEFAULT_SCOPES = [
  *  as before — this credential proves "the caller is genuinely `athenaeum-backend`," a DIFFERENT,
  *  additional guarantee neither `requireRoleForGovernedWorkspace` nor a bare service binding provide
  *  once a second, unauthenticated path to this same Worker exists. */
-const ACCOUNT_ROUTE = /^\/gatekeeper\/google-calendar\/account\/([^/]+)\/([a-z-]+)$/
+const LEGACY_ACCOUNT_ROUTE = /^\/gatekeeper\/google-calendar\/account\/([^/]+)\/([a-z-]+)$/
+const OPAQUE_CONNECTION_ID = /^gpc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionContext, email: string, op: string): Promise<Response> => {
-  const stub = ctx.exports.GatekeeperAccountDurableObject.getByName(decodeURIComponent(email))
-  const body = await readJsonBody(request)
+type AccountLocator =
+  | { readonly kind: "provider-connection"; readonly name: string }
+  | { readonly kind: "legacy-email"; readonly name: string }
+
+const decodeAccountLocator = (value: unknown): AccountLocator | undefined => {
+  if (typeof value !== "object" || value === null) return undefined
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind === "provider-connection" && typeof candidate.providerConnectionId === "string" && OPAQUE_CONNECTION_ID.test(candidate.providerConnectionId)) {
+    return { kind: "provider-connection", name: candidate.providerConnectionId }
+  }
+  // A private migration adapter only. New callers must use the opaque identifier above; this
+  // branch keeps already-issued email-named token DOs usable without copying secrets between DOs.
+  if (candidate.kind === "legacy-email" && typeof candidate.email === "string" && candidate.email.length > 0 && candidate.email.length <= 320) {
+    return { kind: "legacy-email", name: candidate.email }
+  }
+  return undefined
+}
+
+const handleAccountOperation = async (ctx: ExecutionContext, locator: AccountLocator, body: Record<string, unknown>, op: string): Promise<Response> => {
+  // Do not resolve a Durable Object until the operation's input is known-valid.  Besides avoiding
+  // needless actor activation for malformed requests, this keeps invalid operation details out of
+  // actor traces.
+  const stub = () => ctx.exports.GatekeeperAccountDurableObject.getByName(locator.name)
 
   try {
     switch (op) {
       case "oauth-exchange": {
-        const { code, redirectUri } = body as { code?: unknown; redirectUri?: unknown }
-        if (typeof code !== "string" || typeof redirectUri !== "string") {
+        const { code, redirectUri, attemptId } = body as { code?: unknown; redirectUri?: unknown; attemptId?: unknown }
+        if (typeof code !== "string" || typeof redirectUri !== "string" || (locator.kind === "provider-connection" && typeof attemptId !== "string")) {
           return json({ tag: "ValidationError", message: "oauth-exchange: expected {code, redirectUri} strings" }, 400)
         }
-        return json(await stub.completeOAuth(code, redirectUri))
+        return json(await stub().completeOAuth(code, redirectUri, typeof attemptId === "string" ? attemptId : undefined))
       }
       case "disconnect":
-        await stub.disconnect()
+        await stub().disconnect()
         return json({ disconnected: true })
       case "is-connected":
-        return json({ connected: await stub.isConnected() })
+        return json({ connected: await stub().isConnected() })
       case "list-calendars":
-        return json(await stub.listCalendars())
+        return json(await stub().listCalendars())
       case "events-page": {
         const { calendarId, query } = body as { calendarId?: unknown; query?: unknown }
         if (typeof calendarId !== "string") return json({ tag: "ValidationError", message: "events-page: calendarId required" }, 400)
-        return json(await stub.eventsPage(calendarId, query))
+        return json(await stub().eventsPage(calendarId, query))
       }
       case "create-event": {
         const { calendarId, draft, sendUpdates } = body as { calendarId?: unknown; draft?: unknown; sendUpdates?: unknown }
         if (typeof calendarId !== "string") return json({ tag: "ValidationError", message: "create-event: calendarId required" }, 400)
-        return json(await stub.createEvent(calendarId, draft, sendUpdatesOption(sendUpdates)))
+        return json(await stub().createEvent(calendarId, draft, sendUpdatesOption(sendUpdates)))
       }
       case "update-event": {
         const { calendarId, eventId, patch, sendUpdates } = body as {
@@ -198,14 +222,14 @@ const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionCont
         if (typeof calendarId !== "string" || typeof eventId !== "string") {
           return json({ tag: "ValidationError", message: "update-event: calendarId/eventId required" }, 400)
         }
-        return json(await stub.updateEvent(calendarId, eventId, patch, sendUpdatesOption(sendUpdates)))
+        return json(await stub().updateEvent(calendarId, eventId, patch, sendUpdatesOption(sendUpdates)))
       }
       case "delete-event": {
         const { calendarId, eventId, sendUpdates } = body as { calendarId?: unknown; eventId?: unknown; sendUpdates?: unknown }
         if (typeof calendarId !== "string" || typeof eventId !== "string") {
           return json({ tag: "ValidationError", message: "delete-event: calendarId/eventId required" }, 400)
         }
-        await stub.deleteEvent(calendarId, eventId, sendUpdatesOption(sendUpdates))
+        await stub().deleteEvent(calendarId, eventId, sendUpdatesOption(sendUpdates))
         return json({ deleted: true })
       }
       case "free-busy": {
@@ -213,10 +237,13 @@ const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionCont
         if (!Array.isArray(calendarIds) || typeof timeMin !== "string" || typeof timeMax !== "string") {
           return json({ tag: "ValidationError", message: "free-busy: expected {calendarIds[], timeMin, timeMax}" }, 400)
         }
-        return json(await stub.freeBusy(calendarIds, timeMin, timeMax))
+        return json(await stub().freeBusy(calendarIds, timeMin, timeMax))
       }
-      case "get-verifier":
-        return json(await stub.getVerifier())
+      case "get-verifier": {
+        const observerEmail = typeof body.observerEmail === "string" ? body.observerEmail : locator.kind === "legacy-email" ? locator.name : undefined
+        if (observerEmail === undefined || observerEmail.length === 0) return json({ tag: "ValidationError", message: "get-verifier: observerEmail required" }, 400)
+        return json(await stub().getVerifier(observerEmail))
+      }
       case "add-observer": {
         const { bindingId, observerId, verifierToken, mode, calendarId } = body as {
           bindingId?: unknown
@@ -234,7 +261,7 @@ const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionCont
         ) {
           return json({ tag: "ValidationError", message: "add-observer: missing/invalid fields" }, 400)
         }
-        await stub.addObserver(bindingId, observerId, verifierToken, mode, calendarId)
+        await stub().addObserver(bindingId, observerId, verifierToken, mode, calendarId)
         return json({ added: true })
       }
       case "remove-observer": {
@@ -242,7 +269,7 @@ const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionCont
         if (typeof bindingId !== "string" || typeof observerId !== "string") {
           return json({ tag: "ValidationError", message: "remove-observer: bindingId/observerId required" }, 400)
         }
-        await stub.removeObserver(bindingId, observerId)
+        await stub().removeObserver(bindingId, observerId)
         return json({ removed: true })
       }
       case "on-calendar-touched": {
@@ -250,14 +277,25 @@ const handleAccountRoute = async (request: Request, env: Env, ctx: ExecutionCont
         if (typeof bindingId !== "string" || typeof calendarId !== "string") {
           return json({ tag: "ValidationError", message: "on-calendar-touched: bindingId/calendarId required" }, 400)
         }
-        return json(await stub.onCalendarTouched(bindingId, calendarId))
+        return json(await stub().onCalendarTouched(bindingId, calendarId))
       }
       default:
-        return json({ tag: "ValidationError", message: `Unknown account operation "${op}"` }, 404)
+        return json({ tag: "ValidationError", message: "Unknown account operation." }, 404)
     }
   } catch (error) {
     return errorResponse(error)
   }
+}
+
+/** The new fixed transport endpoint. Account custody never appears in the URL. */
+const handleFixedAccountRoute = async (request: Request, ctx: ExecutionContext): Promise<Response> => {
+  const body = await readJsonBody(request)
+  const locator = decodeAccountLocator(body.locator)
+  const operation = body.operation
+  if (locator === undefined || typeof operation !== "string") {
+    return json({ tag: "ValidationError", message: "account: expected a valid locator and operation" }, 400)
+  }
+  return handleAccountOperation(ctx, locator, body, operation)
 }
 
 const sendUpdatesOption = (value: unknown): { sendUpdates?: "all" | "externalOnly" | "none" } | undefined =>
@@ -283,10 +321,14 @@ export default {
     if (url.pathname === "/gatekeeper/google-calendar/connect" && request.method === "POST") {
       return handleConnect(request, env)
     }
-    const accountMatch = url.pathname.match(ACCOUNT_ROUTE)
-    if (accountMatch) {
+    if (url.pathname === "/gatekeeper/google-calendar/account" && request.method === "POST") {
+      return handleFixedAccountRoute(request, ctx)
+    }
+    const accountMatch = url.pathname.match(LEGACY_ACCOUNT_ROUTE)
+    if (accountMatch && request.method === "POST") {
       const [, email, op] = accountMatch as unknown as [string, string, string]
-      return handleAccountRoute(request, env, ctx, email, op)
+      const body = await readJsonBody(request)
+      return handleAccountOperation(ctx, { kind: "legacy-email", name: decodeURIComponent(email) }, body, op)
     }
 
     return new Response("Not Found", { status: 404 })

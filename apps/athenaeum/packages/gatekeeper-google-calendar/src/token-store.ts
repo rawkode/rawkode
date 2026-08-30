@@ -31,6 +31,17 @@ export interface StoredTokens {
    *  .refreshToken`'s own doc comment: "the caller... keeps using the ORIGINAL refresh token"), so
    *  a later `connect()`/refresh call must never overwrite a present value with `undefined`. */
   readonly refreshToken?: string
+  /**
+   * A durable, non-secret fact that an opaque OAuth attempt completed in this account DO. It is
+   * stored with the tokens so a provider-success/backend-crash retry never spends the same
+   * authorization code twice. `requestDigest` binds the attempt, code and redirect URI without
+   * retaining the raw authorization code.
+   */
+  readonly completion?: {
+    readonly attemptId: string
+    readonly requestDigest: string
+    readonly completedAt: string
+  }
 }
 
 export const DISCONNECTED_TOKENS: StoredTokens = { connected: false }

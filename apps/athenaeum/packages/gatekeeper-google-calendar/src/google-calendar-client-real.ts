@@ -305,7 +305,10 @@ export const makeGoogleCalendarClientRealLive = (
             // for the recurring hourly-reconciliation sync new-notes' cited pattern describes.
             url.searchParams.set("access_type", "offline")
             url.searchParams.set("include_granted_scopes", "true")
-            if (options.forceConsent) url.searchParams.set("prompt", "consent")
+            // A durable connection must let the user choose the intended Google account on every
+            // new authorization attempt. Combining this with offline access avoids silently
+            // reusing a browser-session account and maximises the chance of a refresh token.
+            url.searchParams.set("prompt", options.forceConsent ? "consent select_account" : "select_account")
             url.searchParams.set("state", options.state)
             return { url: url.toString() }
           })

@@ -15,22 +15,27 @@ import { ObserverLedgerInMemory } from "../src/observer-ledger.js"
 import { TokenStoreInMemory } from "../src/token-store.js"
 import { GatekeeperAccountService } from "../src/gatekeeper-account-service.js"
 import { makeGatekeeperAccountServiceLive } from "../src/gatekeeper-account-service-live.js"
+import { unwrapGatekeeperUserVerifier } from "../src/observer-verifier.js"
 
 const CLIENT_ID = "test-client-id"
 const CLIENT_SECRET = "test-client-secret"
 const VERIFIER_SECRET = "test-verifier-hmac-secret"
 const REDIRECT_URI = "https://example.test/oauth/callback"
+const CONNECTION_ID = "gpc_11111111-1111-4111-8111-111111111111"
 
 /** Builds a fully-wired test `GatekeeperAccountService`, backed by real
  *  `GoogleCalendarClientReal` + in-memory `TokenStore`/`ObserverLedger`, against a scripted fake
  *  `fetch` the test supplies. */
-const makeTestService = (fetchImpl: (url: string, init: RequestInit) => Promise<Response>) => {
+const makeTestService = (
+  fetchImpl: (url: string, init: RequestInit) => Promise<Response>,
+  connectionId = CONNECTION_ID
+) => {
   const httpFetchLayer = Layer.succeed(HttpFetch, { fetch: fetchImpl })
   const clientLayer = makeGoogleCalendarClientRealLive({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }).pipe(
     Layer.provide(httpFetchLayer)
   )
   const serviceLayer = makeGatekeeperAccountServiceLive({
-    accountEmail: "alice@example.test",
+    connectionId,
     verifierHmacSecret: VERIFIER_SECRET
   }).pipe(Layer.provide(Layer.mergeAll(clientLayer, ObserverLedgerInMemory, TokenStoreInMemory)))
   return Effect.runSync(Effect.provide(GatekeeperAccountService, serviceLayer))
@@ -52,7 +57,7 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
       })
     })
 
-    await Effect.runPromise(service.connect("auth-code-1", REDIRECT_URI))
+    await Effect.runPromise(service.connect("attempt-1", "auth-code-1", REDIRECT_URI))
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe("https://oauth2.googleapis.com/token")
@@ -75,8 +80,8 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
         : jsonResponse({ access_token: "access-2", expires_in: 3600 }) // no refresh_token this time
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
-    await Effect.runPromise(service.connect("code-2", REDIRECT_URI))
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
+    await Effect.runPromise(service.connect(undefined, "code-2", REDIRECT_URI))
 
     // Force a refresh by asking for a fresh access token beyond what a real caller would need —
     // proven indirectly below via the 401-retry test, which is the one that actually exercises
@@ -90,6 +95,76 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
     const service = makeTestService(async () => jsonResponse({}, 500))
     const exit = await Effect.runPromiseExit(service.getAccessToken)
     expect(exit._tag).toBe("Failure")
+  })
+
+  it("persists an opaque completion fact: an exact retry replays without spending the grant twice", async () => {
+    let exchanges = 0
+    const service = makeTestService(async (url) => {
+      expect(url).toBe("https://oauth2.googleapis.com/token")
+      exchanges += 1
+      return jsonResponse({ access_token: "access", expires_in: 3600, refresh_token: "refresh" })
+    })
+
+    await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
+    await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
+
+    expect(exchanges).toBe(1)
+    await expect(Effect.runPromise(service.isConnected)).resolves.toBe(true)
+  })
+
+  it("rejects a changed or competing opaque completion after the first durable grant", async () => {
+    const service = makeTestService(async () =>
+      jsonResponse({ access_token: "access", expires_in: 3600, refresh_token: "refresh" })
+    )
+    await Effect.runPromise(service.connect("attempt-one", "code-one", REDIRECT_URI))
+
+    expect((await Effect.runPromiseExit(service.connect("attempt-one", "code-two", REDIRECT_URI)))._tag).toBe("Failure")
+    expect((await Effect.runPromiseExit(service.connect("attempt-two", "code-one", REDIRECT_URI)))._tag).toBe("Failure")
+  })
+
+  it("does not activate a fresh opaque connection when Google omits a refresh token", async () => {
+    const service = makeTestService(async () => jsonResponse({ access_token: "access", expires_in: 3600 }))
+    expect((await Effect.runPromiseExit(service.connect("attempt-no-refresh", "code", REDIRECT_URI)))._tag).toBe("Failure")
+    await expect(Effect.runPromise(service.isConnected)).resolves.toBe(false)
+  })
+
+  it("does not activate a fresh opaque connection when Google supplies a blank refresh token", async () => {
+    const service = makeTestService(async () => jsonResponse({ access_token: "access", expires_in: 3600, refresh_token: "   " }))
+    expect((await Effect.runPromiseExit(service.connect("attempt-blank-refresh", "code", REDIRECT_URI)))._tag).toBe("Failure")
+    await expect(Effect.runPromise(service.isConnected)).resolves.toBe(false)
+  })
+
+  it("clears the durable completion fact on disconnect, allowing a deliberately new authorization", async () => {
+    let exchanges = 0
+    const service = makeTestService(async () => {
+      exchanges += 1
+      return jsonResponse({ access_token: `access-${exchanges}`, expires_in: 3600, refresh_token: `refresh-${exchanges}` })
+    })
+
+    await Effect.runPromise(service.connect("attempt-one", "code-one", REDIRECT_URI))
+    await Effect.runPromise(service.disconnect)
+    await Effect.runPromise(service.connect("attempt-two", "code-two", REDIRECT_URI))
+
+    expect(exchanges).toBe(2)
+  })
+
+  it("keeps opaque A/B connection custody isolated even for the same observer", async () => {
+    const connectionA = CONNECTION_ID
+    const connectionB = "gpc_22222222-2222-4222-8222-222222222222"
+    const serviceA = makeTestService(async () => jsonResponse({ access_token: "access-a", expires_in: 3600, refresh_token: "refresh-a" }), connectionA)
+    const serviceB = makeTestService(async () => jsonResponse({ access_token: "access-b", expires_in: 3600, refresh_token: "refresh-b" }), connectionB)
+
+    await Effect.runPromise(serviceA.connect("attempt-a", "code-a", REDIRECT_URI))
+    await Effect.runPromise(serviceB.connect("attempt-b", "code-b", REDIRECT_URI))
+    const [identityA, identityB] = await Promise.all([
+      Effect.runPromise(Effect.flatMap(serviceA.getVerifier("alice@example.test"), (verifier) => unwrapGatekeeperUserVerifier(verifier, VERIFIER_SECRET))),
+      Effect.runPromise(Effect.flatMap(serviceB.getVerifier("alice@example.test"), (verifier) => unwrapGatekeeperUserVerifier(verifier, VERIFIER_SECRET)))
+    ])
+
+    expect(identityA.connectionId).toBe(connectionA)
+    expect(identityB.connectionId).toBe(connectionB)
+    expect(identityA.observerEmail).toBe("alice@example.test")
+    expect(identityB.observerEmail).toBe("alice@example.test")
   })
 })
 
@@ -124,7 +199,7 @@ describe("GatekeeperAccountServiceLive — refresh-on-401 retry", () => {
       throw new Error(`unexpected request to ${url}`)
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
     const calendars = await Effect.runPromise(service.listCalendars)
 
     expect(calendars).toHaveLength(1)
@@ -149,7 +224,7 @@ describe("GatekeeperAccountServiceLive — refresh-on-401 retry", () => {
       return new Response("unauthorized", { status: 401 })
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
     const exit = await Effect.runPromiseExit(service.listCalendars)
     expect(exit._tag).toBe("Failure")
   })
@@ -175,7 +250,7 @@ describe("GatekeeperAccountServiceLive — calendar CRUD (task item 5, GoogleCal
       throw new Error(`unexpected request ${init.method} ${url}`)
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
     const created = await Effect.runPromise(
       service.createEvent("primary", { title: "Standup", start: { kind: "date", date: "2026-09-01" }, end: { kind: "date", date: "2026-09-02" } })
     )
@@ -204,8 +279,8 @@ describe("GatekeeperAccountServiceLive — verifier + Strategy B/C wiring", () =
       throw new Error(`unexpected request ${String(init.method)} ${url}`)
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
-    const verifier = await Effect.runPromise(service.getVerifier)
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
+    const verifier = await Effect.runPromise(service.getVerifier("alice@example.test"))
     expect(typeof verifier.token).toBe("string")
 
     const resolveAccessToken = () => service.getAccessToken
@@ -222,8 +297,8 @@ describe("GatekeeperAccountServiceLive — verifier + Strategy B/C wiring", () =
       return jsonResponse({ id: "team-calendar", summary: "Team", accessRole: "reader" })
     })
 
-    await Effect.runPromise(service.connect("code-1", REDIRECT_URI))
-    const verifier = await Effect.runPromise(service.getVerifier)
+    await Effect.runPromise(service.connect(undefined, "code-1", REDIRECT_URI))
+    const verifier = await Effect.runPromise(service.getVerifier("alice@example.test"))
     const exit = await Effect.runPromiseExit(
       service.addObserver("binding-1", "observer-1", verifier, "selected", "team-calendar", () => service.getAccessToken)
     )

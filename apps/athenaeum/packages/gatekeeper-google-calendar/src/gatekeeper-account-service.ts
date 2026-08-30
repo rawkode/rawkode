@@ -50,7 +50,7 @@ export type { AccessTokenResolver } from "./observer-verification.js"
 
 export interface GatekeeperAccountServiceApi {
   // --- OAuth lifecycle (ctx.exports-only at the DO layer — see that file) -------------------
-  readonly connect: (code: string, redirectUri: string) => Effect.Effect<void, GatekeeperAccountServiceError>
+  readonly connect: (attemptId: string | undefined, code: string, redirectUri: string) => Effect.Effect<void, GatekeeperAccountServiceError>
   readonly disconnect: Effect.Effect<void>
   readonly isConnected: Effect.Effect<boolean>
   /** The account's own, currently-valid access token — refreshed if expired/expiring. Used by
@@ -97,7 +97,7 @@ export interface GatekeeperAccountServiceApi {
    *  own identity). Requires `connect()` to have succeeded at least once (fails
    *  `GatekeeperAccountNotConnected` otherwise) — an account that never connected has nothing to
    *  vouch for. */
-  readonly getVerifier: Effect.Effect<GatekeeperUserVerifier, GatekeeperAccountNotConnected>
+  readonly getVerifier: (observerEmail: string) => Effect.Effect<GatekeeperUserVerifier, GatekeeperAccountNotConnected>
   /** `Gatekeeper.addObserver()`'s real implementation for whichever binding calls it (this
    *  account is the one whose calendar connection the binding is bound to). `mode`/`calendarId`
    *  come from the binding (this service has no binding storage of its own — see
