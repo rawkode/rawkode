@@ -77,30 +77,39 @@ const bookmarkInput = (workspaceId: string, url: string, title?: string) => ({
  * two `syncGoogleCalendar` calls, for the Strategy C re-verification test below). */
 type ScriptedCalendarClientOptions = {
   readonly legacy?: boolean
-  /** Account fixture selected for each newly admitted opaque provider connection, in order. */
-  readonly opaqueAccounts?: ReadonlyArray<string>
+  /**
+   * Explicit provider-code -> fixture mapping for opaque admissions.  This is intentionally not a
+   * queue: callback arrival order must not decide which account a connection owns.
+   */
+  readonly opaqueAccountByCode?: Readonly<Record<string, string>>
+  /** Simulates provider success followed by a lost response; status recovery must return receipt. */
+  readonly responseLossCodes?: ReadonlySet<string>
 }
 
 const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFixtures, options: ScriptedCalendarClientOptions = {}) => {
   const scripted = makeGoogleCalendarClientScripted(fixtures)
   const client = Effect.runSync(Effect.provide(GoogleCalendarClient, scripted.layer))
   const ledger = Effect.runSync(Effect.provide(ObserverLedger, ObserverLedgerInMemory))
-  const opaqueAccounts = [...(options.opaqueAccounts ?? [Object.keys(fixtures.accounts)[0]!])]
   const opaqueAccountByConnection = new Map<string, string>()
   const opaqueRouteCalls: Array<string> = []
   const legacyRouteCalls: Array<string> = []
-  const resolveOpaqueAccount = (locator: { readonly kind: string; readonly providerConnectionId?: string }) => {
+  const opaqueExchangeCalls: Array<{ readonly providerConnectionId: string; readonly attemptId: string; readonly code: string }> = []
+  const opaqueReceiptByAttempt = new Map<string, { readonly receiptDigest: string; readonly completionFactDigest: string; readonly completedAt: string }>()
+  const opaqueAttemptByConnection = new Map<string, string>()
+  const resolveOpaqueAccount = (locator: { readonly kind: string; readonly providerConnectionId?: string }, code?: string) => {
     if (locator.kind !== "provider-connection" || locator.providerConnectionId === undefined) {
       return Effect.fail(new UnexpectedError({ message: "scripted opaque route requires a provider connection locator" }))
     }
     const existing = opaqueAccountByConnection.get(locator.providerConnectionId)
     if (existing !== undefined) return Effect.succeed(existing)
-    const next = opaqueAccounts.shift()
-    if (next === undefined || scripted.fixtures.accounts[next] === undefined) {
+    const selected = code === undefined ? undefined : options.opaqueAccountByCode?.[code]
+    const fallback = Object.keys(fixtures.accounts)[0]
+    const account = selected ?? fallback
+    if (account === undefined || scripted.fixtures.accounts[account] === undefined) {
       return Effect.fail(new UnexpectedError({ message: "scripted opaque route has no account fixture" }))
     }
-    opaqueAccountByConnection.set(locator.providerConnectionId, next)
-    return Effect.succeed(next)
+    opaqueAccountByConnection.set(locator.providerConnectionId, account)
+    return Effect.succeed(account)
   }
   const withGatekeeperServices = <A>(effect: Effect.Effect<A, { readonly message: string }, GoogleCalendarClient | ObserverLedger>) =>
     effect.pipe(
@@ -158,12 +167,34 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
       // The scripted provider fixture is intentionally token-keyed. Opaque production routing is
       // exercised by CalendarService; this fixture deterministically selects its sole scripted
       // account without exposing a real provider identity.
-      completeOAuth: (locator) =>
-        resolveOpaqueAccount(locator).pipe(
-          Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)),
-          Effect.as({ receiptDigest: "a".repeat(64), completionFactDigest: "b".repeat(64), completedAt: new Date().toISOString() })
+      completeOAuth: (locator, attemptId, code) =>
+        resolveOpaqueAccount(locator, code).pipe(
+          Effect.flatMap(() => {
+            const priorAttempt = opaqueAttemptByConnection.get(locator.providerConnectionId)
+            if (priorAttempt !== undefined && priorAttempt !== attemptId) {
+              return Effect.fail(new UnexpectedError({ message: "scripted opaque route rejected a competing completion" }))
+            }
+            opaqueAttemptByConnection.set(locator.providerConnectionId, attemptId)
+            const receiptKey = `${locator.providerConnectionId}:${attemptId}`
+            const receipt = opaqueReceiptByAttempt.get(receiptKey) ?? {
+              receiptDigest: `${opaqueReceiptByAttempt.size + 1}`.padStart(64, "a"),
+              completionFactDigest: `${opaqueReceiptByAttempt.size + 1}`.padStart(64, "b"),
+              completedAt: new Date().toISOString()
+            }
+            if (!opaqueReceiptByAttempt.has(receiptKey)) opaqueExchangeCalls.push({ providerConnectionId: locator.providerConnectionId, attemptId, code })
+            opaqueReceiptByAttempt.set(receiptKey, receipt)
+            opaqueRouteCalls.push(locator.providerConnectionId)
+            return options.responseLossCodes?.has(code) === true
+              ? Effect.fail(new UnexpectedError({ message: "scripted provider response lost after completion" }))
+              : Effect.succeed(receipt)
+          })
         ),
-      getOAuthCompletion: () => Effect.succeed({ receiptDigest: "a".repeat(64), completionFactDigest: "b".repeat(64), completedAt: new Date().toISOString() }),
+      getOAuthCompletion: (locator, attemptId) => {
+        const receipt = opaqueReceiptByAttempt.get(`${locator.providerConnectionId}:${attemptId}`)
+        return receipt === undefined
+          ? Effect.fail(new UnexpectedError({ message: "scripted opaque completion is unavailable" }))
+          : Effect.succeed(receipt)
+      },
       isConnected: () => Effect.succeed({ connected: true }),
       disconnect: (locator) => resolveOpaqueAccount(locator).pipe(Effect.tap(() => opaqueRouteCalls.push(locator.providerConnectionId)), Effect.asVoid),
       listCalendars: (locator) =>
@@ -204,7 +235,7 @@ const installScriptedCalendarClient = (fixtures: GoogleCalendarClientScriptedFix
     } })
   }
   calendarGatekeeperClientTestHook.api = api
-  return Object.assign(scripted, { opaqueRouteCalls, legacyRouteCalls })
+  return Object.assign(scripted, { opaqueRouteCalls, legacyRouteCalls, opaqueExchangeCalls, opaqueAccountByConnection })
 }
 
 /** Same real `UserDurableObject#createWorkspace` round trip every governed-workspace test in this suite
@@ -315,7 +346,7 @@ describe("CalendarService — connect/callback/disconnect", () => {
           [secondAccount]: { calendars: { [CALENDAR_ID]: "owner" }, freeBusyReadableCalendarIds: [], events: { [CALENDAR_ID]: [] } }
         }
       },
-      { opaqueAccounts: [ACCOUNT_EMAIL, secondAccount] }
+      { opaqueAccountByCode: { "first-code": ACCOUNT_EMAIL, "second-code": secondAccount } }
     )
 
     const firstWorkspace = freshWorkspaceId()
@@ -351,6 +382,108 @@ describe("CalendarService — connect/callback/disconnect", () => {
     expect(scripted.legacyRouteCalls).toEqual([])
     expect(scripted.opaqueRouteCalls).toHaveLength(4)
     expect(new Set(scripted.opaqueRouteCalls).size).toBe(2)
+  })
+
+  it("keeps two opaque accounts for one principal isolated across reverse callbacks, response recovery, sync, replay, and disconnect", async () => {
+    const accountA = "google-a@example.test"
+    const accountB = "google-b@example.test"
+    const calendarA = "calendar-a@group.calendar.google.test"
+    const calendarB = "calendar-b@group.calendar.google.test"
+    const codeA = "code-account-a"
+    const codeB = "code-account-b-response-lost"
+    const scripted = installScriptedCalendarClient(
+      {
+        accounts: {
+          [accountA]: {
+            calendars: { [calendarA]: "owner" },
+            freeBusyReadableCalendarIds: [],
+            events: {
+              [calendarA]: [
+                new ScriptedCalendarEvent({
+                  id: "event-account-a",
+                  title: "Account A only",
+                  start: { kind: "dateTime", dateTime: new Date().toISOString() },
+                  end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+                  status: "confirmed"
+                })
+              ]
+            }
+          },
+          [accountB]: {
+            calendars: { [calendarB]: "owner" },
+            freeBusyReadableCalendarIds: [],
+            events: {
+              [calendarB]: [
+                new ScriptedCalendarEvent({
+                  id: "event-account-b",
+                  title: "Account B only",
+                  start: { kind: "dateTime", dateTime: new Date().toISOString() },
+                  end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+                  status: "confirmed"
+                })
+              ]
+            }
+          }
+        }
+      },
+      {
+        opaqueAccountByCode: { [codeA]: accountA, [codeB]: accountB },
+        responseLossCodes: new Set([codeB])
+      }
+    )
+    const workspaceId = freshWorkspaceId()
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+
+    const pendingA = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const pendingB = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+
+    // B completes first and deliberately loses its exchange response. CalendarService must recover
+    // exactly B's durable receipt instead of retrying A/B by queue order or another provider call.
+    const bindingB = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: codeB,
+      state: pendingB.state,
+      calendarId: calendarB,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    const bindingA = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: codeA,
+      state: pendingA.state,
+      calendarId: calendarA,
+      mode: "selected"
+    })) as { binding: { id: string } }
+
+    const replayB = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: codeB,
+      state: pendingB.state,
+      calendarId: calendarB,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    expect(replayB.binding.id).toBe(bindingB.binding.id)
+    expect(scripted.opaqueExchangeCalls.map((call) => call.code).sort()).toEqual([codeA, codeB].sort())
+    expect(new Set(scripted.opaqueExchangeCalls.map((call) => call.providerConnectionId)).size).toBe(2)
+
+    await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
+    await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingB.binding.id })
+    const events = (await stub.listCalendarEvents({ workspaceId })) as { events: ReadonlyArray<{ title: string }> }
+    expect(events.events.map((event) => event.title).sort()).toEqual(["Account A only", "Account B only"])
+
+    const connectionA = scripted.opaqueExchangeCalls.find((call) => call.code === codeA)!.providerConnectionId
+    const connectionB = scripted.opaqueExchangeCalls.find((call) => call.code === codeB)!.providerConnectionId
+    expect(scripted.opaqueAccountByConnection.get(connectionA)).toBe(accountA)
+    expect(scripted.opaqueAccountByConnection.get(connectionB)).toBe(accountB)
+    expect(scripted.legacyRouteCalls).toEqual([])
+
+    await stub.disconnectGoogleCalendar({ workspaceId, bindingId: bindingA.binding.id })
+    const bCallsBeforeResync = scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionB).length
+    const aCallsBeforeResync = scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionA).length
+    await stub.syncGoogleCalendar({ workspaceId, bindingId: bindingB.binding.id })
+    expect(scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionB).length).toBeGreaterThan(bCallsBeforeResync)
+    expect(scripted.opaqueRouteCalls.filter((connectionId) => connectionId === connectionA).length).toBe(aCallsBeforeResync)
+    expect(scripted.legacyRouteCalls).toEqual([])
   })
 
   it("rejects a callback whose state was minted for a different workspace", async () => {
