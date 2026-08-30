@@ -327,10 +327,15 @@ function TagDetail({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const request = useRef<TagEditRequest | undefined>(undefined)
+  const activeTagId = useRef<EntityId>(tag.id)
+  const selectionGeneration = useRef(0)
+  // Render-time assignment fences a completion that arrives before the following effect runs.
+  activeTagId.current = tag.id
   // TagFieldsList deliberately keeps its own retry/cache state across selection. Reset only the
   // schema-editor lifecycle so a failed draft, request id, error, or revision can never become
   // actionable for the newly selected tag.
   useEffect(() => {
+    selectionGeneration.current += 1
     request.current = undefined
     setDraft(undefined)
     setEditError(null)
@@ -345,10 +350,13 @@ function TagDetail({
   const loadBaseline = (preserveDraft: boolean) => {
     if (busy || loading || tag.builtin) return
     if (!preserveDraft) request.current = undefined
+    const requestTagId = tag.id
+    const requestGeneration = selectionGeneration.current
     setLoading(true)
     setEditError(null)
     runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getTag(new GetTagInput({ workspaceId, tagId: tag.id })))))
       .addObserver((exit) => {
+        if (activeTagId.current !== requestTagId || selectionGeneration.current !== requestGeneration) return
         setLoading(false)
         if (Exit.isSuccess(exit)) {
           request.current = undefined
@@ -371,6 +379,8 @@ function TagDetail({
     if (draft === undefined || busy || loading) return
     const currentRequest = requestForTagEditDraft(request.current, draft)
     request.current = currentRequest
+    const requestTagId = tag.id
+    const requestGeneration = selectionGeneration.current
     setBusy(true); setEditError(null)
     runtime.runFork(WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.updateTag(new UpdateTagInput({
       workspaceId, tagId: tag.id, expectedRevision: draft.revision, name: draft.name, parentIds: [...draft.parentIds], requestId: currentRequest.id,
@@ -378,6 +388,7 @@ function TagDetail({
       attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-supertags-manager" })
     })))))
       .addObserver((exit) => {
+        if (activeTagId.current !== requestTagId || selectionGeneration.current !== requestGeneration) return
         setBusy(false)
         if (Exit.isSuccess(exit)) { request.current = undefined; setDraft(undefined); onUpdated(tag.id) }
         else if (!Exit.isInterrupted(exit)) {

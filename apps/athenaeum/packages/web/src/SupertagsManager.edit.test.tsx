@@ -190,4 +190,32 @@ describe("SupertagsManager schema editing", () => {
     expect(host.textContent).not.toContain("Research draft")
     expect(host.querySelector(".supertag-chip")?.textContent).toContain("#Delivery")
   })
+
+  it("ignores a late revision read after selection changes", async () => {
+    const observers: Array<(exit: unknown) => void> = []
+    runtimeMock.runFork.mockImplementation(() => ({ addObserver: (observer: (exit: unknown) => void) => observers.push(observer) }))
+    const host = await mount()
+    await act(async () => { projectButton(host)?.click(); await flush(); host.querySelector<HTMLButtonElement>(".supertags-detail-header button")?.click(); await flush() })
+    await act(async () => { otherButton(host)?.click(); await flush(); observers[0]?.(Exit.succeed({ tag: { tag: projectTag, revision: "a".repeat(64) } })); await flush() })
+    expect(host.querySelector(".supertag-chip")?.textContent).toContain("#Delivery")
+    expect(host.querySelector(".supertags-edit-form")).toBeNull()
+    expect(host.querySelector(".supertags-detail [role='alert']")).toBeNull()
+  })
+
+  it("ignores late save success and failure after selection changes", async () => {
+    const observers: Array<(exit: unknown) => void> = []
+    runtimeMock.runFork.mockImplementation(() => ({ addObserver: (observer: (exit: unknown) => void) => observers.push(observer) }))
+    const host = await mount()
+    await act(async () => { projectButton(host)?.click(); await flush(); host.querySelector<HTMLButtonElement>(".supertags-detail-header button")?.click(); await flush(); observers[0]?.(Exit.succeed({ tag: { tag: projectTag, revision: "a".repeat(64) } })); await flush() })
+    await act(async () => { host.querySelector<HTMLButtonElement>(".supertags-edit-form button")?.click(); await flush(); otherButton(host)?.click(); await flush() })
+    await act(async () => { observers[1]?.(Exit.succeed({ tag: { tag: projectTag, revision: "b".repeat(64) } })); await flush() })
+    expect(host.querySelector(".supertag-chip")?.textContent).toContain("#Delivery")
+    expect(host.querySelector(".supertags-edit-form")).toBeNull()
+
+    // A second A save that fails after selecting B must be equally inert.
+    await act(async () => { projectButton(host)?.click(); await flush(); host.querySelector<HTMLButtonElement>(".supertags-detail-header button")?.click(); await flush(); observers[2]?.(Exit.succeed({ tag: { tag: projectTag, revision: "c".repeat(64) } })); await flush(); host.querySelector<HTMLButtonElement>(".supertags-edit-form button")?.click(); await flush(); otherButton(host)?.click(); await flush(); observers[3]?.(Exit.fail(new UnexpectedError({ message: "late save failed" }))); await flush() })
+    expect(host.querySelector(".supertag-chip")?.textContent).toContain("#Delivery")
+    expect(host.querySelector(".supertags-edit-form")).toBeNull()
+    expect(host.querySelector(".supertags-detail [role='alert']")).toBeNull()
+  })
 })
