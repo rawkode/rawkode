@@ -155,6 +155,16 @@ afterEach(() => {
   calendarGatekeeperClientTestHook.api = undefined
 })
 
+const drainWorkforceRuns = async (workspaceId: EntityId): Promise<void> => {
+  const native = workspaceDurableObjectStub(workspaceId)
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const runs = await native.debugGetWorkforceRuntimeRuns()
+    if (runs.length === 0 || runs.every((run) => ["completed", "blocked", "failed", "skipped"].includes(run.state))) return
+    await runDurableObjectAlarm(native)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 const ACCOUNT_EMAIL = "owner@example.test"
 const CALENDAR_ID = "team@group.calendar.google.com"
 
@@ -318,6 +328,16 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
 
     const syncResult = (await stub.syncGoogleCalendar({ workspaceId, bindingId })) as { triggered: boolean }
     expect(syncResult.triggered).toBe(true)
+    const projectionCommand = (await workspaceDurableObjectStub(workspaceId).debugListLedgerCommandIdentities()).find((command) => command.type === "calendarProjection")
+    expect(projectionCommand).toBeDefined()
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(projectionCommand!.requestIdentity)).toMatchObject({
+      principal: ACCOUNT_EMAIL,
+      payload: { attribution: { kind: "humanUi", surface: "web-calendar" } }
+    })
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerCustody(projectionCommand!.requestIdentity)).toMatchObject({
+      actorKind: "user",
+      targetKind: "calendarEvent"
+    })
 
     const listResult = (await stub.listCalendarEvents({ workspaceId })) as {
       events: ReadonlyArray<{
@@ -358,6 +378,7 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
   it("imports attendees as deduplicated Person nodes, shared across overlapping events", async () => {
     const { workspaceId, bindingId, stub } = await setUpConnectedWorkspace()
     await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    await drainWorkforceRuns(workspaceId)
 
     const nodesResult = (await stub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ id: string; title: string }> }
     // Exactly two Person nodes — alice (attendee on all 3 events) and bob (attendee on 2 of 3) —
@@ -394,16 +415,18 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     let result = await readPublications()
     for (let attempt = 0; attempt < 8 && result.publications.length < 2; attempt += 1) {
       const ran = await runDurableObjectAlarm(workspaceDurableObjectStub(workspaceId))
-      if (!ran) break
+      if (!ran) await new Promise((resolve) => setTimeout(resolve, 5))
       result = await readPublications()
     }
+    await drainWorkforceRuns(workspaceId)
+    result = await readPublications()
     const runtimeRuns = await native.debugGetWorkforceRuntimeRuns()
     expect(runtimeRuns).toMatchObject([
       { workflowId: "calendar-relationship-concierge" },
       { workflowId: "calendar-relationship-concierge" },
       { workflowId: "calendar-relationship-concierge" }
     ])
-    expect(runtimeRuns.filter((run) => run.state === "completed")).toHaveLength(2)
+    expect(runtimeRuns.filter((run) => run.state === "completed")).toHaveLength(3)
     expect(runtimeRuns.filter((run) => run.state === "retryable" || run.state === "failed")).toHaveLength(0)
 
     // The current fixture has two attendees on today's standalone event. The recurring event is
@@ -414,8 +437,8 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     expect(result.publications.every((publication) => publication.microEmployeeLabel === "Calendar relationship concierge")).toBe(true)
     expect(result.publications.every((publication) => publication.jobLabel === "Enrich calendar attendees")).toBe(true)
     expect(result.publications.map((publication) => publication.originalText).sort()).toEqual([
-      "Calendar relationship concierge reused the existing Person for Alice.",
-      "Calendar relationship concierge reused the existing Person for Bob."
+      "Linked calendar attendee Alice to a Person and recorded the relationship.",
+      "Linked calendar attendee Bob to a Person and recorded the relationship."
     ])
   })
 
@@ -539,6 +562,142 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
       calendarAttendeeObservations: 0
     })
     expect(await native.debugGetWorkforceRuntimeRuns()).toEqual([])
+  })
+
+  it("skips an attendee job queued before its event is cancelled", async () => {
+    const attendeeEmail = "cancelled-before-drain@example.test"
+    const confirmed = new ScriptedCalendarEvent({
+      id: "cancel-before-drain",
+      title: "Cancellation race",
+      start: { kind: "dateTime", dateTime: new Date().toISOString() },
+      end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+      status: "confirmed",
+      updatedAt: "2026-08-30T10:00:00.000Z",
+      attendees: [new ScriptedCalendarAttendee({ email: attendeeEmail, displayName: "Race attendee" })]
+    })
+    const cancelled = new ScriptedCalendarEvent({
+      id: "cancel-before-drain",
+      title: "Cancellation race",
+      start: confirmed.start,
+      end: confirmed.end,
+      status: "cancelled",
+      updatedAt: "2026-08-30T11:00:00.000Z",
+      attendees: [new ScriptedCalendarAttendee({ email: attendeeEmail, displayName: "Race attendee" })]
+    })
+    const scripted = installScriptedCalendarClient({
+      accounts: {
+        [ACCOUNT_EMAIL]: {
+          calendars: { [CALENDAR_ID]: "owner" },
+          freeBusyReadableCalendarIds: [],
+          events: { [CALENDAR_ID]: [confirmed] }
+        }
+      }
+    })
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const workspaceId = freshWorkspaceId()
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+    const connectResult = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callbackResult = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: "code",
+      state: connectResult.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callbackResult.binding.id)
+
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    const beforeCancel = await workspaceDurableObjectStub(workspaceId).debugGetWorkforceRuntimeRuns()
+    expect(beforeCancel).toHaveLength(1)
+    expect(beforeCancel[0]?.state).toBe("queued")
+
+    scripted.fixtures.accounts[ACCOUNT_EMAIL] = {
+      ...scripted.fixtures.accounts[ACCOUNT_EMAIL]!,
+      events: { [CALENDAR_ID]: [cancelled] }
+    }
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    await drainWorkforceRuns(workspaceId)
+
+    const runs = await workspaceDurableObjectStub(workspaceId).debugGetWorkforceRuntimeRuns()
+    expect(runs).toMatchObject([{ state: "skipped" }])
+    expect(runs.some((run) => run.state === "completed")).toBe(false)
+    const localDate = new Date().toISOString().slice(0, 10)
+    const dailyNoteId = Schema.decodeUnknownSync(EntityId)(`00000000-0000-4000-8000-0000${localDate.replaceAll("-", "")}`)
+    const publications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as { publications: ReadonlyArray<unknown> }
+    expect(publications.publications).toEqual([])
+    const nodes = (await stub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
+    expect(nodes.nodes.some((node) => node.title === "Race attendee" || node.title === "Calendar attendee")).toBe(false)
+  })
+
+  it("uses a neutral standup and node label when an attendee has no display name", async () => {
+    const attendeeEmail = "private-address@example.test"
+    const scripted = installScriptedCalendarClient({
+      accounts: {
+        [ACCOUNT_EMAIL]: {
+          calendars: { [CALENDAR_ID]: "owner" },
+          freeBusyReadableCalendarIds: [],
+          events: {
+            [CALENDAR_ID]: [new ScriptedCalendarEvent({
+              id: "no-display-name",
+              title: "Private attendee event",
+              start: { kind: "dateTime", dateTime: new Date().toISOString() },
+              end: { kind: "dateTime", dateTime: new Date(Date.now() + 30 * 60_000).toISOString() },
+              status: "confirmed",
+              attendees: [new ScriptedCalendarAttendee({ email: attendeeEmail })]
+            })]
+          }
+        }
+      }
+    })
+    const { credential } = await devSignIn(ACCOUNT_EMAIL)
+    const workspaceId = freshWorkspaceId()
+    const { stub } = await connectToWorkspaceWithSocketAs(workspaceId, credential)
+    const connectResult = (await stub.connectGoogleCalendar({ workspaceId })) as { state: string }
+    const callbackResult = (await stub.googleCalendarOAuthCallback({
+      workspaceId,
+      code: "code",
+      state: connectResult.state,
+      calendarId: CALENDAR_ID,
+      mode: "selected"
+    })) as { binding: { id: string } }
+    const bindingId = Schema.decodeUnknownSync(EntityId)(callbackResult.binding.id)
+    await stub.syncGoogleCalendar({ workspaceId, bindingId })
+    await drainWorkforceRuns(workspaceId)
+
+    const localDate = new Date().toISOString().slice(0, 10)
+    const dailyNoteId = Schema.decodeUnknownSync(EntityId)(`00000000-0000-4000-8000-0000${localDate.replaceAll("-", "")}`)
+    const publications = (await stub.listStandupPublications({ workspaceId, dailyNoteId })) as {
+      publications: ReadonlyArray<{ originalText: string }>
+    }
+    expect(publications.publications).toHaveLength(1)
+    expect(publications.publications[0]?.originalText).toBe("Linked calendar attendee a newly observed attendee to a Person and recorded the relationship.")
+    expect(JSON.stringify(publications.publications)).not.toContain(attendeeEmail)
+    const nodes = (await stub.listNodes({ workspaceId })) as { nodes: ReadonlyArray<{ title: string }> }
+    expect(nodes.nodes.filter((node) => node.title === "Calendar attendee")).toHaveLength(1)
+    expect(JSON.stringify(nodes.nodes)).not.toContain(attendeeEmail)
+  })
+
+  it("reclaims a claimed calendar run when its lease expires", async () => {
+    const workspaceId = freshWorkspaceId()
+    const native = workspaceDurableObjectStub(workspaceId) as unknown as {
+      debugEnqueueWorkforceRun(input: { occurrenceId: string; dueAt: string }): Promise<{ id: string; state: string; nextAttemptAt: string }>
+      debugClaimWorkforceRun(input: { now: string; leaseMs: number }): Promise<{ attempts: number; state: string; leaseExpiresAt: string | null } | null>
+      debugGetWorkforceNextDueAt(): Promise<string | null>
+    }
+    const queued = await native.debugEnqueueWorkforceRun({ occurrenceId: "lease-recovery", dueAt: "2099-01-01T00:00:00.000Z" })
+    expect(queued.state).toBe("queued")
+    const claim = await native.debugClaimWorkforceRun({
+      now: "2099-01-01T00:00:00.000Z",
+      leaseMs: 1_000
+    })
+    expect(claim).toMatchObject({ state: "claimed", attempts: 1, leaseExpiresAt: expect.any(String) })
+    expect(await native.debugGetWorkforceNextDueAt()).toBe(claim!.leaseExpiresAt)
+
+    const reclaimed = await native.debugClaimWorkforceRun({
+      now: new Date(Date.parse(claim!.leaseExpiresAt!) + 1).toISOString(),
+      leaseMs: 1_000
+    })
+    expect(reclaimed).toMatchObject({ state: "claimed", attempts: 2, leaseExpiresAt: expect.any(String) })
   })
 
   it("rolls back the entire provider projection when the ledger boundary fails", async () => {
@@ -1216,6 +1375,7 @@ describe("CalendarService/MeetingsService — Meeting/Bookmark.linkedNodeId obse
     })) as { binding: { id: string } }
     const bindingId = Schema.decodeUnknownSync(EntityId)(callbackResult.binding.id)
     await ownerStub.syncGoogleCalendar({ workspaceId, bindingId })
+    await drainWorkforceRuns(workspaceId)
 
     const grantedNodes = (await ownerStub.listNodes({ workspaceId })) as {
       nodes: ReadonlyArray<{ id: string; title: string }>

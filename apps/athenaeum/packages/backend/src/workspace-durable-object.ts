@@ -145,6 +145,8 @@ import {
   EndVoiceSessionInput,
   EndVoiceSessionOutput,
   EntityId,
+  CalendarEvent,
+  CalendarEventAttendee,
   Fact,
   FactsRepository,
   ForkChatEditInput,
@@ -3612,8 +3614,20 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
+          if (currentUser === undefined) {
+            return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to sync a calendar." }))
+          }
           const calendar = yield* CalendarService
-          const { triggered } = yield* calendar.sync(decoded.workspaceId, decoded.bindingId)
+          const { triggered } = yield* calendar.sync(
+            decoded.workspaceId,
+            decoded.bindingId,
+            new HumanUiMutationAttribution({
+              version: "athenaeum.mutation-attribution.v1",
+              kind: "humanUi",
+              surface: "web-calendar"
+            }),
+            currentUser.email
+          )
           return new SyncGoogleCalendarOutput({ triggered })
         })
       )
@@ -4644,6 +4658,36 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         const attendee = attendeeIndex < 0 ? undefined : attendees[attendeeIndex]
         if (attendee === undefined) throw new Error("calendar attendee digest is not present in the private event")
 
+        /** A queued observation is only live while its event revision remains the provider's latest
+         * non-cancelled revision. Cancellation can arrive after enqueue and before an alarm claims
+         * the run, or while a claimed employee is between tools; every capability admission calls
+         * this synchronous fence again so stale work fails closed without publishing a standup. */
+        const observationStillCurrent = (): boolean => {
+          try {
+            const currentRaw = Effect.runSync(calendarCollections.calendarEvents.get(observation.calendarEventId))
+            if (currentRaw === undefined) return false
+            const currentEvent = Effect.runSync(reviveCalendarEvent(currentRaw))
+            if (currentEvent.status === "cancelled") return false
+            const revisions = Effect.runSync(
+              calendarCollections.calendarSourceRevisions.byBindingAndProviderEvent
+                .get(`${revision.bindingId}:${revision.providerEventId}`)
+            )
+            const latest = revisions
+              .filter((candidate) => candidate.workspaceId === this.#workspaceId)
+              .sort((left, right) => {
+                const leftAt = Date.parse(left.sourceUpdatedAt ?? left.appliedAt)
+                const rightAt = Date.parse(right.sourceUpdatedAt ?? right.appliedAt)
+                return leftAt === rightAt
+                  ? left.sourceRevisionDigest.localeCompare(right.sourceRevisionDigest)
+                  : leftAt - rightAt
+              })
+              .at(-1)
+            return latest?.sourceRevisionDigest === revision.sourceRevisionDigest && latest.status !== "cancelled"
+          } catch {
+            return false
+          }
+        }
+
         const microEmployee = { kind: "microEmployee" as const, id: "calendar-concierge", version: "v1" }
         const job = { kind: "job" as const, id: "calendar-attendee-enrichment", version: "v1" }
         const workflow = { kind: "workflow" as const, id: CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW, version: CALENDAR_RELATIONSHIP_CONCIERGE_VERSION }
@@ -4732,6 +4776,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         const port: CalendarConciergeJobPort = {
           readObservedAttendee: (input) => {
             if (input.custody.observationId !== observation.id || input.sourceRevisionDigest !== revision.sourceRevisionDigest) return undefined
+            if (!observationStillCurrent()) return undefined
             const current = Effect.runSync(calendarCollections.calendarAttendeeObservations.get(observation.id))
             return current === undefined || current.sourceRevisionDigest !== revision.sourceRevisionDigest
               ? undefined
@@ -4739,6 +4784,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           },
           resolveUniquePersonByEmailDigest: (input) => {
             if (input.emailDigest !== observation.emailDigest) return undefined
+            if (!observationStillCurrent()) throw new Error("calendar observation was cancelled or superseded")
             const result = this.#runtime.runSync(Effect.gen(function* () {
               const facts = yield* FactsRepository
               const graph = yield* GraphService
@@ -4755,6 +4801,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           },
           createCalendarPerson: (input) => {
             if (input.emailDigest !== observation.emailDigest) throw new Error("calendar attendee digest does not match the claimed observation")
+            if (!observationStillCurrent()) throw new Error("calendar observation was cancelled or superseded")
             const repository = this.#runtime.runSync(Effect.gen(function* () { return yield* NodesRepository }))
             const graph = this.#runtime.runSync(Effect.gen(function* () { return yield* GraphService }))
             const syncFeed = this.#runtime.runSync(Effect.gen(function* () { return yield* SyncFeedService }))
@@ -4768,7 +4815,10 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
               policy: "calendar-concierge-v1",
               nodeId: personId,
               requestedNodeId: personId,
-              title: (attendee.displayName ?? attendee.email).slice(0, 500),
+              // A missing provider display name must not turn a private address into a
+              // workspace-visible node title. The email remains in the private Fact used for
+              // future resolution; user-facing summaries and titles stay neutral.
+              title: (attendee.displayName?.trim() || "Calendar attendee").slice(0, 500),
               commitMessage: input.commitMessage,
               attribution: employeeAttribution,
               createdAt: new Date().toISOString()
@@ -4900,9 +4950,23 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
               type: "calendarProjection",
               mutate: () => {
                 const current = Effect.runSync(calendarCollections.calendarAttendeeObservations.get(observation.id))
-                if (current === undefined || current.sourceRevisionDigest !== revision.sourceRevisionDigest) throw new Error("calendar observation is stale")
+                if (current === undefined || current.sourceRevisionDigest !== revision.sourceRevisionDigest || !observationStillCurrent()) throw new Error("calendar observation is stale")
                 const personNodeId = Schema.decodeUnknownSync(EntityId)(input.personId)
                 Effect.runSync(calendarCollections.calendarAttendeeObservations.put({ ...current, personNodeId }))
+                const currentEventRaw = Effect.runSync(calendarCollections.calendarEvents.get(observation.calendarEventId))
+                if (currentEventRaw === undefined) throw new Error("calendar event is missing")
+                const currentEvent = Effect.runSync(reviveCalendarEvent(currentEventRaw))
+                const updatedEvent = new CalendarEvent({
+                  ...currentEvent,
+                  attendees: currentEvent.attendees.map((candidate) =>
+                    candidate.email.trim().toLowerCase() === attendee.email
+                      ? new CalendarEventAttendee({ ...candidate, personNodeId })
+                      : candidate
+                  )
+                })
+                Effect.runSync(calendarCollections.calendarEvents.put(updatedEvent))
+                const syncFeed = this.#runtime.runSync(Effect.gen(function* () { return yield* SyncFeedService }))
+                Effect.runSync(syncFeed.append("calendarEvent", updatedEvent.id, "put", updatedEvent))
                 return { personId: input.personId }
               },
               encodeOutput: (output) => output,
@@ -4927,7 +4991,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           recheckFresh: (candidate, expected) => {
             if (this.#calendarConciergeGrants.isConsumed(candidate.grantId)) return { status: "denied" }
             const current = this.#workforceRuntimeStore.get(expected.runId)
-            return current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence && current.workflowId === CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW
+            return observationStillCurrent() && current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence && current.workflowId === CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW && current.leaseExpiresAt !== null && Date.parse(current.leaseExpiresAt) > Date.now()
               ? { status: "admitted" }
               : { status: "denied" }
           }
@@ -4935,13 +4999,14 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         const execution: CalendarConciergeExecutionAdapter = {
           assertLiveClaim: (expected) => {
             const current = this.#workforceRuntimeStore.get(expected.runId)
-            return current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence
+            return observationStillCurrent() && current !== undefined && current.state === "claimed" && current.claimToken === expected.claimToken && current.attempts === expected.claimFence && current.leaseExpiresAt !== null && Date.parse(current.leaseExpiresAt) > Date.now()
               ? { status: "admitted" }
               : { status: "denied" }
           }
         }
         const finalize = async (input: Readonly<{ result: CalendarConciergeTerminalResult; reportText: string; commitMessage: string; publicationId: string }>): Promise<void> => {
           if (stagedTerminal === undefined || stagedTerminal.result !== input.result || stagedTerminal.reportText !== input.reportText || stagedTerminal.commitMessage !== input.commitMessage) throw new Error("calendar concierge terminal publication was not staged by the capability")
+          if (!observationStillCurrent()) throw new Error("calendar observation was cancelled or superseded before finalization")
           const civilDate = calendarCivilDate(event)
           const bundle = calendarConciergeBundle({ runId: run.id, occurrenceId: run.occurrenceId, civilDate, result: { kind: input.result, summary: input.reportText } })
           const receipt = await this.admitWorkforceRun({ workspaceId: this.#workspaceId, bundle, reportText: input.reportText })
@@ -6173,6 +6238,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     readonly state: string
     readonly attempts: number
     readonly nextAttemptAt: string
+    readonly leaseExpiresAt: string | null
     readonly sourceEventId: string | null
     readonly lastError: string | null
   }>>> {
@@ -6182,10 +6248,57 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
       state: string
       attempts: number
       nextAttemptAt: string
+      leaseExpiresAt: string | null
       sourceEventId: string | null
       lastError: string | null
-    }>(`SELECT id, workflowId, state, attempts, nextAttemptAt, sourceEventId, lastError
+    }>(`SELECT id, workflowId, state, attempts, nextAttemptAt, leaseExpiresAt, sourceEventId, lastError
         FROM workforce_runtime_runs ORDER BY createdAt, id`).toArray().map((row) => Object.freeze({ ...row }))
+  }
+
+  /** Test-only lifecycle seam for proving that a claimed run is recoverable after its lease. It
+   * deliberately returns no claim token; production capability custody remains private to the DO. */
+  async debugClaimWorkforceRun(input: Readonly<{ readonly now: string; readonly leaseMs: number }>): Promise<Readonly<{
+    readonly id: string
+    readonly state: string
+    readonly attempts: number
+    readonly leaseExpiresAt: string | null
+  }> | null> {
+    const now = new Date(input.now)
+    if (!Number.isFinite(now.valueOf()) || !Number.isSafeInteger(input.leaseMs) || input.leaseMs <= 0) {
+      throw new ValidationError({ message: "debug workforce claim requires a valid instant and positive lease" })
+    }
+    const token = crypto.randomUUID()
+    const run = this.#storage.transactionSync(() => this.#workforceRuntimeStore.claimDue(
+      now,
+      `debug:${crypto.randomUUID()}`,
+      token,
+      input.leaseMs
+    ))
+    return run === undefined
+      ? null
+      : Object.freeze({ id: run.id, state: run.state, attempts: run.attempts, leaseExpiresAt: run.leaseExpiresAt })
+  }
+
+  /** Test-only insertion of a future calendar run, used to exercise claim/lease recovery without
+   * allowing the test alarm manager to execute the real concierge before the claim is observed. */
+  async debugEnqueueWorkforceRun(input: Readonly<{ readonly occurrenceId: string; readonly dueAt: string }>): Promise<Readonly<{ id: string; state: string; nextAttemptAt: string }>> {
+    const dueAt = new Date(input.dueAt)
+    if (input.occurrenceId.trim().length === 0 || !Number.isFinite(dueAt.valueOf())) {
+      throw new ValidationError({ message: "debug workforce enqueue requires a nonblank occurrence and valid due instant" })
+    }
+    const run = this.#storage.transactionSync(() => this.#workforceRuntimeStore.enqueue({
+      workflowId: CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW,
+      scheduleVersion: CALENDAR_RELATIONSHIP_CONCIERGE_VERSION,
+      occurrenceId: input.occurrenceId,
+      sourceEventId: `debug:${input.occurrenceId}`,
+      dueAt
+    }))
+    await this.#workforceScheduler.rearm()
+    return Object.freeze({ id: run.id, state: run.state, nextAttemptAt: run.nextAttemptAt })
+  }
+
+  async debugGetWorkforceNextDueAt(): Promise<string | null> {
+    return this.#workforceRuntimeStore.nextDueAt()?.toISOString() ?? null
   }
 
   /** Test-only corruption seam for proving durable Loro reload validation. It remains native-RPC

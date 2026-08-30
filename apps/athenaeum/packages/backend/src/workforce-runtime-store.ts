@@ -43,7 +43,22 @@ export class DurableWorkforceRuntimeStore {
       VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?)`, runId, input.workflowId, input.scheduleVersion, input.occurrenceId, input.sourceEventId ?? null, input.dueAt.toISOString(), now, now)
     return this.get(runId)!
   }
-  nextDueAt(): Date | undefined { const row = this.sql.exec<{ nextAttemptAt: string }>("SELECT nextAttemptAt FROM workforce_runtime_runs WHERE state IN ('queued','retryable') ORDER BY nextAttemptAt LIMIT 1").toArray()[0]; return row ? new Date(row.nextAttemptAt) : undefined }
+  /**
+   * Return the earliest wake-up for both runnable work and abandoned claims. A DO can be evicted
+   * after the claim CAS and before the executor terminalizes the run; scheduling the lease expiry
+   * gives the next instance a durable chance to reclaim that work instead of stranding it forever.
+   */
+  nextDueAt(): Date | undefined {
+    const row = this.sql.exec<{ nextAttemptAt: string }>(
+      `SELECT nextAttemptAt FROM workforce_runtime_runs
+         WHERE state IN ('queued', 'retryable')
+       UNION ALL
+       SELECT leaseExpiresAt AS nextAttemptAt FROM workforce_runtime_runs
+         WHERE state = 'claimed' AND leaseExpiresAt IS NOT NULL
+       ORDER BY nextAttemptAt LIMIT 1`
+    ).toArray()[0]
+    return row ? new Date(row.nextAttemptAt) : undefined
+  }
   claimDue(now: Date, owner: string, token: string, leaseMs: number, workflowIds?: readonly string[]): WorkforceRunRecord | undefined {
     if (workflowIds !== undefined && workflowIds.length === 0) return undefined
     const filter = workflowIds === undefined ? "" : ` AND workflowId IN (${workflowIds.map(() => "?").join(",")})`

@@ -53,8 +53,15 @@ const errorText = (error: unknown): string => error instanceof Error ? error.mes
 
 const commitMessage = (verb: string): string => `Calendar relationship concierge: ${verb}.`
 
-const terminalSummary = (displayName: string | undefined, email: string): string =>
-  `Linked calendar attendee ${displayName ?? email} to a Person and recorded the relationship.`
+const attendeeLabel = (displayName: string | undefined): string => {
+  const safeDisplayName = displayName?.trim()
+  return safeDisplayName === undefined || safeDisplayName.length === 0
+    ? "a newly observed attendee"
+    : safeDisplayName
+}
+
+const terminalSummary = (displayName: string | undefined): string =>
+  `Linked calendar attendee ${attendeeLabel(displayName)} to a Person and recorded the relationship.`
 
 export class CalendarConciergeExecutor {
   constructor(
@@ -68,7 +75,16 @@ export class CalendarConciergeExecutor {
     const token = run.claimToken
     if (token === null) return
     const terminal = (state: "blocked" | "skipped", message: string) => {
-      this.runtime.finish(run.id, token, state, new Date(), message)
+      const finished = this.runtime.finish(run.id, token, state, new Date(), message)
+      // A lease may expire between the claim and this terminal disposition. Do not report a
+      // successful terminalization in that case; leave a still-owned claim retryable when the
+      // lease is live, or let `nextDueAt()` wake the expired claim for reclamation.
+      if (!finished) {
+        const current = this.runtime.get(run.id)
+        if (current?.state === "claimed" && current.claimToken === token) {
+          this.runtime.retry(run.id, token, new Date(), message)
+        }
+      }
     }
     if (run.workflowId !== CALENDAR_RELATIONSHIP_CONCIERGE_WORKFLOW || run.scheduleVersion !== CALENDAR_RELATIONSHIP_CONCIERGE_VERSION) {
       terminal("skipped", "Run does not match the calendar concierge definition.")
@@ -84,6 +100,23 @@ export class CalendarConciergeExecutor {
     const revisions = Effect.runSync(this.collections.calendarSourceRevisions.byWorkspaceId.get(this.workspaceId))
     const revision = revisions.find((value) => value.sourceRevisionDigest === source.revision)
     if (observation === undefined || revision === undefined || revision.status === "cancelled") {
+      terminal("skipped", "Calendar observation is stale, absent, or cancelled.")
+      return
+    }
+    // A provider cancellation or newer revision can be committed after the observation was
+    // enqueued but before the alarm claims it. Do this durable revision fence before `prepare`
+    // (which needs the event attendee payload and therefore cannot safely inspect a tombstone).
+    const latestRevision = revisions
+      .filter((candidate) => candidate.bindingId === revision.bindingId && candidate.providerEventId === revision.providerEventId)
+      .sort((left, right) => {
+        const leftAt = Date.parse(left.sourceUpdatedAt ?? left.appliedAt)
+        const rightAt = Date.parse(right.sourceUpdatedAt ?? right.appliedAt)
+        return leftAt === rightAt
+          ? left.sourceRevisionDigest.localeCompare(right.sourceRevisionDigest)
+          : leftAt - rightAt
+      })
+      .at(-1)
+    if (latestRevision?.sourceRevisionDigest !== revision.sourceRevisionDigest || latestRevision.status === "cancelled") {
       terminal("skipped", "Calendar observation is stale, absent, or cancelled.")
       return
     }
@@ -110,9 +143,9 @@ export class CalendarConciergeExecutor {
       let report: string
       if (person === undefined) {
         person = capability.createCalendarPerson(observed.emailDigest, commitMessage("create a Person for a newly observed attendee"))
-        report = terminalSummary(context.attendeeDisplayName, context.attendeeEmail)
+        report = terminalSummary(context.attendeeDisplayName)
       } else {
-        report = `Calendar relationship concierge reused the existing Person for ${context.attendeeDisplayName ?? context.attendeeEmail}.`
+        report = `Calendar relationship concierge reused the existing Person for ${attendeeLabel(context.attendeeDisplayName)}.`
       }
       capability.recordCalendarRelationshipObservation(person.personId, commitMessage("record the attendee relationship"))
       const staged = capability.publishRunTerminal("completed", report, commitMessage("publish the employee outcome"))
@@ -122,7 +155,13 @@ export class CalendarConciergeExecutor {
         commitMessage: commitMessage("publish the employee outcome"),
         publicationId: staged.publicationId
       })
-      this.runtime.finish(run.id, token, "completed", new Date(), report)
+      const finished = this.runtime.finish(run.id, token, "completed", new Date(), report)
+      if (!finished) {
+        const current = this.runtime.get(run.id)
+        if (current?.state === "claimed" && current.claimToken === token) {
+          this.runtime.retry(run.id, token, new Date(), "calendar concierge lease expired before terminalization")
+        }
+      }
     } catch (error) {
       const message = errorText(error)
       const retried = this.runtime.retry(run.id, token, new Date(), message)

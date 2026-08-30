@@ -6,17 +6,12 @@
 // this has real business logic — calendar-merge, attendee dedup — with no home in `domain`'s
 // zero-CF/React repository interfaces).
 //
-// **Attendee-to-Person-node import (task item 4)**: for each synced event's attendees, find an
-// existing Person node by scanning `FactsRepository` for an `"email"` predicate matching the
-// attendee's address (task's own wording: "dedup by email — store the email as a Fact on the
-// Person node, match on it"); create one (tagged `Person`, per `BaseTagIds.Person`) if none
-// exists. A per-`sync()`-call in-memory cache (`emailToPersonNodeId`) avoids re-scanning
-// `FactsRepository` for every attendee on every event within one sync pass — built once from the
-// workspace's existing facts, then extended as new Person nodes are created, so a second attendee
-// with the same email later in the SAME page (or a later page) reuses the same node without a
-// second full scan. Known, documented simplification: this scan is O(existing facts) once per
-// `sync()` call, not indexed by value — acceptable for this stage's scope (a personal workspace's
-// fact count), flagged here rather than silently accepted as free.
+// **Attendee-to-Person-node import (task item 4)**: the provider projection stores only the private
+// event and attendee observations. A calendar relationship concierge owns Person resolution and
+// creation as a ledgered employee job, where deterministic ids and the transaction-time graph
+// lookup make concurrent observations converge on one identity. This split is intentional: a
+// provider retry cannot create an un-attributed public Person, and every resulting graph mutation
+// carries the exact job/run custody and commit message.
 //
 // **Recurring-event identity (task's own `calendar-event.ts` semantics)**: `sync()` calls
 // `events.list` with `singleEvents: true` — Google's own documented behavior for that mode is
@@ -74,10 +69,8 @@ import {
   CalendarEvent,
   CalendarEventAttendee,
   type CalendarEventTime,
-  AgentJobMutationAttribution,
   Email,
   EntityId,
-  Fact,
   FactsRepository,
   GatekeeperBinding,
   GatekeeperBindingSummary,
@@ -89,7 +82,6 @@ import {
   IsoDateTimeString,
   LocalDate,
   NodesRepository,
-  Node as NodeEntity,
   OAuthExchangeFailed,
   UnexpectedError,
   ValidationError,
@@ -98,11 +90,11 @@ import {
   TodayBriefPerson,
   canonicalJsonBytes,
   sha256HexSync,
-  type DomainError
+  type DomainError,
+  type MutationAttribution
 } from "@athenaeum/domain"
 import {
   CalendarGatekeeperClient,
-  type RemoteCalendarAttendee,
   type RemoteCalendarEvent,
   type RemoteCalendarTime
 } from "./calendar-gatekeeper-client.js"
@@ -166,7 +158,10 @@ export interface CalendarServiceApi {
 
   readonly disconnect: (workspaceId: EntityId, bindingId: EntityId) => Effect.Effect<boolean, DomainError>
 
-  readonly sync: (workspaceId: EntityId, bindingId: EntityId) => Effect.Effect<{ readonly triggered: boolean }, DomainError>
+  /** Sync is an attributed write: user-triggered pulls use `humanUi`; a future scheduled provider
+   * pull must supply its real employee job attribution. System/anonymous writes are rejected at the
+   * RPC boundary rather than being labelled as a synthetic concierge run. */
+  readonly sync: (workspaceId: EntityId, bindingId: EntityId, attribution: MutationAttribution, principal: string) => Effect.Effect<{ readonly triggered: boolean }, DomainError>
 
   /** Lists privacy-safe management projections of every Google Calendar binding for a workspace.
    *  This reads only the local binding index: it never contacts the provider, refreshes OAuth
@@ -268,9 +263,8 @@ export interface CalendarServiceApi {
 
   /** The exact node-id set `workspace-durable-object.ts`'s `listNodes`/`getNode` must exclude for
    *  `callerEmail` right now — empty whenever `isCalendarContentVisible` is `true`, otherwise
-   *  every node `calendarDerivedNodes` (calendar-collections.ts) has ever recorded for this workspace
-   *  (attendee-imported Person nodes — see `findOrCreatePersonNode`'s own doc comment for exactly
-   *  which nodes that is). */
+   *  every node `calendarDerivedNodes` (calendar-collections.ts) has ever recorded for this
+   *  workspace (Person nodes created by the ledgered concierge). */
   readonly hiddenCalendarDerivedNodeIds: (
     workspaceId: EntityId,
     callerEmail: string | undefined
@@ -579,53 +573,9 @@ export const makeCalendarServiceLive = (
           })
         )
 
-      /** Find-or-create the Person node for `attendee.email`, extending `emailIndex` in place so
-       *  a repeat attendee later in the SAME sync pass reuses it without a second lookup —
-       *  "linking without duplicating on repeated syncs" (task item 4), proven across syncs by
-       *  `loadEmailIndex` re-scanning real stored facts every call, and within one sync pass by
-       *  this cache. */
-      const findOrCreatePersonNode = (
-        workspaceId: EntityId,
-        attendee: RemoteCalendarAttendee,
-        emailIndex: Map<string, EntityId | null>
-      ): Effect.Effect<EntityId | undefined, DomainError> =>
-        Effect.gen(function* () {
-          const normalizedEmail = normalizeEmail(attendee.email)
-          const existing = emailIndex.get(normalizedEmail)
-          if (existing !== undefined) return existing ?? undefined
-
-          const node = new NodeEntity({
-            id: crypto.randomUUID() as EntityId,
-            workspaceId,
-            title: attendee.displayName ?? normalizedEmail,
-            createdAt: now()
-          })
-          yield* nodesRepository.put(node)
-          yield* syncFeed.append("node", node.id, "put", node)
-          yield* graph.assignTag(workspaceId, node.id, BaseTagIds.Person)
-          // Marks this node as calendar-derived — the real membership `hiddenCalendarDerivedNodeIds`
-          // filters `listNodes`/`getNode` against for a non-qualifying observer (this file's header
-          // comment). Written ONLY on the create branch (never on a cache hit / a node a user made
-          // by hand), matching this method's own "find-or-create" semantics exactly.
-          yield* collections.calendarDerivedNodes
-            .put({ nodeId: node.id, workspaceId })
-            .pipe(Effect.mapError(toUnexpectedError))
-
-          const fact = new Fact({
-            id: crypto.randomUUID() as EntityId,
-            nodeId: node.id,
-            predicateId: attendeeEmailPredicate,
-            value: normalizedEmail
-          })
-          yield* factsRepository.put(fact)
-          yield* syncFeed.append("fact", fact.id, "put", fact)
-
-          emailIndex.set(normalizedEmail, node.id)
-          return node.id
-        })
-
       /** Upserts one remote event into `calendarEvents`, resolving master/occurrence identity per
-       *  this file's header comment, and importing every attendee. `masterCache` tracks
+       *  this file's header comment, and recording known Person links without creating graph
+       *  entities. `masterCache` tracks
        *  `seriesId -> masterRecordId` synthesized so far THIS sync call, so a series with many
        *  occurrences on one page only synthesizes its master row once. */
       const upsertRemoteEvent = (
@@ -645,7 +595,10 @@ export const makeCalendarServiceLive = (
             // validate every historical row) is skipped rather than failing the whole sync.
             const emailExit = yield* Effect.either(decodeEmail(normalizeEmail(attendee.email)))
             if (emailExit._tag === "Left") continue
-            const personNodeId = yield* findOrCreatePersonNode(workspaceId, attendee, emailIndex)
+            // Person resolution/creation belongs to the ledgered concierge. Existing facts may
+            // still provide a stable link immediately; an unknown attendee remains unlinked until
+            // that employee job commits the deterministic Person and relationship.
+            const personNodeId = emailIndex.get(normalizeEmail(attendee.email)) ?? undefined
             attendeeEntities.push(new CalendarEventAttendee({
               email: emailExit.right,
               ...(attendee.displayName ? { displayName: attendee.displayName } : {}),
@@ -756,8 +709,14 @@ export const makeCalendarServiceLive = (
         return incoming <= Math.max(...timestamped)
       }
 
-      const sync: CalendarServiceApi["sync"] = (workspaceId, bindingId) =>
+      const sync: CalendarServiceApi["sync"] = (workspaceId, bindingId, attribution, principal) =>
         Effect.gen(function* () {
+          if (principal.trim().length === 0) {
+            return yield* Effect.fail(new ValidationError({ message: "Calendar sync requires a nonblank authenticated principal." }))
+          }
+          if (attribution.kind === "system") {
+            return yield* Effect.fail(new ValidationError({ message: "Calendar sync requires an authenticated user or employee attribution." }))
+          }
           const binding = yield* findBinding(workspaceId, bindingId)
           if (binding.config.kind !== "google-calendar") {
             return yield* Effect.fail(new GatekeeperNotConnected({ workspaceId, gatekeeperKind: "google-calendar" }))
@@ -834,16 +793,12 @@ export const makeCalendarServiceLive = (
                   calendarEventId,
                   requestIdentity,
                   requestId: requestIdentity,
+                  principal,
                   sourceRevisionDigest: planned.sourceRevisionDigest,
                   sourceEventKeyDigest: planned.sourceEventKeyDigest,
                   attendeeObservationDigests: planned.attendeeObservationDigests,
                   commitMessage: "Project this calendar revision into the second brain.",
-                  attribution: new AgentJobMutationAttribution({
-                    version: "athenaeum.mutation-attribution.v1",
-                    kind: "agentJob",
-                    jobId: "calendar-attendee-enrichment",
-                    runId: planned.sourceRevisionDigest
-                  }),
+                  attribution,
                   applyProjection: () => {
                     const existingRevisions = Effect.runSync(
                       collections.calendarSourceRevisions.byBindingAndProviderEvent

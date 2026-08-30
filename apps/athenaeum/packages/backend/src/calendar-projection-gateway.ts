@@ -20,6 +20,9 @@ export interface CalendarProjectionPlan {
   readonly attendeeObservationDigests: ReadonlyArray<string>
   readonly commitMessage: string
   readonly attribution: MutationAttribution
+  /** Authenticated principal for user-triggered pulls. Kept in the private command fingerprint so
+   * two users cannot replay one another's provider projection receipt. */
+  readonly principal?: string
   /** Applies only backend-private projection rows and must not contact the provider. */
   /** Returns observations first seen for this stable provider event. A later title/status
    * revision can update private projection state without re-enqueuing the concierge. */
@@ -78,7 +81,7 @@ export class CalendarProjectionGateway {
   async apply(plan: CalendarProjectionPlan): Promise<CalendarProjectionReceipt> {
     if (plan.commitMessage.trim().length === 0) throw new Error("calendar projection requires a nonblank commit message")
     const attendeeObservationDigests = [...new Set(plan.attendeeObservationDigests)].sort()
-    const principal = plan.attribution.kind === "agentJob" ? "workforce:employee:calendar-concierge" : "user:calendar-sync"
+    const principal = plan.principal?.trim() || (plan.attribution.kind === "agentJob" ? "workforce:employee:calendar-concierge" : "user:calendar-sync")
     const fingerprint = calendarProjectionLedgerFingerprint({
       requestId: plan.requestId, workspaceId: plan.workspaceId, principal,
       policy: "calendar-provider-projection", sourceRevisionDigest: plan.sourceRevisionDigest,
