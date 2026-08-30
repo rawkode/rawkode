@@ -187,6 +187,22 @@ enum LoroNativeRichTextCodec {
             : marker.reference
     }
 
+    /// Native layout managers report glyph bounds in text-container coordinates.  Keeping this
+    /// arithmetic pure makes the platform hosts prove they cannot activate a neighbouring label,
+    /// padding, or trailing whitespace after scroll/inset conversion.
+    static func textContainerPoint(_ viewPoint: CGPoint, origin: CGPoint) -> CGPoint {
+        .init(x: viewPoint.x - origin.x, y: viewPoint.y - origin.y)
+    }
+
+    static func admitsReferenceHit(
+        characterIndex: Int,
+        textLength: Int,
+        textContainerPoint: CGPoint,
+        glyphRect: CGRect
+    ) -> Bool {
+        characterIndex >= 0 && characterIndex < textLength && !glyphRect.isEmpty && glyphRect.contains(textContainerPoint)
+    }
+
     private static func canonical(_ semantic: LoroCanonicalSemanticValueV1) throws -> LoroCanonicalSemanticValueV1 {
         let limits = LoroPageProjectionLimits()
         guard !semantic.blocks.isEmpty, semantic.blocks.count <= limits.maxChildren else { throw Error.invalidSemanticDocument }

@@ -89,6 +89,10 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.allowsImageEditing = false
+        textView.setAccessibilityLabel("Rich text editor. Command-click a linked label to open it.")
+        textView.setAccessibilityCustomActions([
+            .init(name: "Open linked reference") { [weak self] in self?.openReferenceAtCurrentSelection() ?? false }
+        ])
         render(document, preserving: nil)
         textView.isEditable = isEditable
     }
@@ -183,6 +187,9 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         modifierFlags: NSEvent.ModifierFlags
     ) -> Bool {
         let modifiers = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if (charactersIgnoringModifiers == "\r" || charactersIgnoringModifiers == "\n"), modifiers == .command {
+            return openReferenceAtCurrentSelection()
+        }
         let mark: LoroCanonicalSemanticValueV1.Mark?
         switch (charactersIgnoringModifiers?.lowercased(), modifiers) {
         case ("b", .command): mark = .strong
@@ -287,6 +294,14 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     @discardableResult
+    fileprivate func openReferenceAtCurrentSelection() -> Bool {
+        let range = textView.selectedRange()
+        guard range.location != NSNotFound else { return false }
+        let offset = range.location < semanticStorage.length ? range.location : range.location - 1
+        return openReference(atUTF16Offset: offset)
+    }
+
+    @discardableResult
     private func apply(_ effect: LoroNativeRichEditingEffect) -> Bool {
         switch effect {
         case let .publish(document, selection):
@@ -318,6 +333,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private func applyTemporaryPresentation() {
         guard let layout = textView.layoutManager, let storage = textView.textStorage else { return }
         layout.removeTemporaryAttribute(.font, forCharacterRange: NSRange(location: 0, length: storage.length))
+        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: storage.length))
+        layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: NSRange(location: 0, length: storage.length))
         storage.enumerateAttribute(Marker.block, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let marker = value as? String, marker.hasPrefix("heading-") else { return }
             let level = CGFloat(Int(marker.dropFirst(8)) ?? 1)
@@ -328,6 +345,11 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
             if marks.contains("strong") { layout.addTemporaryAttribute(.font, value: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize), forCharacterRange: range) }
             if marks.contains("code") { layout.addTemporaryAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular), forCharacterRange: range) }
             if marks.contains("emphasis") { layout.addTemporaryAttribute(.obliqueness, value: 0.18, forCharacterRange: range) }
+        }
+        storage.enumerateAttribute(Marker.reference, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil else { return }
+            layout.addTemporaryAttribute(.foregroundColor, value: NSColor.controlAccentColor, forCharacterRange: range)
+            layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: range)
         }
     }
 
@@ -417,9 +439,14 @@ private final class GuardedRichTextView: NSTextView {
         if modifiers == .command,
            let layoutManager,
            let textContainer {
-            let point = convert(event.locationInWindow, from: nil)
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            let point = LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: textContainerOrigin)
             let index = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
-            if controller?.openReference(atUTF16Offset: index) == true { return }
+            guard index >= 0, index < string.utf16.count else { super.mouseDown(with: event); return }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            if LoroNativeRichTextCodec.admitsReferenceHit(characterIndex: index, textLength: string.utf16.count, textContainerPoint: point, glyphRect: glyphRect),
+               controller?.openReference(atUTF16Offset: index) == true { return }
         }
         super.mouseDown(with: event)
     }

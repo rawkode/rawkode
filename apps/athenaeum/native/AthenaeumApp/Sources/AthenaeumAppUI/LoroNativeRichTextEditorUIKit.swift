@@ -96,6 +96,12 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.smartInsertDeleteType = .no
         textView.autocorrectionType = .no
         textView.textDragInteraction?.isEnabled = false
+        textView.accessibilityLabel = "Rich text editor. References are links."
+        textView.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Open linked reference") { [weak self] _ in
+                self?.openReferenceAtCurrentSelection() ?? false
+            }
+        ]
         referenceTap.addTarget(self, action: #selector(handleReferenceTap(_:)))
         referenceTap.delegate = self
         referenceTap.cancelsTouchesInView = false
@@ -319,6 +325,15 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // on the view (not `textStorage`), so marker attributes remain the sole semantic value.
         textView.font = .preferredFont(forTextStyle: .body)
         textView.textColor = .label
+        let all = NSRange(location: 0, length: textView.textStorage.length)
+        textView.layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
+        textView.layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: all)
+        let referenceKey = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
+        textView.textStorage.enumerateAttribute(referenceKey, in: all) { value, range, _ in
+            guard value != nil else { return }
+            textView.layoutManager.addTemporaryAttribute(.foregroundColor, value: textView.tintColor ?? .systemBlue, forCharacterRange: range)
+            textView.layoutManager.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: range)
+        }
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {
@@ -335,18 +350,22 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         return true
     }
 
+    @discardableResult
+    fileprivate func openReferenceAtCurrentSelection() -> Bool {
+        let range = textView.selectedRange
+        guard range.location != NSNotFound else { return false }
+        let offset = range.location < textView.textStorage.length ? range.location : range.location - 1
+        return openReference(atUTF16Offset: offset)
+    }
+
     @objc private func handleReferenceTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        let point = recognizer.location(in: textView)
-        let index = textView.layoutManager.characterIndex(for: point, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
-        _ = openReference(atUTF16Offset: index)
+        _ = openReference(atViewPoint: recognizer.location(in: textView))
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === referenceTap, !hasMarkedText else { return false }
-        let point = touch.location(in: textView)
-        let index = textView.layoutManager.characterIndex(for: point, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
-        return textView.attributedText.map { LoroNativeRichTextCodec.reference(atUTF16Offset: index, in: $0) != nil } ?? false
+        return referenceHit(atViewPoint: touch.location(in: textView)) != nil
     }
 
     func gestureRecognizer(
@@ -354,6 +373,29 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         gestureRecognizer === referenceTap
+    }
+
+    private func referenceHit(atViewPoint point: CGPoint) -> Int? {
+        let origin = CGPoint(
+            x: textView.textContainerInset.left + textView.textContainer.lineFragmentPadding - textView.contentOffset.x,
+            y: textView.textContainerInset.top - textView.contentOffset.y
+        )
+        let containerPoint = LoroNativeRichTextCodec.textContainerPoint(point, origin: origin)
+        let index = textView.layoutManager.characterIndex(for: containerPoint, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index >= 0, index < textView.textStorage.length else { return nil }
+        let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+        let glyphRect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
+        guard LoroNativeRichTextCodec.admitsReferenceHit(characterIndex: index, textLength: textView.textStorage.length, textContainerPoint: containerPoint, glyphRect: glyphRect),
+              let rendered = textView.attributedText,
+              LoroNativeRichTextCodec.reference(atUTF16Offset: index, in: rendered) != nil
+        else { return nil }
+        return index
+    }
+
+    @discardableResult
+    private func openReference(atViewPoint point: CGPoint) -> Bool {
+        guard let index = referenceHit(atViewPoint: point) else { return false }
+        return openReference(atUTF16Offset: index)
     }
 
     private func utf16Range(for textRange: UITextRange) -> NSRange? {
@@ -456,6 +498,16 @@ private final class GuardedUIKitRichTextView: UITextView {
     private var unmarking = false
 
     override func paste(_ sender: Any?) { richController?.paste(.general) }
+
+    override var keyCommands: [UIKeyCommand]? {
+        (super.keyCommands ?? []) + [
+            UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(openReferenceShortcut(_:)))
+        ]
+    }
+
+    @objc private func openReferenceShortcut(_ sender: UIKeyCommand) {
+        _ = richController?.openReferenceAtCurrentSelection()
+    }
 
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         guard !suppressCompositionCallbacks else { super.setMarkedText(markedText, selectedRange: selectedRange); return }

@@ -58,6 +58,20 @@ final class LoroNativeRichTextCodecTests: XCTestCase {
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(rendered), document)
     }
 
+    func testReferenceHitAdmissionRequiresContainedGlyphAfterContainerOffset() {
+        let point = LoroNativeRichTextCodec.textContainerPoint(CGPoint(x: 42, y: 29), origin: CGPoint(x: 32, y: 20))
+        XCTAssertEqual(point, CGPoint(x: 10, y: 9))
+        XCTAssertTrue(LoroNativeRichTextCodec.admitsReferenceHit(
+            characterIndex: 4, textLength: 9, textContainerPoint: point, glyphRect: CGRect(x: 8, y: 4, width: 8, height: 12)
+        ))
+        XCTAssertFalse(LoroNativeRichTextCodec.admitsReferenceHit(
+            characterIndex: 4, textLength: 9, textContainerPoint: CGPoint(x: 17, y: 9), glyphRect: CGRect(x: 8, y: 4, width: 8, height: 12)
+        ), "padding and trailing whitespace must not activate a nearby reference")
+        XCTAssertFalse(LoroNativeRichTextCodec.admitsReferenceHit(
+            characterIndex: 9, textLength: 9, textContainerPoint: point, glyphRect: CGRect(x: 8, y: 4, width: 8, height: 12)
+        ), "an end-of-document insertion point is not a character")
+    }
+
     func testReferenceMarkerRejectsForgedAndMalformedAttributedPayloads() throws {
         for value: Any in ["10000000-0000-4000-8000-000000000001", ["nodeId": "10000000-0000-4000-8000-000000000001", "label": "Alice"]] {
             let source = NSMutableAttributedString(string: "Alice")

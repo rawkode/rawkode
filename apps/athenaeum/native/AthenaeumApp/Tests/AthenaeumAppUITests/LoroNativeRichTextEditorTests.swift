@@ -124,6 +124,16 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(opened, reference())
     }
 
+    func testReferenceKeyboardActivationUsesTheCurrentSelectionOnly() {
+        var opened = 0
+        let editor = LoroNativeRichTextEditorController(document: referenceParagraph(), isEditable: true, onOpenReference: { _ in opened += 1 })
+        editor.testingSelect(NSRange(location: 6, length: 0))
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "\r", modifierFlags: .command))
+        editor.testingSelect(NSRange(location: 1, length: 0))
+        XCTAssertFalse(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "\r", modifierFlags: .command))
+        XCTAssertEqual(opened, 1)
+    }
+
     func testDisabledDelegateVetoIsSynchronousAndDoesNotPublish() {
         var rejected: [LoroNativeRichTextEditorController.Rejection] = []
         var published = 0

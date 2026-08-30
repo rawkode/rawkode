@@ -91,6 +91,13 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(opened, reference())
     }
 
+    func testReferenceKeyboardSelectionActivationUsesOnlyTheTypedMarker() {
+        var opened = 0
+        let controller = LoroNativeRichTextEditorUIKitController(document: referenceParagraph(), isEditable: true, onOpenReference: { _ in opened += 1 })
+        controller.testingOpenReference(atUTF16Offset: 6)
+        XCTAssertEqual(opened, 1)
+    }
+
     private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
     }
