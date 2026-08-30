@@ -12,10 +12,36 @@ import { EmployeeUpdates, type EmployeeUpdatesState } from "./EmployeeUpdates.js
 export const DAILY_STANDUP_FETCH_LIMIT = 20
 const DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES = 8
 
-const actorLabel = (actor: LedgerActivityEntry["actor"]): string => {
-  if (actor === "you") return "You"
-  if (actor === "workspace-member") return "Workspace member"
+type PublicActivityEntry = LedgerActivityEntry & {
+  readonly actorDetail?: { readonly kind: "user" | "employee" | "system"; readonly label: string }
+  readonly target?: { readonly kind: "node"; readonly id: EntityId }
+}
+
+const actorLabel = (entry: PublicActivityEntry): string => {
+  const detail = entry.actorDetail
+  if (detail !== undefined && (detail.kind === "user" || detail.kind === "employee" || detail.kind === "system") && detail.label.trim() !== "") {
+    return detail.label
+  }
+  if (entry.actor === "you") return "You"
+  if (entry.actor === "workspace-member") return "Workspace member"
   return "Anonymous"
+}
+
+const actorClass = (entry: PublicActivityEntry): string => {
+  const kind = entry.actorDetail?.kind
+  if (kind === "employee" || kind === "system" || kind === "user") return `ledger-activity-actor-${kind}`
+  return `ledger-activity-actor-${entry.actor}`
+}
+
+const validTarget = (entry: PublicActivityEntry): { readonly kind: "node"; readonly id: EntityId } | undefined => {
+  const target = entry.target
+  if (target?.kind !== "node" || typeof target.id !== "string") return undefined
+  // Keep malformed forward-compatible payloads inert even when a caller bypasses the domain
+  // decoder (for example a stale RPC fixture or an untyped integration).
+  const id = target.id
+  const validUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  const validULID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(id)
+  return validUUID || validULID ? target : undefined
 }
 
 export type DailyStandupSummary = {
@@ -27,12 +53,15 @@ export type DailyStandupSummary = {
 
 export const summarizeDailyStandup = (
   entries: readonly LedgerActivityEntry[]
-): DailyStandupSummary => entries.reduce<DailyStandupSummary>((summary, entry) => ({
-  total: summary.total + 1,
-  byYou: summary.byYou + (entry.actor === "you" ? 1 : 0),
-  byWorkspaceMembers: summary.byWorkspaceMembers + (entry.actor === "workspace-member" ? 1 : 0),
-  byAnonymous: summary.byAnonymous + (entry.actor === "anonymous" ? 1 : 0)
-}), { total: 0, byYou: 0, byWorkspaceMembers: 0, byAnonymous: 0 })
+): DailyStandupSummary => entries.reduce<DailyStandupSummary>((summary, entry) => {
+  const actorKind = entry.actorDetail?.kind
+  return {
+    total: summary.total + 1,
+    byYou: summary.byYou + (actorKind !== undefined ? (actorKind === "user" ? 1 : 0) : (entry.actor === "you" ? 1 : 0)),
+    byWorkspaceMembers: summary.byWorkspaceMembers + (actorKind !== undefined ? (actorKind === "employee" ? 1 : 0) : (entry.actor === "workspace-member" ? 1 : 0)),
+    byAnonymous: summary.byAnonymous + (actorKind !== undefined ? (actorKind === "system" ? 1 : 0) : (entry.actor === "anonymous" ? 1 : 0))
+  }
+}, { total: 0, byYou: 0, byWorkspaceMembers: 0, byAnonymous: 0 })
 
 const typeLabel = (type: LedgerActivityEntry["type"]): string => {
   switch (type) {
@@ -50,11 +79,14 @@ const typeLabel = (type: LedgerActivityEntry["type"]): string => {
     case "appendTranscriptSegment": return "Captured a transcript segment"
     case "startMeeting": return "Started a meeting"
     case "prepareMeetingInDailyNote": return "Prepared a meeting in the daily note"
+    case "migrateLegacyPage": return "Migrated a legacy note"
     case "createTag": return "Created a Supertag definition"
     case "defineTagField": return "Added a field to a Supertag definition"
     case "assignTag": return "Requested a Supertag membership"
     case "unassignTag": return "Requested removal of a Supertag membership"
     case "syncNoteReferences": return "Reconciled note mentions"
+    case "commitLoroPageContent": return "Updated a note"
+    case "ensureLoroPage": return "Prepared a note"
     default: {
       const exhaustive: never = type
       return exhaustive
@@ -207,13 +239,18 @@ export function DailyStandup({ dailyNoteId, includeLedger = true }: {
                   <li key={`${entry.occurredAt}-${entry.type}-${index}`} className="ledger-activity-entry">
                     <div className="ledger-activity-entry-meta">
                       <span className="ledger-activity-kind">{typeLabel(entry.type)}</span>
-                      <span className={`ledger-activity-actor ledger-activity-actor-${entry.actor}`}>{actorLabel(entry.actor)}</span>
+                      <span className={`ledger-activity-actor ${actorClass(entry as PublicActivityEntry)}`}>{actorLabel(entry as PublicActivityEntry)}</span>
                       <time dateTime={entry.occurredAt}>{formatActivityTime(entry.occurredAt)}</time>
                     </div>
                     <div className="ledger-activity-reason">
                       <span>Commit reason</span>
                       <p>{entry.message}</p>
                     </div>
+                    {validTarget(entry as PublicActivityEntry) !== undefined && (
+                      <a className="ledger-activity-target" href={`/node/${validTarget(entry as PublicActivityEntry)!.id}`}>
+                        Open affected note
+                      </a>
+                    )}
                   </li>
                 ))}
               </ol>

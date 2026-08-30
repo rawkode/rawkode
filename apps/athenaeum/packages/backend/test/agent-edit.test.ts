@@ -195,6 +195,56 @@ const runAgentReadNote = async (args: {
   return { text: output.text, turn }
 }
 
+const runAgentEditNote = async (args: {
+  readonly workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>
+  readonly chatId: EntityId
+  readonly binding: string
+  readonly toolCallId: string
+  readonly index: number
+  readonly deleteCount: number
+  readonly insertText: string
+  readonly commitMessage: string
+}): Promise<{ readonly text: string; readonly turn: SendChatMessageOutput }> => {
+  const scripted = installScriptedModel([
+    new ModelTurnToolCalls({
+      kind: "tool_calls",
+      calls: [new ToolCallRequest({
+        id: args.toolCallId,
+        name: "editNote",
+        input: {
+          binding: args.binding,
+          index: args.index,
+          deleteCount: args.deleteCount,
+          insertText: args.insertText,
+          commitMessage: args.commitMessage
+        }
+      })]
+    }),
+    new ModelTurnFinalText({ kind: "final_text", text: "Updated the note." })
+  ])
+  const turn = Schema.decodeUnknownSync(SendChatMessageOutput)(
+    await args.workspaceStub.sendChatMessage(
+      Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({
+        chatId: args.chatId,
+        text: "Update the note."
+      }))
+    )
+  )
+  expect(scripted.remaining()).toBe(0)
+  const chat = Schema.decodeUnknownSync(GetChatOutput)(
+    await args.workspaceStub.getChat(Schema.encodeSync(GetChatInput)(new GetChatInput({ chatId: args.chatId })))
+  )
+  const toolMessage = [...chat.messages].reverse().find(
+    (message) => message.role === "tool" && message.content.includes(`\"${args.toolCallId}\"`)
+  )
+  if (toolMessage === undefined) throw new Error(`missing ${args.toolCallId} tool result`)
+  const result = JSON.parse(toolMessage.content) as { readonly result: string; readonly isError: boolean }
+  expect(result.isError).toBe(false)
+  const output = JSON.parse(result.result) as { readonly text: unknown }
+  if (typeof output.text !== "string") throw new Error("editNote result did not contain text")
+  return { text: output.text, turn }
+}
+
 const migrateLegacyPage = async (args: {
   readonly workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>>
   readonly workspaceId: EntityId
@@ -1513,7 +1563,7 @@ describe("AgentEditService: Loro note edits use the semantic ledger", () => {
     agentEditModelClientTestHook.converse = undefined
   })
 
-  it("commits a Loro edit with job provenance, no chat fork, and an idempotent retry", async () => {
+  it("commits a Loro edit with chat provenance, no chat fork, and an idempotent retry", async () => {
     const workspaceId = freshWorkspaceId()
     workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const chat = Schema.decodeUnknownSync(CreateChatOutput)(
@@ -1622,11 +1672,20 @@ describe("AgentEditService: Loro note edits use the semantic ledger", () => {
         nodeId: noteNodeId,
         commitMessage: "Enrich the meeting note from the agent job",
         attribution: {
-          kind: "agentJob",
-          jobId: chat.id,
-          runId: "agent-edit-note"
+          kind: "humanUi",
+          surface: "agent-chat"
         }
       }
+    })
+    expect(await native.debugGetLedgerCustody(requestIdentity)).toMatchObject({
+      type: "commitLoroPageContent",
+      workspaceId,
+      actorKind: "user",
+      actorLabel: "You",
+      chatId: chat.id,
+      toolCallId: "agent-edit-note",
+      targetKind: "node",
+      targetId: noteNodeId
     })
     const artifactsBeforeRetry = await native.debugGetLedgerArtifactCounts()
     const artifacts = JSON.stringify({
@@ -1654,6 +1713,59 @@ describe("AgentEditService: Loro note edits use the semantic ledger", () => {
       )
     )
     expect(readLoroText(retriedSync.message)).toBe("Enriched by the Loro employee. ")
+  })
+
+  it("replays identical agent insertions and deletions without rebuilding a stale splice", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const { chat, nodeIdByBinding } = await createChatWithBoundNotes({
+      workspaceStub,
+      workspaceId,
+      notes: [{ title: "Agent replay note", binding: "NOTE" }]
+    })
+    const nodeId = nodeIdByBinding.get("NOTE")
+    if (nodeId === undefined) throw new Error("missing replay note")
+    await workspaceStub.createLoroPage(
+      Schema.encodeSync(CreateLoroPageInput)(new CreateLoroPageInput({
+        workspaceId,
+        nodeId,
+        creationIntent: new CreationIntent({
+          requestId: "agent-replay-page",
+          commitMessage: "Create the agent replay note.",
+          attribution: new HumanUiMutationAttribution({
+            version: "athenaeum.mutation-attribution.v1",
+            kind: "humanUi",
+            surface: "rich-text-editor"
+          })
+        })
+      }))
+    )
+
+    const firstInsert = await runAgentEditNote({
+      workspaceStub, chatId: chat.id, binding: "NOTE", toolCallId: "agent-replay-insert",
+      index: 0, deleteCount: 0, insertText: "abcdef", commitMessage: "Seed replay text."
+    })
+    expect(firstInsert.text).toBe("abcdef")
+    const retryInsert = await runAgentEditNote({
+      workspaceStub, chatId: chat.id, binding: "NOTE", toolCallId: "agent-replay-insert",
+      index: 0, deleteCount: 0, insertText: "abcdef", commitMessage: "Seed replay text."
+    })
+    expect(retryInsert.text).toBe("abcdef")
+
+    const firstDelete = await runAgentEditNote({
+      workspaceStub, chatId: chat.id, binding: "NOTE", toolCallId: "agent-replay-delete",
+      index: 0, deleteCount: 3, insertText: "", commitMessage: "Remove the replay prefix."
+    })
+    expect(firstDelete.text).toBe("def")
+    const retryDelete = await runAgentEditNote({
+      workspaceStub, chatId: chat.id, binding: "NOTE", toolCallId: "agent-replay-delete",
+      index: 0, deleteCount: 3, insertText: "", commitMessage: "Remove the replay prefix."
+    })
+    expect(retryDelete.text).toBe("def")
+    const durable = await runAgentReadNote({
+      workspaceStub, chatId: chat.id, binding: "NOTE", toolCallId: "agent-replay-read"
+    })
+    expect(durable.text).toBe("def")
   })
 })
 

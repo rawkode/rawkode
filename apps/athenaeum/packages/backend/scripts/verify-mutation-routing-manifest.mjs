@@ -20,6 +20,10 @@ if (rpcStart < 0 || rpcEnd < 0 || rpcEnd <= rpcStart) {
 // method is treated as a mutation unless it is consciously added to this small read-only inventory,
 // making an unfamiliar verb such as `activate…` or `loro…` fail closed in the manifest audit.
 const rpcSource = source.slice(rpcStart, rpcEnd)
+const semanticLoroBypasses = [...rpcSource.matchAll(/\bloro\.(?:migrateLegacy|commitContent)\s*\(/g)]
+if (semanticLoroBypasses.length > 0) {
+  throw new Error("semantic Loro writes must go through workspace-loro-mutation-gateway.ts")
+}
 const names = [...rpcSource.matchAll(/^  async (\w+)\(/gm)].map((match) => match[1])
 const readOnlyRpcMethods = new Set([
   "whoami", "listNodes", "getNode", "subscribeToNodes", "getPageDocumentDescriptor", "getLegacyPageProjection", "getPageText",
@@ -75,7 +79,10 @@ const authorityContractOnly = new Set([
   "standup-publication-collections.ts",
   "standup-publication-service-live.ts",
   "workspace-local-mutation-capability.ts",
-  "workspace-mutation-authority.ts"
+  "workspace-mutation-authority.ts",
+  // This gateway is the one approved composition point for semantic Loro writes. Its calls to
+  // LedgerService/LoroPageService are intentionally not independent repository sinks.
+  "workspace-loro-mutation-gateway.ts"
 ])
 for (const file of readdirSync(sourceDirectory).filter((name) => name.endsWith(".ts"))) {
   const contents = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8")

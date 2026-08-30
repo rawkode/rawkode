@@ -545,6 +545,9 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     const identity = `prepare-meeting-in-daily-note:${workspaceId}:${dailyNoteId}:${localDate}:UTC:${meeting!.occurrenceKey}`
     const command = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(identity)
     expect(command).toMatchObject({ type: "prepareMeetingInDailyNote", payload: { nodeId: dailyNoteId, localDate, timeZone: "UTC", occurrenceKey: meeting!.occurrenceKey } })
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerCustody(identity)).toMatchObject({
+      type: "prepareMeetingInDailyNote", actorKind: "user", actorLabel: "You", targetKind: "node", targetId: dailyNoteId
+    })
 
     // Native and web use different copy/surfaces, but the server-owned operation is still the
     // same event/date/page/time-zone mutation and must replay instead of conflicting.

@@ -23,12 +23,28 @@ export const LedgerActivityType = Schema.Literal(
   "linkCalendarEventToNode",
   "appendTranscriptSegment",
   "startMeeting",
-  "prepareMeetingInDailyNote"
+  "prepareMeetingInDailyNote",
+  "migrateLegacyPage",
+  "commitLoroPageContent",
+  "ensureLoroPage"
 )
 export type LedgerActivityType = typeof LedgerActivityType.Type
 
 export const LedgerActivityActor = Schema.Literal("you", "workspace-member", "anonymous")
 export type LedgerActivityActor = typeof LedgerActivityActor.Type
+
+/** A privacy-safe description of the actor which made a recorded change. The historical
+ * `actor` field remains for old clients; this detail never includes principal, grant, or run ids. */
+export class LedgerActivityActorDetail extends Schema.Class<LedgerActivityActorDetail>("LedgerActivityActorDetail")({
+  kind: Schema.Literal("user", "employee", "system"),
+  label: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))
+}) {}
+
+/** The minimal stable target suitable for navigation from Today. */
+export class LedgerActivityTarget extends Schema.Class<LedgerActivityTarget>("LedgerActivityTarget")({
+  kind: Schema.Literal("node"),
+  id: EntityId
+}) {}
 
 export class ListRecentLedgerActivityInput extends Schema.Class<ListRecentLedgerActivityInput>("ListRecentLedgerActivityInput")({
   workspaceId: EntityId,
@@ -42,7 +58,9 @@ export class LedgerActivityEntry extends Schema.Class<LedgerActivityEntry>("Ledg
   occurredAt: IsoDateTimeString,
   type: LedgerActivityType,
   actor: LedgerActivityActor,
-  message: Schema.String.pipe(Schema.minLength(1))
+  message: Schema.String.pipe(Schema.minLength(1)),
+  actorDetail: Schema.optional(LedgerActivityActorDetail),
+  target: Schema.optional(LedgerActivityTarget)
 }) {}
 
 export class ListRecentLedgerActivityOutput extends Schema.Class<ListRecentLedgerActivityOutput>("ListRecentLedgerActivityOutput")({

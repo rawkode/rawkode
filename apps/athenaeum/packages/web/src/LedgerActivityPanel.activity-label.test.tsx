@@ -67,6 +67,35 @@ describe("DailyStandup meeting preparation activity", () => {
     expect(host.textContent).not.toContain("prepareMeetingInDailyNote")
   })
 
+  it("renders named employees and only offers a valid node target", async () => {
+    queryStateMock.entries = [{
+      occurredAt: "2026-08-28T09:30:00.000Z",
+      type: "commitLoroPageContent",
+      actor: "workspace-member",
+      actorDetail: { kind: "employee", label: "Executive Assistant" },
+      target: { kind: "node", id: "00000000-0000-4000-8000-000000000001" },
+      message: "Capture the meeting outcome."
+    } as unknown as LedgerActivityEntry]
+    const host = await mount()
+    expect(host.querySelector(".ledger-activity-actor")?.textContent).toBe("Executive Assistant")
+    expect(host.querySelector(".ledger-activity-kind")?.textContent).toBe("Updated a note")
+    expect(host.querySelector<HTMLAnchorElement>(".ledger-activity-target")?.getAttribute("href")).toBe("/node/00000000-0000-4000-8000-000000000001")
+  })
+
+  it("falls back to the legacy actor and hides malformed optional target data", async () => {
+    queryStateMock.entries = [{
+      occurredAt: "2026-08-28T09:30:00.000Z",
+      type: "ensureLoroPage",
+      actor: "workspace-member",
+      actorDetail: { kind: "unknown", label: "Invented identity" },
+      target: { kind: "node", id: "bad" },
+      message: "Prepare the note."
+    } as unknown as LedgerActivityEntry]
+    const host = await mount()
+    expect(host.querySelector(".ledger-activity-actor")?.textContent).toBe("Workspace member")
+    expect(host.querySelector(".ledger-activity-target")).toBeNull()
+  })
+
   it("fetches the supported recent window but progressively discloses entries beyond the calm default", async () => {
     expect(DAILY_STANDUP_FETCH_LIMIT).toBe(20)
     queryStateMock.entries = Array.from({ length: 9 }, (_, index) => ({

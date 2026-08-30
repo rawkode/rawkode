@@ -25,11 +25,15 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
     case linkCalendarEventToNode
     case appendTranscriptSegment
     case startMeeting
+    case prepareMeetingInDailyNote
+    case migrateLegacyPage
     case createTag
     case defineTagField
     case assignTag
     case unassignTag
     case syncNoteReferences
+    case commitLoroPageContent
+    case ensureLoroPage
 
     public var displayName: String {
         switch self {
@@ -46,11 +50,15 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
         case .linkCalendarEventToNode: return "Linked a calendar event to a workspace node"
         case .appendTranscriptSegment: return "Captured a transcript segment"
         case .startMeeting: return "Started a meeting"
+        case .prepareMeetingInDailyNote: return "Prepared a meeting in the daily note"
+        case .migrateLegacyPage: return "Migrated a legacy note"
         case .createTag: return "Created a Supertag definition"
         case .defineTagField: return "Added a field to a Supertag definition"
         case .assignTag: return "Requested a Supertag membership"
         case .unassignTag: return "Requested removal of a Supertag membership"
         case .syncNoteReferences: return "Reconciled note mentions"
+        case .commitLoroPageContent: return "Updated a note"
+        case .ensureLoroPage: return "Prepared a note"
         }
     }
 
@@ -69,11 +77,15 @@ public enum RPCLedgerActivityType: String, Sendable, Equatable {
         case .linkCalendarEventToNode: return "calendar.badge.plus"
         case .appendTranscriptSegment: return "waveform"
         case .startMeeting: return "video"
+        case .prepareMeetingInDailyNote: return "calendar.badge.clock"
+        case .migrateLegacyPage: return "arrow.triangle.2.circlepath.doc.on.clipboard"
         case .createTag: return "tag"
         case .defineTagField: return "list.bullet.rectangle"
         case .assignTag: return "tag"
         case .unassignTag: return "tag.slash"
         case .syncNoteReferences: return "link"
+        case .commitLoroPageContent: return "pencil"
+        case .ensureLoroPage: return "doc.badge.plus"
         }
     }
 }
@@ -92,23 +104,66 @@ public enum RPCLedgerActivityActor: String, Sendable, Equatable {
     }
 }
 
+public struct RPCLedgerActivityActorDetail: Sendable, Equatable {
+    public enum Kind: String, Sendable, Equatable { case user, employee, system }
+    public let kind: Kind
+    public let label: String
+
+    public init(kind: Kind, label: String) {
+        precondition(!label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        self.kind = kind
+        self.label = label
+    }
+
+    init?(value: CapnWebValue) {
+        guard let object = try? value.field("kind"),
+              let kindValue = object.stringValue,
+              let kind = Kind(rawValue: kindValue),
+              let labelValue = try? value.field("label"),
+              let label = labelValue.stringValue,
+              !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        self.kind = kind
+        self.label = label
+    }
+}
+
+public struct RPCLedgerActivityTarget: Sendable, Equatable {
+    public let kind: String
+    public let id: EntityId
+
+    init?(value: CapnWebValue) {
+        guard let kindValue = (try? value.field("kind"))?.stringValue,
+              kindValue == "node",
+              let idValue = (try? value.field("id"))?.stringValue,
+              let id = try? EntityId(validating: idValue) else { return nil }
+        self.kind = kindValue
+        self.id = id
+    }
+}
+
 public struct RPCLedgerActivityEntry: Sendable, Equatable {
     public let occurredAt: IsoDateTimeString
     public let type: RPCLedgerActivityType
     public let actor: RPCLedgerActivityActor
+    public let actorDetail: RPCLedgerActivityActorDetail?
     public let message: String
+    public let target: RPCLedgerActivityTarget?
 
     public init(
         occurredAt: IsoDateTimeString,
         type: RPCLedgerActivityType,
         actor: RPCLedgerActivityActor,
-        message: String
+        message: String,
+        actorDetail: RPCLedgerActivityActorDetail? = nil,
+        target: RPCLedgerActivityTarget? = nil
     ) {
         precondition(!message.isEmpty, "Ledger activity messages must be nonempty")
         self.occurredAt = occurredAt
         self.type = type
         self.actor = actor
         self.message = message
+        self.actorDetail = actorDetail
+        self.target = target
     }
 
     init(_ value: CapnWebValue) throws {
@@ -122,11 +177,17 @@ public struct RPCLedgerActivityEntry: Sendable, Equatable {
                   !message.isEmpty else {
                 throw LedgerActivityRPCError.malformedResponse
             }
+            // Optional forward-compatible fields are deliberately best-effort. A malformed
+            // detail or target must not erase an otherwise valid legacy activity row.
+            let actorDetail = RPCLedgerActivityActorDetail(value: (try? value.field("actorDetail")) ?? .null)
+            let target = RPCLedgerActivityTarget(value: (try? value.field("target")) ?? .null)
             self.init(
                 occurredAt: try IsoDateTimeString(validating: occurredAt),
                 type: type,
                 actor: actor,
-                message: message
+                message: message,
+                actorDetail: actorDetail,
+                target: target
             )
         } catch {
             throw LedgerActivityRPCError.malformedResponse

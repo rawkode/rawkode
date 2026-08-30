@@ -169,9 +169,18 @@ struct DailyStandupSummary: Equatable, Sendable {
 
     init(entries: [RPCLedgerActivityEntry]) {
         total = entries.count
-        byYou = entries.filter { $0.actor == .you }.count
-        byWorkspaceMembers = entries.filter { $0.actor == .workspaceMember }.count
-        byAutomatedActors = entries.filter { $0.actor == .anonymous }.count
+        byYou = entries.filter {
+            if let kind = $0.actorDetail?.kind { return kind == .user }
+            return $0.actor == .you
+        }.count
+        byWorkspaceMembers = entries.filter {
+            if let kind = $0.actorDetail?.kind { return kind == .employee }
+            return $0.actor == .workspaceMember
+        }.count
+        byAutomatedActors = entries.filter {
+            if let kind = $0.actorDetail?.kind { return kind == .system }
+            return $0.actor == .anonymous
+        }.count
     }
 }
 
@@ -464,7 +473,7 @@ private struct DailyStandupEntryRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(entry.type.displayName)
                         .font(.caption.weight(.semibold))
-                    Text(entry.actor.displayName)
+                    Text(entry.actorDetail?.label ?? entry.actor.displayName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -482,6 +491,13 @@ private struct DailyStandupEntryRow: View {
                         .font(.callout)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let target = entry.target {
+                    Link(destination: URL(string: "athenaeum://node/\(target.id.rawValue)")!) {
+                        Label("Open affected note", systemImage: "arrow.up.right.square")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.tint)
                 }
             }
         }

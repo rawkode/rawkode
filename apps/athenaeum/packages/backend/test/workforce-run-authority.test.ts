@@ -91,11 +91,25 @@ describe("workforce run authority", () => {
     const native = workspaceDurableObjectStub(workspaceId) as unknown as {
       admitWorkforceRun(input: unknown): Promise<Record<string, unknown>>
       debugGetLedgerArtifactCounts(): Promise<Record<string, number>>
+      debugGetLedgerCustody(requestIdentity: string): Promise<Record<string, unknown> | null>
     }
     const input = workforceInput(workspaceId)
     const first = await native.admitWorkforceRun(input)
     expect(first).toMatchObject({ replayed: false, resultKind: "completed", commitMessage: expect.stringContaining("Enrich people") })
     expect(first.publicationId).toBe(first.childNodeId)
+    const admission = decodeWorkforceRunAdmission(input)
+    expect(await native.debugGetLedgerCustody(`workforce-loro:${admission.requestIdentity}`)).toMatchObject({
+      type: "ensureLoroPage",
+      workspaceId,
+      actorKind: "employee",
+      actorLabel: "Executive assistant · Enrich people",
+      employeeId: "assistant",
+      jobId: "enrich",
+      runId: "run-1",
+      grantId: expect.any(String),
+      targetKind: "node",
+      targetId: first.childNodeId
+    })
 
     const workspace = await connectToWorkspaceAsTestUser(workspaceId)
     const nodes = Schema.decodeUnknownSync(ListNodesOutput)(await workspace.listNodes(

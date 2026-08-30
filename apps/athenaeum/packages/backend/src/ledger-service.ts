@@ -82,7 +82,8 @@ import {
   START_MEETING_MESSAGE_DERIVATION_VERSION,
   StartMeetingLedgerCommand,
   StartMeetingLedgerPayload,
-  startMeetingCommitMessage
+  startMeetingCommitMessage,
+  EntityId
 } from "@athenaeum/domain"
 import * as Schema from "effect/Schema"
 
@@ -90,6 +91,13 @@ import * as Schema from "effect/Schema"
  * graph writes, command rows, receipts, events, and outbox rows all roll back together. */
 export const ledgerExecuteTestHook: { afterMutation: (() => void) | undefined } = {
   afterMutation: undefined
+}
+
+/** Test-only custody failpoint. Production leaves this unset; the gateway tests use it to prove
+ * that a custody failure rolls back the command, CRDT projection, side effects, and receipt as
+ * one transaction rather than leaving an unaudited write behind. */
+export const ledgerCustodyTestHook: { beforeInsert: (() => void) | undefined } = {
+  beforeInsert: undefined
 }
 
 const LEDGER_RECEIPT_V2_VERSION = "athenaeum.workspace-ledger-receipt.v2" as const
@@ -314,7 +322,65 @@ export interface ExecuteLedgerV2Input<T> {
   readonly encodeOutput: (output: T) => unknown
   readonly decodeOutput: (output: unknown) => T
   readonly appendCommand: () => void
+  /** Custody is immutable evidence for new ledger writes. It is deliberately a separate step
+   * after the command row so a failed transaction cannot leave an orphan action trail. */
+  readonly appendCustody?: () => void
+  /** Replays must prove the stored custody still belongs to this exact command. */
+  readonly validateReplayCustody?: () => void
   readonly appendSideEffects?: () => void
+}
+
+export type LedgerCustodyType =
+  | "commitLoroPageContent"
+  | "ensureLoroPage"
+  | "migrateLegacyPage"
+  | "prepareMeetingInDailyNote"
+
+export interface LedgerCustodyInput {
+  readonly requestIdentity: string
+  readonly fingerprint: string
+  readonly type: LedgerCustodyType
+  readonly workspaceId: string
+  readonly actorKind: "user" | "employee" | "system"
+  readonly actorLabel: string
+  readonly targetKind: "node"
+  readonly targetId: string
+  readonly employeeId?: string
+  readonly jobId?: string
+  readonly runId?: string
+  readonly grantId?: string
+  readonly chatId?: string
+  readonly toolCallId?: string
+}
+
+const isNonBlankString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0
+
+const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
+  if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
+    !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
+    input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote"].includes(input.type) ||
+    !["user", "employee", "system"].includes(input.actorKind) || input.targetKind !== "node" ||
+    Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
+    throw new LedgerConflict("invalid ledger custody shape")
+  }
+  for (const value of [input.employeeId, input.jobId, input.runId, input.grantId, input.chatId, input.toolCallId]) {
+    if (value !== undefined && !isNonBlankString(value)) throw new LedgerConflict("invalid ledger custody reference")
+  }
+  if (input.actorKind === "employee" &&
+    [input.employeeId, input.jobId, input.runId, input.grantId].some((value) => !isNonBlankString(value))) {
+    throw new LedgerConflict("employee ledger custody requires employee, job, run, and grant references")
+  }
+  if (input.actorKind === "employee" && (input.chatId !== undefined || input.toolCallId !== undefined)) {
+    throw new LedgerConflict("employee ledger custody cannot carry chat references")
+  }
+  if (input.actorKind === "user" && (input.chatId === undefined) !== (input.toolCallId === undefined)) {
+    throw new LedgerConflict("chat ledger custody requires both chat and tool references")
+  }
+  if (input.actorKind !== "employee" && (input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
+    throw new LedgerConflict("employee references require employee ledger custody")
+  }
 }
 
 export class LedgerConflict extends Error {}
@@ -454,6 +520,36 @@ export const commitLoroPageContentLedgerFingerprint = (
   commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
   messageDerivationVersion: COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION
 }))
+
+/** Stable identity for the private, user-directed agent-chat adapter. Its semantic splice is
+ * intentionally independent of the current Loro CAS witness so a retried tool call can replay
+ * after the first attempt has already advanced the page. The gateway still derives and checks this
+ * value from the closed agent-chat binding; it is not caller-supplied authority. */
+export const agentLoroEditLedgerFingerprint = (command: {
+  readonly requestId: string
+  readonly workspaceId: string
+  readonly principal: string
+  readonly policy: string
+  readonly nodeId: string
+  readonly index: number
+  readonly deleteCount: number
+  readonly insertText: string
+  readonly commitMessage: string
+  readonly attribution: typeof MutationAttribution.Type
+}): string => sha256HexSync(canonicalJsonBytes({
+  version: "athenaeum.agent-loro-edit.v1",
+  requestId: command.requestId,
+  workspaceId: command.workspaceId,
+  principal: command.principal,
+  policy: command.policy,
+  nodeId: command.nodeId,
+  index: command.index,
+  deleteCount: command.deleteCount,
+  insertText: command.insertText,
+  commitMessage: command.commitMessage,
+  attribution: Schema.encodeSync(MutationAttribution)(command.attribution)
+}))
+
 export const prepareMeetingInDailyNoteLedgerFingerprint = (command: Omit<PrepareMeetingInDailyNoteLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity" | "status" | "resultSnapshotSha256">): string => sha256HexSync(canonicalJsonBytes({
   // Request ids identify one transport attempt; the stable event/date/page/time-zone request
   // identity is supplied by the caller. Human-facing commit messages and UI surfaces are
@@ -658,6 +754,19 @@ export class LedgerService {
     sql.exec(`CREATE TABLE IF NOT EXISTS ledger_events (
       requestIdentity TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL
     )`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS ledger_custody (
+      requestIdentity TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, type TEXT NOT NULL,
+      workspaceId TEXT NOT NULL, actorKind TEXT NOT NULL, actorLabel TEXT NOT NULL,
+      employeeId TEXT, jobId TEXT, runId TEXT, grantId TEXT, chatId TEXT, toolCallId TEXT,
+      targetKind TEXT NOT NULL, targetId TEXT NOT NULL
+    )`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS ledger_custody_schema (
+      id INTEGER PRIMARY KEY CHECK (id = 1), commandHighWater INTEGER NOT NULL
+    )`)
+    // The watermark is written exactly once. A missing custody row is only neutral legacy data
+    // when its immutable command row predates this schema; newer omissions fail closed.
+    sql.exec(`INSERT OR IGNORE INTO ledger_custody_schema (id, commandHighWater)
+      SELECT 1, COALESCE(MAX(rowid), 0) FROM ledger_commands`)
   }
 
   existing(requestIdentity: string, fingerprint: string): StoredLedgerReceipt | undefined {
@@ -689,18 +798,76 @@ export class LedgerService {
     }
   }
 
+  /** Read-only replay probe used by semantic adapters that must avoid rebuilding a mutation
+   * against already-advanced state. It deliberately reuses the same fingerprint/type conflict
+   * checks as executeV2 and never returns the private receipt payload. */
+  hasV2Receipt(requestIdentity: string, fingerprint: string, type: string): boolean {
+    return this.existingV2(requestIdentity, fingerprint, type) !== undefined
+  }
+
   /** Executes a typed mutation inside the caller-owned Workspace DO transaction. The order is
    * replay check -> graph callback -> test failpoint -> command/side effects -> v2 receipt. A thrown
    * callback or append rolls back the whole transaction, while a replay never invokes the mutation. */
   executeV2<T>(input: ExecuteLedgerV2Input<T>): T {
     const replay = this.existingV2(input.requestIdentity, input.fingerprint, input.type)
-    if (replay !== undefined) return input.decodeOutput(replay.output)
+    if (replay !== undefined) {
+      input.validateReplayCustody?.()
+      return input.decodeOutput(replay.output)
+    }
     const output = input.mutate()
     ledgerExecuteTestHook.afterMutation?.()
     input.appendCommand()
+    input.appendCustody?.()
     input.appendSideEffects?.()
     this.receiptV2(input.requestIdentity, input.fingerprint, input.type, input.encodeOutput(output))
     return output
+  }
+
+  appendCustody(input: LedgerCustodyInput): void {
+    assertLedgerCustodyShape(input)
+    ledgerCustodyTestHook.beforeInsert?.()
+    this.sql.exec(`INSERT INTO ledger_custody (
+      requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
+      employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.requestIdentity, input.fingerprint, input.type, input.workspaceId, input.actorKind, input.actorLabel,
+    input.employeeId ?? null, input.jobId ?? null, input.runId ?? null, input.grantId ?? null,
+    input.chatId ?? null, input.toolCallId ?? null, input.targetKind, input.targetId)
+  }
+
+  validateCustody(input: LedgerCustodyInput): void {
+    const row = this.sql.exec<{
+      requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
+      actorKind: "user" | "employee" | "system"; actorLabel: string
+      employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
+      chatId: string | null; toolCallId: string | null; targetKind: "node"; targetId: string
+    }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
+      employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
+      FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
+    if (row === undefined) {
+      // A receipt written before custody was introduced can still be replayed without inventing
+      // provenance. The immutable command watermark is the only authority for that historical
+      // exception; a newer Loro receipt missing custody is a failed write and must stay blocked.
+      const command = this.sql.exec<{ type: string; commandRowId: number; commandHighWater: number }>(
+        `SELECT c.type, c.rowid AS commandRowId,
+                (SELECT commandHighWater FROM ledger_custody_schema WHERE id = 1) AS commandHighWater
+         FROM ledger_commands c WHERE c.requestIdentity = ?`, input.requestIdentity
+      ).toArray()[0]
+      if (command !== undefined && command.type === input.type && command.commandRowId <= command.commandHighWater) return
+      throw new LedgerConflict("request identity has missing or mismatched custody")
+    }
+    const normalized = {
+      ...row,
+      employeeId: row.employeeId ?? undefined, jobId: row.jobId ?? undefined, runId: row.runId ?? undefined,
+      grantId: row.grantId ?? undefined, chatId: row.chatId ?? undefined, toolCallId: row.toolCallId ?? undefined
+    }
+    try { assertLedgerCustodyShape(normalized) } catch {
+      throw new LedgerConflict("request identity has missing or mismatched custody")
+    }
+    if (Object.entries(input).some(([key, value]) => normalized[key as keyof LedgerCustodyInput] !== value) ||
+      Object.keys(normalized).some((key) => !(key in input) && normalized[key as keyof LedgerCustodyInput] !== undefined)) {
+      throw new LedgerConflict("request identity has missing or mismatched custody")
+    }
   }
 
   /** Returns only the command-safe fields needed by the authenticated audit surface. The
@@ -714,16 +881,20 @@ export class LedgerService {
     readonly principal: string
     readonly message: string
     readonly createdAt: string
+    readonly actorKind?: "user" | "employee" | "system"
+    readonly actorLabel?: string
+    readonly targetKind?: "node"
+    readonly targetId?: string
   }> {
     const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 20)
     const predicates: string[] = []
     const bindings: string[] = []
     if (window.from !== undefined) {
-      predicates.push("createdAt >= ?")
+      predicates.push("c.createdAt >= ?")
       bindings.push(window.from)
     }
     if (window.to !== undefined) {
-      predicates.push("createdAt < ?")
+      predicates.push("c.createdAt < ?")
       bindings.push(window.to)
     }
     const where = predicates.length === 0 ? "" : `WHERE ${predicates.join(" AND ")}`
@@ -732,15 +903,65 @@ export class LedgerService {
       principal: string
       message: string
       createdAt: string
+      actorKind: "user" | "employee" | "system" | null
+      actorLabel: string | null
+      custodyType: string | null
+      employeeId: string | null
+      jobId: string | null
+      runId: string | null
+      grantId: string | null
+      chatId: string | null
+      toolCallId: string | null
+      targetKind: "node" | null
+      targetId: string | null
+      commandRowId: number
+      commandHighWater: number
     }>(
-      `SELECT type, principal, message, createdAt
-       FROM ledger_commands
+      `SELECT c.type, c.principal, c.message, c.createdAt,
+              custody.actorKind, custody.actorLabel, custody.type AS custodyType,
+              custody.employeeId, custody.jobId, custody.runId, custody.grantId, custody.chatId, custody.toolCallId,
+              custody.targetKind, custody.targetId,
+              c.rowid AS commandRowId,
+              (SELECT commandHighWater FROM ledger_custody_schema WHERE id = 1) AS commandHighWater
+       FROM ledger_commands c
+       LEFT JOIN ledger_custody custody ON custody.requestIdentity = c.requestIdentity
        ${where}
-       ORDER BY createdAt DESC, requestIdentity DESC
+       ORDER BY c.createdAt DESC, c.requestIdentity DESC
        LIMIT ?`,
       ...bindings,
       boundedLimit
-    ).toArray()
+    ).toArray().flatMap((row) => {
+      if (row.actorKind === null) {
+        // Only the four Loro gateway operations have mandatory custody in this vertical. Other
+        // historical ledger routes remain visible through their legacy actor projection while
+        // their own custody migrations are still pending.
+        if ((row.type === "commitLoroPageContent" || row.type === "ensureLoroPage" || row.type === "migrateLegacyPage" || row.type === "prepareMeetingInDailyNote") && row.commandRowId > row.commandHighWater) return []
+        return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt }]
+      }
+      if (row.actorLabel === null || row.custodyType !== row.type || row.targetKind !== "node" || row.targetId === null) return []
+      if (row.custodyType !== "commitLoroPageContent" && row.custodyType !== "ensureLoroPage" && row.custodyType !== "migrateLegacyPage" && row.custodyType !== "prepareMeetingInDailyNote") return []
+      if (row.actorKind !== "user" && row.actorKind !== "employee" && row.actorKind !== "system") return []
+      const custody: LedgerCustodyInput = {
+        requestIdentity: "activity-row",
+        fingerprint: "activity-row",
+        type: row.custodyType,
+        workspaceId: "activity-row",
+        actorKind: row.actorKind,
+        actorLabel: row.actorLabel,
+        employeeId: row.employeeId ?? undefined,
+        jobId: row.jobId ?? undefined,
+        runId: row.runId ?? undefined,
+        grantId: row.grantId ?? undefined,
+        chatId: row.chatId ?? undefined,
+        toolCallId: row.toolCallId ?? undefined,
+        targetKind: row.targetKind,
+        targetId: row.targetId
+      }
+      try { assertLedgerCustodyShape(custody) } catch { return [] }
+      if (Schema.decodeUnknownOption(EntityId)(row.targetId)._tag === "None") return []
+      return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
+        actorKind: row.actorKind, actorLabel: row.actorLabel, targetKind: row.targetKind, targetId: row.targetId }]
+    })
   }
 
   append(command: CreateNodeLedgerCommand): void {

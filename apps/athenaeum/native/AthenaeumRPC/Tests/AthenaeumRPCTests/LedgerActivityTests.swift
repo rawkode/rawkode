@@ -74,4 +74,35 @@ final class LedgerActivityTests: XCTestCase {
         XCTAssertEqual(entry.type, .startMeeting)
         XCTAssertEqual(entry.type.displayName, "Started a meeting")
     }
+
+    func testDecodesNamedEmployeeAndNodeTarget() throws {
+        let value = CapnWebValue.object([
+            "occurredAt": .string("2026-08-26T09:30:00.000Z"),
+            "type": .string("commitLoroPageContent"),
+            "actor": .string("workspace-member"),
+            "actorDetail": .object(["kind": .string("employee"), "label": .string("Executive Assistant")]),
+            "target": .object(["kind": .string("node"), "id": .string("00000000-0000-4000-8000-000000000001")]),
+            "message": .string("Capture the meeting outcome in the daily note.")
+        ])
+        let entry = try RPCLedgerActivityEntry(value)
+        XCTAssertEqual(entry.type.displayName, "Updated a note")
+        XCTAssertEqual(entry.actorDetail?.kind, .employee)
+        XCTAssertEqual(entry.actorDetail?.label, "Executive Assistant")
+        XCTAssertEqual(entry.target?.id.rawValue, "00000000-0000-4000-8000-000000000001")
+    }
+
+    func testMalformedOptionalFieldsFallBackToLegacyActivity() throws {
+        let value = CapnWebValue.object([
+            "occurredAt": .string("2026-08-26T09:30:00.000Z"),
+            "type": .string("ensureLoroPage"),
+            "actor": .string("workspace-member"),
+            "actorDetail": .object(["kind": .string("unknown"), "label": .string("Someone")]),
+            "target": .object(["kind": .string("node"), "id": .string("not-an-entity-id")]),
+            "message": .string("Prepare the note.")
+        ])
+        let entry = try RPCLedgerActivityEntry(value)
+        XCTAssertNil(entry.actorDetail)
+        XCTAssertNil(entry.target)
+        XCTAssertEqual(entry.actor.displayName, "Workspace member")
+    }
 }

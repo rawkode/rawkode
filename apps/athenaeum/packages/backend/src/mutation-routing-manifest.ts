@@ -32,6 +32,17 @@ export const WORKSPACE_MUTATION_ROUTING = {
   appRunHttp: "direct"
 } as const
 
+/** The semantic Loro page writers share one Workspace-actor gateway. Keeping this explicit next
+ * to the broader routing inventory prevents a future direct route from quietly bypassing the
+ * custody, command, side-effect, and post-commit cache contract. */
+export const WORKSPACE_LORO_GATEWAY_OPERATIONS = [
+  "createLoroPage",
+  "commitLoroPageContent",
+  "migrateLegacyPage",
+  "prepareMeetingInDailyNote",
+  "workforce.ensureLoroPage"
+] as const
+
 /**
  * Generated-source inventory for the NLE migration.  `declared*` values on an ingress request
  * are evidence only; the future Workspace authority boundary resolves ActorContext itself.

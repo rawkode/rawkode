@@ -152,6 +152,8 @@ export {
   LedgerActivityActor,
   LedgerActivityType,
   LedgerActivityEntry,
+  LedgerActivityActorDetail,
+  LedgerActivityTarget,
   ListRecentLedgerActivityInput,
   ListRecentLedgerActivityOutput
 } from "./ledger-rpc.js"

@@ -157,6 +157,9 @@ describe("server-derived legacy page migration", () => {
     expect(textFromSnapshot(started.message)).toBe(sourceText)
     const command = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(`migrate-legacy-page:${intent.requestId}`)
     expect(command).toMatchObject({ type: "migrateLegacyPage", payload: { sourceStorageVersion: legacy.storageVersion, migrationEngineVersion: "automerge-flat-text-to-loro-v1" } })
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerCustody(`migrate-legacy-page:${intent.requestId}`)).toMatchObject({
+      type: "migrateLegacyPage", actorKind: "user", actorLabel: "You", targetKind: "node", targetId: node.id
+    })
     if (sourceText.length > 0) expect(JSON.stringify(command)).not.toContain(sourceText)
   })
 

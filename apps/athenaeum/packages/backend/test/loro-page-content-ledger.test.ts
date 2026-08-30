@@ -15,6 +15,7 @@ import {
   LoroContentConflict,
   LoroRequestIdentityConflict,
   LoroMutationIntentV1,
+  ListRecentLedgerActivityOutput,
   StartLoroPageSyncInput,
   StartLoroPageSyncOutput,
   SyncFeedInput,
@@ -22,7 +23,7 @@ import {
   ValidationError
 } from "@athenaeum/domain"
 import { connectToWorkspace, connectToWorkspaceAsTestUser, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
-import { ledgerExecuteTestHook } from "../src/ledger-service.js"
+import { ledgerCustodyTestHook, ledgerExecuteTestHook } from "../src/ledger-service.js"
 import { pagePersistenceTestHook } from "../src/workspace-durable-object.js"
 import { loroVersionVectorIdentity } from "../src/loro-page-service-live.js"
 import versionVectorIdentityFixture from "../../../fixtures/loro-version-vector-identity.json"
@@ -77,6 +78,7 @@ const encodedCommit = (fixture: Awaited<ReturnType<typeof prepare>>, requestId =
 describe.sequential("commitLoroPageContent ledger contract", () => {
   afterEach(() => {
     ledgerExecuteTestHook.afterMutation = undefined
+    ledgerCustodyTestHook.beforeInsert = undefined
     pagePersistenceTestHook.afterPrepareBeforeCommit = undefined
     pagePersistenceTestHook.afterTransactionBeforePublish = undefined
   })
@@ -126,6 +128,22 @@ describe.sequential("commitLoroPageContent ledger contract", () => {
       const native = workspaceDurableObjectStub(fixture.workspaceId); const identity = "commit-loro-page-content:semantic-commit"
       const command = await native.debugGetLedgerCommand(identity); const receipt = await native.debugGetLedgerReceipt(identity); const event = await native.debugGetLedgerEvent(identity); const outbox = await native.debugGetLedgerOutboxIntent(identity)
       expect(command).toMatchObject({ type: "commitLoroPageContent", requestId: "semantic-commit", payload: { nodeId: fixture.node.id, updateLength: fixture.update.length } })
+      expect(await native.debugGetLedgerCustody(identity)).toMatchObject({
+        requestIdentity: identity,
+        fingerprint: expect.any(String),
+        type: "commitLoroPageContent",
+        workspaceId: fixture.workspaceId,
+        actorKind: "user",
+        actorLabel: "You",
+        targetKind: "node",
+        targetId: fixture.node.id
+      })
+      const activity = Schema.decodeUnknownSync(ListRecentLedgerActivityOutput)(await fixture.stub.listRecentLedgerActivity({ workspaceId: fixture.workspaceId, limit: 20 }))
+      expect(activity.entries.find((entry) => entry.type === "commitLoroPageContent")).toMatchObject({
+        actor: "you",
+        actorDetail: { kind: "user", label: "You" },
+        target: { kind: "node", id: fixture.node.id }
+      })
       expect(receipt).toMatchObject({ output: { type: "commitLoroPageContent" } }); expect(event).not.toBeNull(); expect(outbox).not.toBeNull()
       expect(JSON.stringify({ command, receipt, event, outbox })).not.toMatch(/Uint8Array|"update"\s*:|"snapshot"\s*:/i)
       expect(await descriptor(fixture)).toMatchObject({ storageVersion: first.storageVersion })
@@ -150,7 +168,7 @@ describe.sequential("commitLoroPageContent ledger contract", () => {
       }
       for (const changed of [
         { ...encoded, intent: { ...encoded.intent, commitMessage: "different meaning" } },
-        { ...encoded, intent: { ...encoded.intent, attribution: { version: "athenaeum.mutation-attribution.v1", kind: "system", source: "importer" } } },
+        { ...encoded, intent: { ...encoded.intent, attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "agent-chat" } } },
         { ...encoded, expectedStorageVersion: encoded.expectedStorageVersion + 1 },
         { ...encoded, update: Uint8Array.from([...encoded.update].reverse()) }
       ]) {
@@ -204,6 +222,22 @@ describe.sequential("commitLoroPageContent ledger contract", () => {
       expect((await rejectionToDomainError(fixture.stub.commitLoroPageContent(encodedCommit(fixture, "rollback-content"))))._tag).toBe("UnexpectedError")
       const native = workspaceDurableObjectStub(fixture.workspaceId)
       expect(await native.debugGetLedgerCommand(identity)).toBeNull()
+      expect(await native.debugGetLedgerReceipt(identity)).toBeNull()
+      expect(await native.debugGetLedgerEvent(identity)).toBeNull()
+      expect(await native.debugGetLedgerOutboxIntent(identity)).toBeNull()
+      expect(await descriptor(fixture)).toEqual(fixture.created.descriptor)
+    } finally { fixture.stub[Symbol.dispose]() }
+  })
+
+  it("rolls back every artifact when custody cannot be appended", async () => {
+    const fixture = await prepare()
+    try {
+      const identity = "commit-loro-page-content:custody-rollback"
+      ledgerCustodyTestHook.beforeInsert = () => { throw new Error("custody append failpoint") }
+      expect((await rejectionToDomainError(fixture.stub.commitLoroPageContent(encodedCommit(fixture, "custody-rollback"))))._tag).toBe("UnexpectedError")
+      const native = workspaceDurableObjectStub(fixture.workspaceId)
+      expect(await native.debugGetLedgerCommand(identity)).toBeNull()
+      expect(await native.debugGetLedgerCustody(identity)).toBeNull()
       expect(await native.debugGetLedgerReceipt(identity)).toBeNull()
       expect(await native.debugGetLedgerEvent(identity)).toBeNull()
       expect(await native.debugGetLedgerOutboxIntent(identity)).toBeNull()

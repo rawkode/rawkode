@@ -6,21 +6,18 @@
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { VersionVector } from "loro-crdt/bundler"
 import {
-	CommitLoroPageContentOutput,
 	LoroContentConflict,
 	LoroRequestIdentityConflict,
 	PageFormatMismatch,
 	PageNotFound,
-	AgentJobMutationAttribution,
+	HumanUiMutationAttribution,
 	Unauthorized,
 	UnexpectedError,
 	ValidationError,
-	canonicalJsonBytes,
 	sha256HexSync,
 	type DomainError,
 	type EntityId,
@@ -28,14 +25,13 @@ import {
 import {
 	LedgerConflict,
 	LedgerService,
-	type CommitLoroPageContentLedgerCommandInput,
+	agentLoroEditLedgerFingerprint,
 } from "./ledger-service.js"
+import { WorkspaceLoroMutationGateway } from "./workspace-loro-mutation-gateway.js"
 import {
 	LoroPageService,
 	loroVersionVectorIdentity,
-	type PreparedLoroContentCommit,
 } from "./loro-page-service-live.js"
-import { domainErrorFromCause } from "./rpc-boundary.js"
 
 export interface AgentLoroEditContext {
 	/** Set only by WorkspaceRpcApi after its role/authentication gate has run. */
@@ -106,9 +102,49 @@ export const makeAgentLoroEditServiceLive = (
 							)
 						}
 
-						const splice = yield* loro.prepareTextSplice(input)
 						const requestId = `agent-edit:${input.chatId}:${input.toolCallId}`
 						const requestIdentity = requestId
+						// Chat is a user-directed UI surface, not a workforce job. Keep the private
+						// chat/tool correlation in custody rather than fabricating job/run ids.
+						const attribution = new HumanUiMutationAttribution({
+							version: "athenaeum.mutation-attribution.v1",
+							kind: "humanUi",
+							surface: "agent-chat",
+						})
+						const fingerprint = agentLoroEditLedgerFingerprint({
+							requestId,
+							workspaceId,
+							principal: input.context.principal,
+							policy: input.context.policy,
+							nodeId: input.nodeId,
+							index: input.index,
+							deleteCount: input.deleteCount,
+							insertText: input.insertText,
+							commitMessage: input.commitMessage,
+							attribution,
+						})
+						const custody = {
+							requestIdentity, fingerprint, type: "commitLoroPageContent" as const, workspaceId,
+							actorKind: "user" as const, actorLabel: "You", targetKind: "node" as const, targetId: input.nodeId,
+							chatId: input.chatId, toolCallId: input.toolCallId
+						}
+						const replayed = yield* Effect.try({
+							try: () => storage.transactionSync(() => {
+								const exists = ledger.hasV2Receipt(requestIdentity, fingerprint, "commitLoroPageContent")
+								if (exists) ledger.validateCustody(custody)
+								return exists
+							}),
+							catch: (error): DomainError => error instanceof LedgerConflict
+								? new LoroRequestIdentityConflict({ nodeId: input.nodeId, requestId })
+								: new UnexpectedError({ message: `agent Loro replay check failed: ${error instanceof Error ? error.message : String(error)}` })
+						})
+						if (replayed) {
+							yield* loro.reloadCommittedDocument(input.nodeId)
+							return { format: "loro-v1", text: yield* loro.getText(input.nodeId) }
+						}
+						// A concurrent identical call can pass this preflight before the first commit; the
+						// gateway replay branch below remains authoritative in that race.
+						const splice = yield* loro.prepareTextSplice(input)
 						const base = {
 							requestIdentity,
 							requestId,
@@ -126,145 +162,35 @@ export const makeAgentLoroEditServiceLive = (
 							updateSha256: sha256HexSync(splice.update),
 							updateLength: splice.update.length,
 							commitMessage: input.commitMessage,
-							attribution: new AgentJobMutationAttribution({
-								version: "athenaeum.mutation-attribution.v1",
-								kind: "agentJob",
-								jobId: input.chatId,
-								runId: input.toolCallId,
-							}),
+							attribution,
 						}
-						const fingerprint = sha256HexSync(
-							canonicalJsonBytes({
-								version: "athenaeum.agent-loro-edit.v1",
-								requestId,
-								workspaceId,
-								principal: input.context.principal,
-								policy: input.context.policy,
-								nodeId: input.nodeId,
-								index: input.index,
-								deleteCount: input.deleteCount,
-								insertText: input.insertText,
-								commitMessage: input.commitMessage,
-								attribution: {
-									version: "athenaeum.mutation-attribution.v1",
-									kind: "agentJob",
-									jobId: input.chatId,
-									runId: input.toolCallId,
-								},
-							}),
-						)
-						let prepared: PreparedLoroContentCommit | undefined
-						yield* Effect.try({
-							try: () =>
-								storage.transactionSync(() =>
-									ledger.executeV2({
-										requestIdentity,
-										fingerprint,
-										type: "commitLoroPageContent",
-										mutate: () => {
-											const exit = Effect.runSyncExit(
-												loro.commitContent({
-													nodeId: input.nodeId,
-													expectedStorageVersion: splice.expectedStorageVersion,
-													expectedSnapshotSha256: splice.expectedSnapshotSha256,
-													expectedVersionVector: splice.expectedVersionVector,
-													update: splice.update,
-												}),
-											)
-											if (Exit.isFailure(exit))
-												throw domainErrorFromCause(exit.cause)
-											prepared = exit.value
-											if (exit.value.descriptor.activeFormat !== "loro-v1")
-												throw new Error(
-													"Loro content commit returned a non-Loro descriptor",
-												)
-											return new CommitLoroPageContentOutput({
-												descriptor: exit.value.descriptor,
-												storageVersion: exit.value.descriptor.storageVersion,
-												resultSnapshotSha256:
-													exit.value.descriptor.loro.snapshotSha256,
-												baseVersionVectorSha256:
-													exit.value.baseVersionVectorSha256,
-												resultVersionVectorSha256:
-													exit.value.resultVersionVectorSha256,
-												updateSha256: exit.value.updateSha256,
-											})
-										},
-										encodeOutput: (value) =>
-											Schema.encodeSync(CommitLoroPageContentOutput)(value),
-										decodeOutput: (value) =>
-											Schema.decodeUnknownSync(CommitLoroPageContentOutput)(
-												value,
-											),
-										appendCommand: () => {
-											const value = prepared
-											if (value === undefined)
-												throw new Error(
-													"Loro content commit completed without prepared evidence",
-												)
-											if (value.descriptor.activeFormat !== "loro-v1")
-												throw new Error(
-													"Loro content commit completed without a Loro descriptor",
-												)
-											const command: CommitLoroPageContentLedgerCommandInput = {
-												...base,
-												fingerprint,
-												resultVersionVectorSha256:
-													value.resultVersionVectorSha256,
-												resultSnapshotSha256:
-													value.descriptor.loro.snapshotSha256,
-												createdAt: new Date().toISOString(),
-											}
-											ledger.appendCommitLoroPageContent(command)
-										},
-										appendSideEffects: () => {
-											const payload = {
-												nodeId: input.nodeId,
-												format: "loro-v1",
-												resultSnapshotSha256:
-													prepared?.descriptor.activeFormat === "loro-v1"
-														? prepared.descriptor.loro.snapshotSha256
-														: undefined,
-											}
-											ledger.appendEvent(
-												requestIdentity,
-												"commit-loro-page-content",
-												payload,
-											)
-											ledger.appendOutbox(
-												requestIdentity,
-												"commit-loro-page-content",
-												payload,
-											)
-										},
-									}),
-								),
+						const gateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
+						const committed = yield* Effect.try({
+								try: () => storage.transactionSync(() => gateway.commitContentWithinTransaction({
+									requestIdentity,
+									fingerprint,
+									command: base,
+									custody,
+								expectedVersionVector: splice.expectedVersionVector,
+								update: splice.update,
+								agentChatBinding: {
+									index: input.index, deleteCount: input.deleteCount, insertText: input.insertText
+								}
+							})),
 							catch: (error): DomainError =>
 								error instanceof LoroContentConflict
 									? error
 									: error instanceof LedgerConflict
-										? new LoroRequestIdentityConflict({
-												nodeId: input.nodeId,
-												requestId,
-											})
-										: error instanceof PageFormatMismatch ||
-											  error instanceof PageNotFound ||
-											  error instanceof ValidationError ||
-											  error instanceof UnexpectedError
+										? new LoroRequestIdentityConflict({ nodeId: input.nodeId, requestId })
+										: error instanceof PageFormatMismatch || error instanceof PageNotFound || error instanceof ValidationError || error instanceof UnexpectedError
 											? error
-											: new UnexpectedError({
-													message: `ledgered agent Loro edit failed: ${error instanceof Error ? error.message : String(error)}`,
-												}),
+											: new UnexpectedError({ message: `ledgered agent Loro edit failed: ${error instanceof Error ? error.message : String(error)}` })
 						})
-						if (prepared === undefined) {
-							yield* loro.reloadCommittedDocument(input.nodeId)
-							return {
-								format: "loro-v1",
-								text: yield* loro.getText(input.nodeId),
-							}
+						committed.finalize()
+						if (committed.output.descriptor.activeFormat !== "loro-v1") {
+							throw new UnexpectedError({ message: "Loro content commit returned a non-Loro descriptor" })
 						}
-						loro.publishCommittedDocument(input.nodeId, prepared.candidate)
-						return { format: "loro-v1", text: splice.text }
+						return { format: "loro-v1", text: yield* loro.getText(input.nodeId) }
 					}),
 			}
 		}),

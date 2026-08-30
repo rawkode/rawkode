@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { MUTATION_INGRESS_REGISTRY, SERVICE_WRITE_SINKS, WORKSPACE_MUTATION_ROUTING } from "../src/mutation-routing-manifest.js"
+import { MUTATION_INGRESS_REGISTRY, SERVICE_WRITE_SINKS, WORKSPACE_LORO_GATEWAY_OPERATIONS, WORKSPACE_MUTATION_ROUTING } from "../src/mutation-routing-manifest.js"
 import { REQUIRED_MUTATION_DISCOVERY_ADAPTERS } from "../src/mutation-ingress-policy-fixtures.js"
 import { assertKnownDirectWriteSinks, assertNoUnknownWorkerEntrypoints } from "../scripts/mutation-ingress-discovery.mjs"
 
@@ -12,6 +12,7 @@ describe("Workspace mutation routing manifest", () => {
     expect(WORKSPACE_MUTATION_ROUTING.migrateLegacyPage).toBe("ledger")
     expect(WORKSPACE_MUTATION_ROUTING).not.toHaveProperty("activateLoroPage")
     expect(WORKSPACE_MUTATION_ROUTING.commitLoroPageContent).toBe("ledger")
+    expect(WORKSPACE_LORO_GATEWAY_OPERATIONS).toEqual(["createLoroPage", "commitLoroPageContent", "migrateLegacyPage", "prepareMeetingInDailyNote", "workforce.ensureLoroPage"])
     expect(WORKSPACE_MUTATION_ROUTING.startLoroPageSync).toBe("direct")
     expect(WORKSPACE_MUTATION_ROUTING.loroPageSyncMessage).toBe("direct")
     expect(Object.entries(WORKSPACE_MUTATION_ROUTING).filter(([, route]) => route === "ledger")).toEqual([

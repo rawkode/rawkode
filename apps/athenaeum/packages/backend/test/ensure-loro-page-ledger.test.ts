@@ -13,6 +13,7 @@ import {
   GetPageDocumentDescriptorOutput,
   HumanUiMutationAttribution,
   LedgerCommand,
+  ListRecentLedgerActivityOutput,
   LoroMutationIntentV1,
   MigrateLegacyPageInput,
   PageFormatMismatch,
@@ -95,6 +96,22 @@ describe.sequential("ensureLoroPage ledger contract", () => {
       const receipt = await native.debugGetLedgerReceipt(identity)
       const event = await native.debugGetLedgerEvent(identity)
       const outbox = await native.debugGetLedgerOutboxIntent(identity)
+      expect(await native.debugGetLedgerCustody(identity)).toMatchObject({
+        requestIdentity: identity,
+        fingerprint: expect.any(String),
+        type: "ensureLoroPage",
+        workspaceId,
+        actorKind: "user",
+        actorLabel: "You",
+        targetKind: "node",
+        targetId: node.id
+      })
+      const activity = Schema.decodeUnknownSync(ListRecentLedgerActivityOutput)(await connection.stub.listRecentLedgerActivity({ workspaceId, limit: 10 }))
+      expect(activity.entries.find((entry) => entry.type === "ensureLoroPage")).toMatchObject({
+        actor: "you",
+        actorDetail: { kind: "user", label: "You" },
+        target: { kind: "node", id: node.id }
+      })
       expect(receipt).toMatchObject({ output: { type: "ensureLoroPage", output: { descriptor: { nodeId: node.id } } } })
       expect(event).toEqual({ kind: "ensure-loro-page", payload: { nodeId: node.id, format: "loro-v1" } })
       expect(outbox).toEqual({ kind: "ensure-loro-page", payload: { nodeId: node.id, format: "loro-v1" } })

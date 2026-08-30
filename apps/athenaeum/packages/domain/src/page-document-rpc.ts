@@ -28,7 +28,7 @@ const LoroAttributionId = canonicalLoroString(200)
 const LoroHumanUiMutationAttributionV1 = Schema.Struct({
   version: Schema.Literal("athenaeum.mutation-attribution.v1"),
   kind: Schema.Literal("humanUi"),
-  surface: Schema.Literal("rich-text-editor", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "ios-supertags", "macos", "watch-quick-capture")
+  surface: Schema.Literal("rich-text-editor", "agent-chat", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "ios-supertags", "macos", "watch-quick-capture")
 })
 const LoroAgentJobMutationAttributionV1 = Schema.Struct({
   version: Schema.Literal("athenaeum.mutation-attribution.v1"), kind: Schema.Literal("agentJob"), jobId: LoroAttributionId, runId: LoroAttributionId

@@ -193,7 +193,9 @@ import {
   ListPendingChangesOutput,
   ListRecentLedgerActivityInput,
   ListRecentLedgerActivityOutput,
+  LedgerActivityActorDetail,
   LedgerActivityEntry,
+  LedgerActivityTarget,
   LedgerActivityType,
   ListChatsInput,
   ListChatsOutput,
@@ -346,6 +348,7 @@ import { PageProposalService, makePageProposalServiceLive } from "./page-proposa
 import { ViewsService, makeViewsServiceLive } from "./views-service-live.js"
 import { AgentEditService, makeAgentEditServiceLive } from "./agent-edit-service-live.js"
 import { AgentLoroEditService, makeAgentLoroEditServiceLive } from "./agent-loro-edit-service-live.js"
+import { WorkspaceLoroMutationGateway } from "./workspace-loro-mutation-gateway.js"
 import { makeAgentEditCollections } from "./agent-edit-collections.js"
 import { makeAgentChangeProposalCollections } from "./agent-change-proposal-collections.js"
 import { makeAppCollections } from "./app-collections.js"
@@ -391,8 +394,6 @@ import {
   type CreateTagLedgerCommandInput,
   type EnsureLoroPageLedgerCommandInput,
   type CommitLoroPageContentLedgerCommandInput,
-  type PrepareMeetingInDailyNoteLedgerCommandInput,
-  type MigrateLegacyPageLedgerCommandInput,
   type CreateRelationDefinitionLedgerCommandInput,
   type CreateBookmarkLedgerCommandInput,
   type LinkCalendarEventToNodeLedgerCommandInput,
@@ -1384,26 +1385,32 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) => Effect.gen(function* () {
         if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to migrate a legacy page." }))
+        if (decoded.intent.attribution.kind !== "humanUi") {
+          return yield* Effect.fail(new ValidationError({ message: "Public page migrations require human UI attribution." }))
+        }
         const sharing = yield* SharingService
         const loro = yield* LoroPageService
         const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
         const requestIdentity = `migrate-legacy-page:${decoded.intent.requestId}`
         const base = { requestIdentity, requestId: decoded.intent.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy, nodeId: decoded.nodeId, sourceStorageVersion: decoded.expectedStorageVersion, sourceAutomerge: decoded.expectedAutomerge, schemaVersion: 1, commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution }
         const fingerprint = migrateLegacyPageLedgerFingerprint(base)
-        let prepared: { readonly candidate: LoroDoc | undefined; readonly resultSnapshotSha256: string; readonly resultSnapshotLength: number; readonly descriptor: PageDocumentDescriptor } | undefined
+        const gateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
         const output = yield* Effect.try({
-          try: () => storage.transactionSync(() => ledger.executeV2({ requestIdentity, fingerprint, type: "migrateLegacyPage",
-            mutate: () => { const exit = Effect.runSyncExit(loro.migrateLegacy({ nodeId: decoded.nodeId, expectedStorageVersion: decoded.expectedStorageVersion, expectedAutomerge: decoded.expectedAutomerge })); if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause); prepared = exit.value; pagePersistenceTestHook.afterPrepareBeforeCommit?.(); return new MigrateLegacyPageOutput({ descriptor: exit.value.descriptor }) },
-            encodeOutput: (value) => Schema.encodeSync(MigrateLegacyPageOutput)(value), decodeOutput: (value) => Schema.decodeUnknownSync(MigrateLegacyPageOutput)(value),
-            appendCommand: () => { const value = prepared; if (value === undefined) throw new Error("migration completed without evidence"); const command: MigrateLegacyPageLedgerCommandInput = { ...base, fingerprint, resultSnapshotSha256: value.resultSnapshotSha256, resultSnapshotLength: value.resultSnapshotLength, storageVersion: value.descriptor.storageVersion, createdAt: new Date().toISOString() }; ledger.appendMigrateLegacyPage(command) },
-            appendSideEffects: () => { const value = prepared; if (value === undefined) throw new Error("migration completed without evidence"); const payload = { nodeId: decoded.nodeId, format: "loro-v1", snapshotSha256: value.resultSnapshotSha256 }; ledger.appendEvent(requestIdentity, "migrate-legacy-page", payload); ledger.appendOutbox(requestIdentity, "migrate-legacy-page", payload) }
+          try: () => storage.transactionSync(() => gateway.migrateLegacyWithinTransaction({
+            requestIdentity,
+            fingerprint,
+            command: base,
+            custody: {
+              requestIdentity, fingerprint, type: "migrateLegacyPage", workspaceId: decoded.workspaceId,
+              actorKind: "user", actorLabel: "You", targetKind: "node", targetId: decoded.nodeId
+            },
+            afterPrepareBeforeCommit: pagePersistenceTestHook.afterPrepareBeforeCommit
           })),
           catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError ? new ValidationError({ message: error.message }) : error instanceof PageFormatMismatch || error instanceof UnexpectedError ? error : new UnexpectedError({ message: String(error) })
         })
         pagePersistenceTestHook.afterTransactionBeforePublish?.()
-        if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
-        else loro.publishCommittedDocument(decoded.nodeId, prepared.candidate)
-        return output
+        output.finalize()
+        return output.output
       }))
     )
     return runRpcProgram(this.#runtime, program, MigrateLegacyPageOutput)
@@ -1421,6 +1428,11 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) => {
         if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to commit Loro content." }))
+        // The public RPC is a human UI ingress. Employee/system custody is admitted only through
+        // the same-worker workforce path, so callers cannot forge an employee actor on this wire.
+        if (decoded.intent.attribution.kind !== "humanUi") {
+          return Effect.fail(new ValidationError({ message: "Public Loro content commits require human UI attribution." }))
+        }
         let baseVersionVectorSha256: string
         try { baseVersionVectorSha256 = loroVersionVectorIdentity(VersionVector.decode(decoded.expectedVersionVector)) } catch (error) {
           return Effect.fail(new ValidationError({ message: `invalid expected Loro version vector: ${String(error)}` }))
@@ -1438,41 +1450,19 @@ class WorkspaceRpcApi extends RpcTarget {
             commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution
           }
           const fingerprint = commitLoroPageContentLedgerFingerprint(base)
-          let prepared: import("./loro-page-service-live.js").PreparedLoroContentCommit | undefined
-          const output = yield* Effect.try({
-            try: () => storage.transactionSync(() => ledger.executeV2({
-              requestIdentity, fingerprint, type: "commitLoroPageContent",
-              mutate: () => {
-                const exit = Effect.runSyncExit(loro.commitContent({
-                  nodeId: decoded.nodeId, expectedStorageVersion: decoded.expectedStorageVersion,
-                  expectedSnapshotSha256: decoded.expectedSnapshotSha256, expectedVersionVector: decoded.expectedVersionVector, update: decoded.update
-                }))
-                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
-                prepared = exit.value
-                pagePersistenceTestHook.afterPrepareBeforeCommit?.()
-                return new CommitLoroPageContentOutput({
-                  descriptor: exit.value.descriptor, storageVersion: exit.value.descriptor.storageVersion,
-                  resultSnapshotSha256: (exit.value.descriptor as { loro: { snapshotSha256: string } }).loro.snapshotSha256,
-                  baseVersionVectorSha256: exit.value.baseVersionVectorSha256, resultVersionVectorSha256: exit.value.resultVersionVectorSha256,
-                  updateSha256: exit.value.updateSha256
-                })
+          const gateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
+          const committed = yield* Effect.try({
+            try: () => storage.transactionSync(() => gateway.commitContentWithinTransaction({
+              requestIdentity,
+              fingerprint,
+              command: base,
+              custody: {
+                requestIdentity, fingerprint, type: "commitLoroPageContent", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: "You", targetKind: "node", targetId: decoded.nodeId
               },
-              encodeOutput: (value) => Schema.encodeSync(CommitLoroPageContentOutput)(value),
-              decodeOutput: (value) => Schema.decodeUnknownSync(CommitLoroPageContentOutput)(value),
-              appendCommand: () => {
-                const value = prepared
-                if (value === undefined) throw new Error("Loro content commit completed without prepared evidence")
-                const command: CommitLoroPageContentLedgerCommandInput = {
-                  ...base, fingerprint, resultVersionVectorSha256: value.resultVersionVectorSha256,
-                  resultSnapshotSha256: (value.descriptor as { loro: { snapshotSha256: string } }).loro.snapshotSha256, createdAt: new Date().toISOString()
-                }
-                ledger.appendCommitLoroPageContent(command)
-              },
-              appendSideEffects: () => {
-                const payload = { nodeId: decoded.nodeId, format: "loro-v1", resultSnapshotSha256: prepared?.descriptor.activeFormat === "loro-v1" ? prepared.descriptor.loro.snapshotSha256 : undefined }
-                ledger.appendEvent(requestIdentity, "commit-loro-page-content", payload)
-                ledger.appendOutbox(requestIdentity, "commit-loro-page-content", payload)
-              }
+              expectedVersionVector: decoded.expectedVersionVector,
+              update: decoded.update,
+              afterPrepareBeforeCommit: pagePersistenceTestHook.afterPrepareBeforeCommit
             })),
             catch: (error): DomainError => error instanceof LoroContentConflict
               ? error
@@ -1482,12 +1472,11 @@ class WorkspaceRpcApi extends RpcTarget {
                 ? new ValidationError({ message: error.message })
               : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered Loro content commit failed: ${error instanceof Error ? error.message : String(error)}` })
           })
-          // On replay, a receipt has no candidate; reload current authority rather than restoring
-          // its historic state over newer transport changes.
+          // The gateway returns a cache finalizer; run it only after the outer transaction has
+          // committed so rollback cannot publish a candidate that never reached durable storage.
           pagePersistenceTestHook.afterTransactionBeforePublish?.()
-          if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
-          else loro.publishCommittedDocument(decoded.nodeId, prepared.candidate)
-          return output
+          committed.finalize()
+          return committed.output
         })
       })
     )
@@ -1507,6 +1496,9 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) => Effect.gen(function* () {
         if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to prepare a meeting." }))
+        if (decoded.intent.attribution.kind !== "humanUi") {
+          return yield* Effect.fail(new ValidationError({ message: "Public meeting preparation requires human UI attribution." }))
+        }
         const sharing = yield* SharingService
         const calendar = yield* CalendarService
         const loro = yield* LoroPageService
@@ -1521,36 +1513,24 @@ class WorkspaceRpcApi extends RpcTarget {
         const requestIdentity = `prepare-meeting-in-daily-note:${decoded.workspaceId}:${decoded.dailyNoteId}:${decoded.localDate}:${resolvedWindow.timeZone}:${decoded.occurrenceKey}`
         const base = { requestIdentity, requestId: decoded.intent.requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy, nodeId: decoded.dailyNoteId, localDate: decoded.localDate, timeZone: resolvedWindow.timeZone, occurrenceKey: decoded.occurrenceKey, commitMessage: decoded.intent.commitMessage, attribution: decoded.intent.attribution }
         const fingerprint = prepareMeetingInDailyNoteLedgerFingerprint(base)
-        let prepared: import("./loro-page-service-live.js").PreparedLoroContentCommit | undefined
-        let outcome: "created" | "alreadyPrepared" = "alreadyPrepared"
-        let receipt: PrepareMeetingInDailyNoteOutput | undefined
+        const gateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
         const output = yield* Effect.try({
-          try: () => storage.transactionSync(() => ledger.executeV2({
-            requestIdentity, fingerprint, type: "prepareMeetingInDailyNote",
-            mutate: () => {
-              const proposed = Effect.runSyncExit(loro.prepareMeeting({ nodeId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, attendeeNames }))
-              if (Exit.isFailure(proposed)) throw domainErrorFromCause(proposed.cause)
-              outcome = proposed.value.status
-              if (proposed.value.status === "created") {
-                const update = proposed.value.update
-                if (update === undefined) throw new Error("meeting preparation missing its update")
-                const committed = Effect.runSyncExit(loro.commitContent({ nodeId: decoded.dailyNoteId, expectedStorageVersion: proposed.value.expectedStorageVersion, expectedSnapshotSha256: proposed.value.expectedSnapshotSha256, expectedVersionVector: proposed.value.expectedVersionVector, update }))
-                if (Exit.isFailure(committed)) throw domainErrorFromCause(committed.cause)
-                prepared = committed.value
-              }
-              const snapshot = prepared?.descriptor.activeFormat === "loro-v1" ? prepared.descriptor.loro.snapshotSha256 : proposed.value.expectedSnapshotSha256
-              receipt = new PrepareMeetingInDailyNoteOutput({ dailyNoteId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, status: outcome, resultSnapshotSha256: snapshot })
-              return receipt
+          try: () => storage.transactionSync(() => gateway.prepareMeetingWithinTransaction({
+            requestIdentity,
+            fingerprint,
+            command: base,
+            custody: {
+              requestIdentity, fingerprint, type: "prepareMeetingInDailyNote", workspaceId: decoded.workspaceId,
+              actorKind: "user", actorLabel: "You", targetKind: "node", targetId: decoded.dailyNoteId
             },
-            encodeOutput: (value) => Schema.encodeSync(PrepareMeetingInDailyNoteOutput)(value), decodeOutput: (value) => Schema.decodeUnknownSync(PrepareMeetingInDailyNoteOutput)(value),
-            appendCommand: () => { if (receipt === undefined) throw new Error("meeting preparation completed without receipt"); ledger.appendPrepareMeetingInDailyNote({ ...base, fingerprint, status: receipt.status, resultSnapshotSha256: receipt.resultSnapshotSha256, createdAt: new Date().toISOString() } satisfies PrepareMeetingInDailyNoteLedgerCommandInput) },
-            appendSideEffects: () => { if (receipt === undefined) throw new Error("meeting preparation completed without receipt"); const payload = { nodeId: decoded.dailyNoteId, localDate: decoded.localDate, occurrenceKey: decoded.occurrenceKey, status: receipt.status, resultSnapshotSha256: receipt.resultSnapshotSha256 }; ledger.appendEvent(requestIdentity, "prepare-meeting-in-daily-note", payload); ledger.appendOutbox(requestIdentity, "prepare-meeting-in-daily-note", payload) }
+            attendeeNames,
+            afterPrepareBeforeCommit: pagePersistenceTestHook.afterPrepareBeforeCommit
           })),
           catch: (error): DomainError => error instanceof LedgerConflict ? new LoroRequestIdentityConflict({ nodeId: decoded.dailyNoteId, requestId: decoded.intent.requestId }) : error instanceof ValidationError || isDomainError(error) ? error : new UnexpectedError({ message: `ledgered meeting preparation failed: ${error instanceof Error ? error.message : String(error)}` })
         })
-        if (prepared === undefined) yield* loro.reloadCommittedDocument(decoded.dailyNoteId)
-        else loro.publishCommittedDocument(decoded.dailyNoteId, prepared.candidate)
-        return output
+        pagePersistenceTestHook.afterTransactionBeforePublish?.()
+        output.finalize()
+        return output.output
       }))
     )
     return runRpcProgram(this.#runtime, program, PrepareMeetingInDailyNoteOutput)
@@ -1647,6 +1627,9 @@ class WorkspaceRpcApi extends RpcTarget {
         if (currentUser === undefined) {
           return Effect.fail(new Unauthorized({ message: "An authenticated user is required to ensure a Loro page." }))
         }
+        if (decoded.creationIntent.attribution.kind !== "humanUi") {
+          return Effect.fail(new ValidationError({ message: "Public Loro page creation requires human UI attribution." }))
+        }
         // `CreationIntent.requestId` was canonicalized exactly once by its public wire schema.
         // Keep that decoded value intact through identity, fingerprint, persisted payload, and
         // replay lookup; a second normalization point would make retries ambiguous.
@@ -1666,53 +1649,25 @@ class WorkspaceRpcApi extends RpcTarget {
             commitMessage, attribution: decoded.creationIntent.attribution
           }
           const fingerprint = ensureLoroPageLedgerFingerprint(base)
-          let candidate: LoroDoc | undefined
-          let ensuredDescriptor: PageDocumentDescriptor | undefined
-          const output = yield* Effect.try({
-            try: () => storage.transactionSync(() => ledger.executeV2({
-              requestIdentity, fingerprint, type: "ensureLoroPage",
-              mutate: () => {
-                const exit = Effect.runSyncExit(loro.create(decoded.nodeId))
-                if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
-                candidate = exit.value.candidate
-                const descriptor = exit.value.descriptor
-                if (descriptor.activeFormat !== "loro-v1") throw new Error("Loro creation returned a non-Loro descriptor")
-                ensuredDescriptor = descriptor
-                pagePersistenceTestHook.afterPrepareBeforeCommit?.()
-                return new CreateLoroPageOutput({ descriptor })
+          const gateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
+          const committed = yield* Effect.try({
+            try: () => storage.transactionSync(() => gateway.ensurePageWithinTransaction({
+              requestIdentity,
+              fingerprint,
+              command: base,
+              custody: {
+                requestIdentity, fingerprint, type: "ensureLoroPage", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: "You", targetKind: "node", targetId: decoded.nodeId
               },
-              encodeOutput: (value) => Schema.encodeSync(CreateLoroPageOutput)(value),
-              decodeOutput: (value) => Schema.decodeUnknownSync(CreateLoroPageOutput)(value),
-              appendCommand: () => {
-                // This descriptor was produced by the in-transaction mutation; re-reading via
-                // LoroPageService would populate its cache before commit.
-                const descriptor = ensuredDescriptor
-                if (descriptor === undefined) throw new Error("ensureLoroPage completed without a descriptor")
-                const loroDescriptor = descriptor.activeFormat === "loro-v1" && "loro" in descriptor ? descriptor.loro : undefined
-                if (loroDescriptor === undefined) throw new Error("ensureLoroPage missing Loro metadata")
-                const command: EnsureLoroPageLedgerCommandInput = {
-                  ...base, fingerprint, outcome: candidate === undefined ? "alreadyExisted" : "created",
-                  storageVersion: descriptor.storageVersion, schemaVersion: loroDescriptor.schemaVersion,
-                  createdAt: new Date().toISOString()
-                }
-                ledger.appendEnsureLoroPage(command)
-              },
-              appendSideEffects: () => {
-                const payload = { nodeId: decoded.nodeId, format: "loro-v1" }
-                ledger.appendEvent(requestIdentity, "ensure-loro-page", payload)
-                ledger.appendOutbox(requestIdentity, "ensure-loro-page", payload)
-              }
+              afterPrepareBeforeCommit: pagePersistenceTestHook.afterPrepareBeforeCommit
             })),
             catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
               ? new ValidationError({ message: error.message })
               : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered ensureLoroPage failed: ${error instanceof Error ? error.message : String(error)}` })
           })
-          // No cache mutation is permitted in mutate/append/replay. A candidate exists only for
-          // first execution and is published after the transaction has committed; replay and a
-          // pre-ledger existing page reload the canonical durable state into an empty cache.
-          if (candidate === undefined) yield* loro.reloadCommittedDocument(decoded.nodeId)
-          else loro.publishCommittedDocument(decoded.nodeId, candidate)
-          return output
+          pagePersistenceTestHook.afterTransactionBeforePublish?.()
+          committed.finalize()
+          return committed.output
         })
       })
     )
@@ -3115,11 +3070,26 @@ class WorkspaceRpcApi extends RpcTarget {
         const entries = this.#ledger.listRecentActivity(decoded.limit ?? 8, ledgerWindow).flatMap((row) => {
           const type = Schema.decodeUnknownOption(LedgerActivityType)(row.type)
           if (type._tag === "None") return []
+          const actor = actorFor(row.principal)
+          // The custody row has already been constrained by LedgerService. Preserve the legacy
+          // actor enum while presenting only a safe, viewer-relative label.
+          const actorDetail = row.actorKind === undefined || row.actorLabel === undefined
+            ? undefined
+            : row.actorKind === "user"
+              ? new LedgerActivityActorDetail({ kind: "user", label: actor === "you" ? "You" : "Workspace member" })
+              : row.actorKind === "employee"
+                ? new LedgerActivityActorDetail({ kind: "employee", label: row.actorLabel })
+                : new LedgerActivityActorDetail({ kind: "system", label: row.actorLabel })
+          const target = row.targetKind === "node" && row.targetId !== undefined
+            ? new LedgerActivityTarget({ kind: "node", id: Schema.decodeUnknownSync(EntityId)(row.targetId) })
+            : undefined
           return [new LedgerActivityEntry({
             occurredAt: Schema.decodeUnknownSync(IsoDateTimeString)(row.createdAt),
             type: type.value,
-            actor: actorFor(row.principal),
-            message: row.message
+            actor,
+            message: row.message,
+            ...(actorDetail === undefined ? {} : { actorDetail }),
+            ...(target === undefined ? {} : { target })
           })]
         })
         return new ListRecentLedgerActivityOutput({ entries })
@@ -5236,6 +5206,30 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     return row === undefined ? null : { kind: row.kind, payload: JSON.parse(row.payload) }
   }
 
+  /** Test-only inspection of the immutable actor/target custody row. This stays on the native
+   * `ctx.exports` surface so public clients can consume only the privacy-safe activity projection,
+   * never chat, job, grant, or tool correlation identifiers. */
+  async debugGetLedgerCustody(requestIdentity: string): Promise<unknown | null> {
+    const row = this.#sql.exec<{
+      requestIdentity: string; fingerprint: string; type: string; workspaceId: string
+      actorKind: string; actorLabel: string; employeeId: string | null; jobId: string | null
+      runId: string | null; grantId: string | null; chatId: string | null; toolCallId: string | null
+      targetKind: string; targetId: string
+    }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
+      employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
+      FROM ledger_custody WHERE requestIdentity = ?`, requestIdentity).toArray()[0]
+    if (row === undefined) return null
+    return {
+      ...row,
+      employeeId: row.employeeId ?? undefined,
+      jobId: row.jobId ?? undefined,
+      runId: row.runId ?? undefined,
+      grantId: row.grantId ?? undefined,
+      chatId: row.chatId ?? undefined,
+      toolCallId: row.toolCallId ?? undefined
+    }
+  }
+
   /** Test-only aggregate witness for routes which intentionally have no ledger request identity. */
   async debugGetLedgerArtifactCounts(): Promise<{
     readonly commands: number
@@ -5329,6 +5323,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     const workforceRunStore = this.#workforceRunStore
     const sql = this.#sql
     const ledger = this.#ledger
+    const storage = this.#storage
     const program = decodeRpcInput(AdmitWorkforceRunInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(ownWorkspaceId, decoded.workspaceId)),
       Effect.flatMap((decoded) => Effect.try({
@@ -5341,6 +5336,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         const repository = yield* NodesRepository
         const syncFeed = yield* SyncFeedService
         const loro = yield* LoroPageService
+        const loroGateway = new WorkspaceLoroMutationGateway(ledger, loro, storage)
         const workspaceId = Schema.decodeUnknownSync(EntityId)(admission.workspaceId)
         const now = new Date().toISOString()
         const request = Object.freeze({ version: STANDUP_PRIVATE_REQUEST_VERSION, originalText: admission.reportText })
@@ -5352,6 +5348,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           runId: admission.terminal.run.runId
         })
         let postCommitCandidate: LoroDoc | undefined
+        let pageFinalize: (() => void) | undefined
         const result = yield* Effect.try({
           try: () => standupPublicationStore.transactionSync((transaction) => {
             const identityReceipt = workforceRunStore.get(admission.requestIdentity)
@@ -5399,28 +5396,6 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
             }
 
             let currentText: string | undefined
-            type LoroActivationRecord = Readonly<{
-              readonly nodeId: string
-              readonly storageVersion: number
-              readonly schemaVersion: number
-              readonly snapshotSha256: string
-            }>
-            const decodeActivationRecord = (value: unknown): LoroActivationRecord => {
-              if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("corrupt Loro activation receipt")
-              const record = value as Record<string, unknown>
-              if (
-                typeof record.nodeId !== "string" ||
-                !Number.isSafeInteger(record.storageVersion) || (record.storageVersion as number) < 1 ||
-                !Number.isSafeInteger(record.schemaVersion) || (record.schemaVersion as number) < 1 ||
-                typeof record.snapshotSha256 !== "string" || record.snapshotSha256.length === 0
-              ) throw new Error("corrupt Loro activation receipt")
-              return Object.freeze({
-                nodeId: record.nodeId,
-                storageVersion: record.storageVersion as number,
-                schemaVersion: record.schemaVersion as number,
-                snapshotSha256: record.snapshotSha256
-              })
-            }
             const descriptorKey = (descriptor: PageDocumentDescriptor): string => {
               if (descriptor.activeFormat !== "loro-v1" || descriptor.loro === undefined) throw new Error("workforce companion is not a Loro page")
               return JSON.stringify({
@@ -5547,56 +5522,36 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
                 }
                 const pageCommandFingerprint = ensureLoroPageLedgerFingerprint(pageCommandBase)
                 let freshActivation: { readonly descriptor: PageDocumentDescriptor; readonly candidate: LoroDoc } | undefined
-                let freshPageRecord: LoroActivationRecord | undefined
-                const pageRecord = ledger.executeV2<LoroActivationRecord>({
+                const pageResult = loroGateway.ensurePageWithinTransaction({
                   requestIdentity: pageRequestIdentity,
                   fingerprint: pageCommandFingerprint,
-                  type: "ensureLoroPage",
-                  mutate: () => {
-                    const prepared = Effect.runSyncExit(loro.createWithText(childNodeId, intent.originalText))
-                    if (Exit.isFailure(prepared)) throw domainErrorFromCause(prepared.cause)
-                    if (prepared.value.candidate === undefined) throw new WorkforceRunConflictError("new workforce page unexpectedly already existed")
-                    if (prepared.value.descriptor.activeFormat !== "loro-v1" || prepared.value.descriptor.loro === undefined) {
-                      throw new WorkforceRunConflictError("workforce companion did not produce a native Loro descriptor")
-                    }
-                    freshActivation = { descriptor: prepared.value.descriptor, candidate: prepared.value.candidate }
-                    freshPageRecord = Object.freeze({
-                      nodeId: childNodeId,
-                      storageVersion: prepared.value.descriptor.storageVersion,
-                      schemaVersion: prepared.value.descriptor.loro.schemaVersion,
-                      snapshotSha256: prepared.value.descriptor.loro.snapshotSha256
-                    })
-                    return freshPageRecord
+                  command: pageCommandBase,
+                  eventKind: "workforce-loro-created",
+                  custody: {
+                    requestIdentity: pageRequestIdentity, fingerprint: pageCommandFingerprint,
+                    type: "ensureLoroPage", workspaceId: admission.workspaceId,
+                    actorKind: "employee",
+                    actorLabel: `${intent.grant.microEmployeeLabel} · ${intent.grant.jobLabel}`.slice(0, 200),
+                    employeeId: intent.grant.microEmployee.id, jobId: intent.grant.job.id,
+                    runId: intent.grant.runId, grantId: intent.grant.grantId,
+                    targetKind: "node", targetId: childNodeId
                   },
-                  encodeOutput: (output: LoroActivationRecord) => output,
-                  decodeOutput: decodeActivationRecord,
-                  appendCommand: () => {
-                    if (freshPageRecord === undefined) throw new Error("Loro activation did not produce a receipt")
-                    ledger.appendEnsureLoroPage({
-                      ...pageCommandBase,
-                      fingerprint: pageCommandFingerprint,
-                      storageVersion: freshPageRecord.storageVersion,
-                      schemaVersion: freshPageRecord.schemaVersion
-                    })
-                  },
-                  appendSideEffects: () => {
-                    if (freshPageRecord === undefined) throw new Error("Loro activation did not produce a receipt")
-                    const payload = { nodeId: childNodeId, snapshotSha256: freshPageRecord.snapshotSha256 }
-                    ledger.appendEvent(pageRequestIdentity, "workforce-loro-created", payload)
-                    ledger.appendOutbox(pageRequestIdentity, "workforce-loro-created", payload)
-                  }
+                  initialText: intent.originalText
                 })
-                if (freshActivation === undefined) {
-                  const current = Effect.runSyncExit(loro.prepareCurrent(childNodeId))
-                  if (Exit.isFailure(current)) throw domainErrorFromCause(current.cause)
-                  if (
-                    current.value.descriptor.activeFormat !== "loro-v1" ||
-                    current.value.descriptor.loro === undefined ||
-                    current.value.descriptor.storageVersion !== pageRecord.storageVersion ||
-                    current.value.descriptor.loro.snapshotSha256 !== pageRecord.snapshotSha256
-                  ) throw new WorkforceRunConflictError("Loro activation receipt does not match the durable page")
-                  freshActivation = current.value
+                pageFinalize = pageResult.finalize
+                const pageRecord = pageResult.output.descriptor
+                if (pageRecord.activeFormat !== "loro-v1" || pageRecord.loro === undefined) {
+                  throw new WorkforceRunConflictError("workforce companion did not produce a native Loro descriptor")
                 }
+                const current = Effect.runSyncExit(loro.prepareCurrent(childNodeId))
+                if (Exit.isFailure(current)) throw domainErrorFromCause(current.cause)
+                if (
+                  current.value.descriptor.activeFormat !== "loro-v1" ||
+                  current.value.descriptor.loro === undefined ||
+                  current.value.descriptor.storageVersion !== pageRecord.storageVersion ||
+                  current.value.descriptor.loro.snapshotSha256 !== pageRecord.loro.snapshotSha256
+                ) throw new WorkforceRunConflictError("Loro activation receipt does not match the durable page")
+                freshActivation = current.value
                 return preparedFromActivation({
                   descriptor: freshActivation.descriptor,
                   candidate: freshActivation.candidate,
@@ -5624,7 +5579,8 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
                 return preparedFromActivation(current.value)
               },
               publishAfterCommit: () => {
-                loro.publishCommittedDocument(childNodeId, postCommitCandidate)
+                if (pageFinalize !== undefined) pageFinalize()
+                else loro.publishCommittedDocument(childNodeId, postCommitCandidate)
               }
             }
             const resolver = {
@@ -5693,7 +5649,15 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
         })
         if (result.prepared !== undefined) {
           const nodeId = Schema.decodeUnknownSync(EntityId)(result.receipt.childNodeId)
-          loro.publishCommittedDocument(nodeId, postCommitCandidate)
+          yield* Effect.try({
+            try: () => {
+              if (pageFinalize !== undefined) pageFinalize()
+              else loro.publishCommittedDocument(nodeId, postCommitCandidate)
+            },
+            catch: (error): DomainError => error instanceof UnexpectedError
+              ? error
+              : new UnexpectedError({ message: `workforce Loro cache publication failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         }
         return publicWorkforceReceipt(result.receipt, result.replayed)
       }))

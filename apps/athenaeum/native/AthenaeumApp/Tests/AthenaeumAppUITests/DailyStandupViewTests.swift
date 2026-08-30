@@ -262,6 +262,21 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(summary.byAutomatedActors, 1)
     }
 
+    func testSummaryUsesNamedActorDetailWhenPresent() throws {
+        let timestamp = try IsoDateTimeString(validating: "2026-08-27T09:30:00.000Z")
+        let entries = [
+            RPCLedgerActivityEntry(occurredAt: timestamp, type: .createNodeWithIntent, actor: .workspaceMember, message: "Enrich the person.", actorDetail: .init(kind: .employee, label: "Enrichment employee")),
+            RPCLedgerActivityEntry(occurredAt: timestamp, type: .createNodeWithIntent, actor: .workspaceMember, message: "Create the person.", actorDetail: .init(kind: .user, label: "You"))
+        ]
+
+        let summary = DailyStandupSummary(entries: entries)
+
+        XCTAssertEqual(summary.total, 2)
+        XCTAssertEqual(summary.byYou, 1)
+        XCTAssertEqual(summary.byWorkspaceMembers, 1)
+        XCTAssertEqual(summary.byAutomatedActors, 0)
+    }
+
     func testStandupWindowUsesTheLocalCalendarDay() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 3_600)!

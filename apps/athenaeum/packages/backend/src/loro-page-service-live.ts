@@ -73,7 +73,7 @@ export type LegacyPageContent =
   | { readonly kind: "richTextUnsupported" }
   | { readonly kind: "tooLarge" }
 
-interface PreparedLegacyMigration {
+export interface PreparedLegacyMigration {
   readonly descriptor: PageDocumentDescriptor
   readonly candidate: LoroDoc | undefined
   readonly resultSnapshotSha256: string

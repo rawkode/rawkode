@@ -34,4 +34,21 @@ describe("daily standup activity summary", () => {
       byAnonymous: 0
     })
   })
+
+  it("uses named actor detail for newer activity rows", () => {
+    const namedEmployee = {
+      ...entry("workspace-member"),
+      actorDetail: { kind: "employee", label: "Enrichment employee" }
+    } as LedgerActivityEntry
+    const namedUser = {
+      ...entry("workspace-member"),
+      actorDetail: { kind: "user", label: "You" }
+    } as LedgerActivityEntry
+    expect(summarizeDailyStandup([namedEmployee, namedUser])).toEqual({
+      total: 2,
+      byYou: 1,
+      byWorkspaceMembers: 1,
+      byAnonymous: 0
+    })
+  })
 })
