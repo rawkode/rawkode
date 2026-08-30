@@ -111,6 +111,7 @@ describe("calendar-gatekeeper-client.ts: real service-binding client signs every
       Effect.flatMap(CalendarGatekeeperClient, (client) =>
         Effect.all([
           client.byConnection!.completeOAuth(locator, "attempt-private", "code-private", "https://example.test/cb"),
+          client.byConnection!.getOAuthCompletion(locator, "attempt-private"),
           client.byConnection!.isConnected(locator),
           client.byConnection!.disconnect(locator),
           client.byConnection!.listCalendars(locator),
@@ -127,7 +128,7 @@ describe("calendar-gatekeeper-client.ts: real service-binding client signs every
       ).pipe(Effect.provide(layer))
     )
 
-    expect(requests).toHaveLength(13)
+    expect(requests).toHaveLength(14)
     const operations = await Promise.all(
       requests.map(async (request) => {
         expect(new URL(request.url).pathname).toBe("/gatekeeper/google-calendar/account")
@@ -142,6 +143,7 @@ describe("calendar-gatekeeper-client.ts: real service-binding client signs every
     )
     expect(operations).toEqual([
       "oauth-exchange",
+      "oauth-status",
       "is-connected",
       "disconnect",
       "list-calendars",

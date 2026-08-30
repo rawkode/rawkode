@@ -51,6 +51,7 @@ export type CalendarGatekeeperLocatorInput = GatekeeperConnectionLocator | strin
 export interface CalendarOAuthCompletionReceipt {
   readonly receiptDigest: string
   readonly completionFactDigest: string
+  readonly completedAt: string
 }
 
 const OPAQUE_ACCOUNT_ENDPOINT = "/gatekeeper/google-calendar/account"
@@ -65,6 +66,10 @@ export interface CalendarGatekeeperConnectionOperations {
     attemptId: string,
     code: string,
     redirectUri: string
+  ) => Effect.Effect<CalendarOAuthCompletionReceipt, DomainError>
+  readonly getOAuthCompletion: (
+    locator: GatekeeperConnectionLocator,
+    attemptId: string
   ) => Effect.Effect<CalendarOAuthCompletionReceipt, DomainError>
   readonly isConnected: (locator: GatekeeperConnectionLocator) => Effect.Effect<{ readonly connected: boolean }, DomainError>
   readonly disconnect: (locator: GatekeeperConnectionLocator) => Effect.Effect<void, DomainError>
@@ -411,6 +416,8 @@ export const makeCalendarGatekeeperClientServiceBindingLive = (
     byConnection: {
       completeOAuth: (locator, attemptId, code, redirectUri) =>
         call<CalendarOAuthCompletionReceipt>(locator, "oauth-exchange", { attemptId, code, redirectUri }),
+      getOAuthCompletion: (locator, attemptId) =>
+        call<CalendarOAuthCompletionReceipt>(locator, "oauth-status", { attemptId }),
       isConnected: (locator) => call<{ readonly connected: boolean }>(locator, "is-connected", {}),
       disconnect: (locator) => call<void>(locator, "disconnect", {}).pipe(Effect.asVoid),
       listCalendars: (locator) => call<ReadonlyArray<RemoteGoogleCalendarInfo>>(locator, "list-calendars", {}),
