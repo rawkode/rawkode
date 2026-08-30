@@ -501,11 +501,6 @@ private struct TodayBriefContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(historyLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Calendar history")
-
             if !isToday {
                 TodayBriefSection(
                     title: "Schedule",
@@ -559,6 +554,37 @@ private struct TodayBriefContent: View {
                     }
                 }
             }
+
+            historyView
+        }
+    }
+
+    @ViewBuilder
+    private var historyView: some View {
+        switch TodayBriefHistoryPresentation.make(status: brief.calendarHistory.status) {
+        case .warning(let message):
+            Label {
+                Text(message)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle")
+            }
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Calendar history unavailable")
+        case .disclosure(let message):
+            DisclosureGroup {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } label: {
+                Label("Calendar history", systemImage: "clock.arrow.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Calendar history")
+            .accessibilityValue(message)
         }
     }
 
@@ -576,10 +602,6 @@ private struct TodayBriefContent: View {
         "\(count) \(count == 1 ? "event" : "events")"
     }
 
-    private var historyLabel: String {
-        TodayBriefHistoryLabel.text(for: brief.calendarHistory.status)
-    }
-
 }
 
 enum TodayBriefHistoryLabel {
@@ -588,6 +610,21 @@ enum TodayBriefHistoryLabel {
         case .found: return "Calendar history available"
         case .noneInRetainedData: return "No calendar history retained for this day"
         case .unavailable: return "Calendar history unavailable"
+        }
+    }
+}
+
+enum TodayBriefHistoryPresentation: Equatable {
+    case disclosure(message: String)
+    case warning(message: String)
+
+    static func make(status: RPCTodayBriefHistoryStatus) -> Self {
+        let message = TodayBriefHistoryLabel.text(for: status)
+        switch status {
+        case .unavailable:
+            return .warning(message: message)
+        case .found, .noneInRetainedData:
+            return .disclosure(message: message)
         }
     }
 }

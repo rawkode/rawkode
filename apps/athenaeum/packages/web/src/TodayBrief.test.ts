@@ -242,6 +242,56 @@ describe("projectTodayBriefSchedule", () => {
     ])
   })
 
+  it("puts the actionable schedule before collapsed healthy calendar history", async () => {
+    const value = {
+      localDate: "2026-08-26",
+      timeZone: "UTC",
+      calendarHistory: { status: "found" },
+      events: [event("next", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")]
+    } as unknown as GetTodayBriefOutput
+    const container = await mount(createElement(TodayBriefFreshness, {
+      value,
+      isToday: true,
+      now,
+      stale: false,
+      clock: () => now,
+      onBoundary: () => undefined
+    }))
+
+    const nextSection = container.querySelector('[data-today-brief-section="next"]')
+    const history = container.querySelector<HTMLDetailsElement>(".today-brief-history")
+    expect(nextSection).not.toBeNull()
+    expect(history).not.toBeNull()
+    expect(history?.open).toBe(false)
+    expect(nextSection !== null && history !== null && Boolean(nextSection.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    expect(history?.textContent).toContain("Calendar history available")
+  })
+
+  it("keeps unavailable calendar history visible without outranking the schedule", async () => {
+    const value = {
+      localDate: "2026-08-26",
+      timeZone: "UTC",
+      calendarHistory: { status: "unavailable" },
+      events: [event("next", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")]
+    } as unknown as GetTodayBriefOutput
+    const container = await mount(createElement(TodayBriefFreshness, {
+      value,
+      isToday: true,
+      now,
+      stale: false,
+      clock: () => now,
+      onBoundary: () => undefined
+    }))
+
+    const nextSection = container.querySelector('[data-today-brief-section="next"]')
+    const warning = container.querySelector(".today-brief-history-warning")
+    expect(nextSection).not.toBeNull()
+    expect(warning).not.toBeNull()
+    expect(warning?.getAttribute("role")).toBe("status")
+    expect(warning?.textContent).toBe("Calendar history unavailable")
+    expect(nextSection !== null && warning !== null && Boolean(nextSection.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  })
+
   it("omits empty current-day sections while keeping a historical schedule unclassified", () => {
     const currentEvents = [event("active", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z")]
     const current = projectTodayBriefSections(currentEvents, true, projectTodayBriefSchedule(currentEvents, now))

@@ -72,6 +72,21 @@ final class TodayBriefViewTests: XCTestCase {
         XCTAssertFalse(TodayBriefFailurePresentation.accessibilityLabel(isToday: false).contains(privateWireValue))
     }
 
+    func testHistoryPresentationKeepsHealthyProvenanceCollapsedAndUnavailableVisible() {
+        XCTAssertEqual(
+            TodayBriefHistoryPresentation.make(status: .found),
+            .disclosure(message: "Calendar history available")
+        )
+        XCTAssertEqual(
+            TodayBriefHistoryPresentation.make(status: .noneInRetainedData),
+            .disclosure(message: "No calendar history retained for this day")
+        )
+        XCTAssertEqual(
+            TodayBriefHistoryPresentation.make(status: .unavailable),
+            .warning(message: "Calendar history unavailable")
+        )
+    }
+
     func testRefreshPresentationPreventsRapidDuplicateActionsAndRestoresTheControl() {
         var isRefreshInFlight = false
 

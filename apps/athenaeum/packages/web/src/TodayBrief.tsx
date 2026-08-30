@@ -362,15 +362,29 @@ function TodayBriefContent({ value, isToday, now, onPrepareMeeting, onOpenPerson
   })()
   return (
     <>
-      <details className="today-brief-history" open>
-        <summary>Calendar history</summary>
-        <p>{formatHistory(value.calendarHistory.status)}</p>
-      </details>
       {isEmptyCurrentDaySchedule
         ? <p className="today-brief-state">No events today. Use your daily note to set priorities.</p>
         : sections.map((section) => section.deferred ? renderDeferred(section) : renderEvents(section))}
+      <TodayBriefHistory status={value.calendarHistory.status} />
       {announcement !== undefined && <p className="sr-only" role="status">{announcement}</p>}
     </>
+  )
+}
+
+function TodayBriefHistory({ status }: { readonly status: GetTodayBriefOutput["calendarHistory"]["status"] }) {
+  const message = formatHistory(status)
+  if (status === "unavailable") {
+    return (
+      <p className="today-brief-history-warning" role="status" aria-label="Calendar history status">
+        {message}
+      </p>
+    )
+  }
+  return (
+    <details className="today-brief-history">
+      <summary>Calendar history</summary>
+      <p>{message}</p>
+    </details>
   )
 }
 
