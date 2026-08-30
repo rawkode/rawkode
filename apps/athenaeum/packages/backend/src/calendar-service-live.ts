@@ -101,6 +101,7 @@ import {
 } from "./calendar-gatekeeper-client.js"
 import {
   calendarObserverKey,
+  calendarEventSourceIdentityKey,
   makeCalendarCollections,
   reviveBookmark,
   reviveCalendarEvent,
@@ -923,6 +924,7 @@ export const makeCalendarServiceLive = (
        *  occurrences on one page only synthesizes its master row once. */
       const upsertRemoteEvent = (
         workspaceId: EntityId,
+        bindingId: EntityId,
         remote: RemoteCalendarEvent,
         emailIndex: Map<string, EntityId | null>,
         masterCache: Map<string, EntityId>,
@@ -961,12 +963,15 @@ export const makeCalendarServiceLive = (
             if (cached !== undefined) {
               masterRecordId = cached
             } else {
-              const existingRaw = yield* collections.calendarEvents.byProviderEventId
-                .get(seriesId)
+              const masterIdentity = yield* collections.calendarEventSourceIdentities
+                .get(calendarEventSourceIdentityKey(workspaceId, bindingId, seriesId))
                 .pipe(Effect.mapError(toUnexpectedError))
-              const existingMaster = yield* Effect.forEach(existingRaw, reviveCalendarEvent).pipe(
-                Effect.map((rows) => rows.find((r) => r.workspaceId === workspaceId && r.seriesId === seriesId && r.masterRecordId === undefined))
-              )
+              const existingMaster = masterIdentity === undefined
+                ? undefined
+                : yield* collections.calendarEvents.get(masterIdentity.calendarEventId).pipe(
+                  Effect.mapError(toUnexpectedError),
+                  Effect.flatMap((raw) => raw === undefined ? Effect.succeed(undefined) : reviveCalendarEvent(raw))
+                )
               if (existingMaster !== undefined) {
                 masterRecordId = existingMaster.id
               } else {
@@ -984,6 +989,14 @@ export const makeCalendarServiceLive = (
                   syncedAt: now()
                 })
                 yield* collections.calendarEvents.put(master).pipe(Effect.mapError(toUnexpectedError))
+                yield* collections.calendarEventSourceIdentities.put({
+                  id: calendarEventSourceIdentityKey(workspaceId, bindingId, seriesId),
+                  workspaceId,
+                  bindingId,
+                  providerEventId: seriesId,
+                  calendarEventId: master.id,
+                  adoptedAt: now()
+                }).pipe(Effect.mapError(toUnexpectedError))
                 yield* syncFeed.append("calendarEvent", master.id, "put", master)
                 masterRecordId = master.id
               }
@@ -991,11 +1004,15 @@ export const makeCalendarServiceLive = (
             }
           }
 
-          const existingRowsRaw = yield* collections.calendarEvents.byProviderEventId
-            .get(remote.id)
+          const identity = yield* collections.calendarEventSourceIdentities
+            .get(calendarEventSourceIdentityKey(workspaceId, bindingId, remote.id))
             .pipe(Effect.mapError(toUnexpectedError))
-          const existingRows = yield* Effect.forEach(existingRowsRaw, reviveCalendarEvent)
-          const existing = existingRows.find((r) => r.workspaceId === workspaceId)
+          const existing = identity === undefined
+            ? undefined
+            : yield* collections.calendarEvents.get(identity.calendarEventId).pipe(
+              Effect.mapError(toUnexpectedError),
+              Effect.flatMap((raw) => raw === undefined ? Effect.succeed(undefined) : reviveCalendarEvent(raw))
+            )
           if (expectedCalendarEventId !== undefined && existing !== undefined && existing.id !== expectedCalendarEventId) {
             return yield* Effect.fail(new UnexpectedError({ message: "calendar projection target changed; retry the provider event" }))
           }
@@ -1018,6 +1035,16 @@ export const makeCalendarServiceLive = (
             syncedAt: now()
           })
           yield* collections.calendarEvents.put(event).pipe(Effect.mapError(toUnexpectedError))
+          if (identity === undefined) {
+            yield* collections.calendarEventSourceIdentities.put({
+              id: calendarEventSourceIdentityKey(workspaceId, bindingId, remote.id),
+              workspaceId,
+              bindingId,
+              providerEventId: remote.id,
+              calendarEventId: event.id,
+              adoptedAt: now()
+            }).pipe(Effect.mapError(toUnexpectedError))
+          }
           yield* syncFeed.append("calendarEvent", event.id, "put", event)
           return event
         })
@@ -1025,11 +1052,10 @@ export const makeCalendarServiceLive = (
       /** Read-only target allocation before entering the ledger transaction. The projection
        * closure rechecks it and fails closed on a concurrent create so a retry never records
        * custody against a different event than the one it actually wrote. */
-      const existingCalendarEventId = (workspaceId: EntityId, providerEventId: string): Effect.Effect<EntityId | undefined, DomainError> =>
-        collections.calendarEvents.byProviderEventId.get(providerEventId).pipe(
+      const existingCalendarEventId = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): Effect.Effect<EntityId | undefined, DomainError> =>
+        collections.calendarEventSourceIdentities.get(calendarEventSourceIdentityKey(workspaceId, bindingId, providerEventId)).pipe(
           Effect.mapError(toUnexpectedError),
-          Effect.flatMap((rows) => Effect.forEach(rows, reviveCalendarEvent)),
-          Effect.map((rows) => rows.find((row) => row.workspaceId === workspaceId)?.id)
+          Effect.map((identity) => identity?.calendarEventId)
         )
 
       /** Google includes a monotonic `updated` cursor on every Event resource. Keep that cursor
@@ -1122,7 +1148,7 @@ export const makeCalendarServiceLive = (
                 })
               })
               const requestIdentity = `calendar-projection:${planned.sourceRevisionDigest}`
-              const calendarEventId = (yield* existingCalendarEventId(workspaceId, remote.id)) ?? (crypto.randomUUID() as EntityId)
+              const calendarEventId = (yield* existingCalendarEventId(workspaceId, bindingId, remote.id)) ?? (crypto.randomUUID() as EntityId)
               // A failed gateway transaction rolls its storage back, not JavaScript maps. Keep
               // local identity/master caches isolated until the atomic projection has committed.
               const eventEmailIndex = new Map(emailIndex)
@@ -1149,7 +1175,7 @@ export const makeCalendarServiceLive = (
                         .pipe(Effect.mapError(toUnexpectedError))
                     )
                     if (isOlderProviderRevision(planned.sourceUpdatedAt, existingRevisions)) return []
-                    const event = Effect.runSync(upsertRemoteEvent(workspaceId, remote, eventEmailIndex, eventMasterCache, calendarEventId))
+                    const event = Effect.runSync(upsertRemoteEvent(workspaceId, bindingId, remote, eventEmailIndex, eventMasterCache, calendarEventId))
                     // Both records are backend-private: provider ids and addresses stay here,
                     // while the public ledger/event/outbox sees only their digests.
                     Effect.runSync(collections.calendarSourceRevisions.put({

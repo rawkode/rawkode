@@ -40,7 +40,7 @@
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { TreeFormatter } from "effect/ParseResult"
-import { Bookmark, CalendarEvent, GatekeeperBinding, UnexpectedError, type EntityId } from "@athenaeum/domain"
+import { Bookmark, CalendarEvent, GatekeeperBinding, UnexpectedError, canonicalJsonBytes, sha256HexSync, type EntityId } from "@athenaeum/domain"
 import {
   type BindingConnectionRecord,
   type CalendarOAuthAttemptId,
@@ -99,6 +99,22 @@ export interface CalendarSourceRevisionRecord {
   readonly appliedAt: string
 }
 
+/** Private binding-scoped ownership for a provider event. CalendarEvent remains public-schema
+ * compatible; this record is the sole authority that prevents two connected accounts with the
+ * same provider event id from colliding. */
+export interface CalendarEventSourceIdentityRecord {
+  readonly id: string
+  readonly workspaceId: EntityId
+  readonly bindingId: EntityId
+  readonly providerEventId: string
+  readonly calendarEventId: EntityId
+  readonly adoptedAt: string
+}
+
+/** One canonical private source-scope key for collection storage, replay, and Today projection. */
+export const calendarEventSourceIdentityKey = (workspaceId: EntityId, bindingId: EntityId, providerEventId: string): string =>
+  sha256HexSync(canonicalJsonBytes({ version: 1, workspaceId, bindingId, providerEventId }))
+
 /** Private attendee observation dedupe record. `emailDigest` is a keyed workspace-local
  * fingerprint, never an email address, and is the sole identity exposed to workforce scheduling. */
 export interface CalendarAttendeeObservationRecord {
@@ -153,6 +169,14 @@ const calendarSourceRevisionsCollectionSchema = collection<CalendarSourceRevisio
   nonUniqueIndexes: {
     byWorkspaceId: (record: CalendarSourceRevisionRecord) => record.workspaceId,
     byBindingAndProviderEvent: (record: CalendarSourceRevisionRecord) => `${record.bindingId}:${record.providerEventId}`
+  }
+})
+
+const calendarEventSourceIdentitiesCollectionSchema = collection<CalendarEventSourceIdentityRecord>()({
+  primaryKey: "id",
+  nonUniqueIndexes: {
+    byWorkspaceId: (record: CalendarEventSourceIdentityRecord) => record.workspaceId,
+    byCalendarEventId: (record: CalendarEventSourceIdentityRecord) => record.calendarEventId
   }
 })
 
@@ -213,6 +237,10 @@ export interface CalendarCollections {
     readonly byWorkspaceId: NonUniqueIndex<CalendarSourceRevisionRecord, EntityId>
     readonly byBindingAndProviderEvent: NonUniqueIndex<CalendarSourceRevisionRecord, string>
   }
+  readonly calendarEventSourceIdentities: Collection<CalendarEventSourceIdentityRecord, string> & {
+    readonly byWorkspaceId: NonUniqueIndex<CalendarEventSourceIdentityRecord, EntityId>
+    readonly byCalendarEventId: NonUniqueIndex<CalendarEventSourceIdentityRecord, EntityId>
+  }
   readonly calendarAttendeeObservations: Collection<CalendarAttendeeObservationRecord, string> & {
     readonly byWorkspaceId: NonUniqueIndex<CalendarAttendeeObservationRecord, EntityId>
     readonly byCalendarEventId: NonUniqueIndex<CalendarAttendeeObservationRecord, EntityId>
@@ -240,6 +268,7 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
       calendarObservers: calendarObserversCollectionSchema,
       calendarDerivedNodes: calendarDerivedNodesCollectionSchema,
       calendarSourceRevisions: calendarSourceRevisionsCollectionSchema,
+      calendarEventSourceIdentities: calendarEventSourceIdentitiesCollectionSchema,
       calendarAttendeeObservations: calendarAttendeeObservationsCollectionSchema,
       providerConnections: providerConnectionsCollectionSchema,
       bindingConnections: bindingConnectionsCollectionSchema,
@@ -253,6 +282,7 @@ export const makeCalendarCollections = (storage: DurableObjectStorage): Calendar
     calendarObservers: typedStorage.calendarObservers,
     calendarDerivedNodes: typedStorage.calendarDerivedNodes,
     calendarSourceRevisions: typedStorage.calendarSourceRevisions,
+    calendarEventSourceIdentities: typedStorage.calendarEventSourceIdentities,
     calendarAttendeeObservations: typedStorage.calendarAttendeeObservations,
     providerConnections: typedStorage.providerConnections,
     bindingConnections: typedStorage.bindingConnections,
