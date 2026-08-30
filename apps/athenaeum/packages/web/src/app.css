@@ -4002,6 +4002,17 @@
   line-height: 1.65;
 }
 
+.node-view-page-rich {
+  color: var(--color-text-prose);
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.node-view-page-rich > :first-child { margin-top: 0; }
+.node-view-page-rich > :last-child { margin-bottom: 0; }
+.node-view-page-rich a { color: var(--color-link); }
+
 .node-view-loading {
   color: var(--color-text-faint);
 }

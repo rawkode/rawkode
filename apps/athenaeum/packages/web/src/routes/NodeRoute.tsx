@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, Navigate, useParams } from "react-router"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { EntityId, GetNodeInput, GetPageTextInput, GetPageTextOutput, type DomainError } from "@athenaeum/domain"
-import { WorkspaceRpcClient } from "../rpc-client.js"
+import { EntityId, GetNodeInput, GetPageDocumentDescriptorInput, GetPageTextInput, type PageDocumentDescriptor } from "@athenaeum/domain"
+import { WorkspaceRpcClient, type WorkspaceRpcClientService } from "../rpc-client.js"
 import { useEffectQuery } from "../use-effect-query.js"
 import type { EffectState } from "../effect-store.js"
 import { workspaceId } from "../workspace-id.js"
@@ -11,6 +11,8 @@ import { dateStampFromDailyNoteId } from "../daily-note-id.js"
 import { NoteTags } from "../NoteTags.js"
 import { Backlinks } from "../Backlinks.js"
 import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "../SupertagFieldPopover.js"
+import { convergeLoroPageFromServer } from "../loro-page.js"
+import { renderStaticLoroPreview } from "../loro-static-preview.js"
 
 // Retrieval pass (design-review 2026-08-22 finding #1, "Node view"): the minimal destination
 // every other retrieval surface (search results, graph rows, backlink entries, Cmd/Ctrl+clicked
@@ -19,9 +21,69 @@ import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "../Supert
 // `getNode`, tags + field values via the existing `NoteTags` + `SupertagFieldPopover` pair
 // (identical wiring to `DailyNote.tsx` — one data model, N entry points), backlinks via the
 // existing `Backlinks` component. Canonical daily-note ids bypass this generic view entirely and
-// open their date-addressed editor before this route can issue the legacy-only `getPageText` RPC.
-// The page body below therefore remains a useful generic-node preview without becoming a second
-// document-format or edit path.
+// open their date-addressed editor before this route can issue a generic preview read. Generic
+// pages are descriptor-routed and remain read-only; no preview creates an editor or a writer.
+
+export type PageWitness = Readonly<{
+  variant: "legacy" | "migratedLoro" | "nativeLoro"
+  nodeId: string
+  activeFormat: "automerge-v1" | "loro-v1"
+  storageVersion: number
+  schemaVersion?: number
+  snapshotSha256?: string
+}>
+
+export const pageWitness = (descriptor: PageDocumentDescriptor): PageWitness => ({
+  variant: descriptor.activeFormat === "automerge-v1"
+    ? "legacy"
+    : descriptor.automerge === undefined ? "nativeLoro" : "migratedLoro",
+  nodeId: descriptor.nodeId,
+  activeFormat: descriptor.activeFormat,
+  storageVersion: descriptor.storageVersion,
+  ...(descriptor.activeFormat === "loro-v1" ? {
+    schemaVersion: descriptor.loro.schemaVersion,
+    snapshotSha256: descriptor.loro.snapshotSha256
+  } : {})
+})
+
+export const samePageWitness = (left: PageWitness, right: PageWitness): boolean =>
+  left.variant === right.variant && left.nodeId === right.nodeId && left.activeFormat === right.activeFormat &&
+  left.storageVersion === right.storageVersion && left.schemaVersion === right.schemaVersion &&
+  left.snapshotSha256 === right.snapshotSha256
+
+export type NodePagePreviewState =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "stale" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "empty" }
+  | { readonly kind: "legacy"; readonly text: string }
+  | { readonly kind: "loro"; readonly html: string }
+
+/** Descriptor-before-content routing with a full exact witness recheck after every read. */
+export const resolveNodePagePreview = (
+  client: WorkspaceRpcClientService,
+  nodeId: EntityId
+): Effect.Effect<NodePagePreviewState, never> =>
+  Effect.gen(function* () {
+    const initial = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
+    const witness = pageWitness(initial.descriptor)
+    if (initial.descriptor.activeFormat === "loro-v1") {
+      const doc = yield* convergeLoroPageFromServer(client, workspaceId, nodeId)
+      const current = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
+      if (!samePageWitness(witness, pageWitness(current.descriptor))) return { kind: "stale" } as const
+      const rendered = renderStaticLoroPreview(doc)
+      return rendered.kind === "content" ? { kind: "loro", html: rendered.html } as const
+        : rendered.kind === "empty" ? { kind: "empty" } as const : { kind: "unsupported" } as const
+    }
+    const page = yield* client.getPageText(new GetPageTextInput({ workspaceId, nodeId }))
+    const current = yield* client.getPageDocumentDescriptor(new GetPageDocumentDescriptorInput({ workspaceId, nodeId }))
+    if (!samePageWitness(witness, pageWitness(current.descriptor))) return { kind: "stale" } as const
+    return page.text.trim().length === 0 ? { kind: "empty" } as const : { kind: "legacy", text: page.text } as const
+  }).pipe(
+    Effect.catchTag("PageNotFound", () => Effect.succeed({ kind: "missing" } as const)),
+    Effect.catchAll(() => Effect.succeed({ kind: "failed" } as const))
+  )
 
 function NodeView({ nodeId }: { readonly nodeId: EntityId }) {
   const [activeTag, setActiveTag] = useState<SupertagFieldPopoverTarget | null>(null)
@@ -61,10 +123,7 @@ function NodeView({ nodeId }: { readonly nodeId: EntityId }) {
   const isRetryingNode = nodeRetryClaimed || state.status === "loading"
 
   const pageEffect = useMemo(
-    () =>
-      WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) => client.getPageText(new GetPageTextInput({ workspaceId, nodeId })))
-      ),
+    () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => resolveNodePagePreview(client, nodeId))),
     [nodeId]
   )
   const pageState = useEffectQuery(pageEffect, [nodeId, pageRefreshKey])
@@ -142,7 +201,7 @@ function NodePagePreview({
   onRetry,
   isRetrying
 }: {
-  readonly state: EffectState<GetPageTextOutput, DomainError>
+  readonly state: EffectState<NodePagePreviewState, never>
   readonly onRetry: () => void
   readonly isRetrying: boolean
 }) {
@@ -154,16 +213,7 @@ function NodePagePreview({
       </section>
     )
   }
-  if (state.status === "failure") {
-    if (state.error._tag === "PageNotFound") {
-      return (
-        <section className="node-view-page" aria-labelledby="node-page-title">
-          <span className="node-view-eyebrow">Page</span>
-          <h2 id="node-page-title">No page content yet</h2>
-          <p className="node-view-page-empty">This entity has not been given a page document.</p>
-        </section>
-      )
-    }
+  if (state.status === "failure" || (state.status === "success" && state.value.kind === "failed")) {
     return (
       <section className="node-view-page" aria-labelledby="node-page-title">
         <span className="node-view-eyebrow">Page</span>
@@ -178,19 +228,25 @@ function NodePagePreview({
     )
   }
   if (state.status !== "success") return null
-
-  const text = state.value.text.trim()
+  if (state.value.kind === "missing") return <PageMessage title="No page content yet" message="This entity has not been given a page document." />
+  if (state.value.kind === "unsupported") return <PageMessage title="This page format can’t be previewed" message="This entity’s content is preserved, but this read-only preview can’t render it safely." />
+  if (state.value.kind === "stale") return <PageRetry onRetry={onRetry} isRetrying={isRetrying} title="This page changed while loading" message="Retry to load its current content." />
+  if (state.value.kind === "empty") return <PageMessage title="Content" message="This entity has an empty page." />
   return (
     <section className="node-view-page" aria-labelledby="node-page-title">
       <span className="node-view-eyebrow">Page</span>
       <h2 id="node-page-title">Content</h2>
-      {text.length === 0 ? (
-        <p className="node-view-page-empty">This entity has an empty page.</p>
-      ) : (
-        <div className="node-view-page-text">{state.value.text}</div>
-      )}
+      {state.value.kind === "legacy" && <div className="node-view-page-text">{state.value.text}</div>}
+      {state.value.kind === "loro" && <div className="node-view-page-rich" dangerouslySetInnerHTML={{ __html: state.value.html }} />}
     </section>
   )
+}
+
+function PageMessage({ title, message }: { readonly title: string; readonly message: string }) {
+  return <section className="node-view-page" aria-labelledby="node-page-title"><span className="node-view-eyebrow">Page</span><h2 id="node-page-title">{title}</h2><p className="node-view-page-empty">{message}</p></section>
+}
+function PageRetry({ title, message, onRetry, isRetrying }: { readonly title: string; readonly message: string; readonly onRetry: () => void; readonly isRetrying: boolean }) {
+  return <section className="node-view-page" aria-labelledby="node-page-title"><span className="node-view-eyebrow">Page</span><div className="node-view-load-state node-view-page-load-state" role="alert"><div><h2 id="node-page-title">{title}</h2><p>{message}</p></div><button type="button" onClick={onRetry} disabled={isRetrying}>{isRetrying ? "Retrying…" : "Retry"}</button></div></section>
 }
 
 export function NodeRoute() {

@@ -33,7 +33,7 @@ vi.mock("../use-effect-query.js", () => ({
       ? queryStateMock.pageOutcomes.get(refreshKey) ?? "failure"
       : "loading"
     if (outcome === "loading") return { status: "loading" as const }
-    if (outcome === "notFound") return { status: "failure" as const, error: { _tag: "PageNotFound" } }
+    if (outcome === "notFound") return { status: "success" as const, value: { kind: "missing" as const } }
     return { status: "failure" as const, error: new Error("Internal page lookup detail") }
   }
 }))
