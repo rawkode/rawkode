@@ -40,6 +40,10 @@ export interface StoredTokens {
   readonly completion?: {
     readonly attemptId: string
     readonly requestDigest: string
+    /** Stable opaque receipt returned only to the authenticated backend. */
+    readonly receiptDigest: string
+    /** Binds the receipt to the one durable completion write without retaining OAuth material. */
+    readonly completionFactDigest: string
     readonly completedAt: string
   }
 }

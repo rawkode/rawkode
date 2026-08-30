@@ -29,8 +29,8 @@ import {
   verifyObserverStrategyB,
   type AccessTokenResolver
 } from "./observer-verification.js"
-import { GatekeeperAccountService, type GatekeeperAccountServiceApi } from "./gatekeeper-account-service.js"
-import { TokenStore } from "./token-store.js"
+import { GatekeeperAccountService, type GatekeeperAccountServiceApi, type OAuthCompletionReceipt } from "./gatekeeper-account-service.js"
+import { TokenStore, type StoredTokens } from "./token-store.js"
 import { mintGatekeeperUserVerifier, unwrapGatekeeperUserVerifier, type ObserverIdentity } from "./observer-verifier.js"
 
 /** Refresh proactively once an access token is within this margin of its documented expiry —
@@ -82,12 +82,27 @@ export const makeGatekeeperAccountServiceLive = (
           return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
         })
 
+      const fingerprint = (kind: "receipt" | "completion", values: ReadonlyArray<string>): Effect.Effect<string> =>
+        Effect.promise(async () => {
+          const bytes = new TextEncoder().encode(`${kind}\u0000${config.connectionId}\u0000${values.join("\u0000")}`)
+          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+          return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
+        })
+
+      const receiptFromCompletion = (completion: NonNullable<StoredTokens["completion"]>): OAuthCompletionReceipt => ({
+        receiptDigest: completion.receiptDigest,
+        completionFactDigest: completion.completionFactDigest,
+        completedAt: completion.completedAt
+      })
+
       const connect: GatekeeperAccountServiceApi["connect"] = (attemptId, code, redirectUri) =>
         Effect.gen(function* () {
           const current = yield* tokens.get
           const requestDigest = attemptId === undefined ? undefined : yield* completionDigest(attemptId, code, redirectUri)
           if (attemptId !== undefined && current.completion !== undefined) {
-            if (current.completion.attemptId === attemptId && current.completion.requestDigest === requestDigest && current.connected) return
+            if (current.completion.attemptId === attemptId && current.completion.requestDigest === requestDigest && current.connected) {
+              return receiptFromCompletion(current.completion)
+            }
             return yield* Effect.fail(new GatekeeperAccountNotConnected({ message: "OAuth completion does not match this connection." }))
           }
           const exchanged = yield* client.exchangeAuthorizationCode(code, redirectUri)
@@ -95,6 +110,17 @@ export const makeGatekeeperAccountServiceLive = (
           if (refreshToken === undefined || refreshToken.trim().length === 0) {
             return yield* Effect.fail(new GatekeeperAccountNotConnected({ message: "OAuth completion did not grant durable access." }))
           }
+          const completedAt = new Date().toISOString()
+          const receiptDigest =
+            attemptId === undefined || requestDigest === undefined
+              ? undefined
+              : yield* fingerprint("receipt", [attemptId, requestDigest])
+          const completionFactDigest =
+            receiptDigest === undefined ? undefined : yield* fingerprint("completion", [receiptDigest, completedAt])
+          const completion =
+            attemptId === undefined || requestDigest === undefined || receiptDigest === undefined || completionFactDigest === undefined
+              ? undefined
+              : { attemptId, requestDigest, receiptDigest, completionFactDigest, completedAt }
           yield* tokens.put({
             connected: true,
             accessToken: exchanged.accessToken,
@@ -102,11 +128,19 @@ export const makeGatekeeperAccountServiceLive = (
             // Google only returns a refresh token on the FIRST exchange (OAuthTokens.refreshToken's
             // own doc comment) — keep the original if this exchange didn't return a new one.
             refreshToken,
-            ...(attemptId !== undefined && requestDigest !== undefined
-              ? { completion: { attemptId, requestDigest, completedAt: new Date().toISOString() } }
-              : {})
+            ...(completion === undefined ? {} : { completion })
           })
+          return completion === undefined ? undefined : receiptFromCompletion(completion)
         })
+
+      const getOAuthCompletion: GatekeeperAccountServiceApi["getOAuthCompletion"] = (attemptId) =>
+        tokens.get.pipe(
+          Effect.flatMap((current) =>
+            current.connected && current.completion?.attemptId === attemptId
+              ? Effect.succeed(receiptFromCompletion(current.completion))
+              : Effect.fail(new GatekeeperAccountNotConnected({ message: "OAuth completion does not match this connection." }))
+          )
+        )
 
       const disconnect: GatekeeperAccountServiceApi["disconnect"] = tokens.clear
 
@@ -246,6 +280,7 @@ export const makeGatekeeperAccountServiceLive = (
 
       return {
         connect,
+        getOAuthCompletion,
         disconnect,
         isConnected,
         getAccessToken,

@@ -41,6 +41,13 @@ import type { GatekeeperAccountServiceError, GatekeeperAccountNotConnected } fro
 import type { CalendarEventsListQuery, SendUpdatesOptions } from "./google-calendar-client.js"
 import type { GatekeeperUserVerifier, ObserverIdentity } from "./observer-verifier.js"
 
+/** Private proof that an opaque OAuth attempt reached this account's durable completion fact. */
+export interface OAuthCompletionReceipt {
+  readonly receiptDigest: string
+  readonly completionFactDigest: string
+  readonly completedAt: string
+}
+
 /** Supplied by the DO wrapper (`gatekeeper-account-durable-object.ts`), which alone has
  *  `ctx.exports` access to reach a DIFFERENT account's own DO instance — see that file's own
  *  `addObserver` doc comment. Re-exported here (not redefined) from `observer-verification.ts`'s
@@ -50,7 +57,13 @@ export type { AccessTokenResolver } from "./observer-verification.js"
 
 export interface GatekeeperAccountServiceApi {
   // --- OAuth lifecycle (ctx.exports-only at the DO layer — see that file) -------------------
-  readonly connect: (attemptId: string | undefined, code: string, redirectUri: string) => Effect.Effect<void, GatekeeperAccountServiceError>
+  readonly connect: (
+    attemptId: string | undefined,
+    code: string,
+    redirectUri: string
+  ) => Effect.Effect<OAuthCompletionReceipt | undefined, GatekeeperAccountServiceError>
+  /** Looks up a completed opaque attempt without exchanging a provider code again. */
+  readonly getOAuthCompletion: (attemptId: string) => Effect.Effect<OAuthCompletionReceipt, GatekeeperAccountServiceError>
   readonly disconnect: Effect.Effect<void>
   readonly isConnected: Effect.Effect<boolean>
   /** The account's own, currently-valid access token — refreshed if expired/expiring. Used by

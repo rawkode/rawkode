@@ -105,10 +105,21 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
       return jsonResponse({ access_token: "access", expires_in: 3600, refresh_token: "refresh" })
     })
 
-    await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
-    await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
+    const first = await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
+    const replay = await Effect.runPromise(service.connect("attempt-replay", "code-replay", REDIRECT_URI))
+    const status = await Effect.runPromise(service.getOAuthCompletion("attempt-replay"))
 
     expect(exchanges).toBe(1)
+    expect(first).toBeDefined()
+    expect(replay).toEqual(first)
+    expect(status).toEqual(first)
+    expect(first).toEqual(
+      expect.objectContaining({
+        receiptDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        completionFactDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        completedAt: expect.any(String)
+      })
+    )
     await expect(Effect.runPromise(service.isConnected)).resolves.toBe(true)
   })
 
@@ -120,6 +131,7 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
 
     expect((await Effect.runPromiseExit(service.connect("attempt-one", "code-two", REDIRECT_URI)))._tag).toBe("Failure")
     expect((await Effect.runPromiseExit(service.connect("attempt-two", "code-one", REDIRECT_URI)))._tag).toBe("Failure")
+    expect((await Effect.runPromiseExit(service.getOAuthCompletion("attempt-two")))._tag).toBe("Failure")
   })
 
   it("does not activate a fresh opaque connection when Google omits a refresh token", async () => {
@@ -143,6 +155,7 @@ describe("GatekeeperAccountServiceLive — OAuth lifecycle", () => {
 
     await Effect.runPromise(service.connect("attempt-one", "code-one", REDIRECT_URI))
     await Effect.runPromise(service.disconnect)
+    expect((await Effect.runPromiseExit(service.getOAuthCompletion("attempt-one")))._tag).toBe("Failure")
     await Effect.runPromise(service.connect("attempt-two", "code-two", REDIRECT_URI))
 
     expect(exchanges).toBe(2)

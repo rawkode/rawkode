@@ -161,6 +161,7 @@ const DEFAULT_SCOPES = [
  *  once a second, unauthenticated path to this same Worker exists. */
 const LEGACY_ACCOUNT_ROUTE = /^\/gatekeeper\/google-calendar\/account\/([^/]+)\/([a-z-]+)$/
 const OPAQUE_CONNECTION_ID = /^gpc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const OPAQUE_ATTEMPT_ID = /^coa_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type AccountLocator =
   | { readonly kind: "provider-connection"; readonly name: string }
@@ -190,10 +191,21 @@ const handleAccountOperation = async (ctx: ExecutionContext, locator: AccountLoc
     switch (op) {
       case "oauth-exchange": {
         const { code, redirectUri, attemptId } = body as { code?: unknown; redirectUri?: unknown; attemptId?: unknown }
-        if (typeof code !== "string" || typeof redirectUri !== "string" || (locator.kind === "provider-connection" && typeof attemptId !== "string")) {
+        if (
+          typeof code !== "string" ||
+          typeof redirectUri !== "string" ||
+          (locator.kind === "provider-connection" && (typeof attemptId !== "string" || !OPAQUE_ATTEMPT_ID.test(attemptId)))
+        ) {
           return json({ tag: "ValidationError", message: "oauth-exchange: expected {code, redirectUri} strings" }, 400)
         }
         return json(await stub().completeOAuth(code, redirectUri, typeof attemptId === "string" ? attemptId : undefined))
+      }
+      case "oauth-status": {
+        const { attemptId } = body as { attemptId?: unknown }
+        if (locator.kind !== "provider-connection" || typeof attemptId !== "string" || !OPAQUE_ATTEMPT_ID.test(attemptId)) {
+          return json({ tag: "ValidationError", message: "oauth-status: attemptId required for an opaque connection" }, 400)
+        }
+        return json(await stub().oauthStatus(attemptId))
       }
       case "disconnect":
         await stub().disconnect()

@@ -53,7 +53,12 @@ const makeSpyCtx = (): { ctx: ExecutionContext; getByNameCalls: Array<string> } 
   const getByNameCalls: Array<string> = []
   const stubMethods = {
     isConnected: async () => false,
-    completeOAuth: async () => ({ connected: true })
+    completeOAuth: async () => ({ connected: true }),
+    oauthStatus: async () => ({
+      receiptDigest: "a".repeat(64),
+      completionFactDigest: "b".repeat(64),
+      completedAt: "2026-08-30T12:00:00.000Z"
+    })
   }
   const ctx = {
     exports: {
@@ -197,6 +202,48 @@ describe("worker.ts fetch(): caller-credential gate (adversarial-review fix)", (
     expect(await response.json()).toEqual({ connected: false })
     expect(getByNameCalls).toEqual([OPAQUE_CONNECTION_ID])
     expect(response.url).not.toContain(OPAQUE_CONNECTION_ID)
+  })
+
+  it("returns only a durable opaque receipt from the fixed exact-attempt oauth-status operation", async () => {
+    const credential = await mintCredential(SECRET, 30)
+    const response = await worker.fetch(
+      fixedAccountRequest(
+        {
+          locator: { kind: "provider-connection", providerConnectionId: OPAQUE_CONNECTION_ID },
+          operation: "oauth-status",
+          attemptId: "coa_11111111-1111-4111-8111-111111111111"
+        },
+        { Authorization: `Bearer ${credential}` }
+      ),
+      ENV_WITH_SECRET,
+      ctx
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      receiptDigest: "a".repeat(64),
+      completionFactDigest: "b".repeat(64),
+      completedAt: "2026-08-30T12:00:00.000Z"
+    })
+    expect(getByNameCalls).toEqual([OPAQUE_CONNECTION_ID])
+  })
+
+  it("rejects oauth-status outside the exact opaque-attempt contract before actor activation", async () => {
+    const credential = await mintCredential(SECRET, 30)
+    const response = await worker.fetch(
+      fixedAccountRequest(
+        {
+          locator: { kind: "legacy-email", email: "legacy@example.test" },
+          operation: "oauth-status",
+          attemptId: "coa_11111111-1111-4111-8111-111111111111"
+        },
+        { Authorization: `Bearer ${credential}` }
+      ),
+      ENV_WITH_SECRET,
+      ctx
+    )
+    expect(response.status).toBe(400)
+    expect(getByNameCalls).toHaveLength(0)
   })
 
   it("rejects malformed and unknown fixed-route operations without actor activation or reflecting attacker input", async () => {

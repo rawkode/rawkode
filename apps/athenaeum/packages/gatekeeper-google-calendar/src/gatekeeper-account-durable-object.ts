@@ -138,9 +138,17 @@ export class GatekeeperAccountDurableObject extends DurableObject<Env> {
   // RPC surface (`connect(socket: Socket): void | Promise<void>`); this method completes the
   // OAuth code exchange, hence `completeOAuth`.
 
-  async completeOAuth(code: string, redirectUri: string, attemptId?: string): Promise<{ readonly connected: boolean }> {
-    await this.#run((s) => s.connect(attemptId, code, redirectUri))
-    return { connected: true }
+  async completeOAuth(
+    code: string,
+    redirectUri: string,
+    attemptId?: string
+  ): Promise<{ readonly connected: boolean } | { readonly receiptDigest: string; readonly completionFactDigest: string; readonly completedAt: string }> {
+    const receipt = await this.#run((s) => s.connect(attemptId, code, redirectUri))
+    return receipt === undefined ? { connected: true } : receipt
+  }
+
+  async oauthStatus(attemptId: string): Promise<{ readonly receiptDigest: string; readonly completionFactDigest: string; readonly completedAt: string }> {
+    return this.#run((s) => s.getOAuthCompletion(attemptId))
   }
 
   async disconnect(): Promise<void> {
