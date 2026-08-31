@@ -4,6 +4,33 @@ import AthenaeumRPC
 
 @MainActor
 final class AppsViewTests: XCTestCase {
+    func testAppRunDocumentUsesSyntheticOriginAndNoCredentialMaterial() {
+        let document = NativeAppRunDocument(workspaceId: "workspace-1", appId: "app-1", clientCodeVersion: 3)
+        XCTAssertEqual(document.originURL.scheme, "athenaeum-app-run")
+        XCTAssertEqual(document.clientJavaScriptURL.scheme, "athenaeum-app-run")
+        XCTAssertEqual(document.runBaseURL.scheme, "athenaeum-app-run")
+        XCTAssertTrue(document.clientJavaScriptURL.absoluteString.hasSuffix("/client.js?v=3"))
+        XCTAssertTrue(document.runBaseURL.absoluteString.hasSuffix("/run"))
+        XCTAssertFalse(document.html.contains("Authorization"))
+        XCTAssertFalse(document.html.contains("Bearer"))
+        XCTAssertFalse(document.html.contains("token="))
+        XCTAssertFalse(document.html.contains("127.0.0.1"))
+    }
+
+    func testAppRunResourcePolicyOnlyAllowsCapturedClientAndRunPaths() {
+        let document = NativeAppRunDocument(workspaceId: "workspace-1", appId: "app-1", clientCodeVersion: 3)
+        XCTAssertEqual(NativeAppRunResourcePolicy.resource(for: document.clientJavaScriptURL, origin: document.originURL), .client)
+        XCTAssertEqual(NativeAppRunResourcePolicy.resource(for: document.runBaseURL, origin: document.originURL), .run(path: ""))
+        for value in [
+            "athenaeum-app-run://other/run",
+            "athenaeum-app-run://\(document.originURL.host!)/run/../secret",
+            "athenaeum-app-run://\(document.originURL.host!)/run?token=redacted",
+            "https://example.invalid/run"
+        ] {
+            XCTAssertNil(NativeAppRunResourcePolicy.resource(for: URL(string: value)!, origin: document.originURL))
+        }
+    }
+
     func testAppRunIdentityIncludesEveryAcceptedDetailField() throws {
         let app = RPCApp(
             id: "app-1", workspaceId: "workspace-1", title: "Focus", icon: "⚡",
