@@ -19,10 +19,10 @@ public struct RPCAppRunCredential: Sendable, Equatable {
 
     init(_ value: CapnWebValue, now: Date = Date()) throws {
         guard let credential = try value.field("credential").stringValue,
-              !credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let expiresAt = try value.field("expiresAt").stringValue,
-              let expiresDate = Self.parseDate(expiresAt),
-              expiresDate > now
+            !credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let expiresAt = try value.field("expiresAt").stringValue,
+            let expiresDate = Self.parseDate(expiresAt),
+            expiresDate > now
         else {
             throw CapnWebError.malformedMessage("malformed or expired AppRunCredential")
         }
@@ -30,13 +30,14 @@ public struct RPCAppRunCredential: Sendable, Equatable {
         self.expiresAt = expiresAt
     }
 
-    static func parseDate(_ value: String) -> Date? {
+    public static func parseDate(_ value: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value) ?? {
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: value)
-        }()
+        return formatter.date(from: value)
+            ?? {
+                formatter.formatOptions = [.withInternetDateTime]
+                return formatter.date(from: value)
+            }()
     }
 }
 
@@ -76,13 +77,13 @@ public struct RPCApp: Sendable, Equatable, Identifiable {
 
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
-              let workspaceId = try value.field("workspaceId").stringValue,
-              let title = try value.field("title").stringValue,
-              let icon = try value.field("icon").stringValue,
-              let clientCodeVersion = try value.field("clientCodeVersion").intValue,
-              let serverCodeVersion = try value.field("serverCodeVersion").intValue,
-              let createdAt = try value.field("createdAt").stringValue,
-              let updatedAt = try value.field("updatedAt").stringValue
+            let workspaceId = try value.field("workspaceId").stringValue,
+            let title = try value.field("title").stringValue,
+            let icon = try value.field("icon").stringValue,
+            let clientCodeVersion = try value.field("clientCodeVersion").intValue,
+            let serverCodeVersion = try value.field("serverCodeVersion").intValue,
+            let createdAt = try value.field("createdAt").stringValue,
+            let updatedAt = try value.field("updatedAt").stringValue
         else { throw CapnWebError.malformedMessage("malformed App: \(value)") }
         self.id = id
         self.workspaceId = workspaceId
@@ -107,12 +108,12 @@ public struct RPCAppCodeVersion: Sendable, Equatable {
 
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
-              let appId = try value.field("appId").stringValue,
-              let kindValue = try value.field("kind").stringValue,
-              let kind = RPCAppCodeKind(rawValue: kindValue),
-              let version = try value.field("version").intValue,
-              let code = try value.field("code").stringValue,
-              let createdAt = try value.field("createdAt").stringValue
+            let appId = try value.field("appId").stringValue,
+            let kindValue = try value.field("kind").stringValue,
+            let kind = RPCAppCodeKind(rawValue: kindValue),
+            let version = try value.field("version").intValue,
+            let code = try value.field("code").stringValue,
+            let createdAt = try value.field("createdAt").stringValue
         else { throw CapnWebError.malformedMessage("malformed AppCodeVersion: \(value)") }
         self.id = id
         self.appId = appId
@@ -140,10 +141,14 @@ extension WorkspaceRPCClient {
 
     /// `role` gate: `"use"`. Fetches an immutable client/server code snapshot. `version` defaults
     /// server-side to the App's current mainline pointer when omitted.
-    public func getAppCode(appId: String, kind: RPCAppCodeKind, version: Int? = nil) async throws -> RPCAppCodeVersion {
+    public func getAppCode(
+        appId: String, kind: RPCAppCodeKind, version: Int? = nil
+    ) async throws
+        -> RPCAppCodeVersion
+    {
         var args: [String: CapnWebValue] = [
             "appId": .string(appId),
-            "kind": .string(kind.rawValue)
+            "kind": .string(kind.rawValue),
         ]
         args["version"] = version.map(CapnWebValue.int) ?? .undefined
         let result = try await rpc("getAppCode", args)
@@ -152,7 +157,11 @@ extension WorkspaceRPCClient {
 
     /// Mints a short-lived, app-scoped run capability. The user's bearer remains inside the RPC
     /// transport and is never returned to, or embedded by, the App Run document.
-    public func mintAppRunCredential(appId: String, now: Date = Date()) async throws -> RPCAppRunCredential {
+    public func mintAppRunCredential(
+        appId: String, now: Date = Date()
+    ) async throws
+        -> RPCAppRunCredential
+    {
         let result = try await rpc("mintAppRunCredential", ["appId": .string(appId)])
         return try RPCAppRunCredential(result, now: now)
     }

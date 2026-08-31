@@ -1,7 +1,7 @@
-import Foundation
-import SwiftUI
 import AthenaeumDomain
 import AthenaeumRPC
+import Foundation
+import SwiftUI
 
 /// Native read-only App Library. Apps are the durable, agent-authored surfaces in Athenaeum;
 /// this view lets a user inspect their identity, versions, and immutable code snapshots without
@@ -101,7 +101,11 @@ final class AppsViewModel: ObservableObject {
         !hasLoadedApps && (isLoading || errorMessage == nil)
     }
 
-    private func loadCodeIfPresent(app: RPCApp, kind: RPCAppCodeKind) async throws -> RPCAppCodeVersion? {
+    private func loadCodeIfPresent(
+        app: RPCApp, kind: RPCAppCodeKind
+    ) async throws
+        -> RPCAppCodeVersion?
+    {
         let version = kind == .client ? app.clientCodeVersion : app.serverCodeVersion
         guard version > 0 else { return nil }
         return try await client.getAppCode(appId: app.id, kind: kind, version: version)
@@ -114,10 +118,12 @@ final class AppsViewModel: ObservableObject {
     static func formatDate(_ value: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = formatter.date(from: value) ?? {
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: value)
-        }()
+        let date =
+            formatter.date(from: value)
+            ?? {
+                formatter.formatOptions = [.withInternetDateTime]
+                return formatter.date(from: value)
+            }()
         guard let date else { return value }
         return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
     }
@@ -154,9 +160,13 @@ enum AppsLibraryRefreshPresentation {
 
 public struct AppsView: View {
     @StateObject private var model: AppsViewModel
+    @StateObject private var runModel: NativeAppRunModel
     @State private var selectedAppId: String?
     @State private var pendingDetailSelectionAppId: String?
     @State private var isLibraryRefreshInFlight = false
+    @State private var presentedRunIdentity: NativeAppRunLaunchIdentity?
+    private let backendURL: URL
+    private let workspaceId: EntityId
     private let onOpenAgent: (() -> Void)?
 
     public init(
@@ -165,13 +175,24 @@ public struct AppsView: View {
         bearerCredential: String?,
         onOpenAgent: (() -> Void)? = nil
     ) {
+        self.backendURL = backendURL
+        self.workspaceId = workspaceId
         self.onOpenAgent = onOpenAgent
+        let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
+        let runClient = WorkspaceRPCClient(
+            baseURL: workspaceURL,
+            workspaceId: workspaceId.rawValue,
+            bearerCredential: bearerCredential
+        )
         _model = StateObject(
             wrappedValue: AppsViewModel(
                 backendURL: backendURL,
                 workspaceId: workspaceId,
                 bearerCredential: bearerCredential
             )
+        )
+        _runModel = StateObject(
+            wrappedValue: NativeAppRunModel(client: runClient, workspaceId: workspaceId.rawValue)
         )
     }
 
@@ -195,9 +216,11 @@ public struct AppsView: View {
                 .disabled(isLoadingApps)
             }
 
-            Text("Review the small tools your agents have built. Ask Agent review for a new tool or a change; durable versions appear here.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(
+                "Review the small tools your agents have built. Ask Agent review for a new tool or a change; durable versions appear here."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
 
             if let error = model.errorMessage {
                 Text(error)
@@ -220,17 +243,35 @@ public struct AppsView: View {
             ) {
                 AppsEmptyState(onOpenAgent: onOpenAgent)
             } else {
-                HStack(alignment: .top, spacing: 20) {
-                    appList
-                        .frame(minWidth: 280, maxWidth: 360, alignment: .leading)
-                    Divider()
-                    appDetail
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 20) {
+                        appList
+                            .frame(minWidth: 280, maxWidth: 360, alignment: .leading)
+                        Divider()
+                        appDetail
+                            .frame(minWidth: 300, maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    VStack(alignment: .leading, spacing: 16) {
+                        appList
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                            .frame(maxWidth: .infinity)
+                        appDetail
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
                 }
             }
         }
         .padding()
         .task { await refreshLibraryOnAppear() }
+        .sheet(item: $presentedRunIdentity, onDismiss: dismissRun) { identity in
+            NativeAppRunRunnerView(
+                backendURL: backendURL,
+                model: runModel,
+                initialIdentity: identity,
+                presentedIdentity: $presentedRunIdentity
+            )
+        }
     }
 
     private var isLoadingApps: Bool {
@@ -253,9 +294,11 @@ public struct AppsView: View {
     }
 
     private func beginLibraryRefresh() -> Bool {
-        guard AppsLibraryRefreshPresentation.canStartRefresh(
-            isRefreshInFlight: isLibraryRefreshInFlight
-        ) else {
+        guard
+            AppsLibraryRefreshPresentation.canStartRefresh(
+                isRefreshInFlight: isLibraryRefreshInFlight
+            )
+        else {
             return false
         }
         isLibraryRefreshInFlight = true
@@ -265,6 +308,7 @@ public struct AppsView: View {
     private func completeLibraryRefresh() async {
         defer { isLibraryRefreshInFlight = false }
         await model.refresh()
+        dismissRunIfStale()
     }
 
     private var appList: some View {
@@ -309,7 +353,10 @@ public struct AppsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!AppDetailSelectionPresentation.canStartSelection(pendingAppId: pendingDetailSelectionAppId))
+                .disabled(
+                    !AppDetailSelectionPresentation.canStartSelection(
+                        pendingAppId: pendingDetailSelectionAppId)
+                )
                 .background(
                     selectedAppId == app.id ? Color.accentColor.opacity(0.12) : .clear,
                     in: RoundedRectangle(cornerRadius: 7)
@@ -329,17 +376,28 @@ public struct AppsView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                 if let appId = selectedAppId,
-                   AppsViewModel.canRetryDetail(appId: appId, isLoadingDetail: model.isLoadingDetail) {
+                    AppsViewModel.canRetryDetail(appId: appId, isLoadingDetail: model.isLoadingDetail)
+                {
                     Button("Retry App") {
                         selectAppDetail(appId)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(!AppDetailSelectionPresentation.canStartSelection(pendingAppId: pendingDetailSelectionAppId))
+                    .disabled(
+                        !AppDetailSelectionPresentation.canStartSelection(
+                            pendingAppId: pendingDetailSelectionAppId)
+                    )
                     .accessibilityHint("Retries loading this App and its immutable code snapshots.")
                 }
             }
         } else if let detail = model.selectedDetail {
-            AppDetailView(detail: detail)
+            AppDetailView(
+                detail: detail,
+                canRun: NativeAppRunPresentation.canLaunch(
+                    workspaceId: workspaceId.rawValue,
+                    app: detail.app
+                ),
+                onRun: { runSelected(detail) }
+            )
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "square.stack.3d.up")
@@ -356,10 +414,13 @@ public struct AppsView: View {
     }
 
     private func selectAppDetail(_ appId: String) {
-        guard AppDetailSelectionPresentation.canStartSelection(pendingAppId: pendingDetailSelectionAppId) else {
+        guard
+            AppDetailSelectionPresentation.canStartSelection(pendingAppId: pendingDetailSelectionAppId)
+        else {
             return
         }
 
+        dismissRun()
         selectedAppId = appId
         pendingDetailSelectionAppId = appId
         Task {
@@ -370,10 +431,40 @@ public struct AppsView: View {
             )
         }
     }
+
+    private func runSelected(_ detail: AppsViewModel.AppDetail) {
+        guard selectedAppId == detail.app.id,
+            NativeAppRunPresentation.canLaunch(workspaceId: workspaceId.rawValue, app: detail.app),
+            detail.clientCode != nil
+        else { return }
+        runModel.launch(app: detail.app, hasClientCode: true)
+        presentedRunIdentity = runModel.acceptedIdentity
+    }
+
+    private func dismissRun() {
+        runModel.dismiss()
+        presentedRunIdentity = nil
+    }
+
+    private func dismissRunIfStale() {
+        guard let active = presentedRunIdentity else { return }
+        guard let detail = model.selectedDetail,
+            let listed = model.apps.first(where: { $0.id == active.detail.appId }),
+            NativeAppRunPresentation.identity(workspaceId: workspaceId.rawValue, app: detail.app)
+                == active.detail,
+            NativeAppRunPresentation.identity(workspaceId: workspaceId.rawValue, app: listed)
+                == active.detail
+        else {
+            dismissRun()
+            return
+        }
+    }
 }
 
 private struct AppDetailView: View {
     let detail: AppsViewModel.AppDetail
+    let canRun: Bool
+    let onRun: () -> Void
     @State private var selectedKind: RPCAppCodeKind = .client
 
     private var selectedCode: RPCAppCodeVersion? {
@@ -391,9 +482,17 @@ private struct AppDetailView: View {
                     Text(AppsViewModel.versionSummary(detail.app))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Created \(AppsViewModel.formatDate(detail.app.createdAt)) · updated \(AppsViewModel.formatDate(detail.app.updatedAt))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    Text(
+                        "Created \(AppsViewModel.formatDate(detail.app.createdAt)) · updated \(AppsViewModel.formatDate(detail.app.updatedAt))"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                if canRun {
+                    Button("Run", systemImage: "play.fill", action: onRun)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityHint("Runs this App in an isolated native sandbox.")
                 }
             }
 
@@ -440,6 +539,106 @@ private struct AppDetailView: View {
     }
 }
 
+private struct NativeAppRunRunnerView: View {
+    let backendURL: URL
+    @ObservedObject var model: NativeAppRunModel
+    let initialIdentity: NativeAppRunLaunchIdentity
+    @Binding var presentedIdentity: NativeAppRunLaunchIdentity?
+    @Environment(\.dismiss) private var dismiss
+
+    private var activeIdentity: NativeAppRunLaunchIdentity {
+        presentedIdentity ?? initialIdentity
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("App run")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(activeIdentity.detail.appId)
+                        .font(.title3.bold())
+                }
+                Spacer()
+                Button("Close", systemImage: "xmark") {
+                    model.dismiss()
+                    presentedIdentity = nil
+                    dismiss()
+                }
+                .buttonStyle(.borderless)
+            }
+
+            runContent
+        }
+        .padding()
+        .frame(minWidth: 520, minHeight: 420)
+    }
+
+    @ViewBuilder
+    private var runContent: some View {
+        switch model.state {
+        case .loading(let identity) where identity == activeIdentity:
+            ProgressView("Preparing sandbox…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        case .ready(let identity, let credential) where identity == activeIdentity:
+            let document = NativeAppRunDocument(
+                workspaceId: identity.detail.workspaceId,
+                appId: identity.detail.appId,
+                clientCodeVersion: identity.detail.clientCodeVersion,
+                launchID: identity.launchID
+            )
+            AppRunWebView(
+                backendURL: backendURL,
+                document: document,
+                credential: credential,
+                identity: identity,
+                onEvent: { event in
+                    guard case .failed(let failedIdentity) = event else { return }
+                    Task { @MainActor in model.fail(identity: failedIdentity) }
+                }
+            )
+            .id(identity.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        case .failed(let identity) where identity == activeIdentity:
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                Text("This App couldn’t start")
+                    .font(.headline)
+                Text("The isolated run was stopped. Your App and workspace were not changed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Retry", systemImage: "arrow.clockwise") {
+                    model.retry()
+                    presentedIdentity = model.acceptedIdentity
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        case .noCode(let identity) where identity == activeIdentity:
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: "doc.badge.plus")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("No client code yet")
+                    .font(.headline)
+                Text("Ask Agent review to author a client surface before running this App.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        default:
+            Text("This App run is no longer active. Close it and launch the current App again.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+}
+
 private struct AppsEmptyState: View {
     let onOpenAgent: (() -> Void)?
 
@@ -450,9 +649,11 @@ private struct AppsEmptyState: View {
                 .foregroundStyle(.secondary)
             Text("No Apps yet")
                 .font(.headline)
-            Text("Ask Agent review to make a small tool for the work in front of you. When it has a durable version, you can inspect it here.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(
+                "Ask Agent review to make a small tool for the work in front of you. When it has a durable version, you can inspect it here."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
             if let onOpenAgent {
                 Button("Open Agent review", systemImage: "sparkles") {
                     onOpenAgent()
