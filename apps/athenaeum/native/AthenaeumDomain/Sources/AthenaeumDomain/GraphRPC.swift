@@ -1,5 +1,12 @@
 import Foundation
 
+/// Server-parity Supertag name normalization: NFKC, then ECMAScript whitespace collapse.
+public func normalizeTagNameV1(_ raw: String) -> String {
+    let normalized = raw.precomposedStringWithCompatibilityMapping
+    let whitespace = CharacterSet(charactersIn: "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D}\u{0020}\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}")
+    return normalized.components(separatedBy: whitespace).filter { !$0.isEmpty }.joined(separator: " ")
+}
+
 // Mirrors `packages/domain/src/graph-rpc.ts` — wire schemas for the graph mutation/read RPC
 // surface (tags/facts/relationDefinitions/edges/views/backlinks/graphIssues/tagClosure/
 // node-tag-assignment).
@@ -24,6 +31,47 @@ public struct CreateTagInput: Codable, Hashable, Sendable {
 public struct CreateTagOutput: Codable, Hashable, Sendable {
     public let tag: Tag
     public init(tag: Tag) { self.tag = tag }
+}
+
+/// An authority-bearing tag read. The revision is issued by the server from the persisted tag
+/// state and must be echoed unchanged by an edit; clients must never derive it locally.
+public struct TagRead: Codable, Hashable, Sendable {
+    public let tag: Tag
+    public let revision: String
+    public init(tag: Tag, revision: String) { self.tag = tag; self.revision = revision }
+}
+
+public struct GetTagInput: Codable, Hashable, Sendable {
+    public let workspaceId: EntityId
+    public let tagId: EntityId
+    public init(workspaceId: EntityId, tagId: EntityId) { self.workspaceId = workspaceId; self.tagId = tagId }
+}
+
+public struct GetTagOutput: Codable, Hashable, Sendable {
+    public let tag: TagRead
+    public init(tag: TagRead) { self.tag = tag }
+}
+
+/// The ledgered, compare-and-swap update for a custom Supertag's name and ordered parents.
+public struct UpdateTagInput: Codable, Hashable, Sendable {
+    public let workspaceId: EntityId
+    public let tagId: EntityId
+    public let expectedRevision: String
+    public let name: String
+    public let parentIds: [EntityId]
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public init(workspaceId: EntityId, tagId: EntityId, expectedRevision: String, name: String, parentIds: [EntityId], requestId: String, commitMessage: String, attribution: MutationAttribution) {
+        self.workspaceId = workspaceId; self.tagId = tagId; self.expectedRevision = expectedRevision
+        self.name = name; self.parentIds = parentIds; self.requestId = requestId
+        self.commitMessage = commitMessage; self.attribution = attribution
+    }
+}
+
+public struct UpdateTagOutput: Codable, Hashable, Sendable {
+    public let tag: TagRead
+    public init(tag: TagRead) { self.tag = tag }
 }
 
 public struct AddFactInput: Codable, Hashable, Sendable {

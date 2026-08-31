@@ -22,11 +22,37 @@ struct PendingTagFieldIntent: Equatable {
     let attribution: MutationAttribution
 }
 
+/// Immutable CAS command; retries are legal only while every semantic field is identical.
+struct PendingTagUpdateIntent: Equatable {
+    let tagId: String
+    let expectedRevision: String
+    let name: String
+    let parentIds: [String]
+    let requestId: String
+    let commitMessage: String
+    let attribution: MutationAttribution
+
+    var signature: String {
+        let values = [tagId, expectedRevision, name] + parentIds + [commitMessage, attribution.version, attribution.kind, attribution.surface ?? "", attribution.jobId ?? "", attribution.runId ?? "", attribution.source ?? ""]
+        return values.map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
+    }
+}
+
+struct SupertagEditDraft: Equatable {
+    var revision: String
+    var name: String
+    /// Server order is semantic. Preserve it exactly; newly selected parents append in the
+    /// deterministic catalog order in which the user chose them.
+    var selectedParentIds: [String]
+}
+
 @MainActor
 protocol SupertagsCatalogTransport {
     func listTags() async throws -> [RPCTag]
     func listTagFields(tagId: String) async throws -> [RPCResolvedTagField]
     func createTag(intent: PendingSupertagIntent) async throws -> RPCTag
+    func getTag(tagId: String) async throws -> RPCTagRead
+    func updateTag(intent: PendingTagUpdateIntent) async throws -> RPCTagRead
     func defineTagField(intent: PendingTagFieldIntent) async throws -> RPCTagFieldDefinition
 }
 
@@ -49,6 +75,12 @@ private struct WorkspaceSupertagsCatalogTransport: SupertagsCatalogTransport {
             commitMessage: intent.rationale,
             attribution: intent.attribution
         )
+    }
+
+    func getTag(tagId: String) async throws -> RPCTagRead { try await client.getTag(tagId: tagId) }
+
+    func updateTag(intent: PendingTagUpdateIntent) async throws -> RPCTagRead {
+        try await client.updateTag(tagId: intent.tagId, expectedRevision: intent.expectedRevision, name: intent.name, parentIds: intent.parentIds, requestId: intent.requestId, commitMessage: intent.commitMessage, attribution: intent.attribution)
     }
 
     func defineTagField(intent: PendingTagFieldIntent) async throws -> RPCTagFieldDefinition {
@@ -75,6 +107,11 @@ final class SupertagsViewModel: ObservableObject {
     @Published private(set) var isDefiningField = false
     @Published private(set) var fieldDefinitionErrorMessage: String?
     @Published private(set) var pendingFieldDefinitionIntent: PendingTagFieldIntent?
+    @Published private(set) var editDraft: SupertagEditDraft?
+    @Published private(set) var isLoadingEditBaseline = false
+    @Published private(set) var isSavingEdit = false
+    @Published private(set) var editErrorMessage: String?
+    @Published private(set) var pendingTagUpdateIntent: PendingTagUpdateIntent?
 
     private let transport: any SupertagsCatalogTransport
     /// A create receipt is stronger evidence than a stale catalog projection. There is no delete
@@ -83,6 +120,9 @@ final class SupertagsViewModel: ObservableObject {
     /// Accepted receipts are durable model-lifetime custody, merged over later stale reads.
     private var confirmedDefinedFieldsByTagId: [String: [String: RPCResolvedTagField]] = [:]
     private var fieldReadGenerationByTagId: [String: UUID] = [:]
+    private var confirmedUpdatedTagsById: [String: RPCTag] = [:]
+    private var editGeneration = 0
+    private var editSelectedTagId: String?
 
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
@@ -101,14 +141,14 @@ final class SupertagsViewModel: ObservableObject {
         defer { isLoading = false }
         do {
             let catalog = try await transport.listTags()
-            tags = Self.mergingConfirmedTags(
-                Array(confirmedCreatedTagsById.values),
-                into: catalog
-            )
+            tags = Self.mergingConfirmedTags(Array(confirmedTagsById.values), into: catalog)
             hasLoadedTags = true
             errorMessage = nil
+            if let editSelectedTagId, !tags.contains(where: { $0.id == editSelectedTagId }) {
+                cancelEditing()
+            }
         } catch {
-            errorMessage = confirmedTag == nil && confirmedCreatedTagsById.isEmpty
+            errorMessage = confirmedTag == nil && confirmedTagsById.isEmpty
                 ? Self.catalogLoadFailureMessage(for: error)
                 : Self.catalogReconciliationFailureMessage(for: error)
         }
@@ -121,7 +161,7 @@ final class SupertagsViewModel: ObservableObject {
     }
 
     static func catalogReconciliationFailureMessage(for _: Error) -> String {
-        "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
+        "A Supertag was changed, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
     }
 
     func refreshFields(for tagId: String, force: Bool = false) async {
@@ -193,21 +233,141 @@ final class SupertagsViewModel: ObservableObject {
     }
 
     static func canonicalizedDraft(_ raw: String) -> String {
-        let trimmed = trimECMAScriptWhitespace(raw)
-        var words: [String] = []
-        var word = ""
-        for scalar in trimmed.unicodeScalars {
-            if isECMAScriptWhitespace(scalar) {
-                if !word.isEmpty {
-                    words.append(word)
-                    word = ""
-                }
-            } else {
-                word.unicodeScalars.append(scalar)
+        normalizeTagNameV1(raw)
+    }
+
+    func beginEditing(tagId: String) async {
+        guard !isLoadingEditBaseline, !isSavingEdit,
+              let tag = tag(withId: tagId), !tag.builtin else { return }
+        editGeneration &+= 1
+        let generation = editGeneration
+        editSelectedTagId = tagId
+        isLoadingEditBaseline = true
+        editErrorMessage = nil
+        do {
+            let read = try await transport.getTag(tagId: tagId)
+            guard generation == editGeneration, editSelectedTagId == tagId,
+                  read.tag.id == tagId, !read.tag.builtin else {
+                if generation == editGeneration { isLoadingEditBaseline = false; editErrorMessage = "We couldn’t load the latest schema. Retry before editing." }
+                return
             }
+            editDraft = SupertagEditDraft(revision: read.revision, name: read.tag.name, selectedParentIds: read.tag.parentIds)
+            pendingTagUpdateIntent = nil
+        } catch {
+            guard generation == editGeneration, editSelectedTagId == tagId else { return }
+            editErrorMessage = "We couldn’t load the latest schema. Retry before editing."
         }
-        if !word.isEmpty { words.append(word) }
-        return words.joined(separator: " ")
+        guard generation == editGeneration, editSelectedTagId == tagId else { return }
+        isLoadingEditBaseline = false
+    }
+
+    func cancelEditing() {
+        editGeneration &+= 1
+        editSelectedTagId = nil
+        editDraft = nil
+        pendingTagUpdateIntent = nil
+        editErrorMessage = nil
+        isLoadingEditBaseline = false
+        // The transport request may still complete, but its generation is now stale and its
+        // receipt is deliberately ignored. Do not leave the model permanently locked after a
+        // user cancels or a catalog refresh removes the selected tag.
+        isSavingEdit = false
+    }
+
+    func updateEditDraft(name: String? = nil, parentId: String? = nil) {
+        guard var draft = editDraft, !isSavingEdit else { return }
+        if let name { draft.name = name }
+        if let parentId {
+            if let index = draft.selectedParentIds.firstIndex(of: parentId) { draft.selectedParentIds.remove(at: index) }
+            else { draft.selectedParentIds.append(parentId) }
+        }
+        // A changed semantic command must never inherit an uncertain response's request id.
+        if let pendingTagUpdateIntent,
+           pendingTagUpdateIntent.signature != updateSignature(tagId: pendingTagUpdateIntent.tagId, draft: draft) {
+            self.pendingTagUpdateIntent = nil
+        }
+        editDraft = draft
+    }
+
+    func reloadEditBaselinePreservingDraft() async {
+        guard let tagId = editSelectedTagId, let draft = editDraft, !isLoadingEditBaseline, !isSavingEdit else { return }
+        editGeneration &+= 1
+        let generation = editGeneration
+        isLoadingEditBaseline = true
+        do {
+            let read = try await transport.getTag(tagId: tagId)
+            guard generation == editGeneration, editSelectedTagId == tagId, read.tag.id == tagId, !read.tag.builtin else {
+                if generation == editGeneration { isLoadingEditBaseline = false; editErrorMessage = "We couldn’t load the latest schema. Your draft is still here." }
+                return
+            }
+            editDraft = SupertagEditDraft(revision: read.revision, name: draft.name, selectedParentIds: draft.selectedParentIds)
+            pendingTagUpdateIntent = nil
+            editErrorMessage = nil
+        } catch {
+            guard generation == editGeneration, editSelectedTagId == tagId else { return }
+            editErrorMessage = "We couldn’t load the latest schema. Your draft is still here."
+        }
+        guard generation == editGeneration, editSelectedTagId == tagId else { return }
+        isLoadingEditBaseline = false
+    }
+
+    func saveEdit(tagId: String, surface: String) async -> RPCTag? {
+        guard !isSavingEdit, !isLoadingEditBaseline, editSelectedTagId == tagId,
+              let current = tag(withId: tagId), !current.builtin, let draft = editDraft else { return nil }
+        let name = Self.canonicalizedDraft(draft.name)
+        guard !name.isEmpty else { return nil }
+        let parents = orderedParents(for: draft, excluding: tagId)
+        let signature = updateSignature(tagId: tagId, draft: SupertagEditDraft(revision: draft.revision, name: name, selectedParentIds: parents), surface: surface)
+        let intent: PendingTagUpdateIntent
+        if let pendingTagUpdateIntent, pendingTagUpdateIntent.signature == signature { intent = pendingTagUpdateIntent }
+        else {
+            intent = PendingTagUpdateIntent(tagId: tagId, expectedRevision: draft.revision, name: name, parentIds: parents, requestId: UUID().uuidString.lowercased(), commitMessage: "Update the \(name) Supertag schema.", attribution: MutationAttribution(kind: "humanUi", surface: surface))
+            pendingTagUpdateIntent = intent
+        }
+        editGeneration &+= 1
+        let generation = editGeneration
+        isSavingEdit = true
+        editErrorMessage = nil
+        defer { if generation == editGeneration { isSavingEdit = false } }
+        do {
+            let receipt = try await transport.updateTag(intent: intent)
+            guard generation == editGeneration, editSelectedTagId == tagId, Self.matches(receipt: receipt, intent: intent) else {
+                if generation == editGeneration { editErrorMessage = Self.editFailureMessage() }
+                return nil
+            }
+            confirmedUpdatedTagsById[tagId] = receipt.tag
+            tags = Self.mergingConfirmedTags(Array(confirmedTagsById.values), into: tags)
+            editDraft = nil
+            pendingTagUpdateIntent = nil
+            editSelectedTagId = nil
+            return receipt.tag
+        } catch {
+            guard generation == editGeneration, editSelectedTagId == tagId else { return nil }
+            editErrorMessage = "We couldn’t save this schema. Your draft is still here; retry or reload the latest version."
+            return nil
+        }
+    }
+
+    static func editFailureMessage() -> String { "We couldn’t confirm that this Supertag was updated. Your draft is still here." }
+
+    static func matches(receipt: RPCTagRead, intent: PendingTagUpdateIntent) -> Bool {
+        receipt.tag.id == intent.tagId && !receipt.tag.builtin && receipt.tag.name == intent.name && receipt.tag.parentIds == intent.parentIds && receipt.revision.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+
+    private func orderedParents(for draft: SupertagEditDraft, excluding tagId: String) -> [String] {
+        draft.selectedParentIds.filter { parentId in
+            parentId != tagId && tags.contains(where: { candidate in candidate.id == parentId })
+        }
+    }
+
+    private var confirmedTagsById: [String: RPCTag] {
+        confirmedCreatedTagsById.merging(confirmedUpdatedTagsById) { _, updated in updated }
+    }
+
+    private func updateSignature(tagId: String, draft: SupertagEditDraft, surface: String = "ios-supertags") -> String {
+        let parents = orderedParents(for: draft, excluding: tagId)
+        let attribution = MutationAttribution(kind: "humanUi", surface: surface)
+        return PendingTagUpdateIntent(tagId: tagId, expectedRevision: draft.revision, name: Self.canonicalizedDraft(draft.name), parentIds: parents, requestId: "", commitMessage: "Update the \(Self.canonicalizedDraft(draft.name)) Supertag schema.", attribution: attribution).signature
     }
 
     static func canCreate(name: String, rationale: String) -> Bool {
@@ -252,7 +412,7 @@ final class SupertagsViewModel: ObservableObject {
         do {
             let tag = try await transport.createTag(intent: intent)
             confirmedCreatedTagsById[tag.id] = tag
-            tags = Self.mergingConfirmedTags(Array(confirmedCreatedTagsById.values), into: tags)
+            tags = Self.mergingConfirmedTags(Array(confirmedTagsById.values), into: tags)
             hasLoadedTags = true
             pendingCreationIntent = nil
             return tag
@@ -719,6 +879,7 @@ public struct SupertagsView: View {
                 .font(.headline)
             ForEach(model.tags, id: \.id) { tag in
                 Button {
+                    if selectedTagId != tag.id { model.cancelEditing() }
                     selectedTagId = tag.id
                     initialSelectionUnavailable = false
                 } label: {
@@ -763,6 +924,25 @@ public struct SupertagsView: View {
                             .padding(.vertical, 3)
                             .background(Color.accentColor.opacity(0.12), in: Capsule())
                     }
+                    Spacer()
+                    if !tag.builtin, model.editDraft == nil {
+                        Button(model.isLoadingEditBaseline ? "Loading…" : "Edit") {
+                            Task { await model.beginEditing(tagId: tag.id) }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isLoadingEditBaseline || model.isSavingEdit)
+                    }
+                }
+
+                if let draft = model.editDraft {
+                    supertagEditForm(tag: tag, draft: draft)
+                } else if let error = model.editErrorMessage {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                        Button("Retry load") { Task { await model.beginEditing(tagId: tag.id) } }
+                            .buttonStyle(.bordered)
+                            .disabled(model.isLoadingEditBaseline || model.isSavingEdit)
+                    }
                 }
 
                 let parents = model.parentNames(for: tag)
@@ -794,6 +974,42 @@ public struct SupertagsView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
         }
+    }
+
+    @ViewBuilder
+    private func supertagEditForm(tag: RPCTag, draft: SupertagEditDraft) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Edit Supertag").font(.headline)
+            TextField("Name", text: Binding(get: { draft.name }, set: { model.updateEditDraft(name: $0) }))
+                .textFieldStyle(.roundedBorder)
+                .disabled(model.isSavingEdit || model.isLoadingEditBaseline)
+            Text("Parents").font(.subheadline.weight(.medium))
+            ForEach(model.tags.filter { $0.id != tag.id }, id: \.id) { candidate in
+                Toggle("#\(candidate.name)", isOn: Binding(
+                    get: { draft.selectedParentIds.contains(candidate.id) },
+                    set: { _ in model.updateEditDraft(parentId: candidate.id) }
+                ))
+                .disabled(model.isSavingEdit || model.isLoadingEditBaseline)
+            }
+            HStack {
+                Button(model.isSavingEdit ? "Saving…" : "Save") {
+                    Task { _ = await model.saveEdit(tagId: tag.id, surface: Self.mutationSurface) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isSavingEdit || model.isLoadingEditBaseline || SupertagsViewModel.canonicalizedDraft(draft.name).isEmpty)
+                Button("Cancel") { model.cancelEditing() }
+                    .buttonStyle(.borderless)
+                    .disabled(model.isLoadingEditBaseline)
+            }
+            if let error = model.editErrorMessage {
+                Text(error).font(.caption).foregroundStyle(.red)
+                Button("Reload latest") { Task { await model.reloadEditBaselinePreservingDraft() } }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isSavingEdit || model.isLoadingEditBaseline)
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder

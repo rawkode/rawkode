@@ -32,6 +32,53 @@ private final class GraphWireProtocol: URLProtocol {
 }
 
 final class WorkspaceRPCClientGraphTests: XCTestCase {
+    func testAuthorityBearingTagReadRequiresCompleteValidatedTagAndLowercaseRevision() throws {
+        let tag = CapnWebValue.object([
+            "id": .string("00000000-0000-4000-8000-000000000501"),
+            "name": .string("Project"),
+            "parentIds": .array([.string("00000000-0000-4000-8000-000000000502")]),
+            "builtin": .bool(false)
+        ])
+        let valid = try RPCTagRead(.object(["tag": tag, "revision": .string(String(repeating: "a", count: 64))]))
+        XCTAssertEqual(valid.tag.parentIds, ["00000000-0000-4000-8000-000000000502"])
+        XCTAssertThrowsError(try RPCTagRead(.object(["tag": tag, "revision": .string(String(repeating: "A", count: 64))])))
+        let duplicate = CapnWebValue.object(["id": .string("00000000-0000-4000-8000-000000000501"), "name": .string("Project"), "parentIds": .array([.string("00000000-0000-4000-8000-000000000502"), .string("00000000-0000-4000-8000-000000000502")]), "builtin": .bool(false)])
+        XCTAssertThrowsError(try RPCTagRead(.object(["tag": duplicate, "revision": .string(String(repeating: "a", count: 64))])))
+        for malformed in [
+            CapnWebValue.object(["id": .string("bad"), "name": .string("Project"), "parentIds": .array([]), "builtin": .bool(false)]),
+            CapnWebValue.object(["id": .string("00000000-0000-4000-8000-000000000501"), "name": .string(" \u{00A0}"), "parentIds": .array([]), "builtin": .bool(false)]),
+            CapnWebValue.object(["id": .string("00000000-0000-4000-8000-000000000501"), "name": .string("Project"), "parentIds": .array([.int(1)]), "builtin": .bool(false)]),
+            CapnWebValue.object(["id": .string("00000000-0000-4000-8000-000000000501"), "name": .string("Project"), "builtin": .bool(false)])
+        ] {
+            XCTAssertThrowsError(try RPCTagRead(.object(["tag": malformed, "revision": .string(String(repeating: "a", count: 64))])))
+        }
+        let legacy = CapnWebValue.object(["id": .string("00000000-0000-4000-8000-000000000501"), "name": .string("\u{FB00} Cafe\u{301}"), "parentIds": .array([]), "builtin": .bool(false)])
+        XCTAssertEqual(try RPCTagRead(.object(["tag": legacy, "revision": .string(String(repeating: "a", count: 64))])).tag.name, "\u{FB00} Cafe\u{301}")
+    }
+
+    func testGetAndUpdateTagUseRevisionFencedWireContract() async throws {
+        let id = "00000000-0000-4000-8000-000000000511"
+        let parent = "00000000-0000-4000-8000-000000000512"
+        let tag = CapnWebValue.object(["id": .string(id), "name": .string("Project"), "parentIds": .array([.string(parent)]), "builtin": .bool(false)])
+        let revision = String(repeating: "a", count: 64)
+        let line = try CapnWebValue.encodeMessageLine(["resolve", 1, CapnWebValue.object(["tag": .object(["tag": tag, "revision": .string(revision)])]).toWireJSON()])
+        GraphWireProtocol.response = Data(line.utf8)
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [GraphWireProtocol.self]
+        let client = WorkspaceRPCClient(baseURL: URL(string: "http://graph-wire.invalid")!, workspaceId: "workspace-1", urlSession: URLSession(configuration: config))
+        _ = try await client.getTag(tagId: id)
+        var wire = try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(String(data: GraphWireProtocol.body, encoding: .utf8)?.split(separator: "\n").first).utf8)) as! [Any]
+        var pipeline = wire[1] as! [Any]
+        XCTAssertEqual(pipeline[2] as? [String], ["getTag"])
+        var args = ((pipeline[3] as! [Any])[0] as! [String: Any])
+        XCTAssertEqual(args["workspaceId"] as? String, "workspace-1"); XCTAssertEqual(args["tagId"] as? String, id)
+        _ = try await client.updateTag(tagId: id, expectedRevision: revision, name: "Project", parentIds: [parent], requestId: "req-1", commitMessage: "Update schema", attribution: .init(kind: "humanUi", surface: "ios-supertags"))
+        wire = try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(String(data: GraphWireProtocol.body, encoding: .utf8)?.split(separator: "\n").first).utf8)) as! [Any]
+        pipeline = wire[1] as! [Any]; XCTAssertEqual(pipeline[2] as? [String], ["updateTag"])
+        args = ((pipeline[3] as! [Any])[0] as! [String: Any])
+        XCTAssertEqual(args["workspaceId"] as? String, "workspace-1"); XCTAssertEqual(args["expectedRevision"] as? String, revision)
+        XCTAssertTrue(try XCTUnwrap(String(data: GraphWireProtocol.body, encoding: .utf8)).contains(parent)); XCTAssertEqual(args["requestId"] as? String, "req-1")
+    }
+
     func testApplySupertagPreservesLedgerIntentAndDecodesFacts() async throws {
         let fact = CapnWebValue.object([
             "id": .string("01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62"),

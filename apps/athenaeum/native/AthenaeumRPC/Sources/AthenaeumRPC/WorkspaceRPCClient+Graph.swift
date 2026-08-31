@@ -28,15 +28,47 @@ public struct RPCTag: Sendable, Equatable {
         self.builtin = builtin
     }
 
-    init(_ value: CapnWebValue) throws {
+    init(_ value: CapnWebValue, authorityBearing: Bool = false) throws {
         guard let id = try value.field("id").stringValue,
               let name = try value.field("name").stringValue,
               let builtin = try value.field("builtin").boolValue
         else { throw CapnWebError.malformedMessage("malformed Tag: \(value)") }
+        guard let encodedParents = try value.field("parentIds").arrayValue else {
+            throw CapnWebError.malformedMessage("malformed Tag: \(value)")
+        }
+        let parents = try encodedParents.map { parent -> String in
+            guard let id = parent.stringValue else {
+                throw CapnWebError.malformedMessage("malformed Tag parent: \(value)")
+            }
+            return id
+        }
+        guard !authorityBearing || (
+            EntityId.isValid(id) &&
+            !normalizeTagNameV1(name).isEmpty &&
+            parents.allSatisfy(EntityId.isValid) &&
+            Set(parents).count == parents.count
+        ) else {
+            throw CapnWebError.malformedMessage("malformed Tag: duplicate parents")
+        }
         self.id = id
         self.name = name
-        self.parentIds = try (value.field("parentIds").arrayValue ?? []).compactMap(\.stringValue)
+        self.parentIds = parents
         self.builtin = builtin
+    }
+}
+
+/// An edit-authoritative tag projection. `revision` is an opaque server-issued CAS token.
+public struct RPCTagRead: Sendable, Equatable {
+    public let tag: RPCTag
+    public let revision: String
+
+    init(_ value: CapnWebValue) throws {
+        let tag = try RPCTag(value.field("tag"), authorityBearing: true)
+        guard let revision = try value.field("revision").stringValue,
+              revision.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+        else { throw CapnWebError.malformedMessage("malformed TagRead: \(value)") }
+        self.tag = tag
+        self.revision = revision
     }
 }
 
@@ -171,7 +203,33 @@ extension WorkspaceRPCClient {
     public func listTags() async throws -> [RPCTag] {
         let result = try await rpc("listTags", [:])
         let tags = try result.field("tags").arrayValue ?? []
-        return try tags.map(RPCTag.init)
+        return try tags.map { try RPCTag($0) }
+    }
+
+    public func getTag(tagId: String) async throws -> RPCTagRead {
+        let result = try await rpc("getTag", ["tagId": .string(tagId)])
+        return try RPCTagRead(result.field("tag"))
+    }
+
+    public func updateTag(
+        tagId: String,
+        expectedRevision: String,
+        name: String,
+        parentIds: [String],
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCTagRead {
+        let result = try await rpc("updateTag", [
+            "tagId": .string(tagId),
+            "expectedRevision": .string(expectedRevision),
+            "name": .string(name),
+            "parentIds": .array(parentIds.map(CapnWebValue.string)),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
+        ])
+        return try RPCTagRead(result.field("tag"))
     }
 
     /// Returns the effective field definitions for a Supertag, including inherited fields. The

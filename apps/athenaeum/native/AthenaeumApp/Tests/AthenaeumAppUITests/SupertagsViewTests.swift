@@ -26,6 +26,14 @@ final class SupertagsViewTests: XCTestCase {
         private var catalogContinuation: CheckedContinuation<[RPCTag], Error>?
         var shouldSuspendCreates = false
         private var createContinuation: CheckedContinuation<RPCTag, Error>?
+        var tagReads: [Result<RPCTagRead, Error>] = []
+        var updateResults: [Result<RPCTagRead, Error>] = []
+        private(set) var updateIntents: [PendingTagUpdateIntent] = []
+        var suspendedTagReadIDs: Set<String> = []
+        private(set) var suspendedTagReadCounts: [String: Int] = [:]
+        private var tagReadContinuations: [String: [CheckedContinuation<RPCTagRead, Error>]] = [:]
+        var shouldSuspendUpdates = false
+        private var updateContinuations: [CheckedContinuation<RPCTagRead, Error>] = []
 
         func listTags() async throws -> [RPCTag] {
             if shouldSuspendCatalogReads {
@@ -71,6 +79,36 @@ final class SupertagsViewTests: XCTestCase {
             }
             guard !createResults.isEmpty else { throw PrivateTransportError() }
             return try createResults.removeFirst().get()
+        }
+
+        func getTag(tagId: String) async throws -> RPCTagRead {
+            if suspendedTagReadIDs.contains(tagId) {
+                suspendedTagReadCounts[tagId, default: 0] += 1
+                return try await withCheckedThrowingContinuation { continuation in
+                    tagReadContinuations[tagId, default: []].append(continuation)
+                }
+            }
+            guard !tagReads.isEmpty else { throw PrivateTransportError() }
+            return try tagReads.removeFirst().get()
+        }
+
+        func completeSuspendedTagRead(tagId: String, with result: Result<RPCTagRead, Error>) {
+            guard !tagReadContinuations[tagId, default: []].isEmpty else { return }
+            tagReadContinuations[tagId]!.removeFirst().resume(with: result)
+        }
+
+        func updateTag(intent: PendingTagUpdateIntent) async throws -> RPCTagRead {
+            updateIntents.append(intent)
+            if shouldSuspendUpdates {
+                return try await withCheckedThrowingContinuation { continuation in updateContinuations.append(continuation) }
+            }
+            guard !updateResults.isEmpty else { throw PrivateTransportError() }
+            return try updateResults.removeFirst().get()
+        }
+
+        func completeSuspendedUpdate(with result: Result<RPCTagRead, Error>) {
+            guard !updateContinuations.isEmpty else { return }
+            updateContinuations.removeFirst().resume(with: result)
         }
 
         func defineTagField(intent: PendingTagFieldIntent) async throws -> RPCTagFieldDefinition {
@@ -467,7 +505,7 @@ final class SupertagsViewTests: XCTestCase {
         XCTAssertNotNil(model.tag(withId: created.id))
         XCTAssertEqual(
             model.errorMessage,
-            "Supertag was created, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
+            "A Supertag was changed, but the catalog couldn’t be refreshed. Refresh later to check the catalog."
         )
         XCTAssertEqual(
             SupertagsViewModel.resolveSelectedTagId(selectedTagId: created.id, tags: model.tags),
@@ -725,6 +763,204 @@ final class SupertagsViewTests: XCTestCase {
         XCTAssertTrue(SupertagsViewModel.canRetryFields(tagId: root.id, isLoadingFields: model.isLoadingFields(for: root.id)))
     }
 
+    func testTagNameNormalizationUsesNFKCAndECMAScriptWhitespace() {
+        XCTAssertEqual(SupertagsViewModel.canonicalizedDraft("\u{FEFF}\u{00A0}\u{FB00}\u{2028}Cafe\u{301}\u{00A0}"), "ff Café")
+    }
+
+    func testEditPreservesBaselineParentOrderAndReusesExactFailedIntent() async throws {
+        let id = "00000000-0000-4000-8000-000000000401"
+        let firstParent = "00000000-0000-4000-8000-000000000402"
+        let secondParent = "00000000-0000-4000-8000-000000000403"
+        let current = RPCTag(id: id, name: "Project", parentIds: [secondParent, firstParent], builtin: false)
+        let transport = RecordingTransport(); transport.catalog = [current, RPCTag(id: firstParent, name: "One", builtin: false), RPCTag(id: secondParent, name: "Two", builtin: false)]
+        let baseline = try tagRead(id: id, name: "Project", parents: [secondParent, firstParent], revision: String(repeating: "a", count: 64))
+        transport.tagReads = [.success(baseline)]
+        transport.updateResults = [.failure(PrivateTransportError()), .failure(PrivateTransportError())]
+        let model = SupertagsViewModel(transport: transport); await model.refresh()
+        await model.beginEditing(tagId: id)
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        let frozen = try XCTUnwrap(model.pendingTagUpdateIntent)
+        XCTAssertEqual(frozen.parentIds, [secondParent, firstParent])
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        XCTAssertEqual(transport.updateIntents, [frozen, frozen])
+    }
+
+    func testEditReloadKeepsDraftButFencesItWithNewRevision() async throws {
+        let id = "00000000-0000-4000-8000-000000000411"
+        let current = RPCTag(id: id, name: "Project", builtin: false)
+        let transport = RecordingTransport(); transport.catalog = [current]
+        transport.tagReads = [
+            .success(try tagRead(id: id, name: "Project", parents: [], revision: String(repeating: "a", count: 64))),
+            .success(try tagRead(id: id, name: "Remote", parents: [], revision: String(repeating: "b", count: 64)))
+        ]
+        let model = SupertagsViewModel(transport: transport); await model.refresh(); await model.beginEditing(tagId: id)
+        model.updateEditDraft(name: "Local")
+        await model.reloadEditBaselinePreservingDraft()
+        XCTAssertEqual(model.editDraft?.name, "Local")
+        XCTAssertEqual(model.editDraft?.revision, String(repeating: "b", count: 64))
+        XCTAssertNil(model.pendingTagUpdateIntent)
+    }
+
+    func testLateEditBaselineAfterCancelIsInert() async throws {
+        let id = "00000000-0000-4000-8000-000000000421"
+        let transport = RecordingTransport(); transport.catalog = [RPCTag(id: id, name: "Project", builtin: false)]; transport.suspendedTagReadIDs = [id]
+        let model = SupertagsViewModel(transport: transport); await model.refresh()
+        let task = Task { await model.beginEditing(tagId: id) }
+        while transport.suspendedTagReadCounts[id, default: 0] < 1 { await Task.yield() }
+        model.cancelEditing()
+        transport.completeSuspendedTagRead(tagId: id, with: .success(try tagRead(id: id, name: "Project", parents: [], revision: String(repeating: "a", count: 64))))
+        await task.value
+        XCTAssertNil(model.editDraft); XCTAssertFalse(model.isLoadingEditBaseline)
+    }
+
+    func testEditBaselineSelectionAndABAFenceLateReads() async throws {
+        let a = "00000000-0000-4000-8000-000000000451", b = "00000000-0000-4000-8000-000000000452"
+        let transport = RecordingTransport(); transport.catalog = [RPCTag(id: a, name: "A", builtin: false), RPCTag(id: b, name: "B", builtin: false)]; transport.suspendedTagReadIDs = [a, b]
+        let model = SupertagsViewModel(transport: transport); await model.refresh()
+        let firstA = Task { await model.beginEditing(tagId: a) }
+        while transport.suspendedTagReadCounts[a, default: 0] < 1 { await Task.yield() }
+        model.cancelEditing(); let loadB = Task { await model.beginEditing(tagId: b) }
+        while transport.suspendedTagReadCounts[b, default: 0] < 1 { await Task.yield() }
+        model.cancelEditing(); let secondA = Task { await model.beginEditing(tagId: a) }
+        while transport.suspendedTagReadCounts[a, default: 0] < 2 { await Task.yield() }
+        transport.completeSuspendedTagRead(tagId: a, with: .success(try tagRead(id: a, name: "Old A", parents: [], revision: String(repeating: "a", count: 64))))
+        await firstA.value; XCTAssertNil(model.editDraft)
+        transport.completeSuspendedTagRead(tagId: b, with: .success(try tagRead(id: b, name: "B", parents: [], revision: String(repeating: "b", count: 64))))
+        await loadB.value; XCTAssertNil(model.editDraft)
+        transport.completeSuspendedTagRead(tagId: a, with: .success(try tagRead(id: a, name: "Fresh A", parents: [], revision: String(repeating: "c", count: 64))))
+        await secondA.value; XCTAssertEqual(model.editDraft?.name, "Fresh A")
+    }
+
+    func testCatalogRemovalFencesInFlightEditLoad() async throws {
+        let id = "00000000-0000-4000-8000-000000000461"
+        let transport = RecordingTransport(); transport.catalog = [RPCTag(id: id, name: "A", builtin: false)]; transport.suspendedTagReadIDs = [id]
+        let model = SupertagsViewModel(transport: transport); await model.refresh()
+        let load = Task { await model.beginEditing(tagId: id) }
+        while transport.suspendedTagReadCounts[id, default: 0] < 1 { await Task.yield() }
+        transport.catalog = []; await model.refresh()
+        transport.completeSuspendedTagRead(tagId: id, with: .success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64))))
+        await load.value; XCTAssertNil(model.editDraft); XCTAssertFalse(model.isLoadingEditBaseline)
+    }
+
+    func testCatalogRemovalFencesInFlightSave() async throws {
+        let id = "00000000-0000-4000-8000-000000000466"
+        let transport = RecordingTransport()
+        transport.catalog = [RPCTag(id: id, name: "A", builtin: false)]
+        transport.tagReads = [.success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64)))]
+        transport.shouldSuspendUpdates = true
+        let model = SupertagsViewModel(transport: transport)
+        await model.refresh(); await model.beginEditing(tagId: id)
+
+        let save = Task { await model.saveEdit(tagId: id, surface: "ios-supertags") }
+        while transport.updateIntents.isEmpty { await Task.yield() }
+        transport.catalog = []
+        await model.refresh()
+        XCTAssertNil(model.editDraft)
+        XCTAssertFalse(model.isSavingEdit)
+
+        transport.completeSuspendedUpdate(with: .success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "b", count: 64))))
+        let result = await save.value
+        XCTAssertNil(result)
+        XCTAssertNil(model.tag(withId: id))
+    }
+
+    func testChangedEditMintsNewRequestButExactRetryReusesIt() async throws {
+        let id = "00000000-0000-4000-8000-000000000471"
+        let tag = RPCTag(id: id, name: "A", builtin: false)
+        let transport = RecordingTransport(); transport.catalog = [tag]; transport.tagReads = [.success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64)))]; transport.updateResults = [.failure(PrivateTransportError()), .failure(PrivateTransportError()), .failure(PrivateTransportError())]
+        let model = SupertagsViewModel(transport: transport); await model.refresh(); await model.beginEditing(tagId: id)
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags"); let first = try XCTUnwrap(model.pendingTagUpdateIntent)
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags"); XCTAssertEqual(transport.updateIntents.last?.requestId, first.requestId)
+        model.updateEditDraft(name: "Renamed"); _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        XCTAssertNotEqual(transport.updateIntents.last?.requestId, first.requestId)
+    }
+
+    func testChangedParentsAndReloadedRevisionMintNewRequestIDs() async throws {
+        let id = "00000000-0000-4000-8000-000000000476"
+        let parent = "00000000-0000-4000-8000-000000000477"
+        let transport = RecordingTransport()
+        transport.catalog = [RPCTag(id: id, name: "A", builtin: false), RPCTag(id: parent, name: "Parent", builtin: false)]
+        transport.tagReads = [
+            .success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64))),
+            .success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "b", count: 64)))
+        ]
+        transport.updateResults = [.failure(PrivateTransportError()), .failure(PrivateTransportError()), .failure(PrivateTransportError())]
+        let model = SupertagsViewModel(transport: transport)
+        await model.refresh(); await model.beginEditing(tagId: id)
+
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        let original = try XCTUnwrap(model.pendingTagUpdateIntent)
+        model.updateEditDraft(parentId: parent)
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        let parentChanged = try XCTUnwrap(model.pendingTagUpdateIntent)
+        XCTAssertNotEqual(parentChanged.requestId, original.requestId)
+
+        await model.reloadEditBaselinePreservingDraft()
+        _ = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        let revisionChanged = try XCTUnwrap(model.pendingTagUpdateIntent)
+        XCTAssertNotEqual(revisionChanged.requestId, parentChanged.requestId)
+        XCTAssertEqual(revisionChanged.expectedRevision, String(repeating: "b", count: 64))
+    }
+
+    func testMismatchedUpdateReceiptRetainsDraftAndPendingIntent() async throws {
+        let id = "00000000-0000-4000-8000-000000000481"
+        let transport = RecordingTransport()
+        transport.catalog = [RPCTag(id: id, name: "A", builtin: false)]
+        transport.tagReads = [.success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64)))]
+        transport.updateResults = [.success(try tagRead(id: id, name: "Different", parents: [], revision: String(repeating: "b", count: 64)))]
+        let model = SupertagsViewModel(transport: transport)
+        await model.refresh(); await model.beginEditing(tagId: id)
+
+        let result = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        XCTAssertNil(result)
+        XCTAssertEqual(model.editDraft?.name, "A")
+        XCTAssertNotNil(model.pendingTagUpdateIntent)
+        XCTAssertEqual(model.editErrorMessage, SupertagsViewModel.editFailureMessage())
+    }
+
+    func testAcceptedUpdateReceiptWinsOverStaleCatalogAndRefreshFailure() async throws {
+        let id = "00000000-0000-4000-8000-000000000486"
+        let stale = RPCTag(id: id, name: "A", builtin: false)
+        let transport = RecordingTransport()
+        transport.catalog = [stale]
+        transport.tagReads = [.success(try tagRead(id: id, name: "A", parents: [], revision: String(repeating: "a", count: 64)))]
+        transport.updateResults = [.success(try tagRead(id: id, name: "Renamed", parents: [], revision: String(repeating: "b", count: 64)))]
+        let model = SupertagsViewModel(transport: transport)
+        await model.refresh(); await model.beginEditing(tagId: id)
+        model.updateEditDraft(name: "Renamed")
+
+        let result = await model.saveEdit(tagId: id, surface: "ios-supertags")
+        XCTAssertEqual(result?.name, "Renamed")
+        XCTAssertEqual(model.tag(withId: id)?.name, "Renamed")
+
+        await model.refresh()
+        XCTAssertEqual(model.tag(withId: id)?.name, "Renamed")
+        transport.listTagsError = PrivateTransportError()
+        await model.refresh()
+        XCTAssertEqual(model.tag(withId: id)?.name, "Renamed")
+        XCTAssertEqual(model.errorMessage, SupertagsViewModel.catalogReconciliationFailureMessage(for: PrivateTransportError()))
+    }
+
+    func testLateSaveAfterCancelIsInertAndUnlocks() async throws {
+        let id = "00000000-0000-4000-8000-000000000431"
+        let tag = RPCTag(id: id, name: "Project", builtin: false)
+        let transport = RecordingTransport(); transport.catalog = [tag]; transport.tagReads = [.success(try tagRead(id: id, name: "Project", parents: [], revision: String(repeating: "a", count: 64)))]; transport.shouldSuspendUpdates = true
+        let model = SupertagsViewModel(transport: transport); await model.refresh(); await model.beginEditing(tagId: id)
+        let task = Task { await model.saveEdit(tagId: id, surface: "ios-supertags") }
+        while transport.updateIntents.isEmpty { await Task.yield() }
+        model.cancelEditing(); XCTAssertFalse(model.isSavingEdit)
+        transport.completeSuspendedUpdate(with: .success(try tagRead(id: id, name: "Project", parents: [], revision: String(repeating: "b", count: 64))))
+        let result = await task.value
+        XCTAssertNil(result); XCTAssertNil(model.editDraft); XCTAssertNil(model.pendingTagUpdateIntent)
+    }
+
+    func testBuiltinEditDoesNotReadOrMutate() async throws {
+        let id = "00000000-0000-4000-8000-000000000441"
+        let transport = RecordingTransport(); transport.catalog = [RPCTag(id: id, name: "Person", builtin: true)]
+        let model = SupertagsViewModel(transport: transport); await model.refresh(); await model.beginEditing(tagId: id)
+        XCTAssertNil(model.editDraft); XCTAssertTrue(transport.suspendedTagReadCounts.isEmpty); XCTAssertTrue(transport.updateIntents.isEmpty)
+    }
+
     private func field(id: String, tagId: String, name: String, kind: String, order: Int, builtin: Bool = false) throws -> RPCTagFieldDefinition {
         try RPCTagFieldDefinition(.object(["id": .string(id), "tagId": .string(tagId), "name": .string(name), "valueKind": .string(kind), "sortOrder": .int(order), "builtin": .bool(builtin)]))
     }
@@ -740,5 +976,9 @@ final class SupertagsViewTests: XCTestCase {
             "parentIds": .array(parentIds.map(CapnWebValue.string)),
             "builtin": .bool(builtin)
         ]))
+    }
+
+    private func tagRead(id: String, name: String, parents: [String], revision: String) throws -> RPCTagRead {
+        try RPCTagRead(.object(["tag": .object(["id": .string(id), "name": .string(name), "parentIds": .array(parents.map(CapnWebValue.string)), "builtin": .bool(false)]), "revision": .string(revision)]))
     }
 }
