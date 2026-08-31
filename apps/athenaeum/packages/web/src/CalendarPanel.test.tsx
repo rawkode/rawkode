@@ -165,26 +165,23 @@ describe("CalendarPanel connection custody", () => {
     expect(host.textContent).not.toContain(privateDetail)
   })
 
-  it("keeps the successful authorization link unchanged", async () => {
+  it("does not fabricate a launch when the local effect never produced an opaque handle", async () => {
     let observe: ((exit: unknown) => void) | undefined
     runtimeMock.runFork.mockImplementation(() => ({
       addObserver: (observer: (exit: unknown) => void) => {
         observe = observer
       }
     }))
-    const authorizationUrl = "https://accounts.google.com/o/oauth2/v2/auth?state=opaque-state"
     const host = await mount()
 
     await act(async () => {
       connectButton(host)?.click()
-      observe?.(Exit.succeed(Exit.succeed({ authorizationUrl })))
+      observe?.(Exit.succeed(Exit.succeed({ fixedLaunchUrl: "https://athenaeum.example/oauth/google-calendar/launch/ocl_3fa85f64-5717-4562-b3fc-2c963f66afa6" })))
       await flush()
     })
 
-    const link = host.querySelector<HTMLAnchorElement>(".calendar-redirect-link")
-    expect(link?.href).toBe(authorizationUrl)
-    expect(link?.textContent).toContain("Continue to Google")
-    expect(host.querySelector(".calendar-connect-unavailable")).toBeNull()
+    expect(host.querySelector(".calendar-redirect-link")).toBeNull()
+    expect(host.querySelector(".calendar-connect-unavailable")).not.toBeNull()
   })
 
   it("does not allow destructive disconnect while the server catalog is unavailable", async () => {

@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import {
-  ConnectGoogleCalendarInput,
+  BeginGoogleCalendarConnectionInput,
+  IssueGoogleCalendarLaunchInput,
+  GetGoogleCalendarConnectionCompletionInput,
   DisconnectGoogleCalendarInput,
   ListGatekeeperBindingsInput,
   SyncGoogleCalendarInput,
+  HumanUiMutationAttribution,
+  type CalendarOAuthClientAttemptHandle,
   type GatekeeperBindingSummary,
   type EntityId
 } from "@athenaeum/domain"
@@ -20,54 +24,16 @@ import {
   clearCalendarBindingId
 } from "./calendar-binding-storage.js"
 
-// Web-stage task item 1: "A 'Connect Google Calendar' button/flow... since no real OAuth app
-// exists, this must correctly show a real 'not configured' or a genuine OAuth-redirect attempt...
-// document exactly what state a real user sees today."
-//
-// **The choice made here, and why**: attempt the REAL RPC call for real (`connectGoogleCalendar`
-// — genuine Cap'n Web round trip to `WorkspaceDurableObject`, genuine `CalendarService#connect`,
-// genuine `CalendarGatekeeperClient#buildAuthorizationUrl`), then render whatever REAL outcome
-// comes back — never a faked "connected" state, never a client-side-only simulation. Two distinct
-// honest outcomes exist depending on deployment configuration, and this component surfaces both
-// faithfully rather than special-casing either:
-//
-//   1. **"Not configured" (what David sees TODAY, in this environment)** — `wrangler.jsonc`
-//      deliberately leaves the `GATEKEEPER_GOOGLE_CALENDAR` service binding commented out (that
-//      file's own header comment: "no real Google OAuth client id/secret for the gatekeeper
-//      Worker to do anything useful with even if bound"). `env.GATEKEEPER_GOOGLE_CALENDAR` is
-//      therefore `undefined`, so `CalendarService#connect` runs against
-//      `CalendarGatekeeperClientUnconfigured` (`calendar-gatekeeper-client.ts`), which fails
-//      every call with a clear `UnexpectedError`. This component exposes that honest unavailable
-//      state with a generic retryable message while retaining the diagnostic in the console: an
-//      upstream provider or gatekeeper cause is not safe to put into the DOM.
-//   2. **A genuine OAuth-redirect attempt (what a real, fully-configured deployment's user sees,
-//      and what THIS environment's own `/__dev__/enable-scripted-calendar` dev route — see
-//      `dev-scripted-calendar-client.ts` — makes reachable for verification purposes only)** —
-//      once `connectGoogleCalendar` succeeds, this component shows a real `<a href=>` to the
-//      returned `authorizationUrl` rather than auto-navigating (better UX: a surprise full-page
-//      redirect on click is worse than a confirm step, and it keeps this tab's app state intact
-//      if the user backs out). Clicking it is a GENUINE redirect attempt — in a real deployment
-//      with a real Google Cloud Console OAuth client registered (see
-//      `docs/gatekeeper-google-calendar-decisions.md` §3 for the exact steps David needs), it
-//      lands on Google's real consent screen; with the scripted dev double installed (or with a
-//      real service binding but no real registered client id), it lands on Google's own real
-//      `accounts.google.com` and fails there with Google's own `invalid_client` error — "visibly
-//      fail at Google's end," exactly as the task's own suggested default describes, never
-//      something this app fabricates or hides.
-//
-// **What is NOT possible to verify live in this environment** (hard constraint: "no real Google
-// OAuth client id/secret exists... no real Google account is available"): actually completing
-// Google's consent screen and receiving a REAL authorization code. `CalendarOAuthCallback.tsx`
-// (the real callback-handling code any deployment needs) is exercised in verification by
-// navigating directly to its URL with a `state` captured from a real `connectGoogleCalendar` call
-// (made real by the scripted gatekeeper double) and a placeholder `code` — proving the callback
-// code path for real, without pretending a real Google consent screen was involved. See this
-// stage's own report for the exact browser-verification steps taken.
+// New clients use a two-step, opaque flow: begin an attributable admission, then explicitly follow
+// a fixed first-party launch URL. Provider code/state never enters this component. Completion is
+// read from the Workspace projection after the browser returns; an unconfigured deployment stays
+// visibly unavailable rather than fabricating a connection.
 
 type ConnectState =
   | { readonly status: "idle" }
   | { readonly status: "busy" }
-  | { readonly status: "ready"; readonly authorizationUrl: string }
+  | { readonly status: "ready"; readonly attemptHandle: CalendarOAuthClientAttemptHandle; readonly fixedLaunchUrl: string }
+  | { readonly status: "waiting"; readonly attemptHandle: CalendarOAuthClientAttemptHandle }
   | { readonly status: "failure" }
 
 type SyncState =
@@ -88,6 +54,17 @@ const calendarCatalogFallbackMessage =
 const calendarSyncFailureMessage =
   "Calendar sync couldn’t be started. Nothing has changed. Retry from this connection."
 
+const calendarAttemptStorageKey = (id: EntityId): string => `athenaeum.calendar-oauth.attempt.v1:${id}`
+const loadCalendarAttemptHandle = (id: EntityId): CalendarOAuthClientAttemptHandle | undefined => {
+  try { return window.sessionStorage.getItem(calendarAttemptStorageKey(id)) as CalendarOAuthClientAttemptHandle | null ?? undefined } catch { return undefined }
+}
+const saveCalendarAttemptHandle = (id: EntityId, handle: CalendarOAuthClientAttemptHandle): void => {
+  try { window.sessionStorage.setItem(calendarAttemptStorageKey(id), handle) } catch { /* session restoration is optional */ }
+}
+const clearCalendarAttemptHandle = (id: EntityId): void => {
+  try { window.sessionStorage.removeItem(calendarAttemptStorageKey(id)) } catch { /* session restoration is optional */ }
+}
+
 type CatalogResult = {
   readonly generation: number
   readonly value: { readonly bindings: ReadonlyArray<GatekeeperBindingSummary> }
@@ -107,11 +84,15 @@ const bindingLabel = (binding: GatekeeperBindingSummary): string => {
     // The server schema already guarantees an ISO timestamp. Keep the raw value only as a
     // defensive fallback if a future decoder is relaxed.
   }
-  return `${mode} · connected ${created}`
+  const account = binding.accountAlias === undefined ? "Google Calendar account" : binding.accountAlias
+  return `${account} · ${mode} · connected ${created}`
 }
 
 export function CalendarPanel() {
-  const [connect, setConnect] = useState<ConnectState>({ status: "idle" })
+  const [connect, setConnect] = useState<ConnectState>(() => {
+    const attemptHandle = loadCalendarAttemptHandle(workspaceId)
+    return attemptHandle === undefined ? { status: "idle" } : { status: "waiting", attemptHandle }
+  })
   const [sync, setSync] = useState<SyncState>({ status: "idle" })
   const [localBindingId, setLocalBindingId] = useState<EntityId | undefined>(() => loadCalendarBindingId(workspaceId))
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
@@ -177,23 +158,82 @@ export function CalendarPanel() {
     setCatalogRefreshKey((key) => key + 1)
   }, [])
 
+  useEffect(() => {
+    if (connect.status !== "waiting") return
+    let cancelled = false
+    let timer: number | undefined
+    let attempts = 0
+    const poll = () => {
+      if (cancelled) return
+      attempts += 1
+      const fiber = runtime.runFork(Effect.exit(WorkspaceRpcClient.pipe(
+        Effect.flatMap((client) => client.getGoogleCalendarConnectionCompletion(
+          new GetGoogleCalendarConnectionCompletionInput({ workspaceId, attemptHandle: connect.attemptHandle })
+        ))
+      )))
+      fiber.addObserver((outer) => {
+        if (cancelled || !Exit.isSuccess(outer)) return
+        const result = outer.value
+        if (!Exit.isSuccess(result)) {
+          if (attempts < 6) timer = window.setTimeout(poll, 5_000)
+          return
+        }
+        if (result.value.status === "connected") {
+          clearCalendarAttemptHandle(workspaceId)
+          setCatalogRefreshKey((key) => key + 1)
+          setConnect({ status: "idle" })
+          return
+        }
+        if (result.value.status === "failed" || result.value.status === "expired") {
+          clearCalendarAttemptHandle(workspaceId)
+          setConnect({ status: "failure" })
+          return
+        }
+        if (attempts < 6) timer = window.setTimeout(poll, 5_000)
+      })
+    }
+    poll()
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
+  }, [connect])
+
   const handleConnect = () => {
     setConnect({ status: "busy" })
+    let attemptHandle: CalendarOAuthClientAttemptHandle | undefined
     const fiber = runtime.runFork(
       Effect.exit(
-        WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.connectGoogleCalendar(new ConnectGoogleCalendarInput({ workspaceId }))))
+        WorkspaceRpcClient.pipe(
+          Effect.flatMap((client) => client.beginGoogleCalendarConnection(new BeginGoogleCalendarConnectionInput({
+            workspaceId,
+            requestId: `web-calendar-${crypto.randomUUID()}`,
+            commitMessage: "Connect Google Calendar.",
+            attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" })
+          })).pipe(
+            Effect.tap((begin) => Effect.sync(() => {
+              attemptHandle = begin.attemptHandle
+              saveCalendarAttemptHandle(workspaceId, begin.attemptHandle)
+            })),
+            Effect.flatMap((begin) => client.issueGoogleCalendarLaunch(new IssueGoogleCalendarLaunchInput({ workspaceId, attemptHandle: begin.attemptHandle })))
+          ))
+        )
       )
     )
     fiber.addObserver((outer) => {
       if (!Exit.isSuccess(outer)) return
       const inner = outer.value
       if (Exit.isSuccess(inner)) {
-        setConnect({ status: "ready", authorizationUrl: inner.value.authorizationUrl })
+        if (attemptHandle === undefined) { setConnect({ status: "failure" }); return }
+        setConnect({ status: "ready", attemptHandle, fixedLaunchUrl: inner.value.fixedLaunchUrl })
       } else if (!Exit.isInterrupted(inner)) {
         setConnect({ status: "failure" })
         console.error(inner.cause.toString())
       }
     })
+  }
+
+  const beginLaunch = () => {
+    if (connect.status !== "ready") return
+    setConnect({ status: "waiting", attemptHandle: connect.attemptHandle })
+    window.location.assign(connect.fixedLaunchUrl)
   }
 
   const handleDisconnect = (bindingId: EntityId) => {
@@ -329,9 +369,9 @@ export function CalendarPanel() {
             <p className="calendar-sync-failure" role="alert">{calendarSyncFailureMessage}</p>
           )}
           <div className="calendar-connection-actions">
-            {connect.status !== "ready" && (
-              <button type="button" onClick={handleConnect} disabled={connect.status === "busy"}>
-                {connect.status === "busy" ? "Connecting…" : "Connect another account"}
+            {(connect.status === "idle" || connect.status === "failure") && (
+              <button type="button" onClick={handleConnect}>
+                Connect another account
               </button>
             )}
             {connect.status === "failure" && (
@@ -344,19 +384,19 @@ export function CalendarPanel() {
               <div className="calendar-redirect-ready">
                 <p><strong>Continue in Google</strong></p>
                 <p>Review Athenaeum’s access request, then return here to finish connecting.</p>
-                <a
-                  className="calendar-redirect-link"
-                  href={connect.authorizationUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <button type="button" className="calendar-redirect-link" onClick={beginLaunch}>
                   Continue to Google →
-                </a>
-                <button type="button" onClick={() => setConnect({ status: "idle" })}>
+                </button>
+                <button type="button" onClick={() => {
+                  clearCalendarAttemptHandle(workspaceId)
+                  setConnect({ status: "idle" })
+                }}>
                   Cancel
                 </button>
               </div>
             )}
+            {connect.status === "busy" && <p className="calendar-connected-hint" role="status">Preparing a secure Google Calendar connection…</p>}
+            {connect.status === "waiting" && <p className="calendar-connected-hint" role="status">Waiting for Google Calendar to finish connecting…</p>}
           </div>
         </div>
       ) : catalogChecking ? (
@@ -381,9 +421,9 @@ export function CalendarPanel() {
             <strong>Bring your schedule into Today</strong>
             <p>Connect Google Calendar to keep meetings and the daily note in one place.</p>
           </div>
-          {connect.status !== "ready" && (
-            <button type="button" onClick={handleConnect} disabled={connect.status === "busy"}>
-              {connect.status === "busy" ? "Connecting…" : "Connect Google Calendar"}
+          {(connect.status === "idle" || connect.status === "failure") && (
+            <button type="button" onClick={handleConnect}>
+              Connect Google Calendar
             </button>
           )}
           {connect.status === "failure" && (
@@ -396,19 +436,19 @@ export function CalendarPanel() {
             <div className="calendar-redirect-ready">
               <p><strong>Continue in Google</strong></p>
               <p>Review Athenaeum’s access request, then return here to finish connecting.</p>
-              <a
-                className="calendar-redirect-link"
-                href={connect.authorizationUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <button type="button" className="calendar-redirect-link" onClick={beginLaunch}>
                 Continue to Google →
-              </a>
-              <button type="button" onClick={() => setConnect({ status: "idle" })}>
+              </button>
+              <button type="button" onClick={() => {
+                clearCalendarAttemptHandle(workspaceId)
+                setConnect({ status: "idle" })
+              }}>
                 Cancel
               </button>
             </div>
           )}
+          {connect.status === "busy" && <p className="calendar-connected-hint" role="status">Preparing a secure Google Calendar connection…</p>}
+          {connect.status === "waiting" && <p className="calendar-connected-hint" role="status">Waiting for Google Calendar to finish connecting…</p>}
         </div>
       )}
     </section>

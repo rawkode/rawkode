@@ -39,6 +39,12 @@ import {
   ChatForkPreviewOutput,
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,
+  BeginGoogleCalendarConnectionInput,
+  BeginGoogleCalendarConnectionOutput,
+  IssueGoogleCalendarLaunchInput,
+  IssueGoogleCalendarLaunchOutput,
+  GetGoogleCalendarConnectionCompletionInput,
+  GetGoogleCalendarConnectionCompletionOutput,
   CreateBookmarkInput,
   CreateBookmarkOutput,
   CreateChatInput,
@@ -302,6 +308,9 @@ interface WorkspaceApi {
   // capture) — mirrors `WorkspaceRpcApi`'s Phase 5 `gatekeeper-rpc.ts` methods exactly, per
   // `workspace-durable-object.ts`'s "Phase 5: Google Calendar + Bookmarks" section. -----------------
   connectGoogleCalendar(input: unknown): Promise<unknown>
+  beginGoogleCalendarConnection(input: unknown): Promise<unknown>
+  issueGoogleCalendarLaunch(input: unknown): Promise<unknown>
+  getGoogleCalendarConnectionCompletion(input: unknown): Promise<unknown>
   googleCalendarOAuthCallback(input: unknown): Promise<unknown>
   disconnectGoogleCalendar(input: unknown): Promise<unknown>
   syncGoogleCalendar(input: unknown): Promise<unknown>
@@ -490,6 +499,15 @@ export interface WorkspaceRpcClientService {
   readonly connectGoogleCalendar: (
     input: ConnectGoogleCalendarInput
   ) => Effect.Effect<ConnectGoogleCalendarOutput, DomainError>
+  readonly beginGoogleCalendarConnection: (
+    input: BeginGoogleCalendarConnectionInput
+  ) => Effect.Effect<BeginGoogleCalendarConnectionOutput, DomainError>
+  readonly issueGoogleCalendarLaunch: (
+    input: IssueGoogleCalendarLaunchInput
+  ) => Effect.Effect<IssueGoogleCalendarLaunchOutput, DomainError>
+  readonly getGoogleCalendarConnectionCompletion: (
+    input: GetGoogleCalendarConnectionCompletionInput
+  ) => Effect.Effect<GetGoogleCalendarConnectionCompletionOutput, DomainError>
   readonly googleCalendarOAuthCallback: (
     input: GoogleCalendarOAuthCallbackInput
   ) => Effect.Effect<GoogleCalendarOAuthCallbackOutput, DomainError>
@@ -894,6 +912,21 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         connectGoogleCalendar: (input) =>
           callForValue(ConnectGoogleCalendarOutput, () =>
             workspaceStub.connectGoogleCalendar(Schema.encodeSync(ConnectGoogleCalendarInput)(input))
+          ),
+
+        beginGoogleCalendarConnection: (input) =>
+          callForValue(BeginGoogleCalendarConnectionOutput, () =>
+            workspaceStub.beginGoogleCalendarConnection(Schema.encodeSync(BeginGoogleCalendarConnectionInput)(input))
+          ),
+
+        issueGoogleCalendarLaunch: (input) =>
+          callForValue(IssueGoogleCalendarLaunchOutput, () =>
+            workspaceStub.issueGoogleCalendarLaunch(Schema.encodeSync(IssueGoogleCalendarLaunchInput)(input))
+          ),
+
+        getGoogleCalendarConnectionCompletion: (input) =>
+          callForValue(GetGoogleCalendarConnectionCompletionOutput, () =>
+            workspaceStub.getGoogleCalendarConnectionCompletion(Schema.encodeSync(GetGoogleCalendarConnectionCompletionInput)(input))
           ),
 
         googleCalendarOAuthCallback: (input) =>
