@@ -7,6 +7,7 @@ import {
   CalendarConnectionLedgerTarget,
   CalendarOAuthAuthorityAttemptId,
   CalendarOAuthAdmissionReceipt,
+  CalendarOAuthAdmissionReceiptV2,
   CalendarOAuthClientAttemptHandle,
   CalendarOAuthProviderCompletionWitness,
   CalendarOAuthRequestFingerprint,
@@ -48,14 +49,14 @@ describe("opaque calendar OAuth contracts", () => {
   })
 
   it("requires the versioned admission witness and explicit connection/binding targets", () => {
-    const receipt = new CalendarOAuthAdmissionReceipt({
-      version: "athenaeum.calendar-oauth-admission.v1", workspaceId, principal, requestId: "calendar-connect-1",
+    const receipt = new CalendarOAuthAdmissionReceiptV2({
+      version: "athenaeum.calendar-oauth-admission.v2", workspaceId, principal, requestId: "calendar-connect-1",
       requestFingerprint, handleDerivationVersion: CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
       attemptHandleDigest: witnessDigest, calendarConnectionId,
       authorityAttemptId, providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa3" as never,
-      gatekeeperAttemptId: authorityAttemptId as never, bindingId, admissionWitnessDigest: witnessDigest, admittedAt
+      gatekeeperAttemptId: authorityAttemptId as never, bindingId, calendarId: "primary", mode: "selected", admissionWitnessDigest: witnessDigest, admittedAt
     })
-    expect(Schema.encodeSync(CalendarOAuthAdmissionReceipt)(receipt).handleDerivationVersion).toBe(CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION)
+    expect(Schema.encodeSync(CalendarOAuthAdmissionReceiptV2)(receipt).handleDerivationVersion).toBe(CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION)
     expect(Schema.decodeUnknownSync(CalendarConnectionLedgerTarget)({ kind: "calendarConnection", id: receipt.calendarConnectionId })).toBeDefined()
     expect(Schema.decodeUnknownSync(GatekeeperBindingLedgerTarget)({ kind: "gatekeeperBinding", id: bindingId })).toBeDefined()
     expect(Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ version: "athenaeum.calendar-oauth-provider-completion.v1", providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa3", gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa2", bindingId, providerReceiptDigest: digest, completionFactDigest: digest, admissionWitnessDigest: digest })).toBeDefined()

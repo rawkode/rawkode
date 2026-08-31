@@ -48,9 +48,24 @@ export class GatekeeperBindingLedgerTarget extends Schema.Class<GatekeeperBindin
 export const CalendarOAuthLedgerTarget = Schema.Union(CalendarConnectionLedgerTarget, GatekeeperBindingLedgerTarget)
 export type CalendarOAuthLedgerTarget = typeof CalendarOAuthLedgerTarget.Type
 
-/** Immutable Workspace admission receipt. Authority activation must compare this exact witness. */
-export class CalendarOAuthAdmissionReceipt extends Schema.Class<CalendarOAuthAdmissionReceipt>("CalendarOAuthAdmissionReceipt")({
+/** Readable historical receipt. It lacks exchange identities and must be restarted, never activated. */
+export class CalendarOAuthAdmissionReceiptV1 extends Schema.Class<CalendarOAuthAdmissionReceiptV1>("CalendarOAuthAdmissionReceiptV1")({
   version: Schema.Literal("athenaeum.calendar-oauth-admission.v1"),
+  workspaceId: EntityId,
+  principal: Email,
+  requestId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)),
+  requestFingerprint: CalendarOAuthRequestFingerprint,
+  handleDerivationVersion: CalendarOAuthHandleDerivationVersion,
+  attemptHandleDigest: CalendarOAuthWitnessDigest,
+  calendarConnectionId: CalendarConnectionId,
+  authorityAttemptId: CalendarOAuthAuthorityAttemptId,
+  admissionWitnessDigest: CalendarOAuthWitnessDigest,
+  admittedAt: IsoDateTimeString
+}) {}
+
+/** Immutable current receipt. Exchange identities are allocated before launch. */
+export class CalendarOAuthAdmissionReceiptV2 extends Schema.Class<CalendarOAuthAdmissionReceiptV2>("CalendarOAuthAdmissionReceiptV2")({
+  version: Schema.Literal("athenaeum.calendar-oauth-admission.v2"),
   workspaceId: EntityId,
   principal: Email,
   requestId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)),
@@ -65,9 +80,13 @@ export class CalendarOAuthAdmissionReceipt extends Schema.Class<CalendarOAuthAdm
   gatekeeperAttemptId: GoogleCalendarGatekeeperAttemptId,
   /** Workspace-owned binding identity is fixed before the provider is contacted. */
   bindingId: EntityId,
+  calendarId: Schema.String.pipe(Schema.minLength(1)),
+  mode: Schema.Literal("selected", "allVisible"),
   admissionWitnessDigest: CalendarOAuthWitnessDigest,
   admittedAt: IsoDateTimeString
 }) {}
+export const CalendarOAuthAdmissionReceipt = Schema.Union(CalendarOAuthAdmissionReceiptV1, CalendarOAuthAdmissionReceiptV2)
+export type CalendarOAuthAdmissionReceipt = typeof CalendarOAuthAdmissionReceipt.Type
 
 /** Exact immutable facts required before a Workspace may commit a connected calendar binding. */
 export class CalendarOAuthProviderCompletionWitness extends Schema.Class<CalendarOAuthProviderCompletionWitness>("CalendarOAuthProviderCompletionWitness")({
@@ -103,6 +122,8 @@ export const calendarOAuthBeginRequestFingerprint = (input: {
   requestId: string
   commitMessage: string
   attribution: unknown
+  calendarId?: string
+  mode?: "selected" | "allVisible"
 }): CalendarOAuthRequestFingerprint =>
   Schema.decodeUnknownSync(CalendarOAuthRequestFingerprint)(sha256HexSync(canonicalJsonBytes({
     version: "athenaeum.calendar-oauth-begin-request.v1",
@@ -110,7 +131,9 @@ export const calendarOAuthBeginRequestFingerprint = (input: {
     principal: input.principal,
     requestId: input.requestId,
     commitMessage: input.commitMessage,
-    attribution: input.attribution
+    attribution: input.attribution,
+    calendarId: input.calendarId ?? "primary",
+    mode: input.mode ?? "selected"
   })))
 
 /** Public deterministic failure contract for callers of the disabled raw-state endpoints. */

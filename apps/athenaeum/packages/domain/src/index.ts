@@ -620,6 +620,8 @@ export {
   CalendarConnectionLedgerTarget,
   GatekeeperBindingLedgerTarget,
   CalendarOAuthLedgerTarget,
+  CalendarOAuthAdmissionReceiptV1,
+  CalendarOAuthAdmissionReceiptV2,
   CalendarOAuthAdmissionReceipt,
   CalendarOAuthProviderCompletionWitness,
   CalendarOAuthBindingCommitReceipt,

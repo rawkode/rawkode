@@ -84,7 +84,11 @@ export class BeginGoogleCalendarConnectionInput extends Schema.Class<BeginGoogle
   workspaceId: EntityId,
   requestId: MutationRequestId,
   commitMessage: MutationCommitMessage,
-  attribution: MutationAttribution
+  attribution: MutationAttribution,
+  /** Optional for compatibility; the first opaque flow defaults to Google's primary calendar. */
+  calendarId: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  /** Optional for compatibility; selected-calendar binding is the conservative default. */
+  mode: Schema.optional(Schema.Literal("selected", "allVisible"))
 }) {}
 
 export class BeginGoogleCalendarConnectionOutput extends Schema.Class<BeginGoogleCalendarConnectionOutput>(

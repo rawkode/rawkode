@@ -57,9 +57,30 @@ describe("Calendar OAuth coordinator authority", () => {
     expect(JSON.stringify(recorded)).not.toContain("provider-code-must-not-persist")
     expect(JSON.stringify(recorded)).not.toContain("state-must-not-persist")
     expect(JSON.stringify(recorded)).not.toContain("ocl_first")
+    expect(coordinator.claimCallbackByState({ stateNonce: redeemed.stateNonce, now: "2026-08-31T10:20:00.000Z", leaseExpiresAt: "2026-08-31T10:21:00.000Z" })).toEqual({
+      kind: "terminal",
+      authorityAttemptId: admission.receipt.authorityAttemptId,
+      admission: admission.receipt,
+      completion,
+      committed: false
+    })
     expect(coordinator.recordCompletion({ authorityAttemptId: admission.receipt.authorityAttemptId, callbackLease: "lost-response", callbackFence: claim.callbackFence, completion, now: "2026-08-31T10:20:00.000Z" })).toBeDefined()
     expect(() => coordinator.reconcileWorkspaceCommit({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, completionFactDigest: "b".repeat(64) }), workspaceCommitWitnessDigest: digest, now: "2026-08-31T10:20:00.000Z" })).toThrow(CalendarOAuthCoordinatorError)
     coordinator.reconcileWorkspaceCommit({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, completion, workspaceCommitWitnessDigest: digest, now: "2026-08-31T10:20:00.000Z" })
     expect(coordinator.completionView({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, attemptHandle: admission.attemptHandle, now: "2026-08-31T10:20:00.000Z" })).toEqual({ status: "connected" })
+    const committedReplay = coordinator.claimCallbackByState({ stateNonce: redeemed.stateNonce, now: "2026-08-31T10:20:00.000Z", leaseExpiresAt: "2026-08-31T10:21:00.000Z" })
+    expect(committedReplay.kind).toBe("terminal")
+    if (committedReplay.kind === "terminal") expect(committedReplay.committed).toBe(true)
+  })
+
+  it("rejects state nonce ownership collisions instead of overwriting another attempt", () => {
+    const { admission, coordinator } = setup()
+    const secondWorkspace = new CalendarOAuthWorkspaceAdmissions()
+    const second = secondWorkspace.begin({ workspaceId, principal, requestId: "connect-2", commitMessage: "Connect another calendar.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" }, handleSecret: secret, now })
+    coordinator.allocateActivate({ admission: second.receipt, now })
+    const firstLaunch = coordinator.issueLaunch({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, now, launchCapability: "ocl_first" })
+    coordinator.redeemLaunch({ authorityAttemptId: admission.receipt.authorityAttemptId, launchCapability: firstLaunch.launchCapability, expectedLaunchGeneration: firstLaunch.launchGeneration, stateNonce: "shared-state", now })
+    const secondLaunch = coordinator.issueLaunch({ authorityAttemptId: second.receipt.authorityAttemptId, workspaceId, principal, now, launchCapability: "ocl_second" })
+    expect(() => coordinator.redeemLaunch({ authorityAttemptId: second.receipt.authorityAttemptId, launchCapability: secondLaunch.launchCapability, expectedLaunchGeneration: secondLaunch.launchGeneration, stateNonce: "shared-state", now })).toThrow(CalendarOAuthCoordinatorError)
   })
 })

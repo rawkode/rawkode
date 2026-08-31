@@ -8,6 +8,7 @@
 import { DurableObject } from "cloudflare:workers"
 import {
   CalendarOAuthAdmissionReceipt,
+  CalendarOAuthAdmissionReceiptV2,
   CalendarOAuthProviderCompletionWitness,
   canonicalJsonBytes,
   sha256HexSync,
@@ -35,7 +36,7 @@ export class CalendarOAuthCoordinatorError extends Error {
 }
 
 export type CalendarOAuthCoordinatorRecord = Readonly<{
-  admission: CalendarOAuthAdmissionReceipt
+  admission: CalendarOAuthAdmissionReceiptV2
   attempt: CalendarOAuthAuthorityAttempt
   completion?: CalendarOAuthProviderCompletionWitness
 }>
@@ -47,15 +48,19 @@ const launchCapabilityDigest = (value: string): string => digest({ version: "ath
 const opaque = (prefix: string): string => `${prefix}${crypto.randomUUID()}`
 
 /** Copy schema-defined fields before persistence so extra transport properties cannot become records. */
-const privateAdmission = (receipt: CalendarOAuthAdmissionReceipt): CalendarOAuthAdmissionReceipt => new CalendarOAuthAdmissionReceipt({
+const privateAdmission = (receipt: CalendarOAuthAdmissionReceipt): CalendarOAuthAdmissionReceiptV2 => {
+  if (receipt.version !== "athenaeum.calendar-oauth-admission.v2") throw new CalendarOAuthCoordinatorError("Calendar connection attempt must be restarted after migration.")
+  return new CalendarOAuthAdmissionReceiptV2({
   version: receipt.version, workspaceId: receipt.workspaceId, principal: receipt.principal,
   requestId: receipt.requestId, requestFingerprint: receipt.requestFingerprint,
   handleDerivationVersion: receipt.handleDerivationVersion, attemptHandleDigest: receipt.attemptHandleDigest,
   calendarConnectionId: receipt.calendarConnectionId, authorityAttemptId: receipt.authorityAttemptId,
   providerConnectionId: receipt.providerConnectionId, gatekeeperAttemptId: receipt.gatekeeperAttemptId,
   bindingId: receipt.bindingId,
+  calendarId: receipt.calendarId, mode: receipt.mode,
   admissionWitnessDigest: receipt.admissionWitnessDigest, admittedAt: receipt.admittedAt
-})
+  })
+}
 const privateCompletion = (completion: CalendarOAuthProviderCompletionWitness): CalendarOAuthProviderCompletionWitness => new CalendarOAuthProviderCompletionWitness({
   version: completion.version, providerConnectionId: completion.providerConnectionId,
   gatekeeperAttemptId: completion.gatekeeperAttemptId, bindingId: completion.bindingId,
@@ -140,14 +145,17 @@ export class CalendarOAuthCoordinator {
   }
 
   /** Callback authority comes only from the one-time nonce; returns private, exact exchange facts. */
-  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }): Readonly<{
-    authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceipt
-  }> {
+  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }):
+    | Readonly<{ kind: "lease"; authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceiptV2 }>
+    | Readonly<{ kind: "terminal"; authorityAttemptId: string; admission: CalendarOAuthAdmissionReceiptV2; completion: CalendarOAuthProviderCompletionWitness; committed: boolean }> {
     const authorityAttemptId = this.#byStateNonceDigest.get(nonceDigest(input.stateNonce))
     if (authorityAttemptId === undefined) throw new CalendarOAuthCoordinatorError()
     const record = this.#require(authorityAttemptId)
+    if ((record.attempt.phase === "providerCompleted" || record.attempt.phase === "workspaceCommitted") && record.completion !== undefined) {
+      return { kind: "terminal", authorityAttemptId, admission: record.admission, completion: record.completion, committed: record.attempt.phase === "workspaceCommitted" }
+    }
     const claim = this.claimCallback({ authorityAttemptId, stateNonce: input.stateNonce, stateGeneration: record.attempt.stateGeneration, now: input.now, leaseExpiresAt: input.leaseExpiresAt })
-    return { authorityAttemptId, callbackLease: claim.callbackLease, callbackFence: claim.callbackFence, admission: record.admission }
+    return { kind: "lease", authorityAttemptId, callbackLease: claim.callbackLease, callbackFence: claim.callbackFence, admission: record.admission }
   }
 
   /** Owner-fenced private context consumed by the Workspace finalizer, never exposed to clients. */
@@ -212,6 +220,10 @@ export class CalendarOAuthCoordinator {
   #put(record: CalendarOAuthCoordinatorRecord): void {
     const handleOwner = this.#byHandleDigest.get(record.admission.attemptHandleDigest)
     if (handleOwner !== undefined && handleOwner !== record.admission.authorityAttemptId) throw new CalendarOAuthCoordinatorError()
+    if (record.attempt.stateNonceDigest !== undefined) {
+      const nonceOwner = this.#byStateNonceDigest.get(record.attempt.stateNonceDigest)
+      if (nonceOwner !== undefined && nonceOwner !== record.admission.authorityAttemptId) throw new CalendarOAuthCoordinatorError()
+    }
     this.#byAttempt.set(record.admission.authorityAttemptId, record)
     this.#byHandleDigest.set(record.admission.attemptHandleDigest, record.admission.authorityAttemptId)
     for (const [digest, owner] of this.#byLaunchCapabilityDigest) if (owner === record.admission.authorityAttemptId) this.#byLaunchCapabilityDigest.delete(digest)
@@ -262,7 +274,10 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
   claimCallback(input: { authorityAttemptId: string; stateNonce: string; stateGeneration: number; now: string; leaseExpiresAt: string; callbackLease?: string }): Promise<Readonly<{ callbackLease: string; callbackFence: number }>> {
     return this.#mutate((coordinator) => coordinator.claimCallback(input))
   }
-  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }): Promise<Readonly<{ authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceipt }>> {
+  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }): Promise<
+    | Readonly<{ kind: "lease"; authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceiptV2 }>
+    | Readonly<{ kind: "terminal"; authorityAttemptId: string; admission: CalendarOAuthAdmissionReceiptV2; completion: CalendarOAuthProviderCompletionWitness; committed: boolean }>
+  > {
     return this.#mutate((coordinator) => coordinator.claimCallbackByState(input))
   }
   recordCompletion(input: { authorityAttemptId: string; callbackLease: string; callbackFence: number; completion: CalendarOAuthProviderCompletionWitness; now: string }): Promise<CalendarOAuthCoordinatorRecord> {

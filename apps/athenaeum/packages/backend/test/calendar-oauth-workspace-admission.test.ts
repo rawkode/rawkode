@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as Schema from "effect/Schema"
-import { CalendarOAuthClientAttemptHandle, CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
+import { CalendarOAuthAdmissionReceiptV1, CalendarOAuthClientAttemptHandle, CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
 import { CalendarOAuthWorkspaceAdmissionError, CalendarOAuthWorkspaceAdmissions } from "../src/calendar-oauth-workspace-admission.js"
 
 const workspaceId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa7")
@@ -45,9 +45,9 @@ describe("Workspace calendar OAuth admission", () => {
     const admission = begin(store)
     const completion = {
       version: "athenaeum.calendar-oauth-provider-completion.v1" as const,
-      providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa5",
-      bindingId: EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa4"),
+      providerConnectionId: admission.receipt.providerConnectionId,
+      gatekeeperAttemptId: admission.receipt.gatekeeperAttemptId,
+      bindingId: admission.receipt.bindingId,
       providerReceiptDigest: digest,
       completionFactDigest: digest,
       admissionWitnessDigest: admission.receipt.admissionWitnessDigest
@@ -55,5 +55,28 @@ describe("Workspace calendar OAuth admission", () => {
     const first = store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)(completion), workspaceCommitWitnessDigest: digest, now })
     expect(store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)(completion), workspaceCommitWitnessDigest: digest, now })).toEqual(first)
     expect(() => store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, admissionWitnessDigest: "b".repeat(64) }), workspaceCommitWitnessDigest: digest, now })).toThrow(CalendarOAuthWorkspaceAdmissionError)
+    expect(() => store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa6" }), workspaceCommitWitnessDigest: digest, now })).toThrow(CalendarOAuthWorkspaceAdmissionError)
+    expect(() => store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa5" }), workspaceCommitWitnessDigest: digest, now })).toThrow(CalendarOAuthWorkspaceAdmissionError)
+    expect(() => store.finalize({ admission: admission.receipt, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, bindingId: EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa4") }), workspaceCommitWitnessDigest: digest, now })).toThrow(CalendarOAuthWorkspaceAdmissionError)
+  })
+
+  it("fails closed when a historical v1 receipt is restored after the pre-bound identity migration", () => {
+    const store = new CalendarOAuthWorkspaceAdmissions()
+    const admission = begin(store)
+    const legacy = new CalendarOAuthAdmissionReceiptV1({
+      version: "athenaeum.calendar-oauth-admission.v1",
+      workspaceId: admission.receipt.workspaceId,
+      principal: admission.receipt.principal,
+      requestId: admission.receipt.requestId,
+      requestFingerprint: admission.receipt.requestFingerprint,
+      handleDerivationVersion: admission.receipt.handleDerivationVersion,
+      attemptHandleDigest: admission.receipt.attemptHandleDigest,
+      calendarConnectionId: admission.receipt.calendarConnectionId,
+      authorityAttemptId: admission.receipt.authorityAttemptId,
+      admissionWitnessDigest: admission.receipt.admissionWitnessDigest,
+      admittedAt: admission.receipt.admittedAt
+    })
+    const restored = new CalendarOAuthWorkspaceAdmissions({ admissions: [legacy], commits: [] })
+    expect(() => begin(restored)).toThrow("must be restarted after migration")
   })
 })

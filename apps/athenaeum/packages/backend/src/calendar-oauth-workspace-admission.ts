@@ -7,6 +7,7 @@
 import {
   CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
   CalendarOAuthAdmissionReceipt,
+  CalendarOAuthAdmissionReceiptV2,
   CalendarOAuthBindingCommitReceipt,
   CalendarOAuthWitnessDigest,
   GatekeeperBindingLedgerTarget,
@@ -26,7 +27,7 @@ export class CalendarOAuthWorkspaceAdmissionError extends Error {
 }
 
 export type CalendarOAuthWorkspaceAdmission = Readonly<{
-  receipt: CalendarOAuthAdmissionReceipt
+  receipt: CalendarOAuthAdmissionReceiptV2
   /** Returned to the authenticated caller only; never persisted by this store. */
   attemptHandle: string
 }>
@@ -79,9 +80,15 @@ export const calendarOAuthKeyring = (activeSecret: string, retainedSecrets: read
   }
   return Object.freeze(keys)
 }
-const witnessDigest = (value: string): CalendarOAuthAdmissionReceipt["admissionWitnessDigest"] =>
+const witnessDigest = (value: string): CalendarOAuthAdmissionReceiptV2["admissionWitnessDigest"] =>
   Schema.decodeUnknownSync(CalendarOAuthWitnessDigest)(value)
 const opaqueId = (prefix: string): string => `${prefix}${crypto.randomUUID()}`
+const requireCurrentAdmission = (receipt: CalendarOAuthAdmissionReceipt): CalendarOAuthAdmissionReceiptV2 => {
+  if (receipt.version !== "athenaeum.calendar-oauth-admission.v2") {
+    throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection attempt must be restarted after migration.")
+  }
+  return receipt
+}
 
 /**
  * Versioned key material is supplied by Workspace configuration. Rotation is supported by
@@ -139,20 +146,20 @@ export class CalendarOAuthWorkspaceAdmissions {
   }
 
   /** Owner-fenced lookup without persisting the client-visible stable handle. */
-  resolveHandle(input: { workspaceId: EntityId; principal: Email; attemptHandle: string }): CalendarOAuthAdmissionReceipt {
+  resolveHandle(input: { workspaceId: EntityId; principal: Email; attemptHandle: string }): CalendarOAuthAdmissionReceiptV2 {
     const expectedDigest = witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: input.attemptHandle }))
     const receipt = [...this.#byRequestIdentity.values()].find((candidate) =>
       candidate.workspaceId === input.workspaceId && candidate.principal === input.principal && candidate.attemptHandleDigest === expectedDigest
     )
     if (receipt === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
-    return receipt
+    return requireCurrentAdmission(receipt)
   }
 
   /** Private request lookup for the Workspace ledger only; never an RPC capability. */
-  resolveRequest(input: { workspaceId: EntityId; principal: Email; requestId: string }): CalendarOAuthAdmissionReceipt {
+  resolveRequest(input: { workspaceId: EntityId; principal: Email; requestId: string }): CalendarOAuthAdmissionReceiptV2 {
     const receipt = this.#byRequestIdentity.get(`${input.workspaceId}:${input.principal}:${input.requestId}`)
     if (receipt === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
-    return receipt
+    return requireCurrentAdmission(receipt)
   }
 
   begin(input: {
@@ -161,6 +168,8 @@ export class CalendarOAuthWorkspaceAdmissions {
     requestId: string
     commitMessage: string
     attribution: MutationAttribution
+    calendarId?: string
+    mode?: "selected" | "allVisible"
     handleSecret: string
     retainedHandleSecrets?: readonly string[]
     now: string
@@ -170,31 +179,33 @@ export class CalendarOAuthWorkspaceAdmissions {
     const keyring = calendarOAuthKeyring(input.handleSecret, input.retainedHandleSecrets)
     const existing = this.#byRequestIdentity.get(requestIdentity)
     if (existing !== undefined) {
+      const current = requireCurrentAdmission(existing)
       if (existing.requestFingerprint !== requestFingerprint) throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection request conflicts with its original intent.")
       for (const handleSecret of keyring) {
         const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint: existing.requestFingerprint, version: existing.handleDerivationVersion })
         if (witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: attemptHandle })) === existing.attemptHandleDigest) {
-          return Object.freeze({ receipt: existing, attemptHandle })
+          return Object.freeze({ receipt: current, attemptHandle })
         }
       }
       throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection admission key is no longer retained.")
     }
     const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint })
-    const authorityAttemptId = opaqueId("coa_") as CalendarOAuthAdmissionReceipt["authorityAttemptId"]
+    const authorityAttemptId = opaqueId("coa_") as CalendarOAuthAdmissionReceiptV2["authorityAttemptId"]
     const withoutWitness = {
-      version: "athenaeum.calendar-oauth-admission.v1" as const,
+      version: "athenaeum.calendar-oauth-admission.v2" as const,
       workspaceId: input.workspaceId, principal: input.principal, requestId: input.requestId,
       requestFingerprint, handleDerivationVersion: CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
       attemptHandleDigest: witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: attemptHandle })),
-      calendarConnectionId: opaqueId("ccn_") as CalendarOAuthAdmissionReceipt["calendarConnectionId"],
+      calendarConnectionId: opaqueId("ccn_") as CalendarOAuthAdmissionReceiptV2["calendarConnectionId"],
       authorityAttemptId,
-      providerConnectionId: opaqueId("gpc_") as CalendarOAuthAdmissionReceipt["providerConnectionId"],
+      providerConnectionId: opaqueId("gpc_") as CalendarOAuthAdmissionReceiptV2["providerConnectionId"],
       // Gatekeeper's opaque attempt namespace is `coa_`; bind it to the coordinator identity.
       gatekeeperAttemptId: authorityAttemptId as never,
-      bindingId: crypto.randomUUID() as CalendarOAuthAdmissionReceipt["bindingId"],
-      admittedAt: input.now as CalendarOAuthAdmissionReceipt["admittedAt"]
+      bindingId: crypto.randomUUID() as CalendarOAuthAdmissionReceiptV2["bindingId"],
+      calendarId: input.calendarId ?? "primary", mode: input.mode ?? "selected",
+      admittedAt: input.now as CalendarOAuthAdmissionReceiptV2["admittedAt"]
     }
-    const receipt = new CalendarOAuthAdmissionReceipt({ ...withoutWitness, admissionWitnessDigest: witnessDigest(calendarOAuthAdmissionWitnessDigest(input.handleSecret, withoutWitness)) })
+    const receipt = new CalendarOAuthAdmissionReceiptV2({ ...withoutWitness, admissionWitnessDigest: witnessDigest(calendarOAuthAdmissionWitnessDigest(input.handleSecret, withoutWitness)) })
     const admission = Object.freeze({ receipt, attemptHandle })
     this.#byRequestIdentity.set(requestIdentity, receipt)
     return admission
@@ -202,13 +213,18 @@ export class CalendarOAuthWorkspaceAdmissions {
 
   /** Internal coordinator callback: validates exact private facts before local binding custody can commit. */
   finalize(input: {
-    admission: CalendarOAuthAdmissionReceipt
+    admission: CalendarOAuthAdmissionReceiptV2
     completion: CalendarOAuthProviderCompletionWitness
     workspaceCommitWitnessDigest: string
     now: string
   }): CalendarOAuthWorkspaceBindingCommit {
     const { admission, completion } = input
-    if (completion.admissionWitnessDigest !== admission.admissionWitnessDigest || completion.bindingId === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
+    if (
+      completion.admissionWitnessDigest !== admission.admissionWitnessDigest ||
+      completion.providerConnectionId !== admission.providerConnectionId ||
+      completion.gatekeeperAttemptId !== admission.gatekeeperAttemptId ||
+      completion.bindingId !== admission.bindingId
+    ) throw new CalendarOAuthWorkspaceAdmissionError()
     const key = `${admission.calendarConnectionId}:${completion.bindingId}`
     const existing = this.#commits.get(key)
     if (existing !== undefined) {
