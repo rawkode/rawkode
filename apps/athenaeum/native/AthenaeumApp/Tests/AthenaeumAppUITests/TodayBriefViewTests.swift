@@ -314,6 +314,46 @@ final class TodayBriefViewTests: XCTestCase {
         ]).contains("next:1,2"))
     }
 
+    func testFocusProjectionIsExclusiveAndKeepsMinimumStartTies() throws {
+        let activeEvents = [
+            try event("active", start: "2026-08-26T09:30:00Z", end: "2026-08-26T10:30:00Z"),
+            try event("next", start: "2026-08-26T11:00:00Z", end: "2026-08-26T12:00:00Z")
+        ]
+        let activeSchedule = TodayBriefSchedule.project(activeEvents, now: date("2026-08-26T10:00:00Z"))
+        let activeFocus = try XCTUnwrap(TodayBriefFocusPresentation.focus(schedule: activeSchedule, events: activeEvents))
+        XCTAssertEqual(activeFocus.kind, .active)
+        XCTAssertEqual(activeFocus.label, "Now")
+        XCTAssertEqual(activeFocus.sourceIndexes, [0])
+        XCTAssertEqual(activeFocus.events.map(\.title), ["active"])
+
+        let tiedEvents = [
+            try event("malformed", start: "2026-08-26T12:00:00Z", end: "2026-08-26T11:00:00Z"),
+            try event("tie-a", start: "2026-08-26T13:00:00Z", end: "2026-08-26T14:00:00Z"),
+            try event("tie-b", start: "2026-08-26T13:00:00Z", end: "2026-08-26T14:00:00Z"),
+            try event("later", start: "2026-08-26T14:00:00Z", end: "2026-08-26T15:00:00Z")
+        ]
+        let tiedSchedule = TodayBriefSchedule.project(tiedEvents, now: date("2026-08-26T10:00:00Z"))
+        let tiedFocus = try XCTUnwrap(TodayBriefFocusPresentation.focus(schedule: tiedSchedule, events: tiedEvents))
+        XCTAssertEqual(tiedFocus.kind, .next)
+        XCTAssertEqual(tiedFocus.label, "Up next")
+        XCTAssertEqual(tiedFocus.sourceIndexes, [1, 2])
+        XCTAssertEqual(tiedFocus.events.map(\.title), ["tie-a", "tie-b"])
+        XCTAssertEqual(TodayBriefFocusPresentation.signature(schedule: tiedSchedule, events: tiedEvents), "next:1,2")
+    }
+
+    func testPreparationStoreSurvivesPresentationSwapAndRejectsStaleCompletion() {
+        var store = TodayBriefPreparationStore(presentationKey: "2026-08-26:true")
+        XCTAssertTrue(store.begin(for: "occurrence", presentationKey: "2026-08-26:true"))
+        XCTAssertTrue(store.isPreparing(for: "occurrence"))
+        store.complete(for: "occurrence", succeeded: true, presentationKey: "2026-08-25:true")
+        XCTAssertTrue(store.isPreparing(for: "occurrence"))
+        XCTAssertFalse(store.isPrepared(for: "occurrence"))
+        store.complete(for: "occurrence", succeeded: true, presentationKey: "2026-08-26:true")
+        XCTAssertFalse(store.isPreparing(for: "occurrence"))
+        XCTAssertTrue(store.isPrepared(for: "occurrence"))
+        XCTAssertFalse(store.begin(for: "occurrence", presentationKey: "2026-08-26:true"))
+    }
+
     func testSectionPresentationKeepsCurrentAttentionOpenAndDefersOnlySecondaryBuckets() throws {
         let events = [
             try event("past", start: "2026-08-26T08:00:00Z", end: "2026-08-26T09:00:00Z"),

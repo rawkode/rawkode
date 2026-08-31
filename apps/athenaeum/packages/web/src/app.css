@@ -2139,6 +2139,38 @@
   display: none;
 }
 
+.today-brief-focus-controls {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.today-brief-focus-label {
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.today-brief-focus-toggle {
+  padding: var(--space-1) 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+.today-brief-focus-toggle:hover:not(:disabled),
+.today-brief-focus-toggle:focus-visible {
+  color: var(--color-text);
+}
+
 .today-brief-date,
 .today-brief-history {
   color: var(--color-text-faint);
@@ -2572,7 +2604,11 @@
   color: var(--color-accent);
 }
 
-@container notes-route (min-width: 64rem) {
+/* Keep the web shell in step with the native command center: once a normal desktop window can
+   hold a 600px writing column, a compact calendar rail, and their gap, show both in the first
+   working view. This is deliberately below the old 64rem threshold because the persistent shell
+   sidebar consumes part of the viewport before the notes container is measured. */
+@container notes-route (min-width: 58rem) {
   .daily-note-workspace {
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
   }

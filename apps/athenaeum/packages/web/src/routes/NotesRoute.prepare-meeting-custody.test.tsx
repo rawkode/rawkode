@@ -12,7 +12,7 @@ type DailyNoteProps = {
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
   readonly dailyContext?: ReactNode
 }
-type TodayBriefProps = { readonly onPrepareMeeting?: TodayBriefPrepareMeeting }
+type TodayBriefProps = { readonly presentationKey?: string; readonly onPrepareMeeting?: TodayBriefPrepareMeeting }
 
 const rendered = vi.hoisted(() => ({
   dailyNotes: [] as DailyNoteProps[],
@@ -81,6 +81,8 @@ describe("NotesRoute prepare-meeting custody", () => {
     const root = createRoot(host)
     roots.push({ root, host })
     await renderRoute(root)
+    const firstPresentationKey = latest(rendered.todayBriefs).presentationKey
+    expect(firstPresentationKey).toContain("2026-08-27")
 
     const oldRegistration = latest(rendered.dailyNotes).onPrepareMeetingReady
     const oldHandler = vi.fn<PrepareMeetingHandler>().mockResolvedValue(undefined as never)
@@ -97,6 +99,7 @@ describe("NotesRoute prepare-meeting custody", () => {
       await flush()
     })
     await renderRoute(root)
+    expect(latest(rendered.todayBriefs).presentationKey).not.toBe(firstPresentationKey)
     expect(latest(rendered.todayBriefs).onPrepareMeeting).toBeUndefined()
     const newRegistration = latest(rendered.dailyNotes).onPrepareMeetingReady
     const newHandler = vi.fn<PrepareMeetingHandler>().mockResolvedValue(undefined as never)

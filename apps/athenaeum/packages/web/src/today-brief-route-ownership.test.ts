@@ -58,11 +58,11 @@ describe("Today Brief route ownership", () => {
 
   it("owns the Today companion layout with a measured, non-sticky collapse contract", () => {
     expect(appCss).toContain(".daily-note-workspace")
-    expect(appCss).toContain("@container notes-route (min-width: 64rem)")
+    expect(appCss).toContain("@container notes-route (min-width: 58rem)")
     expect(appCss).toContain("grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem)")
     expect(appCss).not.toContain("display: contents")
 
-    const wideLayoutStart = appCss.indexOf("@container notes-route (min-width: 64rem)")
+    const wideLayoutStart = appCss.indexOf("@container notes-route (min-width: 58rem)")
     const wideLayoutEnd = appCss.indexOf("\n.today-brief-events", wideLayoutStart)
     const wideLayout = appCss.slice(wideLayoutStart, wideLayoutEnd === -1 ? undefined : wideLayoutEnd)
     expect(wideLayout).not.toContain("position: sticky")

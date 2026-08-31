@@ -47,7 +47,15 @@ export function NotesRoute() {
   }, [rawDate, todayStamp])
   const stamp = localDateStamp(date)
   const isToday = stamp === todayStamp
-  const routeIdentity = useMemo(() => ({ stamp, generation: Symbol(stamp) }), [stamp])
+  const routeGenerationRef = useRef({ stamp, generation: 0 })
+  if (routeGenerationRef.current.stamp !== stamp) {
+    routeGenerationRef.current = { stamp, generation: routeGenerationRef.current.generation + 1 }
+  }
+  const routeIdentity = useMemo(() => ({
+    stamp,
+    generation: Symbol(stamp),
+    presentationKey: `${stamp}:${routeGenerationRef.current.generation}`
+  }), [stamp])
   const activeRouteIdentityRef = useRef<typeof routeIdentity | undefined>(undefined)
   const [prepareMeetingRegistration, setPrepareMeetingRegistration] = useState<{
     readonly routeIdentity: typeof routeIdentity
@@ -112,6 +120,7 @@ export function NotesRoute() {
               id={isToday ? "today-brief" : undefined}
               reference={date}
               isToday={isToday}
+              presentationKey={routeIdentity.presentationKey}
               onPrepareMeeting={prepareMeetingRegistration?.routeIdentity === routeIdentity ? prepareMeetingRegistration.prepareMeeting : undefined}
               onOpenPerson={onOpenPerson}
             />

@@ -891,7 +891,8 @@ public struct WorkspaceCommandCenterView: View {
             onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
             onOpenPerson: { personNodeId in openPerson(personNodeId) },
             referenceDate: model.isSelectedDateToday ? nil : model.selectedDate,
-            isToday: model.isSelectedDateToday
+            isToday: model.isSelectedDateToday,
+            presentationKey: "daily-note-\(model.selectedDate.timeIntervalSince1970)"
         )
         .id(model.selectedDate)
     }

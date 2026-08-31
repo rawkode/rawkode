@@ -61,6 +61,38 @@ afterEach(() => {
 })
 
 describe("TodayBrief refresh single flight", () => {
+  it("does not keep the previous agenda visible while a refresh generation is unresolved", async () => {
+    const populatedBrief = {
+      ...brief,
+      events: [{
+        occurrenceKey: "event-1",
+        title: "Current work",
+        start: "2026-08-26T13:00:00.000Z",
+        end: "2026-08-26T14:00:00.000Z",
+        people: []
+      }]
+    } as unknown as GetTodayBriefOutput
+    queryState.value = populatedBrief
+
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    roots.push({ root, host })
+    await act(async () => {
+      root.render(createElement(TodayBrief, { reference, clock: () => reference }))
+      await flush()
+    })
+
+    expect(host.querySelector(".today-brief-event")).not.toBeNull()
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Refresh today’s brief"]')?.click()
+      await flush()
+    })
+
+    expect(host.querySelector(".today-brief-event")).toBeNull()
+    expect(host.querySelector(".today-brief-state")?.textContent).toContain("Refreshing today’s brief")
+  })
+
   it("shares one synchronous claim across stale and header refreshes, then releases it after settled outcomes", async () => {
     vi.useFakeTimers()
     let current = new Date("2026-08-26T23:59:59.999Z")

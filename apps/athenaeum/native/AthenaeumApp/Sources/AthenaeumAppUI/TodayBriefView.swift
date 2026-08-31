@@ -18,10 +18,15 @@ enum TodayBriefEventState {
 
 struct TodayBriefSchedule {
     let active: [RPCTodayBriefEvent]
+    let activeIndexes: [Int]
     let past: [RPCTodayBriefEvent]
+    let pastIndexes: [Int]
     let upcoming: [RPCTodayBriefEvent]
+    let upcomingIndexes: [Int]
     let next: [RPCTodayBriefEvent]
+    let nextIndexes: [Int]
     let later: [RPCTodayBriefEvent]
+    let laterIndexes: [Int]
 
     /// Classifies every server event exactly once. Only a valid half-open interval can
     /// be active. Otherwise the parsed start decides past versus upcoming; a start that
@@ -29,50 +34,64 @@ struct TodayBriefSchedule {
     static func project(_ events: [RPCTodayBriefEvent], now: Date) -> TodayBriefSchedule {
         let timestamp = now.timeIntervalSince1970
         var active: [RPCTodayBriefEvent] = []
+        var activeIndexes: [Int] = []
         var past: [RPCTodayBriefEvent] = []
+        var pastIndexes: [Int] = []
         var upcoming: [RPCTodayBriefEvent] = []
+        var upcomingIndexes: [Int] = []
 
-        for event in events {
+        for (index, event) in events.enumerated() {
             let start = date(from: event.start.rawValue)?.timeIntervalSince1970
             let end = date(from: event.end.rawValue)?.timeIntervalSince1970
             if let start, let end, start < end, start <= timestamp, timestamp < end {
                 active.append(event)
+                activeIndexes.append(index)
             } else if let start, start >= timestamp {
                 upcoming.append(event)
+                upcomingIndexes.append(index)
             } else {
                 past.append(event)
+                pastIndexes.append(index)
             }
         }
 
         // Keep the minimum-start ties in source order. Unparseable starts are in Past,
         // so only actual upcoming timestamps can participate in the tie.
-        let upcomingWithStart = upcoming.enumerated().compactMap { index, event in
-            date(from: event.start.rawValue).map { (index, event, $0.timeIntervalSince1970) }
+        let upcomingWithStart = upcoming.enumerated().compactMap { position, event in
+            date(from: event.start.rawValue).map { (upcomingIndexes[position], event, $0.timeIntervalSince1970) }
         }
         let earliest = upcomingWithStart.map(\.2).min()
-        let nextIndexes = Set(earliest.map { minimum in
+        let nextIndexes = earliest.map { minimum in
             upcomingWithStart.filter { $0.2 == minimum }.map(\.0)
-        } ?? [])
+        } ?? []
         let next = upcoming.enumerated().compactMap { index, event in
-            nextIndexes.contains(index) ? event : nil
+            nextIndexes.contains(upcomingIndexes[index]) ? event : nil
         }
         let later = upcoming.enumerated().compactMap { index, event in
-            nextIndexes.contains(index) ? nil : event
+            nextIndexes.contains(upcomingIndexes[index]) ? nil : event
         }
-        return TodayBriefSchedule(active: active, past: past, upcoming: upcoming, next: next, later: later)
+        let laterIndexes = upcomingIndexes.filter { !nextIndexes.contains($0) }
+        return TodayBriefSchedule(
+            active: active,
+            activeIndexes: activeIndexes,
+            past: past,
+            pastIndexes: pastIndexes,
+            upcoming: upcoming,
+            upcomingIndexes: upcomingIndexes,
+            next: next,
+            nextIndexes: nextIndexes,
+            later: later,
+            laterIndexes: laterIndexes
+        )
     }
 
     /// Membership is occurrence-indexed: duplicate provider ids must never collapse.
     func membershipSignature(in events: [RPCTodayBriefEvent]) -> String {
-        var claimed: Set<Int> = []
-        func indexes(_ values: [RPCTodayBriefEvent]) -> String {
-            return values.compactMap { value in
-                let index = events.indices.first { !claimed.contains($0) && events[$0].id == value.id && events[$0].title == value.title && events[$0].start == value.start && events[$0].end == value.end }
-                if let index { claimed.insert(index) }
-                return index.map(String.init)
-            }.joined(separator: ",")
-        }
-        return "active:\(indexes(active))|next:\(indexes(next))|later:\(indexes(later))|past:\(indexes(past))"
+        // The source indexes are carried alongside every bucket, so two identical provider
+        // occurrences remain distinct without reconstructing identity from mutable fields.
+        _ = events
+        func signature(_ indexes: [Int]) -> String { indexes.map(String.init).joined(separator: ",") }
+        return "active:\(signature(activeIndexes))|next:\(signature(nextIndexes))|later:\(signature(laterIndexes))|past:\(signature(pastIndexes))"
     }
 
     static func date(from value: String) -> Date? {
@@ -124,6 +143,93 @@ enum TodayBriefSectionPresentation {
             .init(kind: .later, label: "Later", count: schedule.later.count, deferred: true, offersPreparation: true),
             .init(kind: .earlier, label: "Earlier today", count: schedule.past.count, deferred: true, offersPreparation: false)
         ].filter { $0.count > 0 }
+    }
+}
+
+struct TodayBriefFocusDescriptor: Equatable {
+    let kind: TodayBriefSectionKind
+    let label: String
+    let events: [RPCTodayBriefEvent]
+    let sourceIndexes: [Int]
+}
+
+/// The collapsed Today brief is deliberately one commitment, not a second agenda. Active
+/// occurrences win; otherwise every valid occurrence tied at the earliest upcoming start is kept
+/// in source order. Malformed timestamps remain visible only in Full schedule.
+enum TodayBriefFocusPresentation {
+    static func focus(
+        schedule: TodayBriefSchedule,
+        events: [RPCTodayBriefEvent]
+    ) -> TodayBriefFocusDescriptor? {
+        if !schedule.active.isEmpty {
+            return .init(kind: .active, label: "Now", events: schedule.active, sourceIndexes: schedule.activeIndexes)
+        }
+
+        let validUpcoming = zip(schedule.upcoming, schedule.upcomingIndexes).compactMap { event, sourceIndex -> (event: RPCTodayBriefEvent, sourceIndex: Int, start: TimeInterval)? in
+            guard let start = TodayBriefSchedule.date(from: event.start.rawValue)?.timeIntervalSince1970,
+                  let end = TodayBriefSchedule.date(from: event.end.rawValue)?.timeIntervalSince1970,
+                  start < end else { return nil }
+            return (event, sourceIndex, start)
+        }
+        guard let earliest = validUpcoming.map(\.start).min() else { return nil }
+        let focused = validUpcoming.filter { $0.start == earliest }
+        _ = events
+        return .init(
+            kind: .next,
+            label: "Up next",
+            events: focused.map(\.event),
+            sourceIndexes: focused.map(\.sourceIndex)
+        )
+    }
+
+    static func signature(schedule: TodayBriefSchedule, events: [RPCTodayBriefEvent]) -> String {
+        guard let focus = focus(schedule: schedule, events: events) else { return "none" }
+        return "\(focus.kind.rawValue):\(focus.sourceIndexes.map(String.init).joined(separator: ","))"
+    }
+
+    static func isPreparationEligible(sourceIndex: Int, schedule: TodayBriefSchedule) -> Bool {
+        // Preserve the existing live policy: active/upcoming source indexes can be prepared. A
+        // malformed future occurrence may still be offered in Full schedule because the server's
+        // classifier already placed it in the upcoming bucket; it never affects collapsed focus.
+        schedule.activeIndexes.contains(sourceIndex) || schedule.upcomingIndexes.contains(sourceIndex)
+    }
+}
+
+/// Preparation state belongs to the brief, not to a renderer row. That keeps a meeting's
+/// preparing/prepared status intact when Focus swaps for Full schedule and back again.
+struct TodayBriefPreparationStore: Equatable {
+    let presentationKey: String
+    private(set) var inFlightOccurrenceKeys: Set<String> = []
+    private(set) var preparedOccurrenceKeys: Set<String> = []
+    private(set) var failedOccurrenceKeys: Set<String> = []
+
+    func isPreparing(for occurrenceKey: String) -> Bool { inFlightOccurrenceKeys.contains(occurrenceKey) }
+    func isPrepared(for occurrenceKey: String) -> Bool { preparedOccurrenceKeys.contains(occurrenceKey) }
+    func didFail(for occurrenceKey: String) -> Bool { failedOccurrenceKeys.contains(occurrenceKey) }
+
+    mutating func begin(for occurrenceKey: String, presentationKey: String) -> Bool {
+        guard presentationKey == self.presentationKey,
+              !inFlightOccurrenceKeys.contains(occurrenceKey),
+              !preparedOccurrenceKeys.contains(occurrenceKey) else { return false }
+        inFlightOccurrenceKeys.insert(occurrenceKey)
+        failedOccurrenceKeys.remove(occurrenceKey)
+        return true
+    }
+
+    mutating func complete(
+        for occurrenceKey: String,
+        succeeded: Bool,
+        presentationKey: String
+    ) {
+        guard presentationKey == self.presentationKey,
+              inFlightOccurrenceKeys.contains(occurrenceKey) else { return }
+        inFlightOccurrenceKeys.remove(occurrenceKey)
+        if succeeded {
+            preparedOccurrenceKeys.insert(occurrenceKey)
+            failedOccurrenceKeys.remove(occurrenceKey)
+        } else {
+            failedOccurrenceKeys.insert(occurrenceKey)
+        }
     }
 }
 
@@ -322,6 +428,7 @@ public struct TodayBriefView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isRefreshInFlight = false
     private let showsToday: Bool
+    private let presentationKey: String
     private let onOpenDailyNote: ((LocalDate) -> Void)?
     private let onOpenPerson: ((EntityId) -> Void)?
 
@@ -333,10 +440,12 @@ public struct TodayBriefView: View {
         onOpenDailyNote: ((LocalDate) -> Void)? = nil,
         onOpenPerson: ((EntityId) -> Void)? = nil,
         referenceDate: Date? = nil,
-        isToday: Bool? = nil
+        isToday: Bool? = nil,
+        presentationKey: String = "today-brief"
     ) {
         let liveDay = isToday ?? (referenceDate == nil)
         self.showsToday = liveDay
+        self.presentationKey = presentationKey
         self.onOpenDailyNote = onOpenDailyNote
         self.onOpenPerson = onOpenPerson
         _model = StateObject(
@@ -434,6 +543,7 @@ public struct TodayBriefView: View {
                     brief: brief,
                     now: model.currentDate(),
                     isToday: showsToday,
+                    presentationKey: presentationKey,
                     isPreparationReady: onOpenDailyNote != nil,
                     onOpenPerson: onOpenPerson,
                     onPrepareMeeting: { event in
@@ -442,6 +552,7 @@ public struct TodayBriefView: View {
                         return true
                     }
                 )
+                .id("\(presentationKey):\(brief.localDate.rawValue):\(showsToday)")
             }
             if let preparationError = model.preparationError {
                 Text(preparationError)
@@ -495,12 +606,41 @@ private struct TodayBriefContent: View {
     let brief: RPCTodayBrief
     let now: Date
     let isToday: Bool
+    let presentationKey: String
     let isPreparationReady: Bool
     let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
+    @State private var isFullScheduleOpen: Bool
+    @State private var preparationStore: TodayBriefPreparationStore
+    @State private var viewAnnouncement: String?
+
+    init(
+        brief: RPCTodayBrief,
+        now: Date,
+        isToday: Bool,
+        presentationKey: String = "today-brief",
+        isPreparationReady: Bool,
+        onOpenPerson: ((EntityId) -> Void)?,
+        onPrepareMeeting: @escaping (RPCTodayBriefEvent) async -> Bool
+    ) {
+        self.brief = brief
+        self.now = now
+        self.isToday = isToday
+        self.isPreparationReady = isPreparationReady
+        self.onOpenPerson = onOpenPerson
+        self.onPrepareMeeting = onPrepareMeeting
+        let key = "\(presentationKey):\(brief.localDate.rawValue):\(isToday)"
+        self.presentationKey = key
+        _isFullScheduleOpen = State(initialValue: !isToday)
+        _preparationStore = State(initialValue: TodayBriefPreparationStore(presentationKey: key))
+        _viewAnnouncement = State(initialValue: nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            let schedule = isToday ? TodayBriefSchedule.project(brief.events, now: now) : nil
+            let focus = schedule.flatMap { TodayBriefFocusPresentation.focus(schedule: $0, events: brief.events) }
+
             if !isToday {
                 TodayBriefSection(
                     title: "Schedule",
@@ -509,50 +649,77 @@ private struct TodayBriefContent: View {
                     offersPreparation: false,
                     isPreparationReady: false,
                     onOpenPerson: onOpenPerson,
-                    onPrepareMeeting: onPrepareMeeting
+                    onPrepareMeeting: onPrepareMeeting,
+                    sourceIndexes: Array(brief.events.indices),
+                    preparationStore: $preparationStore
                 )
             } else if brief.events.isEmpty {
-                Text("Nothing scheduled in the retained calendar projection.")
+                Text("Nothing scheduled in the retained calendar projection. Use your daily note to set priorities.")
                     .foregroundStyle(.secondary)
             } else {
-                let schedule = TodayBriefSchedule.project(brief.events, now: now)
-                let sections = TodayBriefSectionPresentation.sections(isToday: true, events: brief.events, schedule: schedule)
-                ForEach(sections) { section in
-                    let events = events(for: section.kind, in: schedule)
-                    if section.deferred {
-                        DisclosureGroup {
-                            TodayBriefSection(
-                                title: section.label,
-                                events: events,
-                                brief: brief,
-                                offersPreparation: section.offersPreparation,
-                                isPreparationReady: isPreparationReady,
-                                onOpenPerson: onOpenPerson,
-                                onPrepareMeeting: onPrepareMeeting,
-                                showsHeader: false
-                            )
-                        } label: {
-                            HStack {
-                                Text(section.label)
-                                Spacer()
-                                Text(countLabel(for: section.count))
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .accessibilityLabel("\(section.label), \(countLabel(for: section.count))")
-                    } else {
-                        TodayBriefSection(
-                            title: section.label,
-                            events: events,
-                            brief: brief,
-                            offersPreparation: section.offersPreparation,
-                            isPreparationReady: isPreparationReady,
-                            onOpenPerson: onOpenPerson,
-                            onPrepareMeeting: onPrepareMeeting
-                        )
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(isFullScheduleOpen ? "Full schedule" : (focus?.label ?? "Today"))
+                        .font(.caption.weight(.semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button(isFullScheduleOpen ? "Show focus" : "Full schedule") {
+                        let next = !isFullScheduleOpen
+                        isFullScheduleOpen = next
+                        viewAnnouncement = next ? "Full schedule shown" : "Focused schedule shown"
                     }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .accessibilityLabel(isFullScheduleOpen ? "Show focused schedule" : "Show full schedule")
+                    .accessibilityValue(isFullScheduleOpen ? "Expanded" : "Collapsed")
+                    .accessibilityHint("Switches between the immediate commitment and every retained event.")
                 }
+                .accessibilityElement(children: .contain)
+
+                if isFullScheduleOpen {
+                    TodayBriefSection(
+                        title: "Full schedule",
+                        events: brief.events,
+                        brief: brief,
+                        offersPreparation: true,
+                        isPreparationReady: isPreparationReady,
+                        onOpenPerson: onOpenPerson,
+                        onPrepareMeeting: onPrepareMeeting,
+                        sourceIndexes: Array(brief.events.indices),
+                        preparationEligibility: { sourceIndex, _ in
+                            guard let schedule else { return false }
+                            return TodayBriefFocusPresentation.isPreparationEligible(sourceIndex: sourceIndex, schedule: schedule)
+                        },
+                        preparationStore: $preparationStore
+                    )
+                } else if let focus {
+                    TodayBriefSection(
+                        title: focus.label,
+                        events: focus.events,
+                        brief: brief,
+                        offersPreparation: true,
+                        isPreparationReady: isPreparationReady,
+                        onOpenPerson: onOpenPerson,
+                        onPrepareMeeting: onPrepareMeeting,
+                        sourceIndexes: focus.sourceIndexes,
+                        preparationStore: $preparationStore
+                    )
+                } else if schedule?.past.isEmpty == false {
+                    Text("No more events today. Your schedule is clear.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No current or upcoming timed events. Open the full schedule to inspect retained entries.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let viewAnnouncement {
+                Text(viewAnnouncement)
+                    .font(.caption)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityLabel(viewAnnouncement)
+                    .frame(width: 1, height: 1)
+                    .clipped()
             }
 
             historyView
@@ -586,20 +753,6 @@ private struct TodayBriefContent: View {
             .accessibilityLabel("Calendar history")
             .accessibilityValue(message)
         }
-    }
-
-    private func events(for kind: TodayBriefSectionKind, in schedule: TodayBriefSchedule) -> [RPCTodayBriefEvent] {
-        switch kind {
-        case .active: return schedule.active
-        case .next: return schedule.next
-        case .later: return schedule.later
-        case .earlier: return schedule.past
-        case .schedule: return []
-        }
-    }
-
-    private func countLabel(for count: Int) -> String {
-        "\(count) \(count == 1 ? "event" : "events")"
     }
 
 }
@@ -669,6 +822,9 @@ private struct TodayBriefSection: View {
     let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (RPCTodayBriefEvent) async -> Bool
     let showsHeader: Bool
+    let sourceIndexes: [Int]
+    let preparationEligibility: ((Int, RPCTodayBriefEvent) -> Bool)?
+    @Binding var preparationStore: TodayBriefPreparationStore
 
     init(
         title: String,
@@ -678,7 +834,10 @@ private struct TodayBriefSection: View {
         isPreparationReady: Bool,
         onOpenPerson: ((EntityId) -> Void)?,
         onPrepareMeeting: @escaping (RPCTodayBriefEvent) async -> Bool,
-        showsHeader: Bool = true
+        showsHeader: Bool = true,
+        sourceIndexes: [Int] = [],
+        preparationEligibility: ((Int, RPCTodayBriefEvent) -> Bool)? = nil,
+        preparationStore: Binding<TodayBriefPreparationStore>
     ) {
         self.title = title
         self.events = events
@@ -688,6 +847,9 @@ private struct TodayBriefSection: View {
         self.onOpenPerson = onOpenPerson
         self.onPrepareMeeting = onPrepareMeeting
         self.showsHeader = showsHeader
+        self.sourceIndexes = sourceIndexes.count == events.count ? sourceIndexes : Array(events.indices)
+        self.preparationEligibility = preparationEligibility
+        _preparationStore = preparationStore
     }
 
     var body: some View {
@@ -702,13 +864,18 @@ private struct TodayBriefSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(events.enumerated()), id: \.offset) { _, event in
+                ForEach(Array(events.enumerated()), id: \.offset) { position, event in
+                    let sourceIndex = sourceIndexes[position]
+                    let offersPreparation = self.offersPreparation && (preparationEligibility?(sourceIndex, event) ?? true)
                     TodayBriefEventRow(
                         event: event,
+                        sourceIndex: sourceIndex,
                         timeZone: brief.timeZone.rawValue,
                         offersPreparation: offersPreparation,
                         onOpenPerson: onOpenPerson,
-                        onPrepareMeeting: isPreparationReady ? { await onPrepareMeeting(event) } : nil
+                        onPrepareMeeting: isPreparationReady ? { await onPrepareMeeting(event) } : nil,
+                        presentationKey: preparationStore.presentationKey,
+                        preparationStore: $preparationStore
                     )
                 }
             }
@@ -843,13 +1010,16 @@ struct TodayBriefPreparationState: Equatable {
 
 private struct TodayBriefEventRow: View {
     let event: RPCTodayBriefEvent
+    let sourceIndex: Int
     let timeZone: String
     let offersPreparation: Bool
     let onOpenPerson: ((EntityId) -> Void)?
     let onPrepareMeeting: (() async -> Bool)?
-    @State private var preparationState = TodayBriefPreparationState()
+    let presentationKey: String
+    @Binding var preparationStore: TodayBriefPreparationStore
 
     var body: some View {
+        let occurrenceIdentity = "\(sourceIndex):\(event.occurrenceKey)"
         let people = TodayBriefPersonNavigationPresentation.items(
             people: event.people,
             canOpenPerson: onOpenPerson != nil
@@ -894,15 +1064,19 @@ private struct TodayBriefEventRow: View {
             if let preparation = TodayBriefPreparationPresentation.action(
                     offersPreparation: offersPreparation,
                     isReady: onPrepareMeeting != nil,
-                    isPreparing: preparationState.isPreparing,
-                    isPrepared: preparationState.isPrepared(for: event.occurrenceKey)
+                    isPreparing: preparationStore.isPreparing(for: occurrenceIdentity),
+                    isPrepared: preparationStore.isPrepared(for: occurrenceIdentity)
                 ) {
                 Button(preparation.title) {
-                    let occurrenceKey = event.occurrenceKey
-                    guard let onPrepareMeeting, preparationState.begin(for: occurrenceKey) else { return }
+                    guard let onPrepareMeeting,
+                          preparationStore.begin(for: occurrenceIdentity, presentationKey: presentationKey) else { return }
                     Task { @MainActor in
                         let succeeded = await onPrepareMeeting()
-                        preparationState.complete(for: occurrenceKey, succeeded: succeeded)
+                        preparationStore.complete(
+                            for: occurrenceIdentity,
+                            succeeded: succeeded,
+                            presentationKey: presentationKey
+                        )
                     }
                 }
                 #if os(macOS)
@@ -915,6 +1089,11 @@ private struct TodayBriefEventRow: View {
                     .accessibilityHint(preparation.accessibilityHint)
                 if let readinessMessage = preparation.readinessMessage {
                     Text(readinessMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if preparationStore.didFail(for: occurrenceIdentity) {
+                    Text("Couldn’t prepare — try again.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

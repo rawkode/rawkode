@@ -4,7 +4,7 @@ import { act, createElement, useCallback, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GetTodayBriefOutput } from "@athenaeum/domain"
-import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefPeople, projectTodayBriefSchedule, projectTodayBriefSections, TodayBriefFreshness, todayBriefScheduleSignature } from "./TodayBrief.js"
+import { nextTodayBriefBoundary, nextTodayBriefMidnight, projectTodayBriefFocus, projectTodayBriefPeople, projectTodayBriefSchedule, projectTodayBriefSections, TodayBriefFreshness, todayBriefFocusSignature, todayBriefScheduleSignature } from "./TodayBrief.js"
 
 type TodayBriefEvent = GetTodayBriefOutput["events"][number]
 const event = (
@@ -101,6 +101,66 @@ describe("projectTodayBriefSchedule", () => {
     expect(todayBriefScheduleSignature(schedule, events)).toBe("active:|next:1|upcoming:1,2|past:0")
   })
 
+  it("projects an exclusive Now-or-Next focus group and preserves tied starts", () => {
+    const activeEvents = [
+      event("active", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z"),
+      event("next", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")
+    ]
+    const activeSchedule = projectTodayBriefSchedule(activeEvents, now)
+    expect(projectTodayBriefFocus(activeSchedule, activeEvents)).toMatchObject({
+      kind: "active",
+      label: "Now",
+      events: [activeEvents[0]],
+      indexes: [0]
+    })
+
+    const tiedEvents = [
+      event("invalid", "2026-08-26T12:00:00Z", "2026-08-26T11:00:00Z"),
+      event("tie-a", "2026-08-26T13:00:00Z", "2026-08-26T14:00:00Z"),
+      event("tie-b", "2026-08-26T13:00:00Z", "2026-08-26T14:00:00Z"),
+      event("later", "2026-08-26T14:00:00Z", "2026-08-26T15:00:00Z")
+    ]
+    const tiedSchedule = projectTodayBriefSchedule(tiedEvents, now)
+    expect(projectTodayBriefFocus(tiedSchedule, tiedEvents)).toMatchObject({
+      kind: "next",
+      label: "Up next",
+      events: [tiedEvents[1], tiedEvents[2]],
+      indexes: [1, 2]
+    })
+    expect(todayBriefFocusSignature(tiedSchedule, tiedEvents)).toBe("next:1,2")
+  })
+
+  it("replaces focus with one source-ordered full agenda instead of duplicating occurrences", async () => {
+    const value = {
+      localDate: "2026-08-26",
+      timeZone: "UTC",
+      calendarHistory: { status: "found" },
+      events: [
+        event("past", "2026-08-26T08:00:00Z", "2026-08-26T09:00:00Z"),
+        event("active", "2026-08-26T09:30:00Z", "2026-08-26T10:30:00Z"),
+        event("next", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")
+      ]
+    } as unknown as GetTodayBriefOutput
+    const container = await mount(createElement(TodayBriefFreshness, {
+      value,
+      isToday: true,
+      now,
+      stale: false,
+      clock: () => now,
+      onBoundary: () => undefined
+    }))
+
+    expect(Array.from(container.querySelectorAll(".today-brief-event strong")).map((node) => node.textContent)).toEqual(["active"])
+    const toggle = container.querySelector<HTMLButtonElement>(".today-brief-focus-toggle")
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false")
+    await act(async () => { toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
+
+    expect(Array.from(container.querySelectorAll("#today-brief-agenda .today-brief-event strong")).map((node) => node.textContent)).toEqual(["past", "active", "next"])
+    expect(container.querySelectorAll(".today-brief-event")).toHaveLength(3)
+    expect(container.querySelectorAll(".today-brief-focus-toggle")).toHaveLength(1)
+    expect(container.querySelector(".today-brief-focus-toggle")?.getAttribute("aria-expanded")).toBe("true")
+  })
+
   it("keeps repeated references as distinct source occurrences", () => {
     const shared = event("same-reference", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")
     const events = [event("past", "2026-08-26T09:00:00Z", "2026-08-26T10:00:00Z"), shared, shared]
@@ -148,7 +208,7 @@ describe("projectTodayBriefSchedule", () => {
       current = new Date("2026-08-26T11:00:00.000Z")
       await vi.advanceTimersByTimeAsync(15 * 60 * 1000)
     })
-    expect(container.querySelector('[data-today-brief-section="earlier"]')?.textContent).toContain("meeting")
+    expect(container.querySelector(".today-brief-state")?.textContent).toBe("No more events today. Your schedule is clear.")
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1)
   })
 
@@ -349,13 +409,20 @@ describe("projectTodayBriefSchedule", () => {
     const activePreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-active"] .today-brief-prepare')
     const nextPreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-next"] .today-brief-prepare')
     expect(activePreparation).not.toBeNull()
-    expect(nextPreparation).not.toBeNull()
+    expect(nextPreparation).toBeNull()
 
-    await act(async () => { activePreparation?.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".today-brief-focus-toggle")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    const expandedNextPreparation = container.querySelector<HTMLButtonElement>(".today-brief-event .today-brief-prepare:not(:disabled)")
+    expect(expandedNextPreparation).not.toBeNull()
+
+    const expandedActivePreparation = container.querySelector<HTMLButtonElement>("#today-brief-agenda .today-brief-event:nth-child(2) .today-brief-prepare")
+    await act(async () => { expandedActivePreparation?.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
 
     expect(onPrepareMeeting).toHaveBeenCalledTimes(1)
     expect(onPrepareMeeting).toHaveBeenCalledWith(value.events[1], "2026-08-26", "UTC")
-    expect(activePreparation?.textContent).toBe("Added to daily note")
+    expect(expandedActivePreparation?.textContent).toBe("Added to daily note")
   })
 
   it("prepares each occurrence once while leaving other occurrences available", async () => {
@@ -382,8 +449,11 @@ describe("projectTodayBriefSchedule", () => {
       onBoundary: () => undefined,
       onPrepareMeeting
     }))
-    const activePreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-active"] .today-brief-prepare')
-    const upcomingPreparation = container.querySelector<HTMLButtonElement>('[aria-labelledby="today-brief-next"] .today-brief-prepare')
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".today-brief-focus-toggle")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    const activePreparation = container.querySelector<HTMLButtonElement>(".today-brief-event .today-brief-prepare")
+    const upcomingPreparation = container.querySelectorAll<HTMLButtonElement>(".today-brief-event .today-brief-prepare")[1]
 
     await act(async () => {
       activePreparation?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
@@ -476,7 +546,10 @@ describe("projectTodayBriefSchedule", () => {
       onBoundary: () => undefined
     }))
 
-    expect(container.querySelector('[data-today-brief-section="earlier"] .today-brief-prepare')).toBeNull()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".today-brief-focus-toggle")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    expect(container.querySelector('[data-today-brief-section="schedule"] .today-brief-event:nth-child(1) .today-brief-prepare')).toBeNull()
     const preparations = Array.from(container.querySelectorAll<HTMLButtonElement>(".today-brief-prepare"))
     expect(preparations).toHaveLength(2)
     for (const preparation of preparations) {
