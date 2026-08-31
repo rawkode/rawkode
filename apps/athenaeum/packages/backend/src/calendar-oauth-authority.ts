@@ -22,6 +22,8 @@ export type CalendarOAuthAuthorityAttempt = Readonly<{
   /** SHA-256 only: cleared as soon as a fixed launch URL is redeemed. */
   launchCapabilityDigest?: string
   launchGeneration: number
+  /** State is generated only when a capability is explicitly redeemed. */
+  stateGeneration: number
   phase: CalendarOAuthAuthorityPhase
   callbackFence: number
   callbackLeaseDigest?: string
@@ -72,6 +74,7 @@ const receiptDigest = (input: Omit<CalendarOAuthAuthorityAttempt, "privateAuthor
     stateNonceDigest: input.stateNonceDigest,
     launchCapabilityDigest: input.launchCapabilityDigest,
     launchGeneration: input.launchGeneration,
+    stateGeneration: input.stateGeneration,
     phase: input.phase,
     callbackFence: input.callbackFence,
     providerReceiptDigest: input.providerReceiptDigest,
@@ -101,32 +104,32 @@ const assertTerminalWitnesses = (attempt: CalendarOAuthAuthorityAttempt): void =
 
 /** Allocate the authority record; its allocation witness survives rolling receipt changes. */
 export const allocateCalendarOAuthAuthorityAttempt = (input: {
-  workspaceId: EntityId; principal: Email; now: string; expiresAt: string; authorityAttemptId?: string; clientHandle?: string
+  workspaceId: EntityId; principal: Email; now: string; expiresAt: string; authorityAttemptId?: string; clientHandle?: string; clientHandleDigest?: string; allocationWitnessDigest?: string
 }): CalendarOAuthAuthorityAllocation => {
   if (timestamp(input.now) >= timestamp(input.expiresAt)) throw new CalendarOAuthAuthorityTransitionError("Calendar connection expiry is invalid.")
-  const clientHandle = input.clientHandle ?? opaque(HANDLE_PREFIX)
+  const clientHandle = input.clientHandle ?? (input.clientHandleDigest === undefined ? opaque(HANDLE_PREFIX) : "")
   const authorityAttemptId = input.authorityAttemptId ?? opaque(ATTEMPT_PREFIX)
-  const clientHandleDigest = opaqueDigest(clientHandle)
+  const clientHandleDigest = input.clientHandleDigest ?? opaqueDigest(clientHandle)
   const provisional = {
     authorityAttemptId, workspaceId: input.workspaceId, principal: input.principal, clientHandleDigest,
-    allocationWitnessDigest: allocationWitnessDigest({ authorityAttemptId, workspaceId: input.workspaceId, principal: input.principal, clientHandleDigest, createdAt: input.now, expiresAt: input.expiresAt }),
-    launchGeneration: 0, phase: "allocated" as const, callbackFence: 0, createdAt: input.now, updatedAt: input.now, expiresAt: input.expiresAt
+    allocationWitnessDigest: input.allocationWitnessDigest ?? allocationWitnessDigest({ authorityAttemptId, workspaceId: input.workspaceId, principal: input.principal, clientHandleDigest, createdAt: input.now, expiresAt: input.expiresAt }),
+    launchGeneration: 0, stateGeneration: 0, phase: "allocated" as const, callbackFence: 0, createdAt: input.now, updatedAt: input.now, expiresAt: input.expiresAt
   }
   return { attempt: withReceipt(provisional), clientHandle }
 }
 
 /** Idempotent Workspace-to-authority activation using the immutable allocation witness. */
 export const activateCalendarOAuthAuthorityAttempt = (input: {
-  attempt: CalendarOAuthAuthorityAttempt; workspaceId: EntityId; principal: Email; allocationWitnessDigest: string; stateNonceDigest: string; now: string
+  attempt: CalendarOAuthAuthorityAttempt; workspaceId: EntityId; principal: Email; allocationWitnessDigest: string; stateNonceDigest?: string; now: string
 }): CalendarOAuthAuthorityAttempt => {
   const { attempt } = input
   assertOwner(attempt, input.workspaceId, input.principal)
   assertLive(attempt, input.now)
   assertDigest(input.allocationWitnessDigest)
-  assertDigest(input.stateNonceDigest)
+  if (input.stateNonceDigest !== undefined) assertDigest(input.stateNonceDigest)
   if (attempt.allocationWitnessDigest !== input.allocationWitnessDigest) throw new CalendarOAuthAuthorityTransitionError()
   if (["activated", "launchIssued", "launchConsumed", "callbackClaimed", "providerCompleted", "workspaceCommitted"].includes(attempt.phase)) {
-    if (attempt.stateNonceDigest !== input.stateNonceDigest) throw new CalendarOAuthAuthorityTransitionError()
+    if (input.stateNonceDigest !== undefined && attempt.stateNonceDigest !== input.stateNonceDigest) throw new CalendarOAuthAuthorityTransitionError()
     return attempt
   }
   if (attempt.phase !== "allocated") throw new CalendarOAuthAuthorityTransitionError()
@@ -140,19 +143,20 @@ export const issueCalendarOAuthLaunch = (input: {
   const { attempt } = input
   assertOwner(attempt, input.workspaceId, input.principal)
   assertLive(attempt, input.now)
-  if (attempt.phase !== "activated" && attempt.phase !== "launchIssued") throw new CalendarOAuthAuthorityTransitionError()
+  if (attempt.phase !== "activated" && attempt.phase !== "launchIssued" && attempt.phase !== "launchConsumed") throw new CalendarOAuthAuthorityTransitionError()
   const launchCapability = input.launchCapability ?? opaque(LAUNCH_PREFIX)
-  return { attempt: withReceipt({ ...attempt, launchCapabilityDigest: opaqueDigest(launchCapability), launchGeneration: attempt.launchGeneration + 1, phase: "launchIssued", updatedAt: input.now }), launchCapability }
+  return { attempt: withReceipt({ ...attempt, launchCapabilityDigest: opaqueDigest(launchCapability), launchGeneration: attempt.launchGeneration + 1, stateNonceDigest: undefined, phase: "launchIssued", updatedAt: input.now }), launchCapability }
 }
 
 /** Fixed launch endpoint redemption: verify digest+generation and consume the capability before redirecting. */
 export const redeemCalendarOAuthLaunch = (input: {
-  attempt: CalendarOAuthAuthorityAttempt; launchCapability: string; expectedLaunchGeneration: number; now: string
+  attempt: CalendarOAuthAuthorityAttempt; launchCapability: string; expectedLaunchGeneration: number; stateNonceDigest?: string; now: string
 }): CalendarOAuthAuthorityAttempt => {
   const { attempt } = input
   assertLive(attempt, input.now)
   if (attempt.phase !== "launchIssued" || attempt.launchCapabilityDigest === undefined || attempt.launchGeneration !== input.expectedLaunchGeneration || attempt.launchCapabilityDigest !== opaqueDigest(input.launchCapability)) throw new CalendarOAuthAuthorityTransitionError()
-  return withReceipt({ ...attempt, launchCapabilityDigest: undefined, phase: "launchConsumed", updatedAt: input.now })
+  if (input.stateNonceDigest !== undefined) assertDigest(input.stateNonceDigest)
+  return withReceipt({ ...attempt, launchCapabilityDigest: undefined, stateNonceDigest: input.stateNonceDigest, stateGeneration: input.stateNonceDigest === undefined ? attempt.stateGeneration : attempt.stateGeneration + 1, phase: "launchConsumed", updatedAt: input.now })
 }
 
 /** Claim callback execution; an expired lease is reclaimable, but a live one is not. */

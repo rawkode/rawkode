@@ -28,22 +28,22 @@ const workspaceCommitWitnessDigest = "d".repeat(64)
 
 const allocateAndActivate = () => {
   const allocation = allocateCalendarOAuthAuthorityAttempt({ workspaceId, principal, now, expiresAt, authorityAttemptId: "coa_test", clientHandle: "oca_client" })
-  const activated = activateCalendarOAuthAuthorityAttempt({ attempt: allocation.attempt, workspaceId, principal, allocationWitnessDigest: allocation.attempt.allocationWitnessDigest, stateNonceDigest: nonceDigest, now })
+  const activated = activateCalendarOAuthAuthorityAttempt({ attempt: allocation.attempt, workspaceId, principal, allocationWitnessDigest: allocation.attempt.allocationWitnessDigest, now })
   return { allocation, activated }
 }
 
 const consumeLaunch = (attempt: ReturnType<typeof allocateAndActivate>["activated"], capability = "ocl_first") => {
   const launched = issueCalendarOAuthLaunch({ attempt, workspaceId, principal, now, launchCapability: capability })
-  return redeemCalendarOAuthLaunch({ attempt: launched.attempt, launchCapability: capability, expectedLaunchGeneration: launched.attempt.launchGeneration, now })
+  return redeemCalendarOAuthLaunch({ attempt: launched.attempt, launchCapability: capability, expectedLaunchGeneration: launched.attempt.launchGeneration, stateNonceDigest: nonceDigest, now })
 }
 
 describe("calendar OAuth authority state machine", () => {
   it("uses an immutable allocation witness for activation replay after a lost authority response", () => {
     const { allocation, activated } = allocateAndActivate()
-    const replay = activateCalendarOAuthAuthorityAttempt({ attempt: activated, workspaceId, principal, allocationWitnessDigest: allocation.attempt.allocationWitnessDigest, stateNonceDigest: nonceDigest, now: "2026-08-31T09:01:00.000Z" })
+    const replay = activateCalendarOAuthAuthorityAttempt({ attempt: activated, workspaceId, principal, allocationWitnessDigest: allocation.attempt.allocationWitnessDigest, now: "2026-08-31T09:01:00.000Z" })
 
     expect(replay).toEqual(activated)
-    expect(() => activateCalendarOAuthAuthorityAttempt({ attempt: activated, workspaceId, principal, allocationWitnessDigest: "e".repeat(64), stateNonceDigest: nonceDigest, now })).toThrow("Calendar connection is unavailable.")
+    expect(() => activateCalendarOAuthAuthorityAttempt({ attempt: activated, workspaceId, principal, allocationWitnessDigest: "e".repeat(64), now })).toThrow("Calendar connection is unavailable.")
   })
 
   it("separates stable handles from rotating launch capabilities and consumes one-time launch capability", () => {
@@ -54,7 +54,7 @@ describe("calendar OAuth authority state machine", () => {
     expect(second.attempt.clientHandleDigest).toBe(activated.clientHandleDigest)
     expect(second.attempt.launchGeneration).toBe(2)
     expect(() => redeemCalendarOAuthLaunch({ attempt: second.attempt, launchCapability: "ocl_first", expectedLaunchGeneration: first.attempt.launchGeneration, now: "2026-08-31T09:01:00.000Z" })).toThrow("Calendar connection is unavailable.")
-    const consumed = redeemCalendarOAuthLaunch({ attempt: second.attempt, launchCapability: "ocl_second", expectedLaunchGeneration: second.attempt.launchGeneration, now: "2026-08-31T09:01:00.000Z" })
+    const consumed = redeemCalendarOAuthLaunch({ attempt: second.attempt, launchCapability: "ocl_second", expectedLaunchGeneration: second.attempt.launchGeneration, stateNonceDigest: nonceDigest, now: "2026-08-31T09:01:00.000Z" })
     expect(consumed.launchCapabilityDigest).toBeUndefined()
     expect(() => redeemCalendarOAuthLaunch({ attempt: consumed, launchCapability: "ocl_second", expectedLaunchGeneration: second.attempt.launchGeneration, now: "2026-08-31T09:01:00.000Z" })).toThrow("Calendar connection is unavailable.")
     expect(JSON.stringify(consumed)).not.toContain(allocation.clientHandle)
