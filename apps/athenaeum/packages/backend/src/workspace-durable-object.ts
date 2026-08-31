@@ -158,6 +158,9 @@ import {
   ForkChatEditOutput,
   GetChatInput,
   GetChatOutput,
+  GetChatReviewInput,
+  GetChatReviewOutput,
+  ChatReviewItem,
   GetMeetingInput,
   GetMeetingOutput,
   GetNodeInput,
@@ -3023,6 +3026,91 @@ class WorkspaceRpcApi extends RpcTarget {
       )
     )
     return runRpcProgram(this.#runtime, program, GetChatOutput)
+  }
+
+  /** Coherent review snapshot for an agent chat. This is intentionally read-only: it has no
+   * ledger command, persistence, or mutation side effect. Pending nodes are authoritative local
+   * labels; all other referenced nodes are exact bounded repository reads. */
+  async getChatReview(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const clamp = (value: string, limit = 160): string => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
+    /** Deterministic, presentation-only JSON renderer: no thrown values, control characters,
+     * unstable object ordering, or unbounded nested payloads cross this review boundary. */
+    const safeJson = (value: unknown, depth = 0): string => {
+      if (depth > 3) return "…"
+      if (value === null) return "null"
+      if (typeof value === "string") return JSON.stringify(clamp(value.replace(/\s+/g, " ").trim(), 80))
+      if (typeof value === "number" || typeof value === "boolean") return String(value)
+      if (Array.isArray(value)) return `[${value.slice(0, 8).map((item) => safeJson(item, depth + 1)).join(", ")}${value.length > 8 ? ", …" : ""}]`
+      if (typeof value === "object") {
+        const record = value as Record<string, unknown>
+        const keys = Object.keys(record).sort().slice(0, 8)
+        return `{${keys.map((key) => `${JSON.stringify(clamp(key.replace(/\s+/g, " "), 48))}: ${safeJson(record[key], depth + 1)}`).join(", ")}${Object.keys(record).length > 8 ? ", …" : ""}}`
+      }
+      return "[unavailable value]"
+    }
+    const program = decodeRpcInput(GetChatReviewInput, input).pipe(
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const agentEdit = yield* AgentEditService
+        const chatFork = yield* ChatForkService
+        const nodesRepository = yield* NodesRepository
+        const { chat, messages } = yield* agentEdit.getChat(decoded.chatId)
+        yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+        const pending = yield* agentEdit.listPendingChanges(decoded.chatId)
+        const orderedNodes = [...pending.nodes].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
+        const orderedFacts = [...pending.facts].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
+        const orderedEdges = [...pending.edges].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
+        const pendingById = new Map<string, (typeof orderedNodes)[number]>(orderedNodes.map((node) => [node.id, node] as const))
+        const legacyForkNodeIds = messages.flatMap((message) => (message.toolCalls ?? []).flatMap((call) => {
+          if (call.name !== "editNote" || typeof call.input !== "object" || call.input === null) return []
+          const nodeId = (call.input as Record<string, unknown>).nodeId
+          const decodedId = Schema.decodeUnknownEither(EntityId)(nodeId)
+          return decodedId._tag === "Right" ? [decodedId.right] : []
+        }))
+        const forkNodeIds = [...new Set([...orderedNodes.map((node) => node.id), ...legacyForkNodeIds])].slice(0, 64)
+        const referenced = [...new Set([
+          ...orderedFacts.map((fact) => fact.nodeId),
+          ...orderedEdges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId]),
+          ...forkNodeIds
+        ].filter((id) => !pendingById.has(id)))].slice(0, 64)
+        const resolved = new Map<string, string>()
+        for (const id of referenced) {
+          const result = yield* Effect.either(nodesRepository.get(Schema.decodeUnknownSync(EntityId)(id)))
+          if (result._tag === "Right") resolved.set(id, result.right.title)
+        }
+        const nodeLabel = (id: string): string | undefined => pendingById.get(id)?.title ?? resolved.get(id)
+        const previews = yield* Effect.forEach(forkNodeIds, (nodeId) => chatFork.previewFork(decoded.chatId, nodeId))
+        const previewByNodeId = new Map(forkNodeIds.map((nodeId, index) => [nodeId, previews[index]!] as const))
+        const items: ChatReviewItem[] = []
+        for (let index = 0; index < orderedNodes.length; index += 1) {
+          const node = orderedNodes[index]!
+          const preview = previewByNodeId.get(node.id)
+          items.push(new ChatReviewItem({ kind: "node", sequence: node.pending?.sequence ?? 0, nodeId: node.id, label: clamp(node.title), ...(preview?.forked ? { forkPreview: clamp(preview.text, 2_000) } : {}) }))
+        }
+        for (const nodeId of legacyForkNodeIds) {
+          if (pendingById.has(nodeId)) continue
+          const preview = previewByNodeId.get(nodeId)
+          if (preview?.forked !== true) continue
+          items.push(new ChatReviewItem({ kind: "node", sequence: 0, nodeId, label: clamp(nodeLabel(nodeId) ?? "Pending note edit"), forkPreview: clamp(preview.text, 2_000) }))
+        }
+        for (const fact of orderedFacts) {
+          const subject = nodeLabel(fact.nodeId)
+          items.push(new ChatReviewItem({ kind: subject === undefined ? "unresolved" : "fact", sequence: fact.pending?.sequence ?? 0, ...(subject === undefined ? {} : { nodeId: fact.nodeId }), label: subject === undefined ? "Unresolved fact target" : `${clamp(subject, 80)} · ${clamp(fact.predicateId, 80)} = ${safeJson(fact.value)}` }))
+        }
+        for (const edge of orderedEdges) {
+          const source = nodeLabel(edge.sourceNodeId), target = nodeLabel(edge.targetNodeId)
+          items.push(new ChatReviewItem({ kind: source === undefined || target === undefined ? "unresolved" : "edge", sequence: edge.pending?.sequence ?? 0, label: source === undefined || target === undefined ? "Unresolved relationship endpoint" : `${clamp(source, 80)} → ${clamp(target, 80)}` }))
+        }
+        items.sort((left, right) => left.sequence - right.sequence || left.kind.localeCompare(right.kind) || left.label.localeCompare(right.label))
+        const fullPending = { schema: "athenaeum.chat-review.v1", chatId: decoded.chatId, nodes: orderedNodes, facts: orderedFacts, edges: orderedEdges }
+        const witness = sha256HexSync(canonicalJsonBytes(fullPending))
+        const noteForkWitness = sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-review-forks.v1", chatId: decoded.chatId, forks: forkNodeIds.map((nodeId) => ({ nodeId, forked: previewByNodeId.get(nodeId)?.forked ?? false, text: previewByNodeId.get(nodeId)?.text ?? "" })) }))
+        return new GetChatReviewOutput({ chat, messages, items, witness, noteForkWitness })
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, GetChatReviewOutput)
   }
 
   async sendChatMessage(input: unknown): Promise<unknown> {

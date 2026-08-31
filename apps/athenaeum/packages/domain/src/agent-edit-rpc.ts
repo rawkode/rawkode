@@ -42,6 +42,28 @@ export class GetChatOutput extends Schema.Class<GetChatOutput>("GetChatOutput")(
   messages: Schema.Array(ChatMessageRecord)
 }) {}
 
+/** A coherent, read-only review projection. Labels are server-derived; the witness binds the
+ * complete ordered pending snapshot without exposing the snapshot's internal representation. */
+export class GetChatReviewInput extends Schema.Class<GetChatReviewInput>("GetChatReviewInput")({
+  chatId: EntityId
+}) {}
+
+export class ChatReviewItem extends Schema.Class<ChatReviewItem>("ChatReviewItem")({
+  kind: Schema.Literal("node", "fact", "edge", "unresolved"),
+  sequence: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  label: Schema.String.pipe(Schema.minLength(1)),
+  nodeId: Schema.optional(EntityId),
+  forkPreview: Schema.optional(Schema.String)
+}) {}
+
+export class GetChatReviewOutput extends Schema.Class<GetChatReviewOutput>("GetChatReviewOutput")({
+  chat: Chat,
+  messages: Schema.Array(ChatMessageRecord),
+  items: Schema.Array(ChatReviewItem),
+  witness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  noteForkWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))
+}) {}
+
 /**
  * Runs one full agent turn (plan: "given a user message, calls ModelClient.converse with the
  * chat's history + available tools, executes any tool calls the model requests via the
