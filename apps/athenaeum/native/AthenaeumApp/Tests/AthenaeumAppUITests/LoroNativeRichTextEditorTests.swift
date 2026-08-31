@@ -153,6 +153,75 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         ))
     }
 
+    func testSupertagContextCapturesHashQueryAndRejectsInlineHashText() throws {
+        let attributed = try LoroNativeRichTextCodec.attributedString(for: paragraph("Meet #pro"))
+        let context = LoroNativeRichTextSupertagContext.detect(
+            in: attributed,
+            selection: NSRange(location: attributed.length, length: 0),
+            trigger: .supertag
+        )
+        XCTAssertEqual(context?.trigger, .supertag)
+        XCTAssertEqual(context?.query, "pro")
+        XCTAssertEqual(context?.utf16Range, NSRange(location: 5, length: 4))
+
+        let inlineHash = try LoroNativeRichTextCodec.attributedString(for: paragraph("C#lang"))
+        XCTAssertNil(LoroNativeRichTextSupertagContext.detect(
+            in: inlineHash,
+            selection: NSRange(location: inlineHash.length, length: 0),
+            trigger: .supertag
+        ))
+    }
+
+    func testSupertagInsertionIsTypedAndCannotBeAdmittedThroughMentionTrigger() throws {
+        var supertagContexts: [LoroNativeRichTextSupertagContext] = []
+        var rejected: [LoroNativeRichTextEditorController.Rejection] = []
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("Meet #pr"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) },
+            onRejectedInput: { rejected.append($0) },
+            onSupertagQueryChange: { context in if let context { supertagContexts.append(context) } }
+        )
+
+        editor.testingSelect(NSRange(location: 8, length: 0))
+        let context = try XCTUnwrap(supertagContexts.last)
+        let tag = supertagReference()
+
+        editor.testingApplySupertagInsertion(.init(
+            generation: context.generation,
+            utf16Range: context.utf16Range,
+            reference: tag,
+            trigger: .mention
+        ))
+        XCTAssertEqual(editor.testingDocument(), paragraph("Meet #pr"))
+        XCTAssertEqual(published, [])
+        XCTAssertEqual(rejected, [.invalidEdit])
+
+        editor.testingApplySupertagInsertion(.init(
+            generation: context.generation,
+            utf16Range: context.utf16Range,
+            reference: reference(),
+            trigger: .supertag
+        ))
+        XCTAssertEqual(editor.testingDocument(), paragraph("Meet #pr"))
+        XCTAssertEqual(published, [])
+        XCTAssertEqual(rejected, [.invalidEdit, .invalidEdit])
+
+        editor.testingApplySupertagInsertion(.init(
+            generation: context.generation,
+            utf16Range: context.utf16Range,
+            reference: tag,
+            trigger: .supertag
+        ))
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "), .init(text: "Project", reference: tag)
+        ])]))
+        XCTAssertEqual(editor.testingDocument(), expected)
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), expected)
+    }
+
     func testStaleMentionInsertionIsRejectedAfterTheQueryChanges() throws {
         var contexts: [LoroNativeRichTextMentionContext] = []
         var rejected: [LoroNativeRichTextEditorController.Rejection] = []
@@ -503,6 +572,10 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
 
     private func reference() -> LoroCanonicalSemanticValueV1.InlineReference {
         .init(kind: .entity, id: try! EntityId(validating: "10000000-0000-4000-8000-000000000001"), label: "Alice")
+    }
+
+    private func supertagReference() -> LoroCanonicalSemanticValueV1.InlineReference {
+        .init(kind: .supertag, id: try! EntityId(validating: "10000000-0000-4000-8000-000000000002"), label: "Project")
     }
 
     private func referenceParagraph() -> LoroNativeRichDocumentV1 {

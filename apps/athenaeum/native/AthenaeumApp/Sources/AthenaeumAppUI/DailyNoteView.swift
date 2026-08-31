@@ -235,6 +235,10 @@ public struct DailyNoteView: View {
     @StateObject private var mentionSearchModel: DailyNoteMentionSearchModel
     @State private var mentionContext: LoroNativeRichTextMentionContext?
     @State private var mentionInsertion: LoroNativeRichTextMentionInsertion?
+    @StateObject private var supertagSearchModel: DailyNoteInlineSupertagSearchModel
+    @State private var supertagContext: LoroNativeRichTextSupertagContext?
+    @State private var supertagInsertion: LoroNativeRichTextSupertagInsertion?
+    @State private var supertagSelectionInFlight = false
 
     public init(model: AthenaeumViewModel) {
         self.model = model
@@ -249,6 +253,7 @@ public struct DailyNoteView: View {
         self.standupLifecycleDriver = .live
         _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
         _mentionSearchModel = StateObject(wrappedValue: .init(client: nil))
+        _supertagSearchModel = StateObject(wrappedValue: .init(client: nil))
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -289,6 +294,7 @@ public struct DailyNoteView: View {
             includeLedger: true
         ))
         _mentionSearchModel = StateObject(wrappedValue: .init(client: mentionSearchClient))
+        _supertagSearchModel = StateObject(wrappedValue: .init(client: mentionSearchClient))
     }
 
     public var body: some View {
@@ -665,6 +671,9 @@ public struct DailyNoteView: View {
     private func dismissMentionPicker() {
         mentionContext = nil
         mentionInsertion = nil
+        supertagContext = nil
+        supertagInsertion = nil
+        supertagSelectionInFlight = false
     }
 
     /// Captures the editor's presentation witness before a note-level menu command can toggle
@@ -1180,6 +1189,7 @@ public struct DailyNoteView: View {
                     focusRequestGeneration: richEditorFocusGeneration,
                     focusRequestSelection: richEditorFocusSelection,
                     mentionInsertion: mentionInsertion,
+                    supertagInsertion: supertagInsertion,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
@@ -1188,7 +1198,8 @@ public struct DailyNoteView: View {
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) },
-                    onMentionQueryChange: handleMentionQueryChange
+                    onMentionQueryChange: handleMentionQueryChange,
+                    onSupertagQueryChange: handleSupertagQueryChange
                 )
                 #elseif os(iOS)
                 LoroNativeRichTextEditorUIKit(
@@ -1197,6 +1208,7 @@ public struct DailyNoteView: View {
                     focusRequestGeneration: richEditorFocusGeneration,
                     focusRequestSelection: richEditorFocusSelection,
                     mentionInsertion: mentionInsertion,
+                    supertagInsertion: supertagInsertion,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
@@ -1205,7 +1217,8 @@ public struct DailyNoteView: View {
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) },
-                    onMentionQueryChange: handleMentionQueryChange
+                    onMentionQueryChange: handleMentionQueryChange,
+                    onSupertagQueryChange: handleSupertagQueryChange
                 )
                 #endif
                 if let prompt = LoroNativeRichEmptyStatePresentation(
@@ -1237,6 +1250,17 @@ public struct DailyNoteView: View {
                     onDismiss: dismissMentionPicker
                 )
             }
+            .popover(item: $supertagContext) { context in
+                DailyNoteInlineSupertagPicker(
+                    context: context,
+                    model: supertagSearchModel,
+                    isApplying: supertagSelectionInFlight,
+                    onSelect: { candidate in
+                        selectInlineSupertag(candidate, context: context)
+                    },
+                    onDismiss: dismissMentionPicker
+                )
+            }
         } else {
             Text("Rich-text state is unavailable. Reload this page.")
                 .foregroundStyle(.secondary)
@@ -1253,6 +1277,106 @@ public struct DailyNoteView: View {
             mentionInsertion = nil
         }
         mentionContext = context
+    }
+
+    private func handleSupertagQueryChange(_ context: LoroNativeRichTextSupertagContext?) {
+        guard mentionSearchClient != nil else {
+            supertagContext = nil
+            supertagInsertion = nil
+            return
+        }
+        if context == nil {
+            supertagInsertion = nil
+        }
+        supertagContext = context
+    }
+
+    /// Resolves an inline `#` reference through the same authoritative membership route as the
+    /// direct note picker. The editor is temporarily disabled while an unassigned tag is applied;
+    /// only the freshly republished trigger context may then receive the typed reference.
+    private func selectInlineSupertag(
+        _ candidate: DailyNoteInlineSupertagCandidate,
+        context: LoroNativeRichTextSupertagContext
+    ) {
+        guard !supertagSelectionInFlight,
+              context.trigger == .supertag,
+              hasResolvedDailyNote,
+              case .loroRichEditable = model.pagePresentation,
+              !model.isEditorInputDisabled else { return }
+
+        supertagSelectionInFlight = true
+        let expectedNoteId = model.dailyNoteId
+        let expectedPresentation = model.pagePresentation
+        Task { @MainActor in
+            defer { supertagSelectionInFlight = false }
+            guard model.dailyNoteId == expectedNoteId,
+                  model.pagePresentation == expectedPresentation,
+                  !model.isEditorInputDisabled else { return }
+
+            // Refresh the membership decision immediately before applying. The picker catalog is
+            // intentionally independent, so a concurrent direct-picker change cannot be trusted.
+            await model.refreshDailyNoteSupertags(allowDirtyRichDraft: true)
+            guard model.dailyNoteId == expectedNoteId,
+                  model.pagePresentation == expectedPresentation,
+                  let membership = model.isDailyNoteSupertagApplied(tagId: candidate.id.rawValue) else {
+                model.resumeLoroRichDraftSubmissionIfNeeded()
+                return
+            }
+            let requiresFreshGeneration = !membership
+
+            if !membership {
+                guard await model.applyDailyNoteSupertag(
+                    tagId: candidate.id.rawValue,
+                    allowDirtyRichDraft: true
+                ) else {
+                    model.resumeLoroRichDraftSubmissionIfNeeded()
+                    return
+                }
+            }
+
+            guard model.dailyNoteId == expectedNoteId,
+                  model.pagePresentation == expectedPresentation else {
+                model.resumeLoroRichDraftSubmissionIfNeeded()
+                return
+            }
+
+            guard let liveContext = await waitForLiveSupertagContext(
+                matching: context,
+                requiresFreshGeneration: requiresFreshGeneration
+            ) else {
+                model.resumeLoroRichDraftSubmissionIfNeeded()
+                return
+            }
+
+            supertagContext = nil
+            supertagInsertion = .init(
+                generation: liveContext.generation,
+                utf16Range: liveContext.utf16Range,
+                reference: candidate.reference,
+                trigger: .supertag
+            )
+        }
+    }
+
+    private func waitForLiveSupertagContext(
+        matching expected: LoroNativeRichTextSupertagContext,
+        requiresFreshGeneration: Bool
+    ) async -> LoroNativeRichTextSupertagContext? {
+        for _ in 0..<80 {
+            guard !Task.isCancelled,
+                  hasResolvedDailyNote,
+                  model.pagePresentation == .loroRichEditable else { return nil }
+            if let current = supertagContext,
+               current.trigger == .supertag,
+               current.query == expected.query,
+               current.utf16Range == expected.utf16Range,
+               current.selection == expected.selection,
+               (!requiresFreshGeneration || current.generation > expected.generation) {
+                return current
+            }
+            try? await Task.sleep(nanoseconds: 12_500_000)
+        }
+        return nil
     }
 
     @ViewBuilder

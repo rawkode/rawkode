@@ -350,6 +350,13 @@ public final class AthenaeumViewModel: ObservableObject {
         Self.isDailyNoteSupertagPresentationEligible(pagePresentation) && isDailyNoteSupertagPresentationSafe
     }
 
+    /// Returns the latest authoritative membership decision for an existing tag. `nil` means the
+    /// catalog/membership read is not ready, so an inline reference must wait instead of guessing.
+    public func isDailyNoteSupertagApplied(tagId: String) -> Bool? {
+        guard case .loaded(_, let appliedTagIds) = dailyNoteSupertagAssignmentState else { return nil }
+        return appliedTagIds.contains(tagId)
+    }
+
     static func isDailyNoteSupertagPresentationEligible(_ presentation: PagePresentation) -> Bool {
         presentation == .loroPlainEditable || presentation == .loroRichEditable
     }
@@ -1026,8 +1033,8 @@ public final class AthenaeumViewModel: ObservableObject {
 
     /// Reads both sides of the assignment decision from server authority. A tag selector is never
     /// enabled from an old catalog or an optimistic local membership cache.
-    public func refreshDailyNoteSupertags() async {
-        guard isDailyNoteSupertagAssignmentEligible else {
+    public func refreshDailyNoteSupertags(allowDirtyRichDraft: Bool = false) async {
+        guard isDailyNoteSupertagReadEligible(allowDirtyRichDraft: allowDirtyRichDraft) else {
             dailyNoteSupertagReadGeneration &+= 1
             dailyNoteSupertagReadClaim = nil
             dailyNoteSupertagAssignmentState = .idle
@@ -1083,7 +1090,11 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
-    public func applyDailyNoteSupertag(tagId: String) async {
+    /// Applies a tag and returns true only after the authoritative membership reread confirms it.
+    /// A successful mutation response alone is not enough: the read model is the semantic source
+    /// consumed by both the direct picker and inline reference flow.
+    @discardableResult
+    public func applyDailyNoteSupertag(tagId: String, allowDirtyRichDraft: Bool = false) async -> Bool {
         guard case .loaded(let tags, let applied) = dailyNoteSupertagAssignmentState,
               !applied.contains(tagId),
               let tag = tags.first(where: { $0.id == tagId }),
@@ -1092,8 +1103,9 @@ public final class AthenaeumViewModel: ObservableObject {
               pendingDailyNoteSupertagIntent == nil,
               !externalMutationInFlight,
               !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
-              isDailyNoteSupertagPresentationSafe
-        else { return }
+              (isDailyNoteSupertagPresentationSafe ||
+               (allowDirtyRichDraft && isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true)))
+        else { return false }
 
         let intent = PendingDailyNoteSupertagIntent(
             claim: readClaim,
@@ -1108,32 +1120,54 @@ public final class AthenaeumViewModel: ObservableObject {
         pendingDailyNoteSupertagIntent = intent
         guard let mutationToken = dailyNoteSupertagMutationGate.claim() else {
             pendingDailyNoteSupertagIntent = nil
-            return
+            return false
         }
         isDailyNoteSupertagMutationInFlight = true
         externalMutationInFlight = true
-        await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
+        if allowDirtyRichDraft, case .loroRichEditable = pagePresentation {
+            // The inline trigger is a local draft. Pause its page debounce while the independent
+            // graph mutation is in flight; the eventual typed-reference insertion will schedule
+            // the page submission again, while a failed mutation can explicitly resume the draft.
+            loroRichDebounceTask?.cancel()
+            loroRichDebounceTask = nil
+            loroRichDraftRevision &+= 1
+        }
+        return await submitClaimedDailyNoteSupertag(
+            intent,
+            mutationToken: mutationToken,
+            allowDirtyRichDraft: allowDirtyRichDraft
+        )
     }
 
-    public func retryDailyNoteSupertagAssignment() async {
+    @discardableResult
+    public func retryDailyNoteSupertagAssignment() async -> Bool {
         guard let intent = pendingDailyNoteSupertagIntent, !externalMutationInFlight,
               isCurrent(intent.claim.selection, generation: intent.claim.pageGeneration),
               !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
-              isDailyNoteSupertagPresentationSafe else { return }
-        guard let mutationToken = dailyNoteSupertagMutationGate.claim() else { return }
+              isDailyNoteSupertagPresentationSafe else { return false }
+        guard let mutationToken = dailyNoteSupertagMutationGate.claim() else { return false }
         isDailyNoteSupertagMutationInFlight = true
         externalMutationInFlight = true
-        await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
+        return await submitClaimedDailyNoteSupertag(
+            intent,
+            mutationToken: mutationToken,
+            allowDirtyRichDraft: false
+        )
     }
 
-    private func submitClaimedDailyNoteSupertag(_ intent: PendingDailyNoteSupertagIntent, mutationToken: Int) async {
+    private func submitClaimedDailyNoteSupertag(
+        _ intent: PendingDailyNoteSupertagIntent,
+        mutationToken: Int,
+        allowDirtyRichDraft: Bool
+    ) async -> Bool {
         guard pendingDailyNoteSupertagIntent == intent,
               isCurrentDailyNoteSupertagRead(intent.claim),
               !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
-              isDailyNoteSupertagPresentationSafe
+              (isDailyNoteSupertagPresentationSafe ||
+               (allowDirtyRichDraft && isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true)))
         else {
             releaseDailyNoteSupertagMutation(mutationToken)
-            return
+            return false
         }
         defer {
             // A delayed A completion must never release B's mutation gate.
@@ -1150,24 +1184,28 @@ public final class AthenaeumViewModel: ObservableObject {
             )
             guard output.nodeId == intent.nodeId, output.tagId == intent.tagId,
                   isCurrentDailyNoteSupertagRead(intent.claim)
-            else { return }
+            else { return false }
             // Keep the intent until the authoritative membership read confirms the write. A
             // successful RPC response is not itself a read-model snapshot; clearing custody here
             // would make a response-loss/reconciliation failure look like a completed assignment.
-            await refreshDailyNoteSupertags()
+            await refreshDailyNoteSupertags(allowDirtyRichDraft: allowDirtyRichDraft)
             if case .loaded(_, let applied) = dailyNoteSupertagAssignmentState,
                applied.contains(intent.tagId.rawValue) {
                 pendingDailyNoteSupertagIntent = nil
+                return true
             }
+            return false
         } catch {
-            guard isCurrentDailyNoteSupertagRead(intent.claim) else { return }
+            guard isCurrentDailyNoteSupertagRead(intent.claim) else { return false }
             // Response loss is ambiguous. Reconcile first; only a still-unconfirmed exact intent
             // remains retryable, retaining its immutable request identity.
-            await refreshDailyNoteSupertags()
+            await refreshDailyNoteSupertags(allowDirtyRichDraft: allowDirtyRichDraft)
             if case .loaded(_, let applied) = dailyNoteSupertagAssignmentState,
                applied.contains(intent.tagId.rawValue) {
                 pendingDailyNoteSupertagIntent = nil
+                return true
             }
+            return false
         }
     }
 
@@ -1175,6 +1213,27 @@ public final class AthenaeumViewModel: ObservableObject {
         guard dailyNoteSupertagMutationGate.release(mutationToken) else { return }
         isDailyNoteSupertagMutationInFlight = false
         externalMutationInFlight = false
+    }
+
+    /// Resumes a rich draft whose debounce was paused for an inline membership confirmation. The
+    /// inline host calls this only when confirmation fails or the live editor context disappears;
+    /// a successful typed-reference insertion schedules the ordinary debounce itself.
+    public func resumeLoroRichDraftSubmissionIfNeeded() {
+        guard !isEditorInputDisabled,
+              !loroDraftBlocked,
+              case .loroRichEditable = pagePresentation,
+              let session = loroRichSession,
+              session.draft != session.base.document else { return }
+        loroRichDebounceTask?.cancel()
+        loroRichDraftRevision &+= 1
+        let revision = loroRichDraftRevision
+        let selection = activeSelection
+        let generation = pageOperationGeneration
+        loroRichDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.submitLoroRichDraft(selection: selection, generation: generation, revision: revision)
+        }
     }
 
     private var isDailyNoteSupertagPresentationSafe: Bool {
@@ -1185,6 +1244,16 @@ public final class AthenaeumViewModel: ObservableObject {
             return loroRichSession != nil && loroRichSession?.draft == loroRichSession?.base.document
         default: return false
         }
+    }
+
+    private func isDailyNoteSupertagReadEligible(allowDirtyRichDraft: Bool) -> Bool {
+        guard Self.isDailyNoteSupertagPresentationEligible(pagePresentation),
+              !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked
+        else { return false }
+        if allowDirtyRichDraft, case .loroRichEditable = pagePresentation {
+            return loroRichSession != nil
+        }
+        return isDailyNoteSupertagPresentationSafe
     }
 
     private func isCurrentDailyNoteSupertagRead(_ claim: DailyNoteSupertagReadClaim) -> Bool {

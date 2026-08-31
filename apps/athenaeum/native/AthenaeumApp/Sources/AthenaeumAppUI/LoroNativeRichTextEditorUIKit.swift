@@ -13,9 +13,10 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     /// Optional scalar selection captured before an editor-adjacent command moved focus. It is
     /// consumed only with the matching focus generation, never on ordinary SwiftUI updates.
     let focusRequestSelection: LoroNativeRichTextSelection?
-    /// A picker result is a one-shot command keyed by the trigger generation. The controller
-    /// validates the captured range against its current semantic document before admitting it.
+    /// Picker results are one-shot commands keyed by a trigger generation. The controller
+    /// validates the captured range against its current semantic document before admitting them.
     let mentionInsertion: LoroNativeRichTextMentionInsertion?
+    let supertagInsertion: LoroNativeRichTextSupertagInsertion?
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
@@ -25,6 +26,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
     /// The host owns the SwiftUI picker; the adapter only reports an immutable trigger snapshot.
     let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
+    let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
 
     init(
         state: LoroNativeRichEditorState,
@@ -32,24 +34,28 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         focusRequestGeneration: Int,
         focusRequestSelection: LoroNativeRichTextSelection?,
         mentionInsertion: LoroNativeRichTextMentionInsertion? = nil,
+        supertagInsertion: LoroNativeRichTextSupertagInsertion? = nil,
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void,
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void,
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void,
-        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in }
+        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
+        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in }
     ) {
         self.state = state
         self.isEditable = isEditable
         self.focusRequestGeneration = focusRequestGeneration
         self.focusRequestSelection = focusRequestSelection
         self.mentionInsertion = mentionInsertion
+        self.supertagInsertion = supertagInsertion
         self.onDocumentChange = onDocumentChange
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
         self.onFocusChange = onFocusChange
         self.onOpenReference = onOpenReference
         self.onMentionQueryChange = onMentionQueryChange
+        self.onSupertagQueryChange = onSupertagQueryChange
     }
 
     func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
@@ -61,7 +67,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             onRejectedInput: onRejectedInput,
             onFocusChange: onFocusChange,
             onOpenReference: onOpenReference,
-            onMentionQueryChange: onMentionQueryChange
+            onMentionQueryChange: onMentionQueryChange,
+            onSupertagQueryChange: onSupertagQueryChange
         )
     }
 
@@ -71,6 +78,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         context.coordinator.update(document: state.document, isEditable: isEditable)
         context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
         context.coordinator.applyMentionInsertion(mentionInsertion)
+        context.coordinator.applySupertagInsertion(supertagInsertion)
     }
 
     static func dismantleUIView(_ view: UITextView, coordinator: LoroNativeRichTextEditorUIKitController) {
@@ -111,9 +119,10 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private let onFocusChange: (Bool) -> Void
     private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
     private let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
-    private var nextMentionGeneration = 0
-    private var lastMentionContext: LoroNativeRichTextMentionContext?
-    private var lastAppliedMentionGeneration = 0
+    private let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
+    private var nextReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
+    private var lastReferenceContexts: [LoroNativeRichTextReferenceTrigger: LoroNativeRichTextInlineReferenceContext] = [:]
+    private var lastAppliedReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
 
     init(
         document: LoroNativeRichDocumentV1,
@@ -123,7 +132,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in },
         onFocusChange: @escaping (Bool) -> Void = { _ in },
         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in },
-        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in }
+        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
+        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in }
     ) {
         engine = .init(document: document)
         isEditableInput = isEditable
@@ -133,6 +143,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         self.onFocusChange = onFocusChange
         self.onOpenReference = onOpenReference
         self.onMentionQueryChange = onMentionQueryChange
+        self.onSupertagQueryChange = onSupertagQueryChange
         super.init()
         textView.richController = self
         textView.delegate = self
@@ -169,7 +180,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         let wasEditable = isEditableInput
         isEditableInput = isEditable
         textView.isEditable = isEditable
-        if !isEditable { invalidateMentionContext() }
+        if !isEditable { invalidateAllReferenceContexts() }
         if !wasEditable, isEditable { fulfillFocusRequestIfPossible() }
         if wasEditable, !isEditable, (engine.compositionState != .idle || pendingComposition || hasMarkedText) {
             deferredParentDocument = document
@@ -181,18 +192,18 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         case let .adopted(document, selection):
             // A remote replacement may happen to contain the same visible trigger. It still
             // needs a new generation so a picker result from the prior document cannot apply.
-            invalidateMentionContext()
+            invalidateAllReferenceContexts()
             render(document, preserving: selection)
         case let .acknowledged(document, selection):
-            invalidateMentionContext()
+            invalidateAllReferenceContexts()
             render(document, preserving: selection)
         case .deferredForComposition:
             deferredParentDocument = document
         case .deferredForLocalProposal, .unchanged:
-            publishMentionContext()
+            publishReferenceContexts()
             return
         }
-        publishMentionContext()
+        publishReferenceContexts()
     }
 
     func requestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
@@ -241,7 +252,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard !rendering, let selection = scalarSelection() else { return }
         engine.setSelection(selection)
         onSelectionChange(selection)
-        publishMentionContext()
+        publishReferenceContexts()
     }
 
     fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
@@ -255,7 +266,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         hostCompositionGeneration &+= 1
         scheduledFlushGeneration = nil
         pendingComposition = true
-        invalidateMentionContext()
+        invalidateAllReferenceContexts()
     }
 
     fileprivate func updateComposition(_ replacement: String) { engine.updateComposition(replacement) }
@@ -302,12 +313,16 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     func testingSelect(_ range: NSRange) {
         textView.selectedRange = range
         if let selection = scalarSelection() { engine.setSelection(selection) }
-        publishMentionContext()
+        publishReferenceContexts()
     }
     func testingApplyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
         applyMentionInsertion(insertion)
     }
+    func testingApplySupertagInsertion(_ insertion: LoroNativeRichTextSupertagInsertion?) {
+        applySupertagInsertion(insertion)
+    }
     func testingDismissMentionContext() { dismissMentionContext() }
+    func testingDismissSupertagContext() { dismissSupertagContext() }
     func testingSelection() -> LoroNativeRichTextSelection? { scalarSelection() }
     func testingRequestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
         requestFocus(generation: generation, selection: selection)
@@ -406,7 +421,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         case .noChange:
             break
         }
-        publishMentionContext()
+        publishReferenceContexts()
         return false
     }
 
@@ -435,62 +450,100 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     /// Consumes only the command for the exact context still visible at the current caret. This
-    /// prevents a delayed picker result from applying after a query, caret, or document change.
-    func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+    /// prevents a delayed picker result from applying after a query, caret, document, or trigger
+    /// change.
+    private func applyInlineReferenceInsertion(
+        _ insertion: LoroNativeRichTextInlineReferenceInsertion?,
+        trigger: LoroNativeRichTextReferenceTrigger
+    ) {
         guard let insertion else { return }
         guard isEditableInput else { reject(.disabled); return }
         guard !pendingComposition, !hasMarkedText else { reject(.invalidEdit); return }
-        guard insertion.generation > lastAppliedMentionGeneration,
-              let published = lastMentionContext,
+        guard insertion.trigger == trigger,
+              insertion.reference.kind == trigger.referenceKind,
+              insertion.generation > (lastAppliedReferenceGenerations[trigger] ?? 0),
+              let published = lastReferenceContexts[trigger],
               insertion.generation == published.generation,
+              insertion.trigger == published.trigger,
               insertion.utf16Range == published.utf16Range,
               scalarSelection() == published.selection,
-              let current = LoroNativeRichTextMentionContext.detect(
+              let current = LoroNativeRichTextInlineReferenceContext.detect(
                   in: textView.attributedText ?? NSAttributedString(),
-                  selection: textView.selectedRange
+                  selection: textView.selectedRange,
+                  trigger: trigger
               ),
+              current.trigger == published.trigger,
               current.query == published.query,
               current.utf16Range == published.utf16Range,
               current.selection == published.selection
         else { reject(.invalidEdit); return }
-        lastAppliedMentionGeneration = insertion.generation
+        lastAppliedReferenceGenerations[trigger] = insertion.generation
         insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range)
     }
 
-    /// The host calls this when its picker is dismissed without a selection.
-    func dismissMentionContext() { invalidateMentionContext() }
-
-    private func publishMentionContext() {
-        guard isEditableInput, !pendingComposition, !hasMarkedText,
-              let context = LoroNativeRichTextMentionContext.detect(
-                  in: textView.attributedText ?? NSAttributedString(),
-                  selection: textView.selectedRange
-              ) else {
-            invalidateMentionContext()
-            return
-        }
-
-        if let previous = lastMentionContext,
-           previous.query == context.query,
-           previous.utf16Range == context.utf16Range,
-           previous.selection == context.selection {
-            return
-        }
-        nextMentionGeneration &+= 1
-        let published = LoroNativeRichTextMentionContext(
-            generation: nextMentionGeneration,
-            query: context.query,
-            utf16Range: context.utf16Range,
-            selection: context.selection
-        )
-        lastMentionContext = published
-        onMentionQueryChange(published)
+    func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+        applyInlineReferenceInsertion(insertion, trigger: .mention)
     }
 
-    private func invalidateMentionContext() {
-        guard lastMentionContext != nil else { return }
-        lastMentionContext = nil
-        onMentionQueryChange(nil)
+    func applySupertagInsertion(_ insertion: LoroNativeRichTextSupertagInsertion?) {
+        applyInlineReferenceInsertion(insertion, trigger: .supertag)
+    }
+
+    /// The host calls this when a picker is dismissed without a selection.
+    func dismissMentionContext() { invalidateReferenceContext(.mention) }
+    func dismissSupertagContext() { invalidateReferenceContext(.supertag) }
+
+    private func publishReferenceContexts() {
+        for trigger in LoroNativeRichTextReferenceTrigger.allCases {
+            guard isEditableInput, !pendingComposition, !hasMarkedText,
+                  let context = LoroNativeRichTextInlineReferenceContext.detect(
+                      in: textView.attributedText ?? NSAttributedString(),
+                      selection: textView.selectedRange,
+                      trigger: trigger
+                  ) else {
+                invalidateReferenceContext(trigger)
+                continue
+            }
+
+            if let previous = lastReferenceContexts[trigger],
+               previous.query == context.query,
+               previous.utf16Range == context.utf16Range,
+               previous.selection == context.selection {
+                continue
+            }
+            let nextGeneration = (nextReferenceGenerations[trigger] ?? 0) &+ 1
+            nextReferenceGenerations[trigger] = nextGeneration
+            let published = LoroNativeRichTextInlineReferenceContext(
+                generation: nextGeneration,
+                query: context.query,
+                utf16Range: context.utf16Range,
+                selection: context.selection,
+                trigger: trigger
+            )
+            lastReferenceContexts[trigger] = published
+            switch trigger {
+            case .mention:
+                onMentionQueryChange(published)
+            case .supertag:
+                onSupertagQueryChange(published)
+            }
+        }
+    }
+
+    private func invalidateAllReferenceContexts() {
+        for trigger in LoroNativeRichTextReferenceTrigger.allCases {
+            invalidateReferenceContext(trigger)
+        }
+    }
+
+    private func invalidateReferenceContext(_ trigger: LoroNativeRichTextReferenceTrigger) {
+        guard lastReferenceContexts.removeValue(forKey: trigger) != nil else { return }
+        switch trigger {
+        case .mention:
+            onMentionQueryChange(nil)
+        case .supertag:
+            onSupertagQueryChange(nil)
+        }
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {

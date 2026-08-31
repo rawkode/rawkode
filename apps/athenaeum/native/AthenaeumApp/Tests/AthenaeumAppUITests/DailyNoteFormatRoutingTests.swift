@@ -1887,8 +1887,8 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         let first = Task { await model.applyDailyNoteSupertag(tagId: tagID.rawValue) }
         try await Task.sleep(nanoseconds: 10_000_000)
         let second = Task { await model.applyDailyNoteSupertag(tagId: tagID.rawValue) }
-        await first.value
-        await second.value
+        _ = await first.value
+        _ = await second.value
 
         XCTAssertEqual(client.applyCount, 1, "the synchronous pending-intent claim must fence a second press")
     }
@@ -1924,7 +1924,7 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         model.showDate(date.addingTimeInterval(86_400))
 
         XCTAssertEqual(model.selectedDate, pinnedDate, "navigation must not discard a claimed note-level semantic operation")
-        await mutation.value
+        _ = await mutation.value
         XCTAssertEqual(model.dailyNoteId, node, "the accepted receipt belongs only to the pinned note")
         XCTAssertEqual(client.appliedInputs.map(\.nodeId), [node.rawValue])
     }
