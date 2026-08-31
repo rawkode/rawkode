@@ -2,14 +2,16 @@ import XCTest
 @testable import AthenaeumCore
 
 final class LoroNativePlanTodayStarterTests: XCTestCase {
-    func testManifestUsesOnlyCanonicalHeadingsAndParagraphs() {
+    func testManifestUsesCanonicalFocusChecklistAndNotes() {
         XCTAssertEqual(
             LoroNativePlanTodayStarter.document.semantic.blocks,
             [
                 .heading(level: 2, runs: [.init(text: "Focus")]),
-                .paragraph([.init(text: "Priority 1")]),
-                .paragraph([.init(text: "Priority 2")]),
-                .paragraph([.init(text: "Priority 3")]),
+                .taskList([
+                    .init(checked: false, runs: [.init(text: "Priority 1")]),
+                    .init(checked: false, runs: [.init(text: "Priority 2")]),
+                    .init(checked: false, runs: [.init(text: "Priority 3")]),
+                ]),
                 .heading(level: 2, runs: [.init(text: "Notes")]),
                 .paragraph([]),
             ]

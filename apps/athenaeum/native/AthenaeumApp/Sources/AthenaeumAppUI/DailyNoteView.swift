@@ -1270,7 +1270,9 @@ public struct DailyNoteView: View {
                     focusRequestSelection: richEditorFocusSelection,
                     mentionInsertion: mentionInsertion,
                     supertagInsertion: supertagInsertion,
+                    taskToggleAcknowledgement: model.loroRichTaskToggleAcknowledgement,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
+                    onTaskToggle: { model.handleLoroRichTaskToggle($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
                         model.handleLoroRichSelectionChange($0)
@@ -1290,7 +1292,9 @@ public struct DailyNoteView: View {
                     focusRequestSelection: richEditorFocusSelection,
                     mentionInsertion: mentionInsertion,
                     supertagInsertion: supertagInsertion,
+                    taskToggleAcknowledgement: model.loroRichTaskToggleAcknowledgement,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
+                    onTaskToggle: { model.handleLoroRichTaskToggle($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
                         model.handleLoroRichSelectionChange($0)

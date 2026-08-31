@@ -634,6 +634,115 @@ public actor LoroPageDocumentStore {
         return .minted(workspaceId: workspaceId, checkpoint: checkpoint, baseSnapshot: baseSnapshot, baseSnapshotSHA256: digest(baseSnapshot), literal: literal, nativePlainText: appliedText(from: semantic), semantic: semantic)
     }
 
+    /// Builds a checklist toggle from the exact frozen accepted base. Unlike the generic rich
+    /// writer above, this candidate mutates only the witnessed task item's `checked` map key;
+    /// every existing container and text identity remains intact for a narrow CRDT update.
+    func prepareNativeRichTaskToggleCandidateV1(
+        nodeId: EntityId,
+        route: LoroPageRouteWitness,
+        persistedReplica: LoroPageReplicaWitness,
+        publishedReplica: LoroPageReplicaWitness,
+        isDirty: Bool,
+        workspaceId: EntityId,
+        intent: LoroMutationIntentV1,
+        command: LoroNativeRichTaskItemToggleCommand
+    ) throws -> LoroFrozenLiteralCandidate {
+        guard !isDirty,
+              let cached = literal[nodeId.rawValue],
+              cached.state.workspaceId == workspaceId else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let actual = LoroPageReplicaWitness(snapshotSHA256: cached.state.localSnapshotSHA256, versionVectorSHA256: cached.state.versionVectorSHA256)
+        guard cached.state.route == route,
+              route.snapshotSHA256 == actual.snapshotSHA256,
+              persistedReplica == actual,
+              publishedReplica == actual else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let baseSnapshot = cached.state.snapshotBytes
+        let base = try importedLiteralDocument(snapshot: baseSnapshot)
+        let baseVersion = base.oplogVv().encode()
+        let baseSemantic = try inspectNativeSemantic(in: base)
+        guard command.taskListIndex >= 0,
+              command.taskListIndex < baseSemantic.blocks.count,
+              case let .taskList(items) = baseSemantic.blocks[command.taskListIndex],
+              command.itemIndex >= 0,
+              command.itemIndex < items.count,
+              items[command.itemIndex] == command.expectedItem else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let peer = freshNativeRichPeer()
+        let clone = LoroDoc()
+        do {
+            try clone.setPeerId(peer: peer)
+            configureNativeRichStyles(clone)
+            _ = try clone.import(bytes: baseSnapshot)
+            let root = clone.getMap(id: "athenaeum-prosemirror-v1")
+            guard let rootChildren = root.get(key: "children")?.asLoroList(),
+                  let taskList = rootChildren.get(index: UInt32(command.taskListIndex))?.asLoroMap(),
+                  case .string("task_list")? = taskList.get(key: "nodeName")?.asValue(),
+                  let itemChildren = taskList.get(key: "children")?.asLoroList(),
+                  let taskItem = itemChildren.get(index: UInt32(command.itemIndex))?.asLoroMap(),
+                  case .string("task_item")? = taskItem.get(key: "nodeName")?.asValue(),
+                  let attributes = taskItem.get(key: "attributes")?.asLoroMap(),
+                  attributes.get(key: "checked")?.asValue() == .bool(value: command.expectedItem.checked) else {
+                throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+            }
+            try attributes.insert(key: "checked", v: !command.expectedItem.checked)
+            clone.commit()
+        } catch let error as LoroPageDocumentStoreError {
+            throw error
+        } catch {
+            throw LoroPageDocumentStoreError.nativePlainTextMutationFailed
+        }
+        let update: Data
+        do { update = try clone.export(mode: .updates(from: try VersionVector.decode(bytes: baseVersion))) }
+        catch { throw LoroPageDocumentStoreError.nativePlainTextMutationFailed }
+        guard !update.isEmpty else { throw LoroPageDocumentStoreError.nativePlainTextNoOp }
+        let candidateSemantic = try inspectNativeSemantic(in: clone)
+        guard command.taskListIndex < candidateSemantic.blocks.count,
+              case let .taskList(candidateItems) = candidateSemantic.blocks[command.taskListIndex],
+              command.itemIndex < candidateItems.count,
+              candidateItems[command.itemIndex].checked == !command.expectedItem.checked,
+              candidateItems[command.itemIndex].runs == command.expectedItem.runs else {
+            throw LoroPageDocumentStoreError.nativePlainTextMutationFailed
+        }
+        let prepared = try prepared(nodeId: nodeId, from: clone)
+        let expectedRoute = LoroPageRouteWitness(
+            nodeId: nodeId,
+            format: .loroV1,
+            storageVersion: try incrementStorageVersion(route.storageVersion),
+            schemaVersion: route.schemaVersion,
+            snapshotSHA256: prepared.localSnapshotSHA256
+        )
+        let checkpoint = try LoroSemanticCheckpoint(
+            workspaceId: workspaceId,
+            nodeId: nodeId,
+            state: .inFlight,
+            intent: intent,
+            route: route,
+            update: update,
+            baseVersionVector: baseVersion
+        )
+        let literal = try literalState(
+            workspaceId: workspaceId,
+            nodeId: nodeId,
+            route: expectedRoute,
+            snapshot: prepared.snapshotBytes,
+            expectedVersionVector: prepared.versionBytes,
+            allowRich: true
+        )
+        return .minted(
+            workspaceId: workspaceId,
+            checkpoint: checkpoint,
+            baseSnapshot: baseSnapshot,
+            baseSnapshotSHA256: digest(baseSnapshot),
+            literal: literal,
+            nativePlainText: appliedText(from: candidateSemantic),
+            semantic: candidateSemantic
+        )
+    }
+
 
     /// Loro version-vector wire encodings are not the equality contract. Decode both values and
     /// compare the semantic vectors, so a peer's equivalent encoding cannot keep a replica dirty.

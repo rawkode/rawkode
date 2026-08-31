@@ -21,6 +21,65 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(storage), document)
     }
 
+    func testChecklistToggleUsesAcknowledgedAdoptionLaneAndPublishesNoOrdinaryDraft() throws {
+        let source = checklistDocument()
+        let rendered = try LoroNativeRichTextCodec.attributedString(for: source)
+        var commands: [LoroNativeRichTaskItemToggleCommand] = []
+        var ordinaryPublishes: [LoroNativeRichDocumentV1] = []
+        var rejections: [LoroNativeRichTextEditorController.Rejection] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { ordinaryPublishes.append($0) },
+            onTaskToggle: { commands.append($0) },
+            onRejectedInput: { rejections.append($0) }
+        )
+
+        let command = try XCTUnwrap(editor.testingTaskToggle(atUTF16Offset: 0))
+        XCTAssertEqual(commands, [command])
+        XCTAssertEqual(command.taskListIndex, 0)
+        XCTAssertEqual(command.itemIndex, 0)
+        XCTAssertEqual(command.expectedItem.checked, false)
+        XCTAssertEqual(editor.testingDocument(), source, "the native surface waits for Core acknowledgement")
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+
+        let acknowledged = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .taskList([
+                .init(checked: true, runs: [.init(text: "one")]),
+                .init(checked: true, runs: [.init(text: "two")]),
+            ])
+        ]))
+        editor.applyTaskToggleAcknowledgement(.init(commandID: command.commandID, document: acknowledged))
+        XCTAssertEqual(editor.testingDocument(), acknowledged)
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+        XCTAssertTrue(rejections.isEmpty)
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), acknowledged)
+
+        // The same receipt is idempotent at the presentation boundary.
+        editor.applyTaskToggleAcknowledgement(.init(commandID: command.commandID, document: acknowledged))
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+        _ = rendered
+    }
+
+    func testChecklistToggleStaleGenerationIsRejectedAfterParentAdoption() throws {
+        let source = checklistDocument()
+        var commands: [LoroNativeRichTaskItemToggleCommand] = []
+        var rejections: [LoroNativeRichTextEditorController.Rejection] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: source,
+            isEditable: true,
+            onTaskToggle: { commands.append($0) },
+            onRejectedInput: { rejections.append($0) }
+        )
+        let command = try XCTUnwrap(editor.testingTaskToggle(atUTF16Offset: 0))
+        let replacement = checklistDocument(first: "remote")
+        editor.update(document: replacement, isEditable: true)
+        editor.applyTaskToggleAcknowledgement(.init(commandID: command.commandID, document: source))
+        XCTAssertEqual(editor.testingDocument(), replacement)
+        XCTAssertEqual(rejections, [.invalidEdit])
+        XCTAssertEqual(commands.count, 1)
+    }
+
     func testFormattingCommandChangesOnlyMarkerAndCanonicallyRoundTrips() throws {
         var published: [LoroNativeRichDocumentV1] = []
         let editor = LoroNativeRichTextEditorController(document: paragraph("hello"), isEditable: true, onDocumentChange: { published.append($0) })
@@ -611,6 +670,13 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
     private func referenceParagraph() -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([
             .init(text: "Meet "), .init(text: "Alice", reference: reference()), .init(text: " today")
+        ])]))
+    }
+
+    private func checklistDocument(first: String = "one") -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.taskList([
+            .init(checked: false, runs: [.init(text: first)]),
+            .init(checked: true, runs: [.init(text: "two")]),
         ])]))
     }
 }

@@ -2,8 +2,7 @@ import type { Node as PMNode, NodeType, Schema } from "prosemirror-model"
 
 /**
  * The smallest useful morning plan that is losslessly editable on every Athenaeum client.
- * Keep this manifest deliberately boring: it uses only the paragraph/heading subset admitted by
- * the native Loro editor, so choosing the starter cannot strand a note in a web-only shape.
+ * Priorities are a real task list so the same document supports completion on web and native.
  */
 export const PLAN_TODAY_STARTER = {
   focusHeading: "Focus",
@@ -20,13 +19,16 @@ export const isCanonicalEmptyPlanTodayDocument = (document: PMNode): boolean =>
 export const createPlanTodayStarterNodes = (schema: Schema): PMNode[] => {
   const heading = schema.nodes.heading
   const paragraph = schema.nodes.paragraph
-  if (heading === undefined || paragraph === undefined) {
-    throw new Error("Plan today starter requires paragraph and heading nodes")
+  const taskList = schema.nodes.task_list
+  const taskItem = schema.nodes.task_item
+  if (heading === undefined || paragraph === undefined || taskList === undefined || taskItem === undefined) {
+    throw new Error("Plan today starter requires paragraph, heading, and checklist nodes")
   }
   const text = (value: string): PMNode => paragraph.create(null, schema.text(value))
+  const item = (value: string): PMNode => taskItem.create({ checked: false }, text(value))
   return [
     heading.create({ level: 2 }, schema.text(PLAN_TODAY_STARTER.focusHeading)),
-    ...PLAN_TODAY_STARTER.priorities.map(text),
+    taskList.create(null, PLAN_TODAY_STARTER.priorities.map(item)),
     heading.create({ level: 2 }, schema.text(PLAN_TODAY_STARTER.notesHeading)),
     paragraph.create()
   ]

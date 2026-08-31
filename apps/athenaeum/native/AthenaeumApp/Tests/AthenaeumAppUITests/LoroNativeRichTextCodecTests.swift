@@ -167,6 +167,44 @@ final class LoroNativeRichTextCodecTests: XCTestCase {
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(NSAttributedString(string: "\n")).semantic.blocks, [.paragraph([]), .paragraph([])])
     }
 
+    func testTaskListRoundTripPreservesTopologyCheckedStateMarksReferencesAndEmptyItems() throws {
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(
+            kind: .entity,
+            id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"),
+            label: "Alice"
+        )
+        let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "Before")]),
+            .taskList([
+                .init(checked: false, runs: []),
+                .init(checked: true, runs: [.init(text: "Alice", marks: [.strong], reference: reference)]),
+                .init(checked: false, runs: []),
+                .init(checked: true, runs: [.init(text: "Ship", marks: [.code])])
+            ]),
+            .taskList([.init(checked: false, runs: [])]),
+            .paragraph([.init(text: "After")])
+        ]))
+
+        let rendered = try LoroNativeRichTextCodec.attributedString(for: document)
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(rendered), document)
+        XCTAssertEqual(LoroNativeRichTextCodec.taskItem(atUTF16Offset: 0, in: rendered), nil, "ordinary prose is not a task target")
+        let firstTaskOffset = rendered.string.utf16.firstIndex(of: 10).map { rendered.string.utf16.distance(from: rendered.string.utf16.startIndex, to: $0) }
+        XCTAssertEqual(firstTaskOffset, 6, "the first empty task item terminates after the prose line")
+        XCTAssertEqual(LoroNativeRichTextCodec.taskItem(atUTF16Offset: firstTaskOffset!, in: rendered), .init(taskListIndex: 1, itemIndex: 0, checked: false))
+        let aliceOffset = (rendered.string as NSString).range(of: "Alice").location
+        XCTAssertEqual(LoroNativeRichTextCodec.taskItem(atUTF16Offset: aliceOffset, in: rendered), .init(taskListIndex: 1, itemIndex: 1, checked: true))
+    }
+
+    func testTaskTopologyCannotBeManufacturedByStringMarkersOrPlainPaste() throws {
+        let source = NSMutableAttributedString(string: "task")
+        source.addAttribute(blockKey, value: "task-list-0-item-0-unchecked", range: NSRange(location: 0, length: source.length))
+        XCTAssertThrowsError(try LoroNativeRichTextCodec.decode(source))
+        XCTAssertEqual(
+            try LoroNativeRichTextCodec.decode(NSAttributedString(string: "task")).semantic.blocks,
+            [.paragraph([.init(text: "task")])]
+        )
+    }
+
     func testRejectsMalformedBlockAndMarkMarkers() {
         let nonStringBlock = NSMutableAttributedString(string: "x")
         nonStringBlock.addAttribute(blockKey, value: 42, range: NSRange(location: 0, length: nonStringBlock.length))

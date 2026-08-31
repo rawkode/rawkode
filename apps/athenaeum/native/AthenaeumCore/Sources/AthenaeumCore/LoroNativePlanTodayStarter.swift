@@ -2,15 +2,17 @@ import Foundation
 
 /// The small, ordinary rich-text document used to turn a brand-new Today note into a plan.
 ///
-/// This is deliberately a manifest rather than a new document type. It uses only the canonical
-/// heading and paragraph semantics already understood by the web and native Loro projections, so
-/// it remains readable and editable everywhere that can open a v1 rich note.
+/// This is deliberately a manifest rather than a new document type. It uses the canonical
+/// heading, task-list, and paragraph semantics already understood by the web and native Loro
+/// projections, so it remains readable and editable everywhere that can open a v1 rich note.
 public enum LoroNativePlanTodayStarter {
     public static let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [
         .heading(level: 2, runs: [.init(text: "Focus")]),
-        .paragraph([.init(text: "Priority 1")]),
-        .paragraph([.init(text: "Priority 2")]),
-        .paragraph([.init(text: "Priority 3")]),
+        .taskList([
+            .init(checked: false, runs: [.init(text: "Priority 1")]),
+            .init(checked: false, runs: [.init(text: "Priority 2")]),
+            .init(checked: false, runs: [.init(text: "Priority 3")]),
+        ]),
         .heading(level: 2, runs: [.init(text: "Notes")]),
         .paragraph([]),
     ]))

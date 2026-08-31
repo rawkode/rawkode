@@ -314,6 +314,10 @@ public final class AthenaeumViewModel: ObservableObject {
     /// Automerge's text value or splice handler.
     @Published public private(set) var loroPlainDraft: String = ""
     @Published public private(set) var loroRichDraft: LoroNativeRichDocumentV1?
+    /// Acknowledged checklist state is delivered through a parent-adoption lane. Keeping this
+    /// separate from `loroRichDraft` prevents a checkbox receipt from arming the generic rich
+    /// document debounce a second time.
+    @Published public private(set) var loroRichTaskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?
     /// `true` when the explicitly selected route is not editable in the native plain-text editor.
     /// Legacy projections and unsupported rich structure remain read-only rather than inviting a
     /// cross-format or structurally unsafe local mutation.
@@ -415,7 +419,7 @@ public final class AthenaeumViewModel: ObservableObject {
         handleLoroRichDocumentChange(LoroNativePlanTodayStarter.document)
         return loroRichDraft == LoroNativePlanTodayStarter.document
     }
-    public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight }
+    public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight || pendingLoroRichTaskToggle != nil }
     /// An uncertain tag write keeps this route pinned until its immutable semantic request has
     /// been reconciled or retried; another daily note must never inherit that operation.
     public var isDailyNoteSupertagRetryAvailable: Bool {
@@ -473,6 +477,7 @@ public final class AthenaeumViewModel: ObservableObject {
     private var loroRichSession: LoroRichSession?
     private var loroRichDraftRevision = 0
     private var loroRichDebounceTask: Task<Void, Never>?
+    private var pendingLoroRichTaskToggle: (command: LoroNativeRichTaskItemToggleCommand, selection: DailyNoteSelection, generation: Int)?
     private var loroDraftRevision = 0
     private var loroDebounceTask: Task<Void, Never>?
     private var loroSubmitEntered = false
@@ -1952,6 +1957,8 @@ public final class AthenaeumViewModel: ObservableObject {
         loroPlainDraft = ""
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         loroDebounceTask?.cancel()
         loroDebounceTask = nil
         loroRichDebounceTask?.cancel()
@@ -1995,6 +2002,8 @@ public final class AthenaeumViewModel: ObservableObject {
     private func publishAutomerge(text: String, richText: Bool) {
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         self.text = text
         isRichTextReadOnly = richText
         pagePresentation = richText ? .automergeRichTextReadOnly : .automergeEditable
@@ -2009,6 +2018,8 @@ public final class AthenaeumViewModel: ObservableObject {
         loroEditorBase = nil
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         loroRecoveryAction = nil
         loroNotice = nil
         pagePresentation = .legacyMigrationRequired(content)
@@ -2019,6 +2030,8 @@ public final class AthenaeumViewModel: ObservableObject {
     private func publishLoro(_ projection: DailyNoteLoroReadOnlyState) {
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         text = ""
         isRichTextReadOnly = false
         pagePresentation = .loroReadOnly(projection)
@@ -2029,6 +2042,8 @@ public final class AthenaeumViewModel: ObservableObject {
     private func publishLoroProjection(_ projection: DailyNoteLoroProjectionState) {
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         text = ""
         isRichTextReadOnly = false
         pagePresentation = .loroProjectedReadOnly(projection)
@@ -2042,6 +2057,8 @@ public final class AthenaeumViewModel: ObservableObject {
         loroPlainDraft = state.text
         loroRichSession = nil
         loroRichDraft = nil
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         isRichTextReadOnly = false
         loroEditorBase = state
         loroRecoveryAction = nil
@@ -2059,6 +2076,8 @@ public final class AthenaeumViewModel: ObservableObject {
         let session = LoroRichSession(base: state, draft: state.document, selection: selection, generation: generation)
         loroRichSession = session
         loroRichDraft = session.draft
+        loroRichTaskToggleAcknowledgement = nil
+        pendingLoroRichTaskToggle = nil
         loroEditorBase = nil
         loroPlainDraft = ""
         isRichTextReadOnly = false
@@ -2422,6 +2441,138 @@ public final class AthenaeumViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled, let self else { return }
             await self.submitLoroRichDraft(selection: selection, generation: generation, revision: revision)
+        }
+    }
+
+    /// A checklist click is a typed, store-owned command rather than a local rich draft. The
+    /// command is fenced to the visible session and remains pending until Core returns the exact
+    /// post-toggle document; only then is the new base adopted and acknowledged to the native
+    /// editor. This keeps one checkbox click to one ledger mutation and never arms the generic
+    /// whole-document debounce.
+    func handleLoroRichTaskToggle(_ command: LoroNativeRichTaskItemToggleCommand) {
+        guard !isNavigating,
+              !loroSubmitEntered,
+              !loroDraftBlocked,
+              pendingLoroRichTaskToggle == nil,
+              case .loroRichEditable = pagePresentation,
+              let session = loroRichSession,
+              session.selection.nodeId == activeSelection.nodeId,
+              session.generation == pageOperationGeneration,
+              session.draft == session.base.document,
+              command.editorGeneration > 0,
+              command.taskListIndex >= 0,
+              command.taskListIndex < session.base.document.semantic.blocks.count,
+              case let .taskList(items) = session.base.document.semantic.blocks[command.taskListIndex],
+              command.itemIndex >= 0,
+              command.itemIndex < items.count,
+              items[command.itemIndex] == command.expectedItem,
+              isCurrent(session.selection, generation: session.generation) else { return }
+
+        preparationCompletion = nil
+        loroRichDebounceTask?.cancel()
+        loroRichDebounceTask = nil
+        loroRichDraftRevision &+= 1
+        let selection = session.selection
+        let generation = session.generation
+        pendingLoroRichTaskToggle = (command, selection, generation)
+        loroSubmitEntered = true
+        status = .syncing
+        Task { [weak self] in
+            guard let self else { return }
+            await self.submitLoroRichTaskToggle(command, selection: selection, generation: generation, base: session.base)
+        }
+    }
+
+    private func submitLoroRichTaskToggle(
+        _ command: LoroNativeRichTaskItemToggleCommand,
+        selection: DailyNoteSelection,
+        generation: Int,
+        base: LoroNativeRichEditorState
+    ) async {
+        guard pendingLoroRichTaskToggle?.command == command,
+              isCurrent(selection, generation: generation),
+              case .loroRichEditable = pagePresentation else {
+            loroSubmitEntered = false
+            return
+        }
+
+        do {
+            let result = try await pageOperations.submitNativeRichTaskItemToggle(
+                nodeId: selection.nodeId,
+                base: base,
+                command: command,
+                commitMessage: "Toggle daily note checklist item"
+            )
+            guard isCurrent(selection, generation: generation),
+                  pendingLoroRichTaskToggle?.command == command,
+                  case .loroRichEditable = pagePresentation else {
+                loroSubmitEntered = false
+                return
+            }
+
+            switch result {
+            case .submitted:
+                switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
+                case .editable(let fresh):
+                    let descriptor = try await pageOperations.descriptor(nodeId: selection.nodeId)
+                    guard descriptor.nodeId == selection.nodeId,
+                          case .nativeLoro = descriptor,
+                          fresh.route == PageRouteWitness(descriptor).coreWitness else {
+                        throw DailyNotePageRouteError.routeChanged
+                    }
+                    // Publish the authoritative base first, then expose one acknowledgement for
+                    // the controller to consume. `publishLoroRichEditable` clears stale receipt
+                    // state and cannot enqueue a generic draft submission.
+                    pendingLoroRichTaskToggle = nil
+                    publishLoroRichEditable(fresh, selection: selection, generation: generation)
+                    loroRichTaskToggleAcknowledgement = .init(commandID: command.commandID, document: fresh.document)
+                    loroSubmitEntered = false
+                    status = .synced
+                case .checkpointResolutionRequired(let resolution):
+                    pendingLoroRichTaskToggle = nil
+                    loroSubmitEntered = false
+                    loroNotice = "This checklist update is waiting for recovery (\(resolution))."
+                    status = .pending(loroNotice ?? "Checklist update waiting for recovery")
+                case .ineligible:
+                    pendingLoroRichTaskToggle = nil
+                    publishLoroClosed("Your checklist update was saved. Reload this page before editing again.", action: .recoverSavedRichEditableVersion, selection: selection, generation: generation)
+                    loroSubmitEntered = false
+                case .unauthenticated:
+                    pendingLoroRichTaskToggle = nil
+                    publishLoroClosed("Your checklist update was saved. Sign in to continue editing.", action: .continueRecovery, selection: selection, generation: generation)
+                    loroSubmitEntered = false
+                }
+            case .submittedNeedsReload:
+                pendingLoroRichTaskToggle = nil
+                publishLoroClosed("Your checklist update was saved. Reload this page before editing again.", action: .recoverSavedRichEditableVersion, selection: selection, generation: generation)
+                loroSubmitEntered = false
+            case .noChange:
+                pendingLoroRichTaskToggle = nil
+                loroSubmitEntered = false
+                loroNotice = "The checklist changed elsewhere. Reload the note before trying again."
+                status = .pending(loroNotice ?? "Checklist changed elsewhere")
+            case .unauthenticated:
+                pendingLoroRichTaskToggle = nil
+                loroSubmitEntered = false
+                loroNotice = "Sign in before updating this checklist."
+                status = .error(loroNotice ?? "Authentication required")
+            case .checkpointResolutionRequired(let resolution):
+                pendingLoroRichTaskToggle = nil
+                loroSubmitEntered = false
+                loroNotice = "This checklist update is waiting for recovery (\(resolution))."
+                status = .pending(loroNotice ?? "Checklist update waiting for recovery")
+            case .ineligible, .staleEditorState, .invalidProposedDocument, .invalidCommitMessage:
+                pendingLoroRichTaskToggle = nil
+                loroSubmitEntered = false
+                loroNotice = "This checklist target is stale. Reload the note before trying again."
+                status = .pending(loroNotice ?? "Checklist target is stale")
+            }
+        } catch {
+            guard isCurrent(selection, generation: generation) else { return }
+            pendingLoroRichTaskToggle = nil
+            loroSubmitEntered = false
+            loroNotice = "Could not update this checklist item: \(error)"
+            status = .error(loroNotice ?? "Checklist update failed")
         }
     }
 

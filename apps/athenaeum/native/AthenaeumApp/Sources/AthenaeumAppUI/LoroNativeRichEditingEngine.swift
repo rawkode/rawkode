@@ -33,6 +33,9 @@ struct LoroNativeRichEditingEngine {
     private(set) var admittedSelection: LoroNativeRichTextSelection
     private(set) var pendingLocalDocument: LoroNativeRichDocumentV1?
     private(set) var compositionState: LoroNativeRichTextCompositionState = .idle
+    /// Monotonic presentation generation. Structural commands capture it and the host rejects a
+    /// late checkbox tap after a parent adoption or another local edit.
+    private(set) var documentGeneration: Int = 1
     private var composition: Composition?
     private var compositionGeneration = 0
 
@@ -51,13 +54,42 @@ struct LoroNativeRichEditingEngine {
             if document == pendingLocalDocument {
                 self.pendingLocalDocument = nil
                 admittedDocument = document
+                documentGeneration &+= 1
                 return .acknowledged(document: document, selection: admittedSelection)
             }
             return .deferredForLocalProposal
         }
         guard document != admittedDocument else { return .unchanged }
         admittedDocument = document
+        documentGeneration &+= 1
         return .adopted(document: document, selection: admittedSelection)
+    }
+
+    /// Captures the exact item value and structural location for a checkbox command. No local
+    /// semantic mutation occurs here; the store must acknowledge the typed command before the
+    /// adapter adopts the post-toggle document.
+    mutating func makeTaskToggleCommand(
+        atUTF16Offset offset: Int,
+        commandID: UUID = UUID()
+    ) -> LoroNativeRichTaskItemToggleCommand? {
+        guard composition == nil,
+              let rendered = try? LoroNativeRichTextCodec.attributedString(for: admittedDocument),
+              let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: rendered),
+              location.taskListIndex >= 0,
+              location.taskListIndex < admittedDocument.semantic.blocks.count,
+              case let .taskList(items) = admittedDocument.semantic.blocks[location.taskListIndex],
+              location.itemIndex >= 0,
+              location.itemIndex < items.count
+        else { return nil }
+        let item = items[location.itemIndex]
+        guard item.checked == location.checked else { return nil }
+        return .init(
+            commandID: commandID,
+            editorGeneration: documentGeneration,
+            taskListIndex: location.taskListIndex,
+            itemIndex: location.itemIndex,
+            expectedItem: item
+        )
     }
 
     mutating func replace(utf16Range: NSRange, withPlainText replacement: String) -> LoroNativeRichEditingEffect {
@@ -173,6 +205,7 @@ struct LoroNativeRichEditingEngine {
         admittedDocument = candidate
         admittedSelection = selection
         pendingLocalDocument = candidate
+        documentGeneration &+= 1
         return .publish(document: candidate, selection: selection)
     }
 
@@ -187,9 +220,37 @@ struct LoroNativeRichEditingEngine {
 
         typealias Block = LoroCanonicalSemanticValueV1.Block
         typealias Run = LoroCanonicalSemanticValueV1.TextRun
-        func runs(in block: Block) -> [Run] { switch block { case let .paragraph(r), let .heading(_, r): return r } }
+        typealias TaskItem = LoroCanonicalSemanticValueV1.TaskItem
+        enum LogicalKind: Equatable {
+            case paragraph
+            case heading(Int)
+            case task(listIndex: Int, itemIndex: Int, checked: Bool)
+        }
+        struct LogicalLine {
+            let blockIndex: Int
+            let itemIndex: Int?
+            let kind: LogicalKind
+            let runs: [Run]
+        }
+        func runs(in block: Block) -> [Run] {
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs): return runs
+            case let .taskList(items): return items.flatMap(\.runs)
+            }
+        }
         func scalarCount(_ runs: [Run]) -> Int { runs.reduce(0) { $0 + $1.text.unicodeScalars.count } }
-        func makeLike(_ block: Block, runs: [Run]) -> Block { if case let .heading(level, _) = block { return .heading(level: level, runs: runs) }; return .paragraph(runs) }
+        func makeLike(_ kind: LogicalKind, runs: [Run]) -> Block {
+            switch kind {
+            case .paragraph: return .paragraph(runs)
+            case let .heading(level): return .heading(level: level, runs: runs)
+            case let .task(listIndex, _, checked):
+                // This branch is used only for a single-line task replacement. The caller
+                // reconstructs the containing list below so adjacent items never flatten into
+                // ordinary paragraphs.
+                _ = listIndex
+                return .taskList([.init(checked: checked, runs: runs)])
+            }
+        }
         func split(_ runs: [Run], at scalarOffset: Int) -> ([Run], [Run]) {
             var prefix: [Run] = []; var suffix: [Run] = []; var remaining = scalarOffset
             for run in runs {
@@ -207,23 +268,35 @@ struct LoroNativeRichEditingEngine {
             return (coalesced(prefix), coalesced(suffix))
         }
 
+        var logicalLines: [LogicalLine] = []
+        for (blockIndex, block) in document.semantic.blocks.enumerated() {
+            switch block {
+            case let .paragraph(runs): logicalLines.append(.init(blockIndex: blockIndex, itemIndex: nil, kind: .paragraph, runs: runs))
+            case let .heading(level, runs): logicalLines.append(.init(blockIndex: blockIndex, itemIndex: nil, kind: .heading(level), runs: runs))
+            case let .taskList(items):
+                for (itemIndex, item) in items.enumerated() {
+                    logicalLines.append(.init(blockIndex: blockIndex, itemIndex: itemIndex, kind: .task(listIndex: blockIndex, itemIndex: itemIndex, checked: item.checked), runs: item.runs))
+                }
+            }
+        }
+        guard !logicalLines.isEmpty else { return nil }
         var starts: [Int] = []; var cursor = 0
-        for block in document.semantic.blocks { starts.append(cursor); cursor += scalarCount(runs(in: block)) + 1 }
+        for line in logicalLines { starts.append(cursor); cursor += scalarCount(line.runs) + 1 }
         let totalScalars = rendered.string.unicodeScalars.count
-        func owningBlock(for scalarOffset: Int) -> Int? {
+        func owningLine(for scalarOffset: Int) -> Int? {
             guard scalarOffset <= totalScalars else { return nil }
-            for index in document.semantic.blocks.indices {
-                let end = starts[index] + scalarCount(runs(in: document.semantic.blocks[index]))
+            for index in logicalLines.indices {
+                let end = starts[index] + scalarCount(logicalLines[index].runs)
                 if scalarOffset >= starts[index], scalarOffset <= end { return index }
             }
             return nil
         }
         let scalarEnd = scalarRange.location + scalarRange.length
-        guard let blockIndex = owningBlock(for: scalarRange.location), owningBlock(for: scalarEnd) == blockIndex else { return nil }
-        let original = document.semantic.blocks[blockIndex]
-        let originalRuns = runs(in: original)
-        let localStart = scalarRange.location - starts[blockIndex]
-        let localEnd = scalarEnd - starts[blockIndex]
+        guard let lineIndex = owningLine(for: scalarRange.location), owningLine(for: scalarEnd) == lineIndex else { return nil }
+        let line = logicalLines[lineIndex]
+        let originalRuns = line.runs
+        let localStart = scalarRange.location - starts[lineIndex]
+        let localEnd = scalarEnd - starts[lineIndex]
         // References are semantic atoms: edge insertion stays ordinary prose, but a span cannot
         // be split or replaced.  Deleting its whole span is the one destructive operation that
         // is meaningful without dereferencing its immutable id/label snapshot.
@@ -248,21 +321,44 @@ struct LoroNativeRichEditingEngine {
         switch replacement {
         case let .plainText(text):
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            if case let .task(listIndex, itemIndex, checked) = line.kind {
+                guard case let .taskList(items) = document.semantic.blocks[line.blockIndex], itemIndex < items.count else { return nil }
+                var replacementItems: [TaskItem] = []
+                for index in lines.indices {
+                    var lineRuns = index == lines.startIndex ? prefix : []
+                    if !lines[index].isEmpty { lineRuns.append(.init(text: lines[index], marks: inherited)) }
+                    if index == lines.index(before: lines.endIndex) { lineRuns += suffix }
+                    replacementItems.append(.init(checked: index == lines.startIndex ? checked : false, runs: coalesced(lineRuns)))
+                }
+                var blocks = document.semantic.blocks
+                var updatedItems = items
+                updatedItems.replaceSubrange(itemIndex...itemIndex, with: replacementItems)
+                blocks[line.blockIndex] = .taskList(updatedItems)
+                _ = listIndex
+                return .init(semantic: .init(blocks: blocks))
+            }
             var emitted: [Block] = []
             for index in lines.indices {
                 var lineRuns = index == lines.startIndex ? prefix : []
                 if !lines[index].isEmpty { lineRuns.append(.init(text: lines[index], marks: inherited)) }
                 if index == lines.index(before: lines.endIndex) { lineRuns += suffix }
-                emitted.append(index == lines.startIndex ? makeLike(original, runs: coalesced(lineRuns)) : .paragraph(coalesced(lineRuns)))
+                emitted.append(index == lines.startIndex ? makeLike(line.kind, runs: coalesced(lineRuns)) : .paragraph(coalesced(lineRuns)))
             }
             var blocks = document.semantic.blocks
-            blocks.replaceSubrange(blockIndex...blockIndex, with: emitted)
+            blocks.replaceSubrange(line.blockIndex...line.blockIndex, with: emitted)
             return .init(semantic: .init(blocks: blocks))
         case let .inlineReference(reference):
             guard !reference.label.contains("\n"), !reference.label.contains("\r"), !reference.label.isEmpty else { return nil }
             let runs = coalesced(prefix + [.init(text: reference.label, reference: reference)] + suffix)
             var blocks = document.semantic.blocks
-            blocks[blockIndex] = makeLike(original, runs: runs)
+            if case let .task(_, itemIndex, checked) = line.kind,
+               case let .taskList(items) = blocks[line.blockIndex], itemIndex < items.count {
+                var updatedItems = items
+                updatedItems[itemIndex] = .init(checked: checked, runs: runs)
+                blocks[line.blockIndex] = .taskList(updatedItems)
+            } else {
+                blocks[line.blockIndex] = makeLike(line.kind, runs: runs)
+            }
             return .init(semantic: .init(blocks: blocks))
         }
     }

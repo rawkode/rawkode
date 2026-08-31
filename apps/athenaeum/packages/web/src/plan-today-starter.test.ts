@@ -10,15 +10,22 @@ import { richTextSchemaAdapter } from "./rich-text/schema.js"
 const schema = richTextSchemaAdapter.schema
 
 describe("Plan today starter", () => {
-  it("builds the shared paragraph/heading manifest", () => {
+  it("builds the shared focus/checklist/notes manifest", () => {
     const nodes = createPlanTodayStarterNodes(schema)
     const document = schema.topNodeType.create(null, nodes)
 
     expect(document.toJSON()).toMatchObject({
-      type: "doc",
+        type: "doc",
       content: [
         { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: PLAN_TODAY_STARTER.focusHeading }] },
-        ...PLAN_TODAY_STARTER.priorities.map((priority) => ({ type: "paragraph", content: [{ type: "text", text: priority }] })),
+        {
+          type: "task_list",
+          content: PLAN_TODAY_STARTER.priorities.map((priority) => ({
+            type: "task_item",
+            attrs: { checked: false },
+            content: [{ type: "paragraph", content: [{ type: "text", text: priority }] }]
+          }))
+        },
         { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: PLAN_TODAY_STARTER.notesHeading }] },
         { type: "paragraph" }
       ]

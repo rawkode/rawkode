@@ -236,6 +236,50 @@ public actor WorkspaceSyncClient {
         }
     }
 
+    /// Dedicated, idempotent checklist toggle submission. This never accepts a replacement
+    /// semantic document; the actor/store resolves the command against its frozen base and
+    /// changes only the witnessed `checked` map entry.
+    public func submitNativeRichTaskItemToggle(
+        nodeId: EntityId,
+        base: LoroNativeRichEditorState,
+        command: LoroNativeRichTaskItemToggleCommand,
+        commitMessage: String
+    ) async throws -> LoroNativeRichDocumentSubmissionDisposition {
+        try await withLoroLease(nodeId: nodeId) { [self, nodeId, base, command, commitMessage] in
+            let eligibility = try await nativeRichEditorEligibilityAssumingLease(nodeId: nodeId)
+            switch eligibility {
+            case .unauthenticated: return .unauthenticated
+            case .checkpointResolutionRequired(let resolution): return .checkpointResolutionRequired(resolution)
+            case .ineligible: return .ineligible
+            case .editable(let current):
+                guard base == current else { return .staleEditorState }
+                let message: LoroCommitMessageV1
+                do { message = try LoroCommitMessageV1(commitMessage) }
+                catch { return .invalidCommitMessage }
+                let intent = try LoroMutationIntentV1(
+                    requestId: command.commandID.uuidString.lowercased(),
+                    commitMessage: message.value,
+                    attribution: .humanUi(surface: "macos")
+                )
+                let custody = LoroSemanticCustody(workspaceId: workspaceId, intent: intent, expiresAt: Date().addingTimeInterval(60))
+                let runtime = semanticTransport.map { LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, workspaceId: workspaceId, custody: custody, transport: $0) }
+                    ?? LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, rpc: rpcClient, workspaceId: workspaceId, custody: custody)
+                switch try await runtime.toggleRichTaskItemAssumingLease(nodeId: nodeId, command: command) {
+                case .committed: return .submitted
+                case .committedCacheInvalidated: return .submittedNeedsReload
+                case .deniedAuthorizationOrSession:
+                    if let checkpoint = try await localStore.loroCheckpoint(workspaceId: workspaceId, nodeId: nodeId) {
+                        return .checkpointResolutionRequired(.init(checkpoint))
+                    }
+                    return .unauthenticated
+                case .retainedRetry: return .checkpointResolutionRequired(.retainedRetry)
+                case .retainedConflict: return .checkpointResolutionRequired(.retainedConflict)
+                case .retainedRequestIdentity: return .checkpointResolutionRequired(.retainedRequestIdentity)
+                }
+            }
+        }
+    }
+
     private func nativePlainEditorEligibilityAssumingLease(nodeId: EntityId) async throws -> LoroNativePlainEditorEligibility {
         guard await semanticAuthentication() else { return .unauthenticated }
         return try await nativePlainEditorEligibilityAfterAuthenticationAssumingLease(nodeId: nodeId)

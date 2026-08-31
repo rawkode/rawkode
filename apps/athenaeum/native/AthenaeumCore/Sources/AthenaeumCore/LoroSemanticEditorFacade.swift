@@ -84,6 +84,33 @@ public struct LoroNativeRichEditorState: Sendable, Equatable {
     }
 }
 
+/// A typed, idempotent request to flip one native checklist item. The structural ordinals and
+/// expected value are stale-context witnesses; `commandID` is the durable mutation/request
+/// identity retained across uncertain transport retries.
+public struct LoroNativeRichTaskItemToggleCommand: Sendable, Equatable, Identifiable {
+    public let commandID: UUID
+    public let editorGeneration: Int
+    public let taskListIndex: Int
+    public let itemIndex: Int
+    public let expectedItem: LoroCanonicalSemanticValueV1.TaskItem
+
+    public var id: UUID { commandID }
+
+    public init(
+        commandID: UUID = UUID(),
+        editorGeneration: Int,
+        taskListIndex: Int,
+        itemIndex: Int,
+        expectedItem: LoroCanonicalSemanticValueV1.TaskItem
+    ) {
+        self.commandID = commandID
+        self.editorGeneration = editorGeneration
+        self.taskListIndex = taskListIndex
+        self.itemIndex = itemIndex
+        self.expectedItem = expectedItem
+    }
+}
+
 /// Closed rich-editor admission result. Rich and legacy-plain admission remain separate APIs.
 public enum LoroNativeRichEditorEligibility: Sendable, Equatable {
     case editable(LoroNativeRichEditorState)

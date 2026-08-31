@@ -3,13 +3,42 @@ import AthenaeumCore
 
 /// A scalar-based selection is stable across TextKit implementations.  UI adapters convert at
 /// their boundary; the semantic editor never accepts a UTF-16 range that splits a scalar.
-struct LoroNativeRichTextSelection: Equatable, Sendable {
-    let location: Int
-    let length: Int
+public struct LoroNativeRichTextSelection: Equatable, Sendable {
+    public let location: Int
+    public let length: Int
 
-    init(location: Int, length: Int) {
+    public init(location: Int, length: Int) {
         self.location = location
         self.length = length
+    }
+}
+
+/// A value-only structural location for a top-level checklist item.  The ordinals are never
+/// persisted as semantic data; they are paired with the editor generation and full item value in
+/// `LoroNativeRichTaskItemToggleCommand` before a mutation can leave the UI process.
+struct LoroNativeRichTaskItemLocation: Equatable, Sendable {
+    let taskListIndex: Int
+    let itemIndex: Int
+    let checked: Bool
+
+    init(taskListIndex: Int, itemIndex: Int, checked: Bool) {
+        self.taskListIndex = taskListIndex
+        self.itemIndex = itemIndex
+        self.checked = checked
+    }
+}
+
+/// Acknowledged toggle state is a separate parent-adoption lane. It must never be routed through
+/// the ordinary rich-draft callback, which would arm a second whole-document debounce submission.
+public struct LoroNativeRichTaskItemToggleAcknowledgement: Equatable, Sendable {
+    public let commandID: UUID
+    public let document: LoroNativeRichDocumentV1
+    public let selection: LoroNativeRichTextSelection?
+
+    public init(commandID: UUID, document: LoroNativeRichDocumentV1, selection: LoroNativeRichTextSelection? = nil) {
+        self.commandID = commandID
+        self.document = document
+        self.selection = selection
     }
 }
 

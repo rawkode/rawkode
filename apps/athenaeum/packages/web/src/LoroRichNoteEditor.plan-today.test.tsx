@@ -195,7 +195,7 @@ describe("Plan Today live editor binding", () => {
         text: node.textContent
       }))).toEqual([
         { type: "heading", level: 2, text: PLAN_TODAY_STARTER.focusHeading },
-        ...PLAN_TODAY_STARTER.priorities.map((priority) => ({ type: "paragraph", level: undefined, text: priority })),
+        { type: "task_list", level: undefined, text: PLAN_TODAY_STARTER.priorities.join("") },
         { type: "heading", level: 2, text: PLAN_TODAY_STARTER.notesHeading },
         { type: "paragraph", level: undefined, text: "" }
       ])

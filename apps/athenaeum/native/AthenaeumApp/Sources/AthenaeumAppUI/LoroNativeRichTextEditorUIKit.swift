@@ -17,7 +17,11 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     /// validates the captured range against its current semantic document before admitting them.
     let mentionInsertion: LoroNativeRichTextMentionInsertion?
     let supertagInsertion: LoroNativeRichTextSupertagInsertion?
+    /// Checklist toggles are a separate acknowledged-adoption lane; they never enter the
+    /// ordinary rich draft callback.
+    let taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     /// Presentation-only responder state. Durable editing semantics stay in the engine.
@@ -38,7 +42,9 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         focusRequestSelection: LoroNativeRichTextSelection?,
         mentionInsertion: LoroNativeRichTextMentionInsertion? = nil,
         supertagInsertion: LoroNativeRichTextSupertagInsertion? = nil,
+        taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement? = nil,
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void,
+        onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void,
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
@@ -53,7 +59,9 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         self.focusRequestSelection = focusRequestSelection
         self.mentionInsertion = mentionInsertion
         self.supertagInsertion = supertagInsertion
+        self.taskToggleAcknowledgement = taskToggleAcknowledgement
         self.onDocumentChange = onDocumentChange
+        self.onTaskToggle = onTaskToggle
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
         self.onFocusChange = onFocusChange
@@ -68,6 +76,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             document: state.document,
             isEditable: isEditable,
             onDocumentChange: onDocumentChange,
+            onTaskToggle: onTaskToggle,
             onSelectionChange: onSelectionChange,
             onRejectedInput: onRejectedInput,
             onFocusChange: onFocusChange,
@@ -81,6 +90,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView { context.coordinator.makeTextView() }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.applyTaskToggleAcknowledgement(taskToggleAcknowledgement)
         context.coordinator.update(document: state.document, isEditable: isEditable)
         context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
         context.coordinator.applyMentionInsertion(mentionInsertion)
@@ -105,6 +115,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
 
     private let textView = GuardedUIKitRichTextView(frame: .zero, textContainer: nil)
     private let referenceTap = UITapGestureRecognizer()
+    private let taskToggleTap = UITapGestureRecognizer()
     private var engine: LoroNativeRichEditingEngine
     private var rendering = false
     private var pendingComposition = false
@@ -115,11 +126,14 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private var completedFocusGeneration = 0
     private var pendingFocusGeneration: Int?
     private var pendingFocusSelection: LoroNativeRichTextSelection?
+    private var pendingTaskToggle: LoroNativeRichTaskItemToggleCommand?
+    private var lastAppliedTaskToggleID: UUID?
     #if DEBUG
     /// Test-only responder result seam. Production always asks this controller's own window.
     private var testingFocusAttempt: (() -> Bool)?
     #endif
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    private let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     private let onFocusChange: (Bool) -> Void
@@ -135,6 +149,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         document: LoroNativeRichDocumentV1,
         isEditable: Bool,
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
+        onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void = { _ in },
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in },
         onFocusChange: @escaping (Bool) -> Void = { _ in },
@@ -146,6 +161,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         engine = .init(document: document)
         isEditableInput = isEditable
         self.onDocumentChange = onDocumentChange
+        self.onTaskToggle = onTaskToggle
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
         self.onFocusChange = onFocusChange
@@ -173,6 +189,9 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: "Open linked reference") { [weak self] _ in
                 self?.openReferenceAtCurrentSelection() ?? false
+            },
+            UIAccessibilityCustomAction(name: "Toggle checklist item") { [weak self] _ in
+                self?.requestTaskToggleAtCurrentSelection() ?? false
             }
         ]
         referenceTap.addTarget(self, action: #selector(handleReferenceTap(_:)))
@@ -180,6 +199,11 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         referenceTap.cancelsTouchesInView = false
         referenceTap.delaysTouchesBegan = false
         textView.addGestureRecognizer(referenceTap)
+        taskToggleTap.addTarget(self, action: #selector(handleTaskToggleTap(_:)))
+        taskToggleTap.delegate = self
+        taskToggleTap.cancelsTouchesInView = false
+        taskToggleTap.delaysTouchesBegan = false
+        textView.addGestureRecognizer(taskToggleTap)
         render(document, preserving: nil)
     }
 
@@ -312,6 +336,80 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
             return false
         }
         return apply(engine.insert(reference: reference, replacingUTF16Range: range))
+    }
+
+    /// Requests a store-owned checklist toggle without changing local semantic state. The parent
+    /// must return an exact acknowledgement through `applyTaskToggleAcknowledgement` before the
+    /// checkbox can visually change.
+    @discardableResult
+    func requestTaskToggle(atUTF16Offset offset: Int) -> Bool {
+        guard isEditableInput,
+              !pendingComposition,
+              !hasMarkedText,
+              engine.pendingLocalDocument == nil,
+              pendingTaskToggle == nil,
+              let command = engine.makeTaskToggleCommand(atUTF16Offset: offset)
+        else {
+            if !isEditableInput { reject(.disabled) }
+            return false
+        }
+        pendingTaskToggle = command
+        onTaskToggle(command)
+        return true
+    }
+
+    @discardableResult
+    private func requestTaskToggleAtCurrentSelection() -> Bool {
+        let range = textView.selectedRange
+        guard range.location != NSNotFound else { return false }
+        let offset = range.location < textView.textStorage.length ? range.location : max(0, range.location - 1)
+        return requestTaskToggle(atUTF16Offset: offset)
+    }
+
+    /// Applies the store's exact post-toggle result through a parent adoption path. This method
+    /// intentionally never calls `onDocumentChange`, avoiding the generic rich-draft debounce.
+    func applyTaskToggleAcknowledgement(_ acknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?) {
+        guard let acknowledgement, acknowledgement.commandID != lastAppliedTaskToggleID else { return }
+        guard let pending = pendingTaskToggle, pending.commandID == acknowledgement.commandID,
+              pending.editorGeneration == engine.documentGeneration,
+              let expected = toggledDocument(for: pending, in: engine.admittedDocument),
+              expected == acknowledgement.document
+        else {
+            if pendingTaskToggle != nil { pendingTaskToggle = nil; onRejectedInput(.invalidEdit) }
+            return
+        }
+        pendingTaskToggle = nil
+        lastAppliedTaskToggleID = acknowledgement.commandID
+        let requestedSelection = acknowledgement.selection
+        switch engine.receiveParentDocument(acknowledgement.document) {
+        case let .adopted(document, adoptedSelection), let .acknowledged(document, adoptedSelection):
+            render(document, preserving: requestedSelection ?? adoptedSelection)
+        case .unchanged, .deferredForComposition, .deferredForLocalProposal:
+            onRejectedInput(.invalidEdit)
+        }
+        publishReferenceContexts()
+    }
+
+    func testingTaskToggle(atUTF16Offset offset: Int) -> LoroNativeRichTaskItemToggleCommand? {
+        guard requestTaskToggle(atUTF16Offset: offset) else { return nil }
+        return pendingTaskToggle
+    }
+
+    private func toggledDocument(
+        for command: LoroNativeRichTaskItemToggleCommand,
+        in document: LoroNativeRichDocumentV1
+    ) -> LoroNativeRichDocumentV1? {
+        guard command.taskListIndex >= 0,
+              command.taskListIndex < document.semantic.blocks.count,
+              case let .taskList(items) = document.semantic.blocks[command.taskListIndex],
+              command.itemIndex >= 0,
+              command.itemIndex < items.count,
+              items[command.itemIndex] == command.expectedItem else { return nil }
+        var updated = document.semantic.blocks
+        var nextItems = items
+        nextItems[command.itemIndex] = .init(checked: !command.expectedItem.checked, runs: command.expectedItem.runs)
+        updated[command.taskListIndex] = .taskList(nextItems)
+        return .init(semantic: .init(blocks: updated))
     }
 
     fileprivate func reject(_ reason: LoroNativeRichTextEditorRejection) {
@@ -464,6 +562,88 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.textColor = .label
     }
 
+    /// Draws checklist affordances outside semantic storage. TextKit remains a plain text host;
+    /// the square/checkmark is presentation-only and is positioned from the exact line fragment
+    /// carrying this codec's opaque task marker.
+    fileprivate func drawChecklist(in view: GuardedUIKitRichTextView) {
+        let layoutManager = view.layoutManager
+        let textContainer = view.textContainer
+        guard let rendered = view.attributedText,
+              rendered.length > 0 else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = CGPoint(x: view.textContainerInset.left, y: view.textContainerInset.top)
+        var drawn: Set<String> = []
+        for offset in 0..<rendered.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: rendered) else { continue }
+            let key = "\(location.taskListIndex):\(location.itemIndex)"
+            guard drawn.insert(key).inserted else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: offset, length: 1),
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound else { continue }
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            guard !lineRect.isEmpty else { continue }
+            let size: CGFloat = 16
+            let checkbox = CGRect(
+                x: origin.x + max(3, lineRect.minX - 24),
+                y: origin.y + lineRect.midY - size / 2,
+                width: size,
+                height: size
+            )
+            let path = UIBezierPath(roundedRect: checkbox, cornerRadius: 4)
+            if location.checked {
+                UIColor.systemBlue.setFill()
+                path.fill()
+                UIColor.white.setStroke()
+                let check = UIBezierPath()
+                check.lineWidth = 1.8
+                check.move(to: CGPoint(x: checkbox.minX + 3.5, y: checkbox.midY))
+                check.addLine(to: CGPoint(x: checkbox.minX + 7, y: checkbox.minY + 4))
+                check.addLine(to: CGPoint(x: checkbox.maxX - 3, y: checkbox.maxY - 4))
+                check.stroke()
+            } else {
+                UIColor.systemGray3.setStroke()
+                path.lineWidth = 1.3
+                path.stroke()
+            }
+        }
+    }
+
+    /// Returns a semantic offset only when the pointer is inside the presentation checkbox. A
+    /// tap on the prose still follows UITextView's ordinary caret/touch behaviour.
+    fileprivate func taskToggleOffset(atViewPoint viewPoint: CGPoint, in view: GuardedUIKitRichTextView) -> Int? {
+        guard isEditableInput,
+              let rendered = view.attributedText,
+              rendered.length > 0 else { return nil }
+        let layoutManager = view.layoutManager
+        let textContainer = view.textContainer
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = CGPoint(x: view.textContainerInset.left, y: view.textContainerInset.top)
+        let point = LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: origin)
+        var seen: Set<String> = []
+        for offset in 0..<rendered.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: rendered) else { continue }
+            let key = "\(location.taskListIndex):\(location.itemIndex)"
+            guard seen.insert(key).inserted else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: offset, length: 1),
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound else { continue }
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let size: CGFloat = 16
+            let checkbox = CGRect(
+                x: max(3, lineRect.minX - 24),
+                y: lineRect.midY - size / 2,
+                width: size,
+                height: size
+            )
+            if checkbox.insetBy(dx: -6, dy: -6).contains(point) { return offset }
+        }
+        return nil
+    }
+
     /// Consumes only the command for the exact context still visible at the current caret. This
     /// prevents a delayed picker result from applying after a query, caret, document, or trigger
     /// change.
@@ -589,16 +769,30 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         _ = openReference(atViewPoint: recognizer.location(in: textView))
     }
 
+    @objc private func handleTaskToggleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              let offset = taskToggleOffset(atViewPoint: recognizer.location(in: textView), in: textView)
+        else { return }
+        _ = requestTaskToggle(atUTF16Offset: offset)
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard gestureRecognizer === referenceTap, !hasMarkedText else { return false }
-        return referenceHit(atViewPoint: touch.location(in: textView)) != nil
+        guard !hasMarkedText else { return false }
+        let point = touch.location(in: textView)
+        if gestureRecognizer === referenceTap {
+            return referenceHit(atViewPoint: point) != nil
+        }
+        if gestureRecognizer === taskToggleTap {
+            return taskToggleOffset(atViewPoint: point, in: textView) != nil
+        }
+        return false
     }
 
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        gestureRecognizer === referenceTap
+        gestureRecognizer === referenceTap || gestureRecognizer === taskToggleTap
     }
 
     private func referenceHit(atViewPoint point: CGPoint) -> Int? {
@@ -744,6 +938,11 @@ private final class GuardedUIKitRichTextView: UITextView {
     weak var richController: LoroNativeRichTextEditorUIKitController?
     private var suppressCompositionCallbacks = false
     private var unmarking = false
+
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        richController?.drawChecklist(in: self)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let didBecome = super.becomeFirstResponder()

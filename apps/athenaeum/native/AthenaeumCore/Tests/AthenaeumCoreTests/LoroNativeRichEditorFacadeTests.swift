@@ -138,6 +138,87 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
         XCTAssertEqual(items.get(index: 1)?.asLoroMap()?.get(key: "attributes")?.asLoroMap()?.get(key: "checked")?.asValue(), .bool(value: false))
     }
 
+    func testTaskToggleCandidateMutatesOnlyWitnessedCheckedStateFromAcceptedLiteral() async throws {
+        let fixture = try await LoroSemanticCheckpointStateMachineTests.Fixture.make()
+        let semantic = LoroCanonicalSemanticValueV1(blocks: [.taskList([
+            .init(checked: false, runs: [.init(text: "one")]),
+            .init(checked: true, runs: [.init(text: "two", marks: [.strong])]),
+        ])])
+        let baseReplica = LoroPageReplicaWitness(
+            snapshotSHA256: fixture.candidate.route.snapshotSHA256,
+            versionVectorSHA256: try VersionVectorIdentity.digest(encodedVersionVector: fixture.candidate.checkpoint.baseVersionVector)
+        )
+        let rich = try await fixture.documents.prepareNativeRichSemanticCandidateV1(
+            nodeId: fixture.node,
+            route: fixture.candidate.route,
+            persistedReplica: baseReplica,
+            publishedReplica: baseReplica,
+            isDirty: false,
+            workspaceId: fixture.workspace,
+            intent: try .init(requestId: "task-base", commitMessage: "task base", attribution: .humanUi(surface: "macos")),
+            proposed: .init(semantic: semantic)
+        )
+        let prepared = try await fixture.documents.prepare(nodeId: fixture.node, snapshot: rich.literal.snapshotBytes)
+        try await fixture.local.upsertLoroPage(.init(
+            prepared: prepared,
+            dirty: false,
+            observedDescriptorStorageVersion: rich.literal.route.storageVersion,
+            observedDescriptorSnapshotSHA256: rich.literal.route.snapshotSHA256
+        ))
+        let maybeEvidence = try await fixture.local.acceptedLoroPageEvidence(workspaceId: fixture.workspace, nodeId: fixture.node)
+        let evidence = try XCTUnwrap(maybeEvidence)
+        try await fixture.documents.installAcceptedRichLiteral(evidence)
+        let replica = LoroPageReplicaWitness(
+            snapshotSHA256: rich.literal.route.snapshotSHA256,
+            versionVectorSHA256: rich.literal.versionVectorSHA256
+        )
+        let command = LoroNativeRichTaskItemToggleCommand(
+            commandID: UUID(uuidString: "00000000-0000-4000-8000-000000000099")!,
+            editorGeneration: 1,
+            taskListIndex: 0,
+            itemIndex: 0,
+            expectedItem: semantic.blocks.first.flatMap { block in
+                guard case let .taskList(items) = block else { return nil }
+                return items.first
+            }!
+        )
+        let toggled = try await fixture.documents.prepareNativeRichTaskToggleCandidateV1(
+            nodeId: fixture.node,
+            route: rich.literal.route,
+            persistedReplica: replica,
+            publishedReplica: replica,
+            isDirty: false,
+            workspaceId: fixture.workspace,
+            intent: try .init(requestId: command.commandID.uuidString, commitMessage: "toggle task", attribution: .humanUi(surface: "macos")),
+            command: command
+        )
+        XCTAssertEqual(toggled.semantic, .init(blocks: [.taskList([
+            .init(checked: true, runs: [.init(text: "one")]),
+            .init(checked: true, runs: [.init(text: "two", marks: [.strong])]),
+        ])]))
+        let toggledDocument = LoroDoc()
+        _ = try toggledDocument.import(bytes: toggled.literal.snapshotBytes)
+        let taskList = try XCTUnwrap(toggledDocument.getMap(id: "athenaeum-prosemirror-v1").get(key: "children")?.asLoroList()?.get(index: 0)?.asLoroMap())
+        let items = try XCTUnwrap(taskList.get(key: "children")?.asLoroList())
+        XCTAssertEqual(items.get(index: 0)?.asLoroMap()?.get(key: "attributes")?.asLoroMap()?.get(key: "checked")?.asValue(), .bool(value: true))
+        XCTAssertEqual(items.get(index: 1)?.asLoroMap()?.get(key: "attributes")?.asLoroMap()?.get(key: "checked")?.asValue(), .bool(value: true))
+
+        let stale = LoroNativeRichTaskItemToggleCommand(
+            commandID: UUID(), editorGeneration: 1, taskListIndex: 0, itemIndex: 0,
+            expectedItem: .init(checked: true, runs: [.init(text: "wrong")])
+        )
+        do {
+            _ = try await fixture.documents.prepareNativeRichTaskToggleCandidateV1(
+                nodeId: fixture.node, route: rich.literal.route, persistedReplica: replica, publishedReplica: replica,
+                isDirty: false, workspaceId: fixture.workspace,
+                intent: try .init(requestId: "stale", commitMessage: "toggle task", attribution: .humanUi(surface: "macos")), command: stale
+            )
+            XCTFail("stale item fingerprint must be rejected")
+        } catch {
+            XCTAssertEqual(error as? LoroPageDocumentStoreError, .nativePlainTextWitnessMismatch)
+        }
+    }
+
     func testSameFlattenedTextWithDifferentRichStructureIsNotEqual() throws {
         let paragraph = LoroCanonicalSemanticValueV1(blocks: [.paragraph([.init(text: "same", marks: [.strong])])])
         let heading = LoroCanonicalSemanticValueV1(blocks: [.heading(level: 1, runs: [.init(text: "same", marks: [.code])])])

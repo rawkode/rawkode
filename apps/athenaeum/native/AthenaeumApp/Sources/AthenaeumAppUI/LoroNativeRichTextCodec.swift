@@ -27,6 +27,49 @@ enum LoroNativeRichTextCodec {
         static let allowed: Set<NSAttributedString.Key> = [marks, reference, block, separatorBefore, separatorAfter, terminalEmptyDocument]
     }
 
+    /// A task item marker is deliberately an opaque object rather than a string.  It is only
+    /// emitted by this codec and therefore cannot be manufactured by an attributed paste or a
+    /// caller that merely knows our private attribute keys.  The list/item ordinals are
+    /// presentation witnesses used to retain topology in TextKit's flat storage; they are never
+    /// part of the canonical Loro value.
+    private final class TaskItemMarker: NSObject {
+        let listOrdinal: Int
+        let itemOrdinal: Int
+        let checked: Bool
+
+        init(listOrdinal: Int, itemOrdinal: Int, checked: Bool) {
+            self.listOrdinal = listOrdinal
+            self.itemOrdinal = itemOrdinal
+            self.checked = checked
+        }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? TaskItemMarker else { return false }
+            return listOrdinal == other.listOrdinal && itemOrdinal == other.itemOrdinal && checked == other.checked
+        }
+
+        override var hash: Int {
+            var hasher = Hasher()
+            hasher.combine(listOrdinal); hasher.combine(itemOrdinal); hasher.combine(checked)
+            return hasher.finalize()
+        }
+    }
+
+    private enum BlockMarker: Equatable {
+        case paragraph
+        case heading(Int)
+        case task(TaskItemMarker)
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            switch (lhs, rhs) {
+            case (.paragraph, .paragraph): return true
+            case let (.heading(a), .heading(b)): return a == b
+            case let (.task(a), .task(b)): return a.isEqual(b)
+            default: return false
+            }
+        }
+    }
+
     /// TextKit storage is not a wire format.  This typed, in-process marker prevents untrusted
     /// attributed paste from manufacturing an id-bearing reference with a dictionary or string.
     private final class ReferenceMarker: NSObject {
@@ -61,22 +104,38 @@ enum LoroNativeRichTextCodec {
     /// traits from being mistaken for durable editor semantics.
     static func attributedString(for document: LoroNativeRichDocumentV1) throws -> NSAttributedString {
         let semantic = try canonical(document.semantic)
-        if semantic.blocks.count == 1, runs(in: semantic.blocks[0]).isEmpty, marker(for: semantic.blocks[0]) != "paragraph" {
+        var logicalBlocks: [(marker: BlockMarker, runs: [LoroCanonicalSemanticValueV1.TextRun])] = []
+        for (blockOrdinal, block) in semantic.blocks.enumerated() {
+            switch block {
+            case let .paragraph(runs): logicalBlocks.append((.paragraph, runs))
+            case let .heading(level, runs): logicalBlocks.append((.heading(level), runs))
+            case let .taskList(items):
+                // The canonical top-level block ordinal is the structural identity used by the
+                // checkbox command witness. It remains stable across an ordinary render and does
+                // not collapse two adjacent task lists into one presentation list.
+                let currentList = blockOrdinal
+                for (itemOrdinal, item) in items.enumerated() {
+                    logicalBlocks.append((.task(.init(listOrdinal: currentList, itemOrdinal: itemOrdinal, checked: item.checked)), item.runs))
+                }
+            }
+        }
+        if logicalBlocks.count == 1, logicalBlocks[0].runs.isEmpty, logicalBlocks[0].marker != .paragraph {
             // A zero-length attributed string cannot carry a marker.  The single separator is an
             // explicit terminal encoding for this otherwise unrepresentable empty heading; it is
             // distinct from user-typed unmarked `\n`, which decodes to two empty paragraphs.
+            let marker = logicalBlocks[0].marker
             return NSAttributedString(string: "\n", attributes: [
-                Attribute.terminalEmptyDocument: marker(for: semantic.blocks[0])
+                Attribute.terminalEmptyDocument: markerValue(marker)
             ])
         }
         let result = NSMutableAttributedString()
 
-        for index in semantic.blocks.indices {
-            let block = semantic.blocks[index]
-            let runs = runs(in: block)
-            let blockMarker = marker(for: block)
+        for index in logicalBlocks.indices {
+            let logical = logicalBlocks[index]
+            let runs = logical.runs
+            let blockMarker = logical.marker
             for run in runs {
-                var attributes: [NSAttributedString.Key: Any] = [Attribute.block: blockMarker]
+                var attributes: [NSAttributedString.Key: Any] = [Attribute.block: markerValue(blockMarker)]
                 if !run.marks.isEmpty {
                     attributes[Attribute.marks] = marksMarker(run.marks)
                 }
@@ -86,13 +145,13 @@ enum LoroNativeRichTextCodec {
                 result.append(NSAttributedString(string: run.text, attributes: attributes))
             }
 
-            if index < semantic.blocks.index(before: semantic.blocks.endIndex) {
-                let following = semantic.blocks[semantic.blocks.index(after: index)]
+            if index < logicalBlocks.index(before: logicalBlocks.endIndex) {
+                let following = logicalBlocks[logicalBlocks.index(after: index)]
                 result.append(NSAttributedString(
                     string: "\n",
                     attributes: [
-                        Attribute.separatorBefore: blockMarker,
-                        Attribute.separatorAfter: marker(for: following)
+                        Attribute.separatorBefore: markerValue(blockMarker),
+                        Attribute.separatorAfter: markerValue(following.marker)
                     ]
                 ))
             }
@@ -107,13 +166,20 @@ enum LoroNativeRichTextCodec {
         try validateAttributes(in: attributed)
         let text = attributed.string
         guard !text.unicodeScalars.contains("\r") else { throw Error.malformedMarker("carriage return") }
-        if text == "\n", let marker = attributed.attribute(Attribute.terminalEmptyDocument, at: 0, effectiveRange: nil) as? String {
-            guard isBlockMarker(marker), marker != "paragraph" else { throw Error.malformedMarker("terminal empty document") }
-            return LoroNativeRichDocumentV1(semantic: try canonical(.init(blocks: [makeBlock(kind: marker, runs: [])])))
+        if text == "\n", let rawMarker = attributed.attribute(Attribute.terminalEmptyDocument, at: 0, effectiveRange: nil) {
+            let marker = try parseMarker(rawMarker)
+            switch marker {
+            case .paragraph: throw Error.malformedMarker("terminal empty document")
+            case let .heading(level):
+                return LoroNativeRichDocumentV1(semantic: try canonical(.init(blocks: [.heading(level: level, runs: [])])))
+            case let .task(item):
+                guard item.itemOrdinal == 0 else { throw Error.malformedMarker("terminal task item") }
+                return LoroNativeRichDocumentV1(semantic: try canonical(.init(blocks: [.taskList([.init(checked: item.checked, runs: [])])])))
+            }
         }
 
         let pieces = text.split(separator: "\n", omittingEmptySubsequences: false)
-        var blocks: [LoroCanonicalSemanticValueV1.Block] = []
+        var logicalBlocks: [(marker: BlockMarker, runs: [LoroCanonicalSemanticValueV1.TextRun])] = []
         var utf16Offset = 0
 
         for pieceIndex in pieces.indices {
@@ -134,10 +200,39 @@ enum LoroNativeRichTextCodec {
                 nextSeparatorRange: nextSeparatorRange
             )
             let runs = try decodeRuns(in: attributed, range: contentRange)
-            blocks.append(makeBlock(kind: kind, runs: runs))
+            logicalBlocks.append((kind, runs))
             utf16Offset += pieceLength + (nextSeparatorRange == nil ? 0 : 1)
         }
 
+        var blocks: [LoroCanonicalSemanticValueV1.Block] = []
+        var activeTaskList: (ordinal: Int, items: [LoroCanonicalSemanticValueV1.TaskItem])?
+        func flushTaskList() {
+            if let activeTaskList { blocks.append(.taskList(activeTaskList.items)) }
+        }
+        for logical in logicalBlocks {
+            switch logical.marker {
+            case .paragraph:
+                flushTaskList(); activeTaskList = nil; blocks.append(.paragraph(logical.runs))
+            case let .heading(level):
+                flushTaskList(); activeTaskList = nil; blocks.append(.heading(level: level, runs: logical.runs))
+            case let .task(item):
+                guard item.itemOrdinal >= 0 else { throw Error.malformedMarker("task item ordinal") }
+                if let active = activeTaskList {
+                    if active.ordinal != item.listOrdinal {
+                        guard item.itemOrdinal == 0 else { throw Error.malformedMarker("task list start") }
+                        blocks.append(.taskList(active.items))
+                        activeTaskList = (item.listOrdinal, [.init(checked: item.checked, runs: logical.runs)])
+                    } else {
+                        guard item.itemOrdinal == active.items.count else { throw Error.malformedMarker("task list topology") }
+                        activeTaskList = (active.ordinal, active.items + [.init(checked: item.checked, runs: logical.runs)])
+                    }
+                } else {
+                    guard item.itemOrdinal == 0 else { throw Error.malformedMarker("task list start") }
+                    activeTaskList = (item.listOrdinal, [.init(checked: item.checked, runs: logical.runs)])
+                }
+            }
+        }
+        flushTaskList()
         return LoroNativeRichDocumentV1(semantic: try canonical(.init(blocks: blocks)))
     }
 
@@ -187,6 +282,32 @@ enum LoroNativeRichTextCodec {
             : marker.reference
     }
 
+    /// Returns the checklist witness at a visible character or separator.  Empty task items have
+    /// no content characters, so their terminating separator carries the item's typed marker and
+    /// is intentionally accepted here as the checkbox hit target.
+    static func taskItem(atUTF16Offset offset: Int, in attributed: NSAttributedString) -> LoroNativeRichTaskItemLocation? {
+        guard offset >= 0, offset < attributed.length else { return nil }
+        if let marker = attributed.attribute(Attribute.block, at: offset, effectiveRange: nil) as? TaskItemMarker {
+            return .init(taskListIndex: marker.listOrdinal, itemIndex: marker.itemOrdinal, checked: marker.checked)
+        }
+        guard attributed.string.utf16[at: offset] == 10 else { return nil }
+        // A trailing empty item has no content characters; its only witness is the separator
+        // immediately before it. Prefer that `separatorAfter` marker when this is the final
+        // storage character, while normal/middle items resolve from the separator ending them.
+        let before = attributed.attribute(Attribute.separatorBefore, at: offset, effectiveRange: nil) as? TaskItemMarker
+        let after = attributed.attribute(Attribute.separatorAfter, at: offset, effectiveRange: nil) as? TaskItemMarker
+        if offset == attributed.length - 1, let marker = after ?? before {
+            return .init(taskListIndex: marker.listOrdinal, itemIndex: marker.itemOrdinal, checked: marker.checked)
+        }
+        if let marker = before ?? after {
+            return .init(taskListIndex: marker.listOrdinal, itemIndex: marker.itemOrdinal, checked: marker.checked)
+        }
+        if let marker = attributed.attribute(Attribute.terminalEmptyDocument, at: offset, effectiveRange: nil) as? TaskItemMarker {
+            return .init(taskListIndex: marker.listOrdinal, itemIndex: marker.itemOrdinal, checked: marker.checked)
+        }
+        return nil
+    }
+
     /// Native layout managers report glyph bounds in text-container coordinates.  Keeping this
     /// arithmetic pure makes the platform hosts prove they cannot activate a neighbouring label,
     /// padding, or trailing whitespace after scroll/inset conversion.
@@ -209,10 +330,17 @@ enum LoroNativeRichTextCodec {
         var runCount = 0
         var utf8Bytes = 0
         for block in semantic.blocks {
-            let runs = runs(in: block)
-            if case let .heading(level, _) = block, !(1...3).contains(level) {
-                throw Error.invalidSemanticDocument
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs):
+                try validateRuns(runs)
+            case let .taskList(items):
+                guard !items.isEmpty, items.count <= limits.maxChildren else { throw Error.invalidSemanticDocument }
+                for item in items { try validateRuns(item.runs) }
             }
+        }
+        return semantic
+
+        func validateRuns(_ runs: [LoroCanonicalSemanticValueV1.TextRun]) throws {
             var previous: (marks: [LoroCanonicalSemanticValueV1.Mark], reference: LoroCanonicalSemanticValueV1.InlineReference?)?
             for run in runs {
                 runCount += 1
@@ -240,30 +368,13 @@ enum LoroNativeRichTextCodec {
                 previous = (run.marks, run.reference)
             }
         }
-        return semantic
     }
 
-    private static func runs(in block: LoroCanonicalSemanticValueV1.Block) -> [LoroCanonicalSemanticValueV1.TextRun] {
-        switch block {
-        case let .paragraph(runs): return runs
-        case let .heading(_, runs): return runs
-        }
-    }
-
-    private static func marker(for block: LoroCanonicalSemanticValueV1.Block) -> String {
-        switch block {
+    private static func markerValue(_ marker: BlockMarker) -> Any {
+        switch marker {
         case .paragraph: return "paragraph"
-        case let .heading(level, _): return "heading-\(level)"
-        }
-    }
-
-    private static func makeBlock(kind: String, runs: [LoroCanonicalSemanticValueV1.TextRun]) -> LoroCanonicalSemanticValueV1.Block {
-        switch kind {
-        case "paragraph": return .paragraph(runs)
-        case "heading-1": return .heading(level: 1, runs: runs)
-        case "heading-2": return .heading(level: 2, runs: runs)
-        case "heading-3": return .heading(level: 3, runs: runs)
-        default: preconditionFailure("validated block marker required")
+        case let .heading(level): return "heading-\(level)"
+        case let .task(item): return item
         }
     }
 
@@ -333,15 +444,15 @@ enum LoroNativeRichTextCodec {
         contentRange: NSRange,
         previousSeparatorRange: NSRange?,
         nextSeparatorRange: NSRange?
-    ) throws -> String {
-        var candidates: [String] = []
+    ) throws -> BlockMarker {
+        var candidates: [BlockMarker] = []
         var sawMissingContentMarker = false
         var sawMarksWithoutBlock = false
         var malformedContentMarker = false
         if contentRange.length > 0 {
             attributed.enumerateAttributes(in: contentRange, options: []) { attributes, _, _ in
                 if let rawValue = attributes[Attribute.block] {
-                    if let value = rawValue as? String { candidates.append(value) }
+                    if let value = try? parseMarker(rawValue) { candidates.append(value) }
                     else { malformedContentMarker = true }
                 } else { sawMissingContentMarker = true }
                 if (attributes[Attribute.marks] != nil || attributes[Attribute.reference] != nil), attributes[Attribute.block] == nil {
@@ -352,16 +463,14 @@ enum LoroNativeRichTextCodec {
         guard !malformedContentMarker else { throw Error.malformedMarker("block") }
         guard !sawMarksWithoutBlock else { throw Error.malformedMarker("marks without block") }
         if let previousSeparatorRange, let value = attributed.attribute(Attribute.separatorAfter, at: previousSeparatorRange.location, effectiveRange: nil) {
-            guard let marker = value as? String else { throw Error.malformedMarker("separator-after") }
-            candidates.append(marker)
+            candidates.append(try parseMarker(value))
         }
         if let nextSeparatorRange, let value = attributed.attribute(Attribute.separatorBefore, at: nextSeparatorRange.location, effectiveRange: nil) {
-            guard let marker = value as? String else { throw Error.malformedMarker("separator-before") }
-            candidates.append(marker)
+            candidates.append(try parseMarker(value))
         }
         guard !(sawMissingContentMarker && !candidates.isEmpty) else { throw Error.malformedMarker("mixed block markers") }
-        if candidates.isEmpty { return "paragraph" }
-        guard candidates.allSatisfy({ $0 == candidates[0] }), isBlockMarker(candidates[0]) else { throw Error.malformedMarker("block") }
+        if candidates.isEmpty { return .paragraph }
+        guard candidates.allSatisfy({ $0 == candidates[0] }) else { throw Error.malformedMarker("block") }
         return candidates[0]
     }
 
@@ -381,8 +490,8 @@ enum LoroNativeRichTextCodec {
                     let terminal = attributes[Attribute.terminalEmptyDocument]
                     if terminal != nil { terminalOffsets.append(offset) }
                     if (before == nil) != (after == nil) ||
-                        (before != nil && (!(before is String) || !(after is String))) ||
-                        (terminal != nil && (!(terminal is String) || before != nil || after != nil)) {
+                        (before != nil && ((try? parseMarker(before!)) == nil || (try? parseMarker(after!)) == nil)) ||
+                        (terminal != nil && ((try? parseMarker(terminal!)) == nil || before != nil || after != nil)) {
                         throw Error.malformedMarker("separator")
                     }
                 }
@@ -396,17 +505,24 @@ enum LoroNativeRichTextCodec {
             guard attributed.string == "\n",
                   terminalOffsets == [0],
                   terminalRange == NSRange(location: 0, length: 1),
-                  let marker = terminal as? String,
-                  isBlockMarker(marker),
-                  marker != "paragraph"
+                  let marker = try? parseMarker(terminal!),
+                  marker != .paragraph
             else {
                 throw Error.malformedMarker("terminal empty document")
             }
         }
     }
 
-    private static func isBlockMarker(_ marker: String) -> Bool {
-        ["paragraph", "heading-1", "heading-2", "heading-3"].contains(marker)
+    private static func parseMarker(_ value: Any) throws -> BlockMarker {
+        if let marker = value as? TaskItemMarker { return .task(marker) }
+        guard let marker = value as? String else { throw Error.malformedMarker("block") }
+        switch marker {
+        case "paragraph": return .paragraph
+        case "heading-1": return .heading(1)
+        case "heading-2": return .heading(2)
+        case "heading-3": return .heading(3)
+        default: throw Error.malformedMarker("block")
+        }
     }
 
     private static func scalarOffset(atUTF16Offset offset: Int, in text: String, original: NSRange) throws -> Int {

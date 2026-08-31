@@ -34,6 +34,43 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         )
     }
 
+    func testTaskTextEditingPreservesChecklistTopologyAndCheckedState() {
+        let source = taskList([
+            .init(checked: true, runs: [.init(text: "one")]),
+            .init(checked: false, runs: [.init(text: "two")])
+        ])
+        var engine = LoroNativeRichEditingEngine(document: source)
+
+        let effect = engine.replace(utf16Range: NSRange(location: 1, length: 1), withPlainText: "N")
+
+        XCTAssertEqual(effect, .publish(
+            document: taskList([
+                .init(checked: true, runs: [.init(text: "oNe")]),
+                .init(checked: false, runs: [.init(text: "two")])
+            ]),
+            selection: .init(location: 2, length: 0)
+        ))
+        XCTAssertEqual(engine.admittedDocument.semantic.blocks, [
+            .taskList([
+                .init(checked: true, runs: [.init(text: "oNe")]),
+                .init(checked: false, runs: [.init(text: "two")])
+            ])
+        ])
+    }
+
+    func testChecklistCommandCanTargetTrailingEmptyItem() throws {
+        let source = taskList([
+            .init(checked: false, runs: [.init(text: "one")]),
+            .init(checked: false, runs: [])
+        ])
+        var engine = LoroNativeRichEditingEngine(document: source)
+        let rendered = try LoroNativeRichTextCodec.attributedString(for: source)
+        let command = try XCTUnwrap(engine.makeTaskToggleCommand(atUTF16Offset: rendered.length - 1))
+        XCTAssertEqual(command.taskListIndex, 0)
+        XCTAssertEqual(command.itemIndex, 1)
+        XCTAssertEqual(command.expectedItem.runs, [])
+    }
+
     func testPendingParentAcknowledgementIsExactAndDifferentParentIsDeferred() {
         var engine = LoroNativeRichEditingEngine(document: paragraph("base"))
         let local = paragraph("base local")
@@ -134,6 +171,10 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
 
     private func paragraph(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph(text.isEmpty ? [] : [.init(text: text, marks: marks)])]))
+    }
+
+    private func taskList(_ items: [LoroCanonicalSemanticValueV1.TaskItem]) -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.taskList(items)]))
     }
 
     private func heading(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
