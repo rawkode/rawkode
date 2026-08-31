@@ -41,6 +41,14 @@ export type CalendarOAuthCoordinatorRecord = Readonly<{
   completion?: CalendarOAuthProviderCompletionWitness
 }>
 
+/** Snapshot input may contain historical v1 admissions. They are accepted only as migration
+ * input and are deterministically quarantined before the live coordinator map is rebuilt. */
+type CalendarOAuthCoordinatorSnapshotRecord = Readonly<{
+  admission: CalendarOAuthAdmissionReceipt
+  attempt: CalendarOAuthAuthorityAttempt
+  completion?: CalendarOAuthProviderCompletionWitness
+}>
+
 const digest = (value: unknown): string => sha256HexSync(canonicalJsonBytes(value))
 const handleDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: value })
 const nonceDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-state-nonce.v1", nonce: value })
@@ -76,10 +84,15 @@ export class CalendarOAuthCoordinator {
 
   constructor(
     private readonly admissionWitnessSecret: string,
-    records: readonly CalendarOAuthCoordinatorRecord[] = [],
+    records: readonly CalendarOAuthCoordinatorSnapshotRecord[] = [],
     private readonly retainedAdmissionWitnessSecrets: readonly string[] = []
   ) {
-    for (const record of records) this.#put(Object.freeze({ admission: privateAdmission(record.admission), attempt: record.attempt, completion: record.completion === undefined ? undefined : privateCompletion(record.completion) }))
+    for (const record of records) {
+      // A v1 receipt predates pre-bound provider identities. Workspace already rejects it for
+      // replay; the global coordinator must also skip it so one stale row cannot prevent startup.
+      if (record.admission.version !== "athenaeum.calendar-oauth-admission.v2") continue
+      this.#put(Object.freeze({ admission: privateAdmission(record.admission), attempt: record.attempt, completion: record.completion === undefined ? undefined : privateCompletion(record.completion) }))
+    }
   }
 
   /** The durable adapter persists only private receipt-bearing records, never transport secrets. */
@@ -240,7 +253,10 @@ type CoordinatorEnv = Env & Readonly<{
   CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string
   CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS?: string
 }>
-type CoordinatorSnapshot = Readonly<{ version: "athenaeum.calendar-oauth-coordinator.v1"; records: readonly CalendarOAuthCoordinatorRecord[] }>
+type CoordinatorSnapshot = Readonly<{
+  version: "athenaeum.calendar-oauth-coordinator.v1" | "athenaeum.calendar-oauth-coordinator.v2"
+  records: readonly CalendarOAuthCoordinatorSnapshotRecord[]
+}>
 const COORDINATOR_SNAPSHOT_KEY = "calendar-oauth-coordinator.private.v1"
 
 /**
@@ -307,7 +323,7 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
       try {
         return await this.ctx.storage.transaction(async (transaction) => {
           const result = operation(this.#coordinator)
-          await transaction.put(COORDINATOR_SNAPSHOT_KEY, { version: "athenaeum.calendar-oauth-coordinator.v1", records: this.#coordinator.snapshot() } satisfies CoordinatorSnapshot)
+          await transaction.put(COORDINATOR_SNAPSHOT_KEY, { version: "athenaeum.calendar-oauth-coordinator.v2", records: this.#coordinator.snapshot() } satisfies CoordinatorSnapshot)
           return result
         })
       } catch (error) {
@@ -320,5 +336,10 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
     const snapshot = await this.ctx.storage.get<CoordinatorSnapshot>(COORDINATOR_SNAPSHOT_KEY)
     const retained = (this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS ?? "").split(",").filter(Boolean)
     this.#coordinator = new CalendarOAuthCoordinator(this.#secret, snapshot?.records ?? [], retained)
+    // Persist the filtered v2 snapshot so the migration is one-way and a later eviction cannot
+    // reintroduce a historical receipt into the live startup path.
+    if (snapshot?.records.some((record) => record.admission.version !== "athenaeum.calendar-oauth-admission.v2")) {
+      await this.ctx.storage.put(COORDINATOR_SNAPSHOT_KEY, { version: "athenaeum.calendar-oauth-coordinator.v2", records: this.#coordinator.snapshot() } satisfies CoordinatorSnapshot)
+    }
   }
 }

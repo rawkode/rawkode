@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as Schema from "effect/Schema"
-import { CalendarOAuthAdmissionReceipt, CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
+import { CalendarOAuthAdmissionReceipt, CalendarOAuthAdmissionReceiptV1, CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
 import { CalendarOAuthCoordinator, CalendarOAuthCoordinatorError } from "../src/calendar-oauth-coordinator-durable-object.js"
 import { CalendarOAuthWorkspaceAdmissions } from "../src/calendar-oauth-workspace-admission.js"
 
@@ -82,5 +82,27 @@ describe("Calendar OAuth coordinator authority", () => {
     coordinator.redeemLaunch({ authorityAttemptId: admission.receipt.authorityAttemptId, launchCapability: firstLaunch.launchCapability, expectedLaunchGeneration: firstLaunch.launchGeneration, stateNonce: "shared-state", now })
     const secondLaunch = coordinator.issueLaunch({ authorityAttemptId: second.receipt.authorityAttemptId, workspaceId, principal, now, launchCapability: "ocl_second" })
     expect(() => coordinator.redeemLaunch({ authorityAttemptId: second.receipt.authorityAttemptId, launchCapability: secondLaunch.launchCapability, expectedLaunchGeneration: secondLaunch.launchGeneration, stateNonce: "shared-state", now })).toThrow(CalendarOAuthCoordinatorError)
+  })
+
+  it("quarantines historical v1 admissions while rebuilding a mixed coordinator snapshot", () => {
+    const { admission, coordinator } = setup()
+    const current = coordinator.snapshot()[0]!
+    const legacy = new CalendarOAuthAdmissionReceiptV1({
+      version: "athenaeum.calendar-oauth-admission.v1",
+      workspaceId: admission.receipt.workspaceId,
+      principal: admission.receipt.principal,
+      requestId: admission.receipt.requestId,
+      requestFingerprint: admission.receipt.requestFingerprint,
+      handleDerivationVersion: admission.receipt.handleDerivationVersion,
+      attemptHandleDigest: admission.receipt.attemptHandleDigest,
+      calendarConnectionId: admission.receipt.calendarConnectionId,
+      authorityAttemptId: admission.receipt.authorityAttemptId,
+      admissionWitnessDigest: admission.receipt.admissionWitnessDigest,
+      admittedAt: admission.receipt.admittedAt
+    })
+    const restored = new CalendarOAuthCoordinator(secret, [{ admission: legacy, attempt: current.attempt }, current])
+    expect(restored.snapshot()).toHaveLength(1)
+    const launch = restored.issueLaunch({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, now, launchCapability: "ocl_after-migration" })
+    expect(launch.launchGeneration).toBe(1)
   })
 })

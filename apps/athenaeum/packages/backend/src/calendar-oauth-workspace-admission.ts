@@ -169,7 +169,7 @@ export class CalendarOAuthWorkspaceAdmissions {
     commitMessage: string
     attribution: MutationAttribution
     calendarId?: string
-    mode?: "selected" | "allVisible"
+    mode?: "selected"
     handleSecret: string
     retainedHandleSecrets?: readonly string[]
     now: string

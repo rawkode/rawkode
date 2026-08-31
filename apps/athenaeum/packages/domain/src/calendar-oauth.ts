@@ -81,7 +81,8 @@ export class CalendarOAuthAdmissionReceiptV2 extends Schema.Class<CalendarOAuthA
   /** Workspace-owned binding identity is fixed before the provider is contacted. */
   bindingId: EntityId,
   calendarId: Schema.String.pipe(Schema.minLength(1)),
-  mode: Schema.Literal("selected", "allVisible"),
+  /** The opaque first-flow contract binds only Google's primary/selected calendar. */
+  mode: Schema.Literal("selected"),
   admissionWitnessDigest: CalendarOAuthWitnessDigest,
   admittedAt: IsoDateTimeString
 }) {}
@@ -123,7 +124,7 @@ export const calendarOAuthBeginRequestFingerprint = (input: {
   commitMessage: string
   attribution: unknown
   calendarId?: string
-  mode?: "selected" | "allVisible"
+  mode?: "selected"
 }): CalendarOAuthRequestFingerprint =>
   Schema.decodeUnknownSync(CalendarOAuthRequestFingerprint)(sha256HexSync(canonicalJsonBytes({
     version: "athenaeum.calendar-oauth-begin-request.v1",
