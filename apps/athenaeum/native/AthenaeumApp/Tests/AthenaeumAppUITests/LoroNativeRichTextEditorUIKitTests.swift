@@ -113,6 +113,91 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published, [expected])
     }
 
+    func testStaleMentionInsertionIsRejectedAfterTheQueryChanges() throws {
+        var contexts: [LoroNativeRichTextMentionContext] = []
+        var rejected: [LoroNativeRichTextEditorRejection] = []
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("Meet @al"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) },
+            onRejectedInput: { rejected.append($0) },
+            onMentionQueryChange: { context in if let context { contexts.append(context) } }
+        )
+
+        controller.testingSelect(NSRange(location: 8, length: 0))
+        let stale = try XCTUnwrap(contexts.last)
+        controller.testingReplace(NSRange(location: 5, length: 3), with: "@alice")
+        let current = try XCTUnwrap(contexts.last)
+        XCTAssertGreaterThan(current.generation, stale.generation)
+        XCTAssertNotEqual(current.utf16Range, stale.utf16Range)
+
+        controller.testingApplyMentionInsertion(.init(
+            generation: stale.generation,
+            utf16Range: stale.utf16Range,
+            reference: reference()
+        ))
+
+        XCTAssertEqual(controller.testingDocument(), paragraph("Meet @alice"))
+        XCTAssertEqual(published.count, 1)
+        XCTAssertEqual(rejected, [.invalidEdit])
+    }
+
+    func testStaleMentionInsertionIsRejectedAfterParentDocumentAdoption() throws {
+        var contexts: [LoroNativeRichTextMentionContext] = []
+        var rejected: [LoroNativeRichTextEditorRejection] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("Meet @al"),
+            isEditable: true,
+            onRejectedInput: { rejected.append($0) },
+            onMentionQueryChange: { context in if let context { contexts.append(context) } }
+        )
+
+        controller.testingSelect(NSRange(location: 8, length: 0))
+        let stale = try XCTUnwrap(contexts.last)
+        controller.testingUpdate(document: paragraph("Meet @al now"), isEditable: true)
+        let current = try XCTUnwrap(contexts.last)
+        XCTAssertGreaterThan(current.generation, stale.generation)
+
+        controller.testingApplyMentionInsertion(.init(
+            generation: stale.generation,
+            utf16Range: stale.utf16Range,
+            reference: reference()
+        ))
+
+        XCTAssertEqual(controller.testingDocument(), paragraph("Meet @al now"))
+        XCTAssertEqual(rejected, [.invalidEdit])
+    }
+
+    func testMentionInsertionIsRejectedWhileCompositionOrReadOnlyModeOwnsTheEditor() throws {
+        var contexts: [LoroNativeRichTextMentionContext] = []
+        var rejected: [LoroNativeRichTextEditorRejection] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("Meet @al"),
+            isEditable: true,
+            onRejectedInput: { rejected.append($0) },
+            onMentionQueryChange: { context in if let context { contexts.append(context) } }
+        )
+        controller.testingSelect(NSRange(location: 8, length: 0))
+        let context = try XCTUnwrap(contexts.last)
+        let command = LoroNativeRichTextMentionInsertion(
+            generation: context.generation,
+            utf16Range: context.utf16Range,
+            reference: reference()
+        )
+
+        controller.testingBeginComposition(range: NSRange(location: 8, length: 0))
+        controller.testingApplyMentionInsertion(command)
+        XCTAssertEqual(controller.testingDocument(), paragraph("Meet @al"))
+        XCTAssertEqual(rejected, [.invalidEdit])
+
+        controller.testingEndComposition()
+        controller.testingUpdate(document: paragraph("Meet @al"), isEditable: false)
+        controller.testingApplyMentionInsertion(command)
+        XCTAssertEqual(controller.testingDocument(), paragraph("Meet @al"))
+        XCTAssertEqual(rejected, [.invalidEdit, .disabled])
+    }
+
     func testReferenceKeyboardSelectionActivationUsesOnlyTheTypedMarker() {
         var opened = 0
         let controller = LoroNativeRichTextEditorUIKitController(document: referenceParagraph(), isEditable: true, onOpenReference: { _ in opened += 1 })

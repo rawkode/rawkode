@@ -169,6 +169,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         let wasEditable = isEditableInput
         isEditableInput = isEditable
         textView.isEditable = isEditable
+        if !isEditable { invalidateMentionContext() }
         if !wasEditable, isEditable { fulfillFocusRequestIfPossible() }
         if wasEditable, !isEditable, (engine.compositionState != .idle || pendingComposition || hasMarkedText) {
             deferredParentDocument = document
@@ -177,7 +178,13 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         }
         if let selection = scalarSelection() { engine.setSelection(selection) }
         switch engine.receiveParentDocument(document) {
-        case let .adopted(document, selection), let .acknowledged(document, selection):
+        case let .adopted(document, selection):
+            // A remote replacement may happen to contain the same visible trigger. It still
+            // needs a new generation so a picker result from the prior document cannot apply.
+            invalidateMentionContext()
+            render(document, preserving: selection)
+        case let .acknowledged(document, selection):
+            invalidateMentionContext()
             render(document, preserving: selection)
         case .deferredForComposition:
             deferredParentDocument = document
@@ -248,6 +255,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         hostCompositionGeneration &+= 1
         scheduledFlushGeneration = nil
         pendingComposition = true
+        invalidateMentionContext()
     }
 
     fileprivate func updateComposition(_ replacement: String) { engine.updateComposition(replacement) }
@@ -291,7 +299,15 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     // These value-facing seams let the iOS test bundle exercise UIKit policy without making the
     // representable part of daily-note product admission.
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
-    func testingSelect(_ range: NSRange) { textView.selectedRange = range }
+    func testingSelect(_ range: NSRange) {
+        textView.selectedRange = range
+        if let selection = scalarSelection() { engine.setSelection(selection) }
+        publishMentionContext()
+    }
+    func testingApplyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+        applyMentionInsertion(insertion)
+    }
+    func testingDismissMentionContext() { dismissMentionContext() }
     func testingSelection() -> LoroNativeRichTextSelection? { scalarSelection() }
     func testingRequestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
         requestFocus(generation: generation, selection: selection)
@@ -418,13 +434,31 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.textColor = .label
     }
 
-    /// Consumes a picker result exactly once. Delayed results are intentionally sent through the
-    /// same semantic engine as keyboard input, so a stale range or disabled editor fails closed.
+    /// Consumes only the command for the exact context still visible at the current caret. This
+    /// prevents a delayed picker result from applying after a query, caret, or document change.
     func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
-        guard let insertion, insertion.generation > lastAppliedMentionGeneration else { return }
+        guard let insertion else { return }
+        guard isEditableInput else { reject(.disabled); return }
+        guard !pendingComposition, !hasMarkedText else { reject(.invalidEdit); return }
+        guard insertion.generation > lastAppliedMentionGeneration,
+              let published = lastMentionContext,
+              insertion.generation == published.generation,
+              insertion.utf16Range == published.utf16Range,
+              scalarSelection() == published.selection,
+              let current = LoroNativeRichTextMentionContext.detect(
+                  in: textView.attributedText ?? NSAttributedString(),
+                  selection: textView.selectedRange
+              ),
+              current.query == published.query,
+              current.utf16Range == published.utf16Range,
+              current.selection == published.selection
+        else { reject(.invalidEdit); return }
         lastAppliedMentionGeneration = insertion.generation
         insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range)
     }
+
+    /// The host calls this when its picker is dismissed without a selection.
+    func dismissMentionContext() { invalidateMentionContext() }
 
     private func publishMentionContext() {
         guard isEditableInput, !pendingComposition, !hasMarkedText,
@@ -432,10 +466,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
                   in: textView.attributedText ?? NSAttributedString(),
                   selection: textView.selectedRange
               ) else {
-            if lastMentionContext != nil {
-                lastMentionContext = nil
-                onMentionQueryChange(nil)
-            }
+            invalidateMentionContext()
             return
         }
 
@@ -454,6 +485,12 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         )
         lastMentionContext = published
         onMentionQueryChange(published)
+    }
+
+    private func invalidateMentionContext() {
+        guard lastMentionContext != nil else { return }
+        lastMentionContext = nil
+        onMentionQueryChange(nil)
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {
