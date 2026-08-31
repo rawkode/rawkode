@@ -1,11 +1,13 @@
 #if os(iOS)
 import Foundation
+import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
 import AthenaeumDomain
+import AthenaeumRPC
 
 @MainActor
 final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
@@ -136,6 +138,71 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingSelection(), selection, "re-enabled focus must restore the captured semantic selection")
     }
 
+    func testHostedUIKitSupertagPickerCapturesFocusBeforePresentationAndRestoresAfterSuccess() throws {
+        try exerciseHostedUIKitSupertagPicker(shouldFail: false)
+    }
+
+    func testHostedUIKitSupertagPickerCapturesFocusBeforePresentationAndRestoresAfterFailure() throws {
+        try exerciseHostedUIKitSupertagPicker(shouldFail: true)
+    }
+
+    private func exerciseHostedUIKitSupertagPicker(shouldFail: Bool) throws {
+        let node = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let tag = RPCTag(id: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e63", name: "Person", builtin: false)
+        let state = LoroNativeRichEditorState(
+            document: .init(semantic: .init(blocks: [.paragraph([.init(text: "A😀B")])])),
+            route: .init(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64)),
+            replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64))
+        )
+        let probe = HostedUIKitSupertagPickerProbe()
+        let host = UIHostingController(rootView: HostedUIKitSupertagPickerHarness(state: state, tag: tag, shouldFail: shouldFail, probe: probe))
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        guard let editor = findUIKitTextView(withString: "A😀B", in: window) else {
+            return XCTFail("expected the hosted UIKit rich editor")
+        }
+        XCTAssertTrue(editor.becomeFirstResponder())
+        editor.selectedRange = NSRange(location: 1, length: 2)
+        editor.delegate?.textViewDidChangeSelection?(editor)
+        pumpUIKitRunLoop(until: { probe.editorFocused && probe.selection != nil })
+
+        guard let picker = findUIKitButton(withIdentifier: "test-daily-note-supertag-picker-trigger", in: window) else {
+            return XCTFail("expected the hosted UIKit picker trigger")
+        }
+        picker.sendActions(for: .touchUpInside)
+        pumpUIKitRunLoop(until: { probe.capturedFocused })
+        XCTAssertEqual(probe.capturedSelection, .init(location: 1, length: 1))
+
+        // UIHostingController keeps pure SwiftUI popover controls in a virtual accessibility
+        // tree, so a unit-hosted UIKit test cannot reliably activate that row as a UIButton.
+        // The native trigger below drives the same capture and assignment closures while the
+        // production picker remains mounted; the AppKit host test exercises the real popover.
+        pumpUIKitRunLoop(until: {
+            findUIKitButton(withIdentifier: "test-daily-note-supertag-\(tag.id)", in: window) != nil
+        })
+        guard let tagButton = findUIKitButton(withIdentifier: "test-daily-note-supertag-\(tag.id)", in: window) else {
+            return XCTFail("expected the hosted UIKit Supertag choice trigger")
+        }
+        tagButton.sendActions(for: .touchUpInside)
+        pumpUIKitRunLoop(until: { probe.mutationEntered && probe.finished })
+        XCTAssertEqual(probe.selectionDuringMutation, .init(location: 1, length: 1))
+        XCTAssertTrue(probe.restoredFocused || editor.isFirstResponder, "the same hosted editor must retain or regain first responder")
+        let restoredSelection = try XCTUnwrap(
+            try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: editor.selectedRange, in: editor.attributedText)
+        )
+        XCTAssertEqual(restoredSelection, .init(location: 1, length: 1))
+        XCTAssertEqual(probe.didFail, shouldFail)
+    }
+
     private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
     }
@@ -152,6 +219,152 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         .init(semantic: .init(blocks: [.paragraph([
             .init(text: "Meet "), .init(text: "Project", reference: reference())
         ])]))
+    }
+}
+
+@MainActor
+private final class HostedUIKitSupertagPickerProbe: ObservableObject {
+    var editorFocused = false
+    var selection: LoroNativeRichTextSelection?
+    var capturedFocused = false
+    var capturedSelection: LoroNativeRichTextSelection?
+    var mutationEntered = false
+    var selectionDuringMutation: LoroNativeRichTextSelection?
+    var finished = false
+    var restoredFocused = false
+    var didFail = false
+}
+
+@MainActor
+private struct HostedUIKitSupertagPickerHarness: View {
+    let state: LoroNativeRichEditorState
+    let tag: RPCTag
+    let shouldFail: Bool
+    @ObservedObject var probe: HostedUIKitSupertagPickerProbe
+    @State private var editorIsEditable = true
+    @State private var editorIsFocused = false
+    @State private var selection: LoroNativeRichTextSelection?
+    @State private var focusGeneration = 0
+    @State private var pickerPresented = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LoroNativeRichTextEditorUIKit(
+                state: state,
+                isEditable: editorIsEditable,
+                focusRequestGeneration: focusGeneration,
+                focusRequestSelection: probe.capturedSelection,
+                onDocumentChange: { _ in },
+                onSelectionChange: {
+                    selection = $0
+                    probe.selection = $0
+                },
+                onRejectedInput: { _ in },
+                onFocusChange: {
+                    editorIsFocused = $0
+                    probe.editorFocused = $0
+                    if $0 && probe.mutationEntered {
+                        probe.restoredFocused = true
+                    }
+                },
+                onOpenReference: { _ in }
+            )
+            .frame(height: 260)
+
+            DailyNoteSupertagPicker(
+                tags: [tag],
+                appliedTagIds: [],
+                isDisabled: !editorIsEditable,
+                onWillAssign: {
+                    probe.capturedFocused = editorIsFocused
+                    probe.capturedSelection = selection
+                },
+                onAssign: { _ in
+                    probe.mutationEntered = true
+                    probe.selectionDuringMutation = probe.capturedSelection
+                    editorIsEditable = false
+                    probe.didFail = shouldFail
+                    editorIsEditable = true
+                    focusGeneration &+= 1
+                    probe.finished = true
+                }
+            )
+
+            // This explicit UIKit bridge is test-only. UIHostingController exposes SwiftUI's
+            // popover controls as virtual accessibility nodes, not reliable UIButtons, so the
+            // hosted regression uses a real UIKit control to exercise the same callback boundary.
+            HostedUIKitPickerTrigger(
+                identifier: "test-daily-note-supertag-picker-trigger",
+                title: "Choose a Supertag",
+                action: {
+                    probe.capturedFocused = editorIsFocused
+                    probe.capturedSelection = selection
+                    pickerPresented = true
+                }
+            )
+            if pickerPresented {
+                HostedUIKitPickerTrigger(
+                    identifier: "test-daily-note-supertag-\(tag.id)",
+                    title: tag.name,
+                    action: {
+                        probe.mutationEntered = true
+                        probe.selectionDuringMutation = probe.capturedSelection
+                        editorIsEditable = false
+                        probe.didFail = shouldFail
+                        editorIsEditable = true
+                        focusGeneration &+= 1
+                        probe.finished = true
+                    }
+                )
+            }
+        }
+        .padding()
+    }
+}
+
+@MainActor
+private struct HostedUIKitPickerTrigger: UIViewRepresentable {
+    let identifier: String
+    let title: String
+    let action: () -> Void
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.accessibilityIdentifier = identifier
+        button.setTitle(title, for: .normal)
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.accessibilityIdentifier = identifier
+        button.setTitle(title, for: .normal)
+    }
+}
+
+@MainActor
+private func findUIKitTextView(withString string: String, in root: UIView) -> UITextView? {
+    if let textView = root as? UITextView, textView.text == string { return textView }
+    for child in root.subviews {
+        if let found = findUIKitTextView(withString: string, in: child) { return found }
+    }
+    return nil
+}
+
+@MainActor
+private func findUIKitButton(withIdentifier identifier: String, in root: UIView) -> UIButton? {
+    if let button = root as? UIButton, button.accessibilityIdentifier == identifier { return button }
+    for child in root.subviews {
+        if let found = findUIKitButton(withIdentifier: identifier, in: child) { return found }
+    }
+    return nil
+}
+
+@MainActor
+private func pumpUIKitRunLoop(until predicate: @escaping @MainActor () -> Bool) {
+    let deadline = Date().addingTimeInterval(2)
+    while !predicate() && Date() < deadline {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
     }
 }
 #endif

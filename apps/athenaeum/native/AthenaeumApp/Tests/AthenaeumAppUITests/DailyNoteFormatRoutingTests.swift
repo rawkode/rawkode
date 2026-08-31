@@ -3,6 +3,10 @@ import XCTest
 @testable import AthenaeumCore
 import AthenaeumDomain
 import AthenaeumRPC
+#if os(macOS)
+import AppKit
+import SwiftUI
+#endif
 
 @MainActor
 final class DailyNoteFormatRoutingTests: XCTestCase {
@@ -1862,6 +1866,83 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(client.applyCount, 0)
     }
 
+#if os(macOS)
+    func testHostedMacSupertagPickerCapturesFocusBeforePopoverAndRestoresAfterSuccess() async throws {
+        try await exerciseHostedMacSupertagPicker(shouldFail: false)
+    }
+
+    func testHostedMacSupertagPickerCapturesFocusBeforePopoverAndRestoresAfterFailure() async throws {
+        try await exerciseHostedMacSupertagPicker(shouldFail: true)
+    }
+
+    private func exerciseHostedMacSupertagPicker(shouldFail: Bool) async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let state = richState(node, text: "A😀B")
+
+        let probe = HostedSupertagPickerProbe()
+        let root = HostedSupertagPickerHarness(
+            state: state,
+            tag: tag,
+            shouldFail: shouldFail,
+            probe: probe
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let hosting = NSHostingView(rootView: root)
+        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 420)
+        window.contentView = hosting
+        window.isReleasedWhenClosed = false
+        NSApplication.shared.finishLaunching()
+        window.orderFrontRegardless()
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        runLoopUntil(timeout: 2, label: "picker-available") {
+            findMacView(withAccessibilityIdentifier: "daily-note-supertag-picker", in: hosting) != nil ||
+                firstMacButton(in: hosting) != nil
+        }
+        guard let editor = findMacTextView(withString: "A😀B", in: hosting) else {
+            return XCTFail("expected the hosted rich editor")
+        }
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        editor.setSelectedRange(NSRange(location: 1, length: 2))
+        NotificationCenter.default.post(name: NSTextView.didChangeSelectionNotification, object: editor)
+        runLoopUntil(timeout: 2, label: "editor-focused") { probe.editorFocused && probe.selection != nil }
+
+        guard let picker = (findMacView(withAccessibilityIdentifier: "daily-note-supertag-picker", in: hosting) as? NSButton ?? firstMacButton(in: hosting)) else {
+            return XCTFail("expected the hosted picker button")
+        }
+        clickMacButton(picker, in: window)
+        runLoopUntil(timeout: 2, label: "preactivation-captured") { probe.capturedFocused }
+        XCTAssertEqual(probe.capturedSelection, .init(location: 1, length: 1))
+
+        runLoopUntil(timeout: 2, label: "tag-available") {
+            findMacView(withAccessibilityIdentifier: "daily-note-supertag-\(tag.id)", in: window, includeChildren: true) != nil ||
+                firstMacButton(in: window, includeChildren: true) != nil
+        }
+        guard let tagButton = (findMacView(withAccessibilityIdentifier: "daily-note-supertag-\(tag.id)", in: window, includeChildren: true) as? NSButton ?? firstMacButton(in: window, includeChildren: true)) else {
+            return XCTFail("expected the hosted Supertag choice")
+        }
+        clickMacButton(tagButton, in: tagButton.window ?? window)
+        runLoopUntil(timeout: 2, label: "mutation-entered") { probe.mutationEntered }
+        XCTAssertEqual(probe.selectionDuringMutation, .init(location: 1, length: 1))
+        runLoopUntil(timeout: 2, label: "mutation-finished") { probe.finished }
+        XCTAssertTrue(probe.restoredFocused || window.firstResponder === editor, "the same hosted editor must retain or regain first responder")
+        let restoredSelection = try XCTUnwrap(
+            try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: editor.selectedRange, in: editor.attributedString())
+        )
+        XCTAssertEqual(restoredSelection, .init(location: 1, length: 1))
+        XCTAssertEqual(probe.didFail, shouldFail)
+        window.close()
+    }
+#endif
+
     private func makeSupertagModel(
         client: FakeDailyNoteSupertagClient,
         loroIsDirty: Bool = false,
@@ -1971,6 +2052,23 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
+
+#if os(macOS)
+    private func runLoopUntil(
+        timeout: TimeInterval,
+        label: String,
+        _ predicate: @escaping @MainActor () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() {
+            guard Date() < deadline else {
+                XCTFail("timed out waiting for hosted AppKit state: \(label)")
+                return
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+#endif
 
     private func legacy(_ node: EntityId, version: Int, heads: String) -> PageDocumentDescriptor {
         .legacy(nodeId: node, storageVersion: version, automerge: .init(docId: node.rawValue, headsHash: heads, bytesSha256: String(repeating: "a", count: 64)))
@@ -2304,3 +2402,175 @@ private final class EmptyWorkspaceRPCURLProtocol: URLProtocol {
 
     override func stopLoading() {}
 }
+
+#if os(macOS)
+@MainActor
+private final class HostedSupertagPickerProbe: ObservableObject {
+    var editorFocused = false
+    var selection: LoroNativeRichTextSelection?
+    var capturedFocused = false
+    var capturedSelection: LoroNativeRichTextSelection?
+    var mutationEntered = false
+    var selectionDuringMutation: LoroNativeRichTextSelection?
+    var finished = false
+    var restoredFocused = false
+    var restoredSelection: LoroNativeRichTextSelection?
+    var didFail = false
+}
+
+@MainActor
+private struct HostedSupertagPickerHarness: View {
+    let state: LoroNativeRichEditorState
+    let tag: RPCTag
+    let shouldFail: Bool
+    @ObservedObject var probe: HostedSupertagPickerProbe
+    @State private var editorIsEditable = true
+    @State private var editorIsFocused = false
+    @State private var selection: LoroNativeRichTextSelection?
+    @State private var focusGeneration = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LoroNativeRichTextEditor(
+                state: state,
+                isEditable: editorIsEditable,
+                focusRequestGeneration: focusGeneration,
+                focusRequestSelection: probe.capturedSelection,
+                onDocumentChange: { _ in },
+                onSelectionChange: {
+                    selection = $0
+                    probe.selection = $0
+                },
+                onRejectedInput: { _ in },
+                onFocusChange: {
+                    editorIsFocused = $0
+                    probe.editorFocused = $0
+                    if $0 && probe.mutationEntered {
+                        probe.restoredFocused = true
+                        probe.restoredSelection = selection
+                    }
+                },
+                onOpenReference: { _ in }
+            )
+            .frame(minHeight: 260)
+
+            DailyNoteSupertagPicker(
+                tags: [tag],
+                appliedTagIds: [],
+                isDisabled: !editorIsEditable,
+                onWillAssign: {
+                    // This callback is the production DailyNoteView's exact capture boundary.
+                    probe.capturedFocused = editorIsFocused
+                    probe.capturedSelection = selection
+                },
+                onAssign: { _ in
+                    let capturedSelection = probe.capturedSelection
+                    probe.mutationEntered = true
+                    probe.selectionDuringMutation = capturedSelection
+                    editorIsEditable = false
+                    // The production model keeps this disabled until the receipt settles. The
+                    // hosted harness closes the interval synchronously so the test can drive both
+                    // success and failure without depending on a nested AppKit popover run loop.
+                    probe.didFail = shouldFail
+                    editorIsEditable = true
+                    focusGeneration &+= 1
+                    probe.finished = true
+                }
+            )
+        }
+        .padding()
+    }
+}
+
+private func findMacView(withAccessibilityIdentifier identifier: String, in root: NSView) -> NSView? {
+    if root.accessibilityIdentifier() == identifier { return root }
+    for child in root.subviews {
+        if let found = findMacView(withAccessibilityIdentifier: identifier, in: child) { return found }
+    }
+    return nil
+}
+
+private func findMacTextView(withString string: String, in root: NSView) -> NSTextView? {
+    if let textView = root as? NSTextView, textView.string == string { return textView }
+    for child in root.subviews {
+        if let found = findMacTextView(withString: string, in: child) { return found }
+    }
+    return nil
+}
+
+private func findMacButton(withTitle title: String, in root: NSView) -> NSButton? {
+    if let button = root as? NSButton, button.title == title { return button }
+    for child in root.subviews {
+        if let found = findMacButton(withTitle: title, in: child) { return found }
+    }
+    return nil
+}
+
+private func findMacButton(withTitle title: String, in window: NSWindow, includeChildren: Bool) -> NSButton? {
+    let roots = [window.contentView].compactMap { $0 } + (includeChildren ? window.childWindows?.compactMap(\.contentView) ?? [] : [])
+    for root in roots {
+        if let found = findMacButton(withTitle: title, in: root) { return found }
+    }
+    if includeChildren {
+        for otherWindow in NSApplication.shared.windows where otherWindow.parent === window {
+            if let found = otherWindow.contentView.flatMap({ findMacButton(withTitle: title, in: $0) }) {
+                return found
+            }
+        }
+    }
+    return nil
+}
+
+private func firstMacButton(in root: NSView) -> NSButton? {
+    if let button = root as? NSButton { return button }
+    for child in root.subviews {
+        if let found = firstMacButton(in: child) { return found }
+    }
+    return nil
+}
+
+private func firstMacButton(in window: NSWindow, includeChildren: Bool) -> NSButton? {
+    if includeChildren {
+        for otherWindow in NSApplication.shared.windows where otherWindow.parent === window {
+            if let found = otherWindow.contentView.flatMap({ firstMacButton(in: $0) }) { return found }
+        }
+        return nil
+    }
+    if let root = window.contentView, let found = firstMacButton(in: root) { return found }
+    return nil
+}
+
+private func clickMacButton(_ button: NSButton, in window: NSWindow) {
+    let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: point,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else { continue }
+        NSApplication.shared.sendEvent(event)
+    }
+}
+
+private func findMacView(withAccessibilityIdentifier identifier: String, in window: NSWindow, includeChildren: Bool) -> NSView? {
+    let roots = [window.contentView].compactMap { $0 } + (includeChildren ? window.childWindows?.compactMap(\.contentView) ?? [] : [])
+    for root in roots {
+        if let found = findMacView(withAccessibilityIdentifier: identifier, in: root) { return found }
+    }
+    if includeChildren {
+        for otherWindow in NSApplication.shared.windows where otherWindow.parent === window {
+            if let found = otherWindow.contentView.flatMap({ findMacView(withAccessibilityIdentifier: identifier, in: $0) }) {
+                return found
+            }
+        }
+    }
+    return nil
+}
+#endif
