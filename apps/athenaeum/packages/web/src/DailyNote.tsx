@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import * as Effect from "effect/Effect"
 import {
   CreateLoroPageInput,
   CreationIntent,
+  GetLegacyPageProjectionInput,
   HumanUiMutationAttribution,
+  LoroMutationIntentV1,
+  MigrateLegacyPageInput,
   CreateNodeWithIntentInput,
   GetPageDocumentDescriptorInput,
   GetNodeInput,
@@ -13,6 +16,7 @@ import {
   type EntityId
 } from "@athenaeum/domain"
 import { WorkspaceRpcClient, type WorkspaceRpcClientService } from "./rpc-client.js"
+import { runtime } from "./runtime.js"
 import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import {
@@ -27,7 +31,6 @@ import {
   convergeLoroPageFromServer,
   type LoroPageDocument
 } from "./loro-page.js"
-import type { LegacyDailyNoteCell, LegacyDailyNoteResolved, LegacyDailyNoteModule } from "./legacy-daily-note.js"
 import { LoroRichNoteEditor, type PrepareMeetingHandler } from "./LoroRichNoteEditor.js"
 import { Backlinks } from "./Backlinks.js"
 import { NoteTags } from "./NoteTags.js"
@@ -38,11 +41,15 @@ import { WorkforceAttentionStrip } from "./WorkforceAttentionStrip.js"
 
 // `resolveDailyNote` is the "resolve or create" half
 // (deterministic id from `daily-note-id.ts`, so a reload resolves the *same* node/page rather than
-// minting a new one every time). New pages are created directly in Loro; only legacy pages use
-// the compatibility Automerge editor and migration path.
+// minting a new one every time). New pages are created directly in Loro; legacy pages are a
+// server-projected, read-only migration lane and never initialize an Automerge client.
 
 type DailyNoteResolved =
-  | (LegacyDailyNoteResolved & { readonly RichNoteEditor: LegacyDailyNoteModule["RichNoteEditor"] })
+  | {
+      readonly nodeId: EntityId
+      readonly format: "automerge-v1"
+      readonly projection: import("@athenaeum/domain").GetLegacyPageProjectionOutput
+    }
   | {
       readonly nodeId: EntityId
       readonly format: "loro-v1"
@@ -77,31 +84,10 @@ export const dailyNotePageFormatPresentation = (
       tone: "legacy"
     }
 
-type LegacyRichNoteEditorProps = ComponentProps<LegacyDailyNoteModule["RichNoteEditor"]>
-
-function LegacyRichNoteEditor({
-  RichNoteEditor,
-  ...props
-}: LegacyRichNoteEditorProps & { readonly RichNoteEditor: LegacyDailyNoteModule["RichNoteEditor"] }) {
-  return <RichNoteEditor {...props} />
-}
-
-export const loadLegacyDailyNote = (
-  loadModule: () => Promise<LegacyDailyNoteModule> = () => import("./legacy-daily-note.js")
-): Effect.Effect<LegacyDailyNoteModule, UnexpectedError> =>
-  // Keep the dynamic import's failure boundary deliberately tiny. The adapter itself is invoked
-  // separately below, so ordinary legacy sync/domain failures retain their original error tags.
-  Effect.tryPromise({
-    try: loadModule,
-    catch: (cause) => new UnexpectedError({ message: `Unable to load legacy Automerge notes: ${String(cause)}` })
-  })
-
 export const resolveDailyNote = (
   client: WorkspaceRpcClientService,
-  legacyCell: LegacyDailyNoteCell,
   creationIntent: CreationIntent,
   date: Date,
-  loadLegacyModule: () => Effect.Effect<LegacyDailyNoteModule, UnexpectedError> = loadLegacyDailyNote,
   nodeCreationIntent: CreationIntent = new CreationIntent({
     requestId: crypto.randomUUID(),
     commitMessage: "Create the daily note entity.",
@@ -156,15 +142,23 @@ export const resolveDailyNote = (
       )
     )
 
-    // The entire Automerge path is behind this exact compatibility descriptor. `tryPromise`
-    // performs *only* the import; `flatMap` invokes the loaded adapter so sync failures remain
-    // ordinary domain failures rather than being misreported as loader failures.
+    // Legacy authority is projected by the server and remains read-only in the shipped web
+    // client. Rebind the projection to the descriptor we just resolved so a migration can never
+    // be offered against a stale or substituted Automerge witness.
     if (descriptor.descriptor.activeFormat === "automerge-v1") {
-      return yield* loadLegacyModule().pipe(
-        Effect.flatMap((legacy) => legacy.resolveLegacyDailyNote(client, workspaceId, nodeId, legacyCell).pipe(
-          Effect.map((resolved) => ({ ...resolved, RichNoteEditor: legacy.RichNoteEditor }))
-        ))
+      const projection = yield* client.getLegacyPageProjection(
+        new GetLegacyPageProjectionInput({ workspaceId, nodeId })
       )
+      if (
+        projection.descriptor.nodeId !== descriptor.descriptor.nodeId ||
+        projection.descriptor.storageVersion !== descriptor.descriptor.storageVersion ||
+        projection.descriptor.automerge.docId !== descriptor.descriptor.automerge.docId ||
+        projection.descriptor.automerge.headsHash !== descriptor.descriptor.automerge.headsHash ||
+        projection.descriptor.automerge.bytesSha256 !== descriptor.descriptor.automerge.bytesSha256
+      ) {
+        return yield* Effect.fail(new UnexpectedError({ message: "Legacy page changed while its read-only projection was loading. Retry before migrating." }))
+      }
+      return { nodeId, format: "automerge-v1", projection }
     }
 
     const doc = yield* convergeLoroPageFromServer(client, workspaceId, nodeId)
@@ -196,13 +190,6 @@ export function DailyNote({
   readonly dailyContext?: ReactNode
 }) {
   const navigate = useNavigate()
-  // This intentionally plain cell is stable for the component/date lifetime, but it does not
-  // create an Automerge session on its own. The dynamically loaded legacy adapter fills it before
-  // its first RPC and reuses it for retries and the editor handoff. A Loro descriptor never loads
-  // that adapter, so it leaves this cell untouched.
-  const legacyCellRef = useRef<LegacyDailyNoteCell | null>(null)
-  if (legacyCellRef.current === null) legacyCellRef.current = { session: null }
-  const legacyCell = legacyCellRef.current
   // This is deliberately a ref, not a render-time value: an uncertain PageNotFound/create
   // response must be retried with identical provenance and fingerprint.
   const creationIntentRef = useRef<CreationIntent | null>(null)
@@ -228,6 +215,19 @@ export function DailyNote({
     })
   }
   const nodeCreationIntent = nodeCreationIntentRef.current
+  const migrationIntentRef = useRef<LoroMutationIntentV1 | null>(null)
+  if (migrationIntentRef.current === null) {
+    migrationIntentRef.current = new LoroMutationIntentV1({
+      requestId: crypto.randomUUID(),
+      commitMessage: "Migrate this legacy daily note to Loro.",
+      attribution: new HumanUiMutationAttribution({
+        version: "athenaeum.mutation-attribution.v1",
+        kind: "humanUi",
+        surface: "rich-text-editor"
+      })
+    })
+  }
+  const migrationIntent = migrationIntentRef.current
 
   const dateStamp = localDateStamp(date)
   // A resolver retry deliberately retains the two intent refs above, so an uncertain create
@@ -238,7 +238,7 @@ export function DailyNote({
   const resolveRetryClaim = useRef<{ sawLoading: boolean } | undefined>(undefined)
   const resolveEffect = useMemo(
     () => WorkspaceRpcClient.pipe(
-      Effect.flatMap((client) => resolveDailyNote(client, legacyCell, creationIntent, date, loadLegacyDailyNote, nodeCreationIntent))
+      Effect.flatMap((client) => resolveDailyNote(client, creationIntent, date, nodeCreationIntent))
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateStamp, resolveRetryKey]
@@ -264,6 +264,27 @@ export function DailyNote({
     setResolveRetryKey((key) => key + 1)
   }, [state.status])
   const isRetryingResolution = resolveRetryClaimed || state.status === "loading"
+  const [migrationState, setMigrationState] = useState<"idle" | "migrating" | "failed">("idle")
+  const migrateLegacyPage = useCallback(() => {
+    if (state.status !== "success" || state.value.format !== "automerge-v1" || migrationState === "migrating") return
+    const projection = state.value.projection
+    setMigrationState("migrating")
+    runtime.runPromise(WorkspaceRpcClient.pipe(
+      Effect.flatMap((client) => client.migrateLegacyPage(new MigrateLegacyPageInput({
+        workspaceId,
+        nodeId: state.value.nodeId,
+        expectedStorageVersion: projection.descriptor.storageVersion,
+        expectedAutomerge: projection.descriptor.automerge,
+        intent: migrationIntent
+      })))
+    )).then(
+      () => {
+        setMigrationState("idle")
+        setResolveRetryKey((key) => key + 1)
+      },
+      () => setMigrationState("failed")
+    )
+  }, [migrationIntent, migrationState, state])
   // Sync status now originates inside `RichNoteEditor` (its own debounced `syncPageWithServer`
   // calls). A calm editor intentionally has no status row: notices are reserved for active work
   // or an action a person may need to take.
@@ -313,6 +334,9 @@ export function DailyNote({
   useEffect(() => {
     if (state.status === "success") setSyncStatus("synced")
   }, [state.status === "success" ? state.value.nodeId : undefined])
+  useEffect(() => {
+    if (state.status === "success" && state.value.format === "automerge-v1") onPrepareMeetingReady?.(undefined)
+  }, [onPrepareMeetingReady, state.status === "success" ? state.value.format : undefined])
 
   const fullDateLabel = date.toLocaleDateString(undefined, {
     weekday: "long",
@@ -456,21 +480,28 @@ export function DailyNote({
                   onAcceptedHumanEdit={() => setPreparationNotice(undefined)}
                 />
               ) : (
-                <LegacyRichNoteEditor
-                  RichNoteEditor={state.value.RichNoteEditor}
-                  workspaceId={workspaceId}
-                  nodeId={state.value.nodeId}
-                  initialDoc={state.value.doc}
-                  session={state.value.session}
-                  onSyncStatusChange={setSyncStatus}
-                  onSyncRetryReady={registerSyncRetry}
-                  autoFocus
-                  onSupertagApplied={(candidate, anchorRect, anchorRectSource) => {
-                    setActiveTag({ tagId: candidate.tagId as EntityId, name: candidate.name, anchorRect, anchorRectSource })
-                    setTagsRefreshKey((k) => k + 1)
-                  }}
-                  onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
-                />
+                <section className="legacy-daily-note-projection" aria-labelledby="legacy-daily-note-title">
+                  <div>
+                    <span className="section-kicker">Read-only legacy note</span>
+                    <h2 id="legacy-daily-note-title">Migrate to continue writing</h2>
+                    <p>This Automerge-era note is frozen in the web client. Review its safe projection, then migrate it to the authoritative Loro format.</p>
+                  </div>
+                  {state.value.projection.content.kind === "plainText" ? (
+                    <pre className="legacy-daily-note-text">{state.value.projection.content.text}</pre>
+                  ) : (
+                    <p className="legacy-daily-note-unavailable">
+                      {state.value.projection.content.kind === "tooLarge"
+                        ? "This legacy note is too large to preview safely."
+                        : "This legacy rich-text note cannot be previewed safely in the web client."}
+                    </p>
+                  )}
+                  <div className="legacy-daily-note-actions">
+                    <button type="button" onClick={migrateLegacyPage} disabled={migrationState === "migrating"}>
+                      {migrationState === "migrating" ? "Migrating…" : migrationState === "failed" ? "Retry migration" : "Migrate to Loro"}
+                    </button>
+                    {migrationState === "failed" && <p role="alert">Migration couldn&rsquo;t be completed. The legacy note remains unchanged.</p>}
+                  </div>
+                </section>
               )}
               {preparationNotice !== undefined && <p className="sync-status" role="status" aria-live="polite">{preparationNotice}</p>}
               {showSyncStatus && (

@@ -43,12 +43,17 @@ describe("Today Brief route ownership", () => {
     expect(todayBriefSource).toContain("No events.")
   })
 
-  it("creates new notes directly as Loro while retaining a legacy Automerge read lane", () => {
+  it("creates new notes as Loro and freezes legacy pages behind a server projection", () => {
     expect(dailyNoteSource).toContain("client.createLoroPage(new CreateLoroPageInput")
     expect(dailyNoteSource).not.toContain("client.createPage(new CreatePageInput")
     expect(dailyNoteSource).not.toContain("client.activateLoroPage(")
-    expect(dailyNoteSource).toContain('() => import("./legacy-daily-note.js")')
-    expect(dailyNoteSource).toContain("legacy.resolveLegacyDailyNote(client, workspaceId, nodeId, legacyCell)")
+    expect(dailyNoteSource).toContain("client.getLegacyPageProjection(")
+    expect(dailyNoteSource).toContain("client.migrateLegacyPage(")
+    expect(dailyNoteSource).not.toContain('import("./legacy-daily-note.js")')
+    expect(dailyNoteSource).not.toContain("resolveLegacyDailyNote")
+    expect(dailyNoteSource).not.toContain("startPageSync")
+    expect(dailyNoteSource).not.toContain("pageSyncMessage")
+    expect(dailyNoteSource).not.toContain("applyPageEdit")
   })
 
   it("owns the Today companion layout with a measured, non-sticky collapse contract", () => {

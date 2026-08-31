@@ -126,9 +126,12 @@ const chunksContainingModules = (
 ): LegacyBoundaryChunk[] => chunks.filter((chunk) => chunk.modules.some((id) => moduleIds.has(id)));
 
 /**
- * Fails a production bundle if the exact Notes module graph regains an Automerge edge. Rollup's
- * module graph establishes edge ownership; emitted chunks/assets then prove the corresponding
- * output still keeps Automerge in the declared lazy compatibility closure.
+ * Fails a production bundle if the shipped Notes module graph regains an Automerge edge. The
+ * server-owned projection/migration boundary deliberately leaves legacy source files in the
+ * repository, but the web Daily Note must never download or initialize that runtime. Rollup's
+ * module graph establishes edge ownership; emitted chunks/assets then prove the same property in
+ * the production output. This is a shipped-web guard, not a claim that backend/native migration
+ * compatibility has been removed.
  */
 export const verifyLegacyBundleBoundary = (
   chunks: readonly LegacyBoundaryChunk[],
@@ -154,26 +157,21 @@ export const verifyLegacyBundleBoundary = (
 
   const dynamicRoots = [...staticModuleClosure].flatMap((id) =>
     moduleGraph.get(id)?.dynamicallyImportedIds ?? []);
-  const directLegacyRoots = dynamicRoots.filter(isLegacyAdapterModule);
-  if (directLegacyRoots.length === 0) {
-    throw new Error("Legacy bundle boundary: Notes/DailyNote/Loro closure must reach legacy-daily-note through a direct dynamic import");
+  const dynamicModuleClosure = moduleClosureFrom(dynamicRoots, moduleGraph, true);
+  const dynamicSourceViolations = describeModules(dynamicModuleClosure, isLegacyRuntimeModule);
+  if (dynamicSourceViolations.length > 0) {
+    throw new Error("Legacy bundle boundary: Notes/DailyNote/Loro dynamic closure contains legacy code: " + dynamicSourceViolations.join(", "));
   }
 
   // Module edges alone are insufficient: Rollup may co-locate a lazily-owned module in an output
-  // chunk that the static Notes route imports. Walk the emitted static chunk closure too, so the
-  // Loro path cannot download legacy bytes merely because their source edge is dynamic.
+  // chunk that the static Notes route imports, or put legacy bytes in a non-legacy lazy chunk. Walk
+  // the emitted static and dynamic chunk closures too, so the shipped Notes route cannot download
+  // legacy bytes merely because a source edge or a chunk boundary changed.
   const staticOutputClosure = closureFrom(
     chunksContainingModules([...byFileName.values()], staticModuleClosure),
     byFileName,
     false
   );
-  const legacyAdapterChunks = chunksContainingModules([...byFileName.values()], new Set(directLegacyRoots));
-  const staticOutputFiles = new Set(staticOutputClosure.map((chunk) => chunk.fileName));
-  const coLocatedAdapterChunks = legacyAdapterChunks.filter((chunk) => staticOutputFiles.has(chunk.fileName));
-  if (coLocatedAdapterChunks.length > 0) {
-    throw new Error("Legacy bundle boundary: declared legacy adapter is co-located in static Notes/DailyNote/Loro output: " + coLocatedAdapterChunks.map((chunk) => chunk.fileName).join(", "));
-  }
-
   const staticOutputViolations = [
     ...describeModules(staticOutputClosure.flatMap((chunk) => chunk.modules), isLegacyRuntimeModule),
     ...describeAssets(staticOutputClosure, isAutomergeWasm)
@@ -182,46 +180,17 @@ export const verifyLegacyBundleBoundary = (
     throw new Error("Legacy bundle boundary: static Notes/DailyNote/Loro output closure contains legacy code: " + staticOutputViolations.join(", "));
   }
 
-  // Notes may dynamically load unrelated, Loro-safe UI. Every direct dynamic edge other than the
-  // declared compatibility adapter is still a boundary: following its whole lazy closure must not
-  // provide an alternate route to any legacy runtime, including its emitted WASM.
-  const nonLegacyDynamicRoots = dynamicRoots.filter((id) => !isLegacyAdapterModule(id));
-  const nonLegacyDynamicClosure = moduleClosureFrom(nonLegacyDynamicRoots, moduleGraph, true);
-  const nonLegacyDynamicChunks = closureFrom(
-    chunksContainingModules([...byFileName.values()], nonLegacyDynamicClosure),
-    byFileName,
-    true
-  );
-  const nonLegacyDynamicViolations = [
-    ...describeModules(nonLegacyDynamicClosure, isLegacyRuntimeModule),
-    ...describeModules(nonLegacyDynamicChunks.flatMap((chunk) => chunk.modules), isLegacyRuntimeModule),
-    ...describeAssets(nonLegacyDynamicChunks, isAutomergeWasm)
-  ];
-  if (nonLegacyDynamicViolations.length > 0) {
-    throw new Error(`Legacy bundle boundary: non-adapter direct dynamic closure contains legacy code: ${nonLegacyDynamicViolations.join(", ")}`);
-  }
-
-  const dynamicModuleClosure = moduleClosureFrom(directLegacyRoots, moduleGraph, true);
-  const dynamicClosure = closureFrom(
+  const dynamicOutputClosure = closureFrom(
     chunksContainingModules([...byFileName.values()], dynamicModuleClosure),
     byFileName,
     true
   );
-  const requirements: ReadonlyArray<readonly [string, (value: string) => boolean, readonly LegacyBoundaryChunk[]]> = [
-    ["legacy adapter", isLegacyAdapterModule, dynamicClosure],
-    ["RichNoteEditor", isRichNoteEditorModule, dynamicClosure],
-    ["automerge-page", isAutomergePageModule, dynamicClosure],
-    ["legacy migration", isLegacyMigrationModule, dynamicClosure],
-    ["legacy vendor runtime", isLegacyVendorModule, dynamicClosure],
-    ["Automerge runtime", isAutomergeRuntimeModule, dynamicClosure]
+  const dynamicOutputViolations = [
+    ...describeModules(dynamicOutputClosure.flatMap((chunk) => chunk.modules), isLegacyRuntimeModule),
+    ...describeAssets(dynamicOutputClosure, isAutomergeWasm)
   ];
-  const missingModules = requirements
-    .filter(([, predicate, closure]) => !closure.some((chunk) => chunk.modules.some(predicate)))
-    .map(([name]) => name);
-  const hasAutomergeWasm = dynamicClosure.some((chunk) => chunk.assets.some(isAutomergeWasm));
-  if (!hasAutomergeWasm) missingModules.push("Automerge WASM asset");
-  if (missingModules.length > 0) {
-    throw new Error(`Legacy bundle boundary: dynamic legacy closure is missing ${missingModules.join(", ")}`);
+  if (dynamicOutputViolations.length > 0) {
+    throw new Error(`Legacy bundle boundary: Notes/DailyNote/Loro dynamic output closure contains legacy code: ${dynamicOutputViolations.join(", ")}`);
   }
 };
 

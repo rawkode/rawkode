@@ -16,10 +16,11 @@ import { catchUpSyncFeed, loadSyncFeedCursor, saveSyncFeedCursor } from "./sync-
 // Perf pass (audit finding "Zero code-splitting", src/App.tsx:15-21 + vite.config.ts): every route
 // used to be a synchronous top-level import, so visiting any one of the seven routes downloaded
 // all seven's code up front — worst offender is `NotesRoute`, whose `DailyNote` ->
-// `RichNoteEditor` chain pulls in ProseMirror *and* the Automerge WASM bundle (`automerge-page.ts`)
-// regardless of whether the user ever opens the notes view. `React.lazy` + a dynamic `import()`
+// editor chain pulls in ProseMirror and the Loro runtime regardless of whether the user ever opens
+// the notes view. Legacy Automerge Daily Notes are now server-projected and read-only, so the
+// shipped Notes route no longer dynamically imports the Automerge editor. `React.lazy` + a dynamic `import()`
 // is enough on its own for Rollup/Vite to emit each route as its own chunk (no `manualChunks`
-// needed: automerge/prosemirror aren't imported by anything outside the `DailyNote` chain, so they
+// needed: the editor dependencies aren't imported by anything outside the `DailyNote` chain, so they
 // land in `NotesRoute`'s chunk and nowhere else) — verified by `vite build`'s own chunk listing.
 // All seven routes are split, not just `NotesRoute`, since the mechanism is identical and free for
 // the other six; each becomes reachable only via its own request the first time it's visited.

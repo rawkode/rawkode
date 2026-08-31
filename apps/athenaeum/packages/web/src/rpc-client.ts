@@ -88,6 +88,8 @@ import {
   GetNodeOutput,
   GetPageDocumentDescriptorInput,
   GetPageDocumentDescriptorOutput,
+  GetLegacyPageProjectionInput,
+  GetLegacyPageProjectionOutput,
   GetPageTextInput,
   GetPageTextOutput,
   MigrateLegacyPageInput,
@@ -220,6 +222,7 @@ interface WorkspaceApi {
   startPageSync(input: unknown): Promise<unknown>
   pageSyncMessage(input: unknown): Promise<unknown>
   getPageDocumentDescriptor(input: unknown): Promise<unknown>
+  getLegacyPageProjection(input: unknown): Promise<unknown>
   migrateLegacyPage(input: unknown): Promise<unknown>
   commitLoroPageContent(input: unknown): Promise<unknown>
   prepareMeetingInDailyNote(input: unknown): Promise<unknown>
@@ -378,6 +381,9 @@ export interface WorkspaceRpcClientService {
   readonly getPageDocumentDescriptor: (
     input: GetPageDocumentDescriptorInput
   ) => Effect.Effect<GetPageDocumentDescriptorOutput, DomainError>
+  readonly getLegacyPageProjection: (
+    input: GetLegacyPageProjectionInput
+  ) => Effect.Effect<GetLegacyPageProjectionOutput, DomainError>
   readonly migrateLegacyPage: (
     input: MigrateLegacyPageInput
   ) => Effect.Effect<MigrateLegacyPageOutput, DomainError>
@@ -614,6 +620,11 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
         getPageDocumentDescriptor: (input) =>
           callForValue(GetPageDocumentDescriptorOutput, () =>
             workspaceStub.getPageDocumentDescriptor(Schema.encodeSync(GetPageDocumentDescriptorInput)(input))
+          ),
+
+        getLegacyPageProjection: (input) =>
+          callForValue(GetLegacyPageProjectionOutput, () =>
+            workspaceStub.getLegacyPageProjection(Schema.encodeSync(GetLegacyPageProjectionInput)(input))
           ),
 
         migrateLegacyPage: (input) =>

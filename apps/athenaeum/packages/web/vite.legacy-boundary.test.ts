@@ -31,7 +31,9 @@ const notesChunk = (overrides: Partial<LegacyBoundaryChunk> = {}): LegacyBoundar
     "C:\\workspace\\apps\\athenaeum\\packages\\web\\src\\vendor\\automerge-prosemirror\\schema.ts"
   ],
   imports: [],
-  dynamicImports: ["assets\\legacy-daily-note-C4DT.js"],
+  // Legacy compatibility remains in the repository, but the shipped Notes route must not
+  // reference it. The verifier intentionally accepts an unreferenced legacy chunk.
+  dynamicImports: [],
   // A Loro WASM asset is allowed in the static Notes graph and must not be mistaken for Automerge.
   assets: ["assets/loro_wasm_bg-XYZ.wasm"],
   ...overrides
@@ -52,7 +54,7 @@ const moduleGraph = (overrides: Partial<Record<string, Partial<LegacyBoundaryMod
   });
   const graph = [
     module(notesModule, [dailyNoteModule, loroEditorModule]),
-    module(dailyNoteModule, [sharedSchemaModule], [legacyModule]),
+    module(dailyNoteModule, [sharedSchemaModule]),
     module(loroEditorModule, [sharedSchemaModule]),
     module(sharedSchemaModule),
     module(legacyModule),
@@ -66,7 +68,7 @@ const moduleGraph = (overrides: Partial<Record<string, Partial<LegacyBoundaryMod
 };
 
 describe("Vite legacy daily-note boundary", () => {
-  it("accepts a Loro static closure and a directly dynamic Automerge closure", () => {
+  it("accepts a Loro static closure without requiring a legacy client chunk", () => {
     expect(() => verifyLegacyBundleBoundary([notesChunk(), legacyChunk], moduleGraph())).not.toThrow();
   });
 
@@ -91,13 +93,13 @@ describe("Vite legacy daily-note boundary", () => {
       .toThrow(/static Notes\/DailyNote\/Loro output closure contains legacy code/);
   });
 
-  it("rejects the declared legacy adapter when Rollup co-locates it in static output", () => {
+  it("rejects legacy adapter bytes when Rollup co-locates them in static output", () => {
     const coLocatedAdapter = notesChunk({
       modules: [notesModule, dailyNoteModule, loroEditorModule, sharedSchemaModule, legacyModule]
     });
 
     expect(() => verifyLegacyBundleBoundary([coLocatedAdapter, legacyChunk], moduleGraph()))
-      .toThrow(/declared legacy adapter is co-located in static Notes\/DailyNote\/Loro output/);
+      .toThrow(/static Notes\/DailyNote\/Loro output closure contains legacy code/);
   });
 
   it("rejects a second direct dynamic root that carries Automerge outside the declared adapter", () => {
@@ -119,7 +121,7 @@ describe("Vite legacy daily-note boundary", () => {
       },
       "/workspace/apps/athenaeum/packages/web/src/automerge-page.ts": {}
     })))
-      .toThrow(/non-adapter direct dynamic closure contains legacy code/);
+      .toThrow(/dynamic closure contains legacy code/);
   });
 
   it("rejects legacy bytes co-located in a non-adapter dynamic output chunk", () => {
@@ -134,9 +136,9 @@ describe("Vite legacy daily-note boundary", () => {
     };
 
     expect(() => verifyLegacyBundleBoundary([notesChunk(), legacyChunk, coLocatedEscape], moduleGraph({
-      [dailyNoteModule]: { dynamicallyImportedIds: [legacyModule, safeLazyModule] },
+      [dailyNoteModule]: { dynamicallyImportedIds: [safeLazyModule] },
       [safeLazyModule]: {}
-    }))).toThrow(/non-adapter direct dynamic closure contains legacy code/);
+    }))).toThrow(/dynamic output closure contains legacy code/);
   });
 
   it("rejects an Automerge escape dynamically imported by a static Notes helper", () => {
@@ -155,7 +157,7 @@ describe("Vite legacy daily-note boundary", () => {
       [helperModule]: { dynamicallyImportedIds: [escapeModule] },
       [escapeModule]: { importedIds: ["/workspace/apps/athenaeum/packages/web/src/automerge-page.ts"] },
       "/workspace/apps/athenaeum/packages/web/src/automerge-page.ts": {}
-    }))).toThrow(/non-adapter direct dynamic closure contains legacy code/);
+    }))).toThrow(/dynamic closure contains legacy code/);
   });
 
   it("preserves query variants as distinct module identities when checking dynamic escapes", () => {
@@ -177,10 +179,10 @@ describe("Vite legacy daily-note boundary", () => {
       [variantB]: { dynamicallyImportedIds: [escapeModule] },
       [variantA]: {},
       [escapeModule]: { importedIds: ["/workspace/apps/athenaeum/packages/web/src/automerge-page.ts"] }
-    }))).toThrow(/non-adapter direct dynamic closure contains legacy code/);
+    }))).toThrow(/dynamic closure contains legacy code/);
   });
 
-  it("requires legacy-daily-note itself to be directly dynamic from the Notes closure", () => {
+  it("does not require the legacy adapter to be dynamically reachable from the Notes closure", () => {
     const bridge: LegacyBoundaryChunk = {
       fileName: "assets/other-route.js",
       modules: ["/workspace/apps/athenaeum/packages/web/src/other-route.tsx"],
@@ -189,9 +191,8 @@ describe("Vite legacy daily-note boundary", () => {
       assets: []
     };
     expect(() => verifyLegacyBundleBoundary([notesChunk(), bridge, legacyChunk], moduleGraph({
-      [dailyNoteModule]: { dynamicallyImportedIds: ["/workspace/apps/athenaeum/packages/web/src/other-route.tsx"] },
+      [dailyNoteModule]: { dynamicallyImportedIds: [] },
       "/workspace/apps/athenaeum/packages/web/src/other-route.tsx": { dynamicallyImportedIds: [legacyModule] }
-    })))
-      .toThrow(/direct dynamic import/);
+    }))).not.toThrow();
   });
 });

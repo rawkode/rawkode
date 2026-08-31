@@ -798,6 +798,46 @@
   background: var(--color-warning);
 }
 
+.legacy-daily-note-projection {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-warning) 5%, var(--color-surface));
+}
+
+.legacy-daily-note-projection h2,
+.legacy-daily-note-projection p {
+  margin: 0;
+}
+
+.legacy-daily-note-text {
+  max-height: 32rem;
+  margin: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.legacy-daily-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.legacy-daily-note-unavailable,
+.legacy-daily-note-actions p {
+  color: var(--color-text-muted);
+}
+
 .daily-note-canvas {
   display: flex;
   flex-direction: column;
