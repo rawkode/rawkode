@@ -76,6 +76,7 @@ import {
   FactsRepository,
   GatekeeperBinding,
   GatekeeperBindingSummary,
+  GoogleCalendarAccountAlias,
   GatekeeperNotConnected,
   GetTodayBriefInput,
   GetTodayBriefOutput,
@@ -143,6 +144,12 @@ import { SyncFeedService } from "./sync-feed-service-live.js"
 const now = (): IsoDateTimeString => IsoDateTimeString.make(new Date().toISOString())
 
 const attendeeEmailPredicate = "email"
+/** Opaque connection ids are random, high-entropy private values. Their digest produces a stable
+ * display-only alias without exposing a provider account, subject, token, or receipt. */
+const accountAliasForProviderConnection = (providerConnectionId: string) =>
+  Schema.decodeUnknownSync(GoogleCalendarAccountAlias)(
+    `Google account ••${sha256HexSync(canonicalJsonBytes({ domain: "athenaeum.google-calendar-account-alias.v1", providerConnectionId })).slice(0, 8).toUpperCase()}`
+  )
 
 /** Pure CAS fence used by the callback's final private admission transaction. */
 export const canFinalizeCalendarOAuthAttempt = (input: {
@@ -452,18 +459,23 @@ export const makeCalendarServiceLive = (
 
       const listBindings: CalendarServiceApi["listBindings"] = (workspaceId) =>
         listCalendarBindingsForWorkspace(workspaceId).pipe(
-          Effect.map((bindings) => bindings
-            .filter((binding) => binding.config.kind === "google-calendar")
-            .map((binding) => new GatekeeperBindingSummary({
-              id: binding.id,
-              workspaceId: binding.workspaceId,
-              gatekeeperKind: binding.gatekeeperKind,
-              mode: binding.config.mode,
-              createdAt: binding.createdAt
-            }))
-            .sort((left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || String(left.id).localeCompare(String(right.id))
-            ))
+          Effect.flatMap((bindings) => Effect.forEach(
+            bindings.filter((binding) => binding.config.kind === "google-calendar"),
+            (binding) => collections.bindingConnections.get(binding.id).pipe(
+              Effect.mapError(toUnexpectedError),
+              Effect.map((raw) => new GatekeeperBindingSummary({
+                id: binding.id,
+                workspaceId: binding.workspaceId,
+                gatekeeperKind: binding.gatekeeperKind,
+                mode: binding.config.mode,
+                ...(raw === undefined ? {} : { accountAlias: accountAliasForProviderConnection((raw as BindingConnectionRecord).providerConnectionId) }),
+                createdAt: binding.createdAt
+              }))
+            )
+          )),
+          Effect.map((bindings) => bindings.sort((left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || String(left.id).localeCompare(String(right.id))
+          ))
         )
 
       const putObserverRecord = (record: CalendarObserverRecord): Effect.Effect<void, DomainError> =>

@@ -15,6 +15,7 @@ import {
   type EntityId
 } from "@athenaeum/domain"
 import type { Env } from "./index.js"
+import { calendarOAuthAdmissionWitnessDigest, calendarOAuthKeyring } from "./calendar-oauth-workspace-admission.js"
 import {
   allocateCalendarOAuthAuthorityAttempt,
   activateCalendarOAuthAuthorityAttempt,
@@ -60,18 +61,16 @@ const privateCompletion = (completion: CalendarOAuthProviderCompletionWitness): 
   admissionWitnessDigest: completion.admissionWitnessDigest
 })
 
-/** Exact, versioned MAC-compatible verifier shared by trusted Workspace internal callers. */
-export const calendarOAuthAdmissionWitnessDigest = (secret: string, receipt: CalendarOAuthAdmissionReceipt): string => {
-  const { admissionWitnessDigest: _witness, ...material } = receipt
-  return digest({ version: "athenaeum.calendar-oauth-admission-witness.v1", secret, receipt: material })
-}
-
 export class CalendarOAuthCoordinator {
   readonly #byAttempt = new Map<string, CalendarOAuthCoordinatorRecord>()
   readonly #byHandleDigest = new Map<string, string>()
   readonly #byLaunchCapabilityDigest = new Map<string, string>()
 
-  constructor(private readonly admissionWitnessSecret: string, records: readonly CalendarOAuthCoordinatorRecord[] = []) {
+  constructor(
+    private readonly admissionWitnessSecret: string,
+    records: readonly CalendarOAuthCoordinatorRecord[] = [],
+    private readonly retainedAdmissionWitnessSecrets: readonly string[] = []
+  ) {
     for (const record of records) this.#put(Object.freeze({ admission: privateAdmission(record.admission), attempt: record.attempt, completion: record.completion === undefined ? undefined : privateCompletion(record.completion) }))
   }
 
@@ -169,7 +168,12 @@ export class CalendarOAuthCoordinator {
   }
 
   #assertAdmission(receipt: CalendarOAuthAdmissionReceipt): void {
-    if (this.admissionWitnessSecret.length === 0 || calendarOAuthAdmissionWitnessDigest(this.admissionWitnessSecret, receipt) !== receipt.admissionWitnessDigest) throw new CalendarOAuthCoordinatorError()
+    const { admissionWitnessDigest: _witness, ...material } = receipt
+    let keyring: readonly string[]
+    try { keyring = calendarOAuthKeyring(this.admissionWitnessSecret, this.retainedAdmissionWitnessSecrets) } catch { throw new CalendarOAuthCoordinatorError() }
+    if (!keyring.some((secret) => calendarOAuthAdmissionWitnessDigest(secret, material) === receipt.admissionWitnessDigest)) {
+      throw new CalendarOAuthCoordinatorError()
+    }
   }
   #require(authorityAttemptId: string): CalendarOAuthCoordinatorRecord {
     const record = this.#byAttempt.get(authorityAttemptId)
@@ -194,7 +198,10 @@ export class CalendarOAuthCoordinator {
 const sameCompletion = (left: CalendarOAuthProviderCompletionWitness, right: CalendarOAuthProviderCompletionWitness): boolean =>
   left.providerConnectionId === right.providerConnectionId && left.gatekeeperAttemptId === right.gatekeeperAttemptId && left.bindingId === right.bindingId && left.providerReceiptDigest === right.providerReceiptDigest && left.completionFactDigest === right.completionFactDigest && left.admissionWitnessDigest === right.admissionWitnessDigest
 
-type CoordinatorEnv = Env & Readonly<{ CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string }>
+type CoordinatorEnv = Env & Readonly<{
+  CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string
+  CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS?: string
+}>
 type CoordinatorSnapshot = Readonly<{ version: "athenaeum.calendar-oauth-coordinator.v1"; records: readonly CalendarOAuthCoordinatorRecord[] }>
 const COORDINATOR_SNAPSHOT_KEY = "calendar-oauth-coordinator.private.v1"
 
@@ -264,6 +271,7 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
   }
   async #reload(): Promise<void> {
     const snapshot = await this.ctx.storage.get<CoordinatorSnapshot>(COORDINATOR_SNAPSHOT_KEY)
-    this.#coordinator = new CalendarOAuthCoordinator(this.#secret, snapshot?.records ?? [])
+    const retained = (this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS ?? "").split(",").filter(Boolean)
+    this.#coordinator = new CalendarOAuthCoordinator(this.#secret, snapshot?.records ?? [], retained)
   }
 }

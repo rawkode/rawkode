@@ -107,6 +107,7 @@ import {
   ConnectGoogleCalendarOutput,
   BeginGoogleCalendarConnectionInput,
   BeginGoogleCalendarConnectionOutput,
+  calendarOAuthBeginRequestFingerprint,
   IssueGoogleCalendarLaunchInput,
   IssueGoogleCalendarLaunchOutput,
   GetGoogleCalendarConnectionCompletionInput,
@@ -613,6 +614,17 @@ export const agentEditModelClientTestHook: {
  * data — same mechanism, same rationale as `agentEditModelClientTestHook`.
  */
 export const calendarGatekeeperClientTestHook: { api: CalendarGatekeeperClientApi | undefined } = { api: undefined }
+
+/**
+ * Raw URL/state OAuth is a compatibility fixture only. No deployment configuration can turn it
+ * back on: tests must install the in-process Gatekeeper double explicitly. New clients use the
+ * opaque Begin/Issue/completion contract.
+ */
+const legacyGoogleCalendarOAuthCompatibilityEnabled = (): boolean =>
+  calendarGatekeeperClientTestHook.api !== undefined
+
+const legacyGoogleCalendarOAuthDisabled = (): ValidationError =>
+  new ValidationError({ message: "Legacy Google Calendar OAuth is disabled. Start a new calendar connection." })
 
 /** Test-only seam for exercising the narrow window after an employee stages a terminal result and
  * before the trusted workforce authority admits it. Production leaves it unset; a race test may
@@ -1203,6 +1215,7 @@ class WorkspaceRpcApi extends RpcTarget {
   readonly #calendarOAuthAdmissions: CalendarOAuthWorkspaceAdmissions
   readonly #calendarOAuthAdmissionsReady: Promise<void>
   readonly #calendarOAuthAdmissionSecret: string | undefined
+  readonly #calendarOAuthAdmissionRetainedSecrets: readonly string[]
   readonly #calendarOAuthCoordinator: CalendarOAuthCoordinatorApi
   readonly #calendarOAuthPublicOrigin: string | undefined
 
@@ -1221,6 +1234,7 @@ class WorkspaceRpcApi extends RpcTarget {
     calendarOAuthAdmissions: CalendarOAuthWorkspaceAdmissions,
     calendarOAuthAdmissionsReady: Promise<void>,
     calendarOAuthAdmissionSecret: string | undefined,
+    calendarOAuthAdmissionRetainedSecrets: readonly string[],
     calendarOAuthCoordinator: CalendarOAuthCoordinatorApi,
     calendarOAuthPublicOrigin: string | undefined
   ) {
@@ -1239,6 +1253,7 @@ class WorkspaceRpcApi extends RpcTarget {
     this.#calendarOAuthAdmissions = calendarOAuthAdmissions
     this.#calendarOAuthAdmissionsReady = calendarOAuthAdmissionsReady
     this.#calendarOAuthAdmissionSecret = calendarOAuthAdmissionSecret
+    this.#calendarOAuthAdmissionRetainedSecrets = calendarOAuthAdmissionRetainedSecrets
     this.#calendarOAuthCoordinator = calendarOAuthCoordinator
     this.#calendarOAuthPublicOrigin = calendarOAuthPublicOrigin
     this.#ledger = new LedgerService(sql)
@@ -4468,6 +4483,9 @@ class WorkspaceRpcApi extends RpcTarget {
     const admissions = this.#calendarOAuthAdmissions
     const admissionsReady = this.#calendarOAuthAdmissionsReady
     const storage = this.#storage
+    const ledger = this.#ledger
+    const sql = this.#sql
+    const retainedSecrets = this.#calendarOAuthAdmissionRetainedSecrets
     const coordinator = this.#calendarOAuthCoordinator
     const program = decodeRpcInput(BeginGoogleCalendarConnectionInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
@@ -4477,25 +4495,80 @@ class WorkspaceRpcApi extends RpcTarget {
         if (decoded.attribution.kind !== "humanUi") return yield* Effect.fail(new ValidationError({ message: "Calendar connection admission requires HumanUi attribution." }))
         const secret = admissionSecret
         if (secret === undefined || secret.length === 0) return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth admission is not configured on this deployment." }))
-        const admission = yield* Effect.tryPromise({
-          try: async () => {
-            await admissionsReady
-            const before = admissions.snapshot()
-            try {
-              return await storage.transaction(async (transaction) => {
-                const created = admissions.begin({ ...decoded, principal: user.email, handleSecret: secret, now: new Date().toISOString() })
-                await transaction.put("calendar-oauth-admissions.private.v1", admissions.snapshot())
-                return created
-              })
-            } catch (error) {
-              admissions.restore(before)
-              throw error
-            }
-          },
-          catch: () => new ValidationError({ message: "Calendar connection admission could not be persisted." })
+        yield* Effect.tryPromise({
+          try: () => admissionsReady,
+          catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." })
         })
-        yield* Effect.tryPromise({ try: () => coordinator.allocateActivate({ admission: admission.receipt, now: new Date().toISOString() }), catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." }) })
-        return Schema.decodeUnknownSync(BeginGoogleCalendarConnectionOutput)({ attemptHandle: admission.attemptHandle })
+        const sharing = yield* SharingService
+        const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+        const requestIdentity = `begin-google-calendar-connection:${decoded.requestId}`
+        const requestFingerprint = calendarOAuthBeginRequestFingerprint({ ...decoded, principal: user.email })
+        const fingerprint = sha256HexSync(canonicalJsonBytes({
+          version: "athenaeum.calendar-oauth-ledger-command.v1", type: "beginGoogleCalendarConnection",
+          workspaceId: decoded.workspaceId, principal: user.email, requestId: decoded.requestId,
+          requestFingerprint, policy
+        }))
+        const before = admissions.snapshot()
+        const output = yield* Effect.try({
+          try: () => storage.transactionSync(() => ledger.executeV2({
+            requestIdentity,
+            fingerprint,
+            type: "beginGoogleCalendarConnection",
+            mutate: () => {
+              const admission = admissions.begin({
+                ...decoded, principal: user.email, handleSecret: secret,
+                retainedHandleSecrets: retainedSecrets, now: new Date().toISOString()
+              })
+              // This row shares the Workspace DO SQLite transaction with command/custody/event/
+              // outbox/receipt. The older KV snapshot remains read-only migration input only.
+              sql.exec(`CREATE TABLE IF NOT EXISTS calendar_oauth_admission_snapshots (id INTEGER PRIMARY KEY CHECK (id = 1), snapshot TEXT NOT NULL)`)
+              sql.exec(`INSERT INTO calendar_oauth_admission_snapshots (id, snapshot) VALUES (1, ?)
+                ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot`, JSON.stringify(admissions.snapshot()))
+              return Schema.decodeUnknownSync(BeginGoogleCalendarConnectionOutput)({ attemptHandle: admission.attemptHandle })
+            },
+            encodeOutput: (value) => Schema.encodeSync(BeginGoogleCalendarConnectionOutput)(value),
+            decodeOutput: (value) => Schema.decodeUnknownSync(BeginGoogleCalendarConnectionOutput)(value),
+            appendCommand: () => {
+              const receipt = admissions.resolveRequest({ workspaceId: decoded.workspaceId, principal: user.email, requestId: decoded.requestId })
+              ledger.appendBeginGoogleCalendarConnection({
+                requestIdentity, requestId: decoded.requestId, fingerprint, workspaceId: decoded.workspaceId,
+                principal: user.email, policy, calendarConnectionId: receipt.calendarConnectionId,
+                admission: receipt, commitMessage: decoded.commitMessage, attribution: decoded.attribution,
+                createdAt: receipt.admittedAt
+              })
+            },
+            appendCustody: () => {
+              const receipt = admissions.resolveRequest({ workspaceId: decoded.workspaceId, principal: user.email, requestId: decoded.requestId })
+              ledger.appendCustody({ requestIdentity, fingerprint, type: "beginGoogleCalendarConnection", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: user.email, targetKind: "calendarConnection", targetId: receipt.calendarConnectionId })
+            },
+            validateReplayCustody: () => {
+              const receipt = admissions.resolveRequest({ workspaceId: decoded.workspaceId, principal: user.email, requestId: decoded.requestId })
+              ledger.validateCustody({ requestIdentity, fingerprint, type: "beginGoogleCalendarConnection", workspaceId: decoded.workspaceId,
+                actorKind: "user", actorLabel: user.email, targetKind: "calendarConnection", targetId: receipt.calendarConnectionId })
+            },
+            appendSideEffects: () => {
+              const receipt = admissions.resolveRequest({ workspaceId: decoded.workspaceId, principal: user.email, requestId: decoded.requestId })
+              const payload = { calendarConnectionId: receipt.calendarConnectionId }
+              ledger.appendEvent(requestIdentity, "calendar-connection-admitted", payload)
+              ledger.appendOutbox(requestIdentity, "calendar-connection-admitted", payload)
+            }
+          })),
+          catch: (error): DomainError => {
+            admissions.restore(before)
+            return error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : isDomainError(error)
+                ? error
+                : new UnexpectedError({ message: "Calendar connection admission could not be persisted." })
+          }
+        })
+        let receipt
+        try { receipt = admissions.resolveHandle({ workspaceId: decoded.workspaceId, principal: user.email, attemptHandle: output.attemptHandle }) } catch {
+          return yield* Effect.fail(new ValidationError({ message: "Calendar connection admission is unavailable." }))
+        }
+        yield* Effect.tryPromise({ try: () => coordinator.allocateActivate({ admission: receipt, now: new Date().toISOString() }), catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." }) })
+        return output
       })),
       Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
     )
@@ -4557,6 +4630,9 @@ class WorkspaceRpcApi extends RpcTarget {
     const program = decodeRpcInput(ConnectGoogleCalendarInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.tap(() => legacyGoogleCalendarOAuthCompatibilityEnabled()
+        ? Effect.void
+        : Effect.fail(legacyGoogleCalendarOAuthDisabled())),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const user = yield* requireAuthenticatedUser
@@ -4575,6 +4651,9 @@ class WorkspaceRpcApi extends RpcTarget {
     const program = decodeRpcInput(GoogleCalendarOAuthCallbackInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.tap(() => legacyGoogleCalendarOAuthCompatibilityEnabled()
+        ? Effect.void
+        : Effect.fail(legacyGoogleCalendarOAuthDisabled())),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const calendar = yield* CalendarService
@@ -5426,11 +5505,25 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     this.#workforceRuntimeStore = new DurableWorkforceRuntimeStore(this.#sql)
     this.#workforceScheduler = new WorkforceScheduler(this.#storage, this.#workforceRuntimeStore)
     this.#calendarConciergeGrants = new DurableCalendarConciergeGrantStore(this.#sql)
-    this.#calendarOAuthAdmissions = new CalendarOAuthWorkspaceAdmissions()
+    this.#sql.exec(`CREATE TABLE IF NOT EXISTS calendar_oauth_admission_snapshots (
+      id INTEGER PRIMARY KEY CHECK (id = 1), snapshot TEXT NOT NULL
+    )`)
+    const persistedAdmissionSnapshot = this.#sql.exec<{ snapshot: string }>(
+      "SELECT snapshot FROM calendar_oauth_admission_snapshots WHERE id = 1"
+    ).toArray()[0]
+    let restoredAdmissions: CalendarOAuthWorkspaceAdmissionsSnapshot | undefined
+    if (persistedAdmissionSnapshot !== undefined) {
+      try { restoredAdmissions = JSON.parse(persistedAdmissionSnapshot.snapshot) as CalendarOAuthWorkspaceAdmissionsSnapshot } catch { /* fail closed: empty invalid snapshot is never trusted */ }
+    }
+    this.#calendarOAuthAdmissions = new CalendarOAuthWorkspaceAdmissions(restoredAdmissions)
     this.#calendarOAuthAdmissionsReady = ctx.blockConcurrencyWhile(async () => {
-      this.#calendarOAuthAdmissions.restore(
-        await ctx.storage.get<CalendarOAuthWorkspaceAdmissionsSnapshot>("calendar-oauth-admissions.private.v1")
-      )
+      // SQL is the atomic source for new admissions. KV is read only for a pre-cutover DO with no
+      // SQL snapshot, then the first replay/mutation migrates it into the ledger transaction.
+      if (restoredAdmissions === undefined) {
+        this.#calendarOAuthAdmissions.restore(
+          await ctx.storage.get<CalendarOAuthWorkspaceAdmissionsSnapshot>("calendar-oauth-admissions.private.v1")
+        )
+      }
     })
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
@@ -6475,6 +6568,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.#calendarOAuthAdmissions,
           this.#calendarOAuthAdmissionsReady,
           this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET,
+          (this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS ?? "").split(",").filter(Boolean),
           this.ctx.exports.CalendarOAuthCoordinatorDurableObject.getByName("global-calendar-oauth-coordinator"),
           this.env.CALENDAR_OAUTH_PUBLIC_ORIGIN
         )
@@ -6500,6 +6594,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.#calendarOAuthAdmissions,
           this.#calendarOAuthAdmissionsReady,
           this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET,
+          (this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS ?? "").split(",").filter(Boolean),
           this.ctx.exports.CalendarOAuthCoordinatorDurableObject.getByName("global-calendar-oauth-coordinator"),
           this.env.CALENDAR_OAUTH_PUBLIC_ORIGIN
         )

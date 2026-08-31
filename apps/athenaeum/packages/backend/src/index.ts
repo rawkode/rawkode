@@ -135,6 +135,9 @@ export interface Env {
 
   /** Shared private admission MAC; missing configuration fails the new Calendar OAuth path closed. */
   readonly CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string
+  /** Comma-delimited retained prior HMAC keys. New admissions use the active key; replays and
+   * coordinator verification accept only explicitly retained keys during a rotation. */
+  readonly CALENDAR_OAUTH_ADMISSION_WITNESS_RETAINED_SECRETS?: string
   /** Public HTTPS origin used to construct a fixed one-time launch URL. */
   readonly CALENDAR_OAUTH_PUBLIC_ORIGIN?: string
 

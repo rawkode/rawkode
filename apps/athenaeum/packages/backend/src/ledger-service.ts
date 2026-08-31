@@ -97,6 +97,9 @@ import {
   APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION,
   CalendarProjectionLedgerCommand,
   CalendarProjectionLedgerPayload,
+  BEGIN_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION,
+  BeginGoogleCalendarConnectionLedgerCommand,
+  BeginGoogleCalendarConnectionLedgerPayload,
   StartMeetingLedgerCommand,
   StartMeetingLedgerPayload,
   startMeetingCommitMessage,
@@ -355,6 +358,15 @@ export interface UnassignTagLedgerCommandInput {
   readonly createdAt: string
 }
 
+/** Private, user-originated Workspace admission. The receipt has no code/state/token/account data. */
+export interface BeginGoogleCalendarConnectionLedgerCommandInput {
+  readonly requestIdentity: string; readonly requestId: string; readonly fingerprint: string
+  readonly workspaceId: string; readonly principal: string; readonly policy: string
+  readonly calendarConnectionId: string; readonly admission: typeof BeginGoogleCalendarConnectionLedgerPayload.Type["admission"]
+  readonly commitMessage: typeof MutationCommitMessage.Type; readonly attribution: typeof MutationAttribution.Type
+  readonly createdAt: string
+}
+
 export interface ExecuteLedgerV2Input<T> {
   readonly requestIdentity: string
   readonly fingerprint: string
@@ -389,6 +401,7 @@ export type LedgerCustodyType =
   | "createApp"
   | "updateAppCode"
   | "deleteApp"
+  | "beginGoogleCalendarConnection"
   | "calendarProjection"
 
 interface BaseLedgerCustodyInput {
@@ -415,6 +428,7 @@ export type LedgerCustodyInput =
   | (BaseLedgerCustodyInput & { readonly type: "updateTag"; readonly targetKind: "tag" })
   | (BaseLedgerCustodyInput & { readonly type: "agentChangeDecision"; readonly targetKind: "chat"; readonly actorKind: "user" })
   | (BaseLedgerCustodyInput & { readonly type: "createApp" | "updateAppCode" | "deleteApp"; readonly targetKind: "app"; readonly actorKind: "user" })
+  | (BaseLedgerCustodyInput & { readonly type: "beginGoogleCalendarConnection"; readonly targetKind: "calendarConnection"; readonly actorKind: "user" })
   | (BaseLedgerCustodyInput & {
       readonly type: "calendarProjection"
       readonly targetKind: "calendarEvent"
@@ -427,10 +441,10 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "agentChangeDecision", "createApp", "updateAppCode", "deleteApp", "calendarProjection"].includes(input.type) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "agentChangeDecision", "createApp", "updateAppCode", "deleteApp", "beginGoogleCalendarConnection", "calendarProjection"].includes(input.type) ||
     !["user", "employee", "system"].includes(input.actorKind) ||
-    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.type === "agentChangeDecision" ? input.targetKind !== "chat" : ["createApp", "updateAppCode", "deleteApp"].includes(input.type) ? input.targetKind !== "app" : input.targetKind !== "node") ||
-    Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
+    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.type === "agentChangeDecision" ? input.targetKind !== "chat" : ["createApp", "updateAppCode", "deleteApp"].includes(input.type) ? input.targetKind !== "app" : input.type === "beginGoogleCalendarConnection" ? input.targetKind !== "calendarConnection" : input.targetKind !== "node") ||
+    (input.type === "beginGoogleCalendarConnection" ? !/^ccn_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(input.targetId) : Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None")) {
     throw new LedgerConflict("invalid ledger custody shape")
   }
   for (const value of [input.employeeId, input.jobId, input.runId, input.grantId, input.chatId, input.toolCallId]) {
@@ -450,6 +464,10 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (["createApp", "updateAppCode", "deleteApp"].includes(input.type) &&
     (input.actorKind !== "user" || input.chatId !== undefined || input.toolCallId !== undefined || input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
     throw new LedgerConflict("App lifecycle writes require authenticated user custody without employee or chat-tool references")
+  }
+  if (input.type === "beginGoogleCalendarConnection" &&
+    (input.actorKind !== "user" || input.chatId !== undefined || input.toolCallId !== undefined || input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
+    throw new LedgerConflict("Calendar connection admission requires authenticated user custody without employee or chat-tool references")
   }
   if (input.actorKind === "user" && (input.chatId === undefined) !== (input.toolCallId === undefined)) {
     throw new LedgerConflict("chat ledger custody requires both chat and tool references")
@@ -1115,7 +1133,7 @@ export class LedgerService {
       requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
       actorKind: "user" | "employee" | "system"; actorLabel: string
       employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
-      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag" | "chat" | "app"; targetId: string
+      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag" | "chat" | "app" | "calendarConnection"; targetId: string
     }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
       employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
       FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
@@ -1151,6 +1169,8 @@ export class LedgerService {
         ? { ...normalizedBase, actorKind: "user", type: "agentChangeDecision", targetKind: "chat" }
       : ["createApp", "updateAppCode", "deleteApp"].includes(row.type) && row.targetKind === "app" && row.actorKind === "user"
         ? { ...normalizedBase, actorKind: "user", type: row.type as "createApp" | "updateAppCode" | "deleteApp", targetKind: "app" }
+      : row.type === "beginGoogleCalendarConnection" && row.targetKind === "calendarConnection" && row.actorKind === "user"
+        ? { ...normalizedBase, actorKind: "user", type: "beginGoogleCalendarConnection", targetKind: "calendarConnection" }
       : row.type !== "calendarProjection" && row.type !== "updateTag" && row.type !== "agentChangeDecision" && row.targetKind === "node"
         ? { ...normalizedBase, type: row.type, targetKind: "node" }
         : (() => { throw new LedgerConflict("request identity has missing or mismatched custody") })()
@@ -1205,7 +1225,7 @@ export class LedgerService {
       grantId: string | null
       chatId: string | null
       toolCallId: string | null
-      targetKind: "node" | "tag" | "chat" | "app" | null
+      targetKind: "node" | "tag" | "chat" | "app" | "calendarConnection" | null
       targetId: string | null
       commandRowId: number
       commandHighWater: number
@@ -1253,6 +1273,17 @@ export class LedgerService {
         }
         try { assertLedgerCustodyShape(custody) } catch { return [] }
         // Public activity deliberately keeps App IDs and code identities private.
+        return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
+          actorKind: "user", actorLabel: row.actorLabel }]
+      }
+      if (row.custodyType === "beginGoogleCalendarConnection" && row.targetKind === "calendarConnection") {
+        if (row.actorKind !== "user") return []
+        const custody: LedgerCustodyInput = {
+          requestIdentity: "activity-row", fingerprint: "activity-row", type: "beginGoogleCalendarConnection", workspaceId: "activity-row",
+          actorKind: "user", actorLabel: row.actorLabel, targetKind: "calendarConnection", targetId: row.targetId
+        }
+        try { assertLedgerCustodyShape(custody) } catch { return [] }
+        // Connection ids and provider facts stay private; the activity is only a safe action.
         return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
           actorKind: "user", actorLabel: row.actorLabel }]
       }
@@ -1446,6 +1477,37 @@ export class LedgerService {
       : command.type === "updateAppCode"
         ? Schema.decodeUnknownSync(UpdateAppCodeLedgerCommand)(raw)
         : Schema.decodeUnknownSync(DeleteAppLedgerCommand)(raw)
+    this.sql.exec(
+      `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      command.requestIdentity, persisted.requestId, persisted.fingerprint, persisted.version, persisted.type,
+      persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
+      persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt
+    )
+  }
+
+  /** A Workspace admission is ledgered before the coordinator sees its immutable witness. */
+  appendBeginGoogleCalendarConnection(command: BeginGoogleCalendarConnectionLedgerCommandInput): void {
+    const payload = Schema.decodeUnknownSync(BeginGoogleCalendarConnectionLedgerPayload)({
+      target: { kind: "calendarConnection", id: command.calendarConnectionId },
+      admission: command.admission,
+      commitMessage: canonicalMutationCommitMessage(command.commitMessage),
+      attribution: command.attribution
+    })
+    const persisted = Schema.decodeUnknownSync(BeginGoogleCalendarConnectionLedgerCommand)({
+      version: LEDGER_COMMAND_VERSION,
+      requestId: command.requestId,
+      fingerprint: command.fingerprint,
+      type: "beginGoogleCalendarConnection",
+      workspaceId: command.workspaceId,
+      principal: command.principal,
+      capability: "build",
+      policy: command.policy,
+      messageDerivationVersion: BEGIN_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION,
+      message: canonicalMutationCommitMessage(command.commitMessage),
+      payload,
+      createdAt: command.createdAt
+    })
     this.sql.exec(
       `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
