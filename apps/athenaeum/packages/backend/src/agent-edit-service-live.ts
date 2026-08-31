@@ -264,8 +264,13 @@ export class AgentEditService extends Context.Tag("@athenaeum/backend/AgentEditS
     readonly listPendingChanges: (
       chatId: EntityId
     ) => Effect.Effect<{ nodes: ReadonlyArray<NodeEntity>; facts: ReadonlyArray<Fact>; edges: ReadonlyArray<Edge> }, DomainError>
-    /** Internal reviewed-decision guard: Apps are not represented by the v1 review witness. */
+    /** Internal reviewed-decision guard: the structured witness covers nodes/facts/edges; this
+     * companion witness covers pending Apps and their ahead-of-pointer code versions. */
     readonly pendingAppCount: (chatId: EntityId) => Effect.Effect<number, DomainError>
+    /** Exact identity witness for all pending Apps and their ahead-of-pointer code versions. The
+     * reviewed decision gateway compares this inside its transaction so a same-count App
+     * replacement cannot slip through a legacy compatibility adapter. */
+    readonly pendingAppWitness: (chatId: EntityId) => Effect.Effect<string, DomainError>
     readonly reconcilePendingChanges: (chatId: EntityId) => Effect.Effect<ReconcileResult, DomainError>
     /** Must be invoked inside the Workspace DO's one outer `storage.transactionSync` callback. */
     readonly captureProposalAndReserve: (input: {
@@ -1031,6 +1036,50 @@ export const makeAgentEditServiceLive = (
           Effect.mapError(appsToUnexpectedError),
           Effect.flatMap((raw) => Effect.forEach(raw, reviveApp))
         )
+
+      /** A bounded, exact identity of the pending App projection. App source is represented by
+       * a digest rather than embedded in the witness, keeping the transaction payload small while
+       * still making code replacement, pointer movement, and row replacement stale the decision.
+       * This is intentionally derived from authoritative App/AppCodeVersion rows on every read. */
+      const pendingAppWitness = (chatId: EntityId): Effect.Effect<string, UnexpectedError> =>
+        Effect.gen(function* () {
+          const apps = [...(yield* pendingAppsForChat(chatId))].sort((left, right) => left.id.localeCompare(right.id))
+          const entries = yield* Effect.forEach(apps, (app) =>
+            Effect.all([
+              aheadOfPointerVersions(app.id, "client", app.clientCodeVersion),
+              aheadOfPointerVersions(app.id, "server", app.serverCodeVersion)
+            ]).pipe(
+              Effect.map(([client, server]) => ({
+                app: {
+                  id: app.id,
+                  workspaceId: app.workspaceId,
+                  title: app.title,
+                  icon: app.icon,
+                  clientCodeVersion: app.clientCodeVersion,
+                  serverCodeVersion: app.serverCodeVersion,
+                  createdAt: app.createdAt,
+                  updatedAt: app.updatedAt,
+                  pending: app.pending
+                },
+                codeVersions: [...client, ...server]
+                  .sort((left, right) => left.kind.localeCompare(right.kind) || left.version - right.version || left.id.localeCompare(right.id))
+                  .map((row) => ({
+                    id: row.id,
+                    appId: row.appId,
+                    kind: row.kind,
+                    version: row.version,
+                    createdAt: row.createdAt,
+                    codeSha256: sha256HexSync(canonicalJsonBytes(row.code))
+                  }))
+              }))
+            )
+          )
+          return sha256HexSync(canonicalJsonBytes({
+            schema: "athenaeum.pending-app-witness.v1",
+            chatId,
+            apps: entries
+          }))
+        })
 
       /** Capture is deliberately a synchronous effect: its caller places this entire read/validate/
        * write sequence in a single DO transaction. Canonical bytes, not the digest, are the live
@@ -1817,6 +1866,7 @@ export const makeAgentEditServiceLive = (
             return { nodes, facts, edges }
           }),
         pendingAppCount: (chatId) => pendingAppsForChat(chatId).pipe(Effect.map((apps) => apps.length)),
+        pendingAppWitness,
         reconcilePendingChanges,
 
         readNoteTool,

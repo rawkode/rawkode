@@ -18,7 +18,7 @@ describe("Workspace mutation routing manifest", () => {
     expect(Object.entries(WORKSPACE_MUTATION_ROUTING).filter(([, route]) => route === "ledger")).toEqual([
       ["createNode", "ledger"], ["createNodeWithIntent", "ledger"], ["createLoroPage", "ledger"], ["acceptChatFork", "ledger"], ["acceptPageProposal", "ledger"],
       ["addFact", "ledger"], ["createRelationDefinition", "ledger"], ["createEdge", "ledger"], ["createTag", "ledger"], ["updateTag", "ledger"], ["syncNoteReferences", "ledger"], ["assignTag", "ledger"], ["unassignTag", "ledger"], ["defineTagField", "ledger"],
-      ["applySupertag", "ledger"], ["decideAgentChangeProposal", "ledger"], ["decideChatReview", "ledger"], ["migrateLegacyPage", "ledger"], ["commitLoroPageContent", "ledger"], ["prepareMeetingInDailyNote", "ledger"], ["linkCalendarEventToNode", "ledger"], ["createBookmark", "ledger"], ["startMeeting", "ledger"], ["appendTranscriptSegment", "ledger"]
+      ["applySupertag", "ledger"], ["mergeChanges", "ledger"], ["revertChanges", "ledger"], ["decideAgentChangeProposal", "ledger"], ["decideChatReview", "ledger"], ["migrateLegacyPage", "ledger"], ["commitLoroPageContent", "ledger"], ["prepareMeetingInDailyNote", "ledger"], ["linkCalendarEventToNode", "ledger"], ["createBookmark", "ledger"], ["startMeeting", "ledger"], ["appendTranscriptSegment", "ledger"]
     ])
   })
   it("is a fail-closed inventory with no permanent semantic bypass", () => {

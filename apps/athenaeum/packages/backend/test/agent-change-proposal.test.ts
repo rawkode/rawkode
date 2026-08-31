@@ -26,7 +26,7 @@ import { agentChangeCaptureTestHooks } from "../src/agent-edit-service-live.js"
 import { agentEditModelClientTestHook } from "../src/workspace-durable-object.js"
 import { makeModelClientScripted } from "../src/model-client-scripted.js"
 import {
-  connectToWorkspace,
+  connectToWorkspaceAsTestUser,
   connectToWorkspaceWithSocketAs,
   devSignIn,
   freshWorkspaceId,
@@ -57,7 +57,7 @@ const captureInput = (chatId: EntityId, requestId: string) => ({
 })
 
 describe("agent change proposal capture and reservations", () => {
-  let workspace: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+  let workspace: Awaited<ReturnType<typeof connectToWorkspaceAsTestUser>> | undefined
   let decisionWorkspace: Awaited<ReturnType<typeof connectToWorkspaceWithSocketAs>> | undefined
 
   afterEach(() => {
@@ -72,7 +72,7 @@ describe("agent change proposal capture and reservations", () => {
 
   const pendingChat = async () => {
     const workspaceId = freshWorkspaceId()
-    workspace = await connectToWorkspace(workspaceId)
+    workspace = await connectToWorkspaceAsTestUser(workspaceId)
     installCreateNodeScript()
     const chat = Schema.decodeUnknownSync(CreateChatOutput)(await workspace.createChat(
       Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Capture proposal" }))
@@ -219,7 +219,7 @@ describe("agent change proposal capture and reservations", () => {
 
   it("snapshots a pending App and exactly its ahead-of-pointer code versions across reconnect", async () => {
     const workspaceId = freshWorkspaceId()
-    workspace = await connectToWorkspace(workspaceId)
+    workspace = await connectToWorkspaceAsTestUser(workspaceId)
     const chat = Schema.decodeUnknownSync(CreateChatOutput)(await workspace.createChat(
       Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "App proposal snapshot" }))
     )).chat

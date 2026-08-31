@@ -37,6 +37,7 @@ import {
   MutationAttribution,
   MutationCommitMessage,
   canonicalMutationCommitMessage,
+  canonicalMutationProvenance,
   COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION,
   applySupertagCommitMessage,
   addFactCommitMessage,
@@ -374,6 +375,7 @@ export type LedgerCustodyType =
   | "addFact"
   | "assignTag"
   | "updateTag"
+  | "agentChangeDecision"
   | "calendarProjection"
 
 interface BaseLedgerCustodyInput {
@@ -394,10 +396,11 @@ interface BaseLedgerCustodyInput {
 
 export type LedgerCustodyInput =
   | (BaseLedgerCustodyInput & {
-      readonly type: Exclude<LedgerCustodyType, "calendarProjection" | "updateTag">
+      readonly type: Exclude<LedgerCustodyType, "calendarProjection" | "updateTag" | "agentChangeDecision">
       readonly targetKind: "node"
     })
   | (BaseLedgerCustodyInput & { readonly type: "updateTag"; readonly targetKind: "tag" })
+  | (BaseLedgerCustodyInput & { readonly type: "agentChangeDecision"; readonly targetKind: "chat"; readonly actorKind: "user" })
   | (BaseLedgerCustodyInput & {
       readonly type: "calendarProjection"
       readonly targetKind: "calendarEvent"
@@ -410,9 +413,9 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "calendarProjection"].includes(input.type) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "agentChangeDecision", "calendarProjection"].includes(input.type) ||
     !["user", "employee", "system"].includes(input.actorKind) ||
-    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.targetKind !== "node") ||
+    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.type === "agentChangeDecision" ? input.targetKind !== "chat" : input.targetKind !== "node") ||
     Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
     throw new LedgerConflict("invalid ledger custody shape")
   }
@@ -425,6 +428,10 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   }
   if (input.actorKind === "employee" && (input.chatId !== undefined || input.toolCallId !== undefined)) {
     throw new LedgerConflict("employee ledger custody cannot carry chat references")
+  }
+  if (input.type === "agentChangeDecision" && (input.actorKind !== "user" || input.chatId !== undefined || input.toolCallId !== undefined ||
+    input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
+    throw new LedgerConflict("reviewed chat decisions require authenticated user custody without employee or chat-tool references")
   }
   if (input.actorKind === "user" && (input.chatId === undefined) !== (input.toolCallId === undefined)) {
     throw new LedgerConflict("chat ledger custody requires both chat and tool references")
@@ -603,10 +610,10 @@ export const agentChangeDecisionLedgerFingerprint = (
   proposalId: command.proposalId,
   decision: command.decision,
   principal: command.principal,
-  provenance: command.provenance,
+  provenance: canonicalMutationProvenance(command.provenance),
   policy: command.policy,
   messageDerivationVersion: AGENT_CHANGE_DECISION_MESSAGE_DERIVATION_VERSION,
-  message: command.message,
+  message: canonicalMutationCommitMessage(command.message),
   payload: command.payload
 }))
 
@@ -981,6 +988,29 @@ export class LedgerService {
     return { fingerprint: row.fingerprint, output: JSON.parse(row.output) }
   }
 
+  /** Cutover probe for the pre-executeV2 reviewed-chat envelope. An exact historical receipt is
+   * replayable without inventing custody; a command without its receipt is a deterministic
+   * migration failure, so callers must retry with a fresh request id instead of duplicating the
+   * decision. */
+  legacyAgentChangeDecisionState(
+    requestIdentity: string,
+    fingerprint: string
+  ): { readonly state: "absent" } | { readonly state: "exact"; readonly output: unknown } | { readonly state: "missing-receipt" } {
+    const command = this.sql.exec<{ fingerprint: string; type: string }>(
+      "SELECT fingerprint, type FROM ledger_commands WHERE requestIdentity = ?", requestIdentity
+    ).toArray()[0]
+    if (command === undefined) return { state: "absent" }
+    if (command.type !== "agentChangeDecision" || command.fingerprint !== fingerprint) {
+      throw new LedgerConflict("request identity was already used for a different command")
+    }
+    const receipt = this.sql.exec<{ fingerprint: string; output: string }>(
+      "SELECT fingerprint, output FROM ledger_receipts WHERE requestIdentity = ?", requestIdentity
+    ).toArray()[0]
+    if (receipt === undefined) return { state: "missing-receipt" }
+    if (receipt.fingerprint !== fingerprint) throw new LedgerConflict("request identity was already used for a different command")
+    return { state: "exact", output: JSON.parse(receipt.output) }
+  }
+
   private existingV2(requestIdentity: string, fingerprint: string, type: string): StoredLedgerReceiptV2 | undefined {
     const row = this.sql.exec<{ fingerprint: string; output: string }>(
       "SELECT fingerprint, output FROM ledger_receipts WHERE requestIdentity = ?", requestIdentity
@@ -1049,7 +1079,7 @@ export class LedgerService {
       requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
       actorKind: "user" | "employee" | "system"; actorLabel: string
       employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
-      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag"; targetId: string
+      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag" | "chat"; targetId: string
     }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
       employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
       FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
@@ -1074,7 +1104,9 @@ export class LedgerService {
       ? { ...normalizedBase, type: "calendarProjection", targetKind: "calendarEvent" }
       : row.type === "updateTag" && row.targetKind === "tag"
         ? { ...normalizedBase, type: "updateTag", targetKind: "tag" }
-      : row.type !== "calendarProjection" && row.type !== "updateTag" && row.targetKind === "node"
+      : row.type === "agentChangeDecision" && row.targetKind === "chat" && row.actorKind === "user"
+        ? { ...normalizedBase, actorKind: "user", type: "agentChangeDecision", targetKind: "chat" }
+      : row.type !== "calendarProjection" && row.type !== "updateTag" && row.type !== "agentChangeDecision" && row.targetKind === "node"
         ? { ...normalizedBase, type: row.type, targetKind: "node" }
         : (() => { throw new LedgerConflict("request identity has missing or mismatched custody") })()
     try { assertLedgerCustodyShape(normalized) } catch {
@@ -1128,7 +1160,7 @@ export class LedgerService {
       grantId: string | null
       chatId: string | null
       toolCallId: string | null
-      targetKind: "node" | "tag" | null
+      targetKind: "node" | "tag" | "chat" | null
       targetId: string | null
       commandRowId: number
       commandHighWater: number
@@ -1155,6 +1187,19 @@ export class LedgerService {
         return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt }]
       }
       if (row.actorLabel === null || row.custodyType !== row.type || row.targetId === null) return []
+      if (row.custodyType === "agentChangeDecision" && row.targetKind === "chat") {
+        if (row.actorKind !== "user") return []
+        const custody: LedgerCustodyInput = {
+          requestIdentity: "activity-row", fingerprint: "activity-row", type: "agentChangeDecision", workspaceId: "activity-row",
+          actorKind: "user", actorLabel: row.actorLabel, targetKind: "chat", targetId: row.targetId
+        }
+        try { assertLedgerCustodyShape(custody) } catch { return [] }
+        if (Schema.decodeUnknownOption(EntityId)(row.targetId)._tag === "None") return []
+        // A chat id is intentionally not returned: the activity feed is a public audit summary,
+        // while the command payload remains private evidence for the authenticated review route.
+        return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
+          actorKind: row.actorKind, actorLabel: row.actorLabel }]
+      }
       const nodeCustodyTypes = [
         "commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote",
         "createNodeWithIntent", "addFact", "assignTag"
@@ -1835,7 +1880,9 @@ export class LedgerService {
     )
   }
 
-  appendAgentChangeDecision(command: AgentChangeDecisionLedgerCommand, output: unknown): void {
+  /** Inserts only the immutable command row for an agent-change decision. Reviewed chat
+   * decisions use this method from executeV2 so the v2 receipt remains the sole receipt owner. */
+  appendAgentChangeDecisionCommand(command: AgentChangeDecisionLedgerCommand): void {
     const persisted = Schema.decodeUnknownSync(LedgerCommand)({
       version: LEDGER_COMMAND_VERSION,
       requestId: command.requestId,
@@ -1860,7 +1907,13 @@ export class LedgerService {
       persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy, persisted.messageDerivationVersion,
       persisted.message, JSON.stringify(persisted.payload), persisted.createdAt
     )
-    const eventPayload = JSON.stringify({ proposalId: command.proposalId, decision: command.decision, output })
+  }
+
+  /** Appends the event/outbox pair for an agent-change decision. Callers choose the payload; the
+   * reviewed-chat route passes a privacy-safe summary, while the historical proposal route keeps
+   * its existing private result envelope for backward compatibility. */
+  appendAgentChangeDecisionSideEffects(command: AgentChangeDecisionLedgerCommand, payload: unknown): void {
+    const eventPayload = JSON.stringify(payload)
     this.sql.exec(
       "INSERT INTO ledger_events (requestIdentity, kind, payload) VALUES (?, ?, ?)",
       command.requestIdentity, "agent-change-decision", eventPayload
@@ -1869,6 +1922,13 @@ export class LedgerService {
       "INSERT INTO ledger_outbox_intents (requestIdentity, kind, payload) VALUES (?, ?, ?)",
       command.requestIdentity, "agent-change-decision", eventPayload
     )
+  }
+
+  /** Historical combined helper retained for proposal decisions which still use the v1 receipt
+   * envelope. New executeV2 callers must compose the command and side-effect methods above. */
+  appendAgentChangeDecision(command: AgentChangeDecisionLedgerCommand, output: unknown): void {
+    this.appendAgentChangeDecisionCommand(command)
+    this.appendAgentChangeDecisionSideEffects(command, { proposalId: command.proposalId, decision: command.decision, output })
     this.receipt(command.requestIdentity, command.fingerprint, output)
   }
 

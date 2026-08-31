@@ -52,6 +52,7 @@ import {
   ListNodesOutput,
   ListPendingChangesInput,
   ListPendingChangesOutput,
+  ListRecentLedgerActivityOutput,
   ListTagFieldsInput,
   ListTagFieldsOutput,
   LoroMutationIntentV1,
@@ -79,6 +80,7 @@ import {
 } from "@athenaeum/domain"
 import { agentEditTestHooks, deriveFallbackBindingName } from "../src/agent-edit-service-live.js"
 import { agentEditModelClientTestHook } from "../src/workspace-durable-object.js"
+import { ledgerCustodyTestHook, ledgerExecuteTestHook } from "../src/ledger-service.js"
 import { makeModelClientScripted } from "../src/model-client-scripted.js"
 import { connectToWorkspace, connectToWorkspaceAsTestUser, connectToWorkspaceWithSocketAs, devSignIn, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
 
@@ -366,6 +368,8 @@ describe("AgentEditService: smoke test — create two nodes and link them, then 
     workspaceStub?.[Symbol.dispose]()
     workspaceStub = undefined
     agentEditModelClientTestHook.converse = undefined
+    ledgerExecuteTestHook.afterMutation = undefined
+    ledgerCustodyTestHook.beforeInsert = undefined
   })
 
   it("pending records exist, invisible to normal reads, visible after mergeChanges, gone after revertChanges", async () => {
@@ -447,6 +451,9 @@ describe("AgentEditService: smoke test — create two nodes and link them, then 
       await workspaceStub.mergeChanges(Schema.encodeSync(MergeChangesInput)(new MergeChangesInput({ chatId: chat.id, mergeThrough: 2 })))
     )
     expect(merged).toEqual(new MergeChangesOutput({ chatId: chat.id, mergeThrough: 2 }))
+    const compatibilityDecision = (await workspaceDurableObjectStub(workspaceId).debugListLedgerCommandIdentities()).find((entry) => entry.type === "agentChangeDecision")
+    expect(compatibilityDecision?.requestIdentity).toMatch(/^reviewed-chat-decision:v2:legacy-merge-/)
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerCustody(compatibilityDecision!.requestIdentity)).toMatchObject({ type: "agentChangeDecision", actorKind: "user", targetKind: "chat", targetId: chat.id })
 
     const nodesAfterMerge = Schema.decodeUnknownSync(ListNodesOutput)(
       await workspaceStub.listNodes(Schema.encodeSync(ListNodesInput)(new ListNodesInput({ workspaceId })))
@@ -515,6 +522,145 @@ describe("AgentEditService: smoke test — create two nodes and link them, then 
 
     // A second revert of the same range is a safe no-op (nothing left to delete).
     await workspaceStub.revertChanges(Schema.encodeSync(RevertChangesInput)(new RevertChangesInput({ chatId: chat.id, revertFrom: 0 })))
+  })
+})
+
+describe("AgentEditService: reviewed decisions share one ledger transaction", () => {
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+  afterEach(() => {
+    workspaceStub?.[Symbol.dispose]()
+    workspaceStub = undefined
+    agentEditModelClientTestHook.converse = undefined
+    ledgerExecuteTestHook.afterMutation = undefined
+    ledgerCustodyTestHook.beforeInsert = undefined
+  })
+
+  it("records typed chat custody, privacy-safe side effects, and replays without mutating twice", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({ id: "ledger-call", name: "createNode", input: { title: "Ledgered node", binding: "LEDGERED" } })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Created the ledgered node." })
+    ])
+    const chat = Schema.decodeUnknownSync(CreateChatOutput)(
+      await workspaceStub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Ledger review" })))
+    ).chat
+    await workspaceStub.sendChatMessage(
+      Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Create a node." }))
+    )
+    const review = Schema.decodeUnknownSync(GetChatReviewOutput)(
+      await workspaceStub.getChatReview(Schema.encodeSync(GetChatReviewInput)(new GetChatReviewInput({ chatId: chat.id })))
+    )
+    const decisionInput = new DecideChatReviewInput({
+      chatId: chat.id,
+      operation: "accept",
+      sequenceBoundary: 0,
+      expectedWitness: review.witness,
+      requestId: "chat-ledger-1",
+      message: "Accept the reviewed node.",
+      provenance: "agent-edit-review.test"
+    })
+    const before = await workspaceDurableObjectStub(workspaceId).debugGetLedgerArtifactCounts()
+    const first = await workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(decisionInput))
+    const afterFirst = await workspaceDurableObjectStub(workspaceId).debugGetLedgerArtifactCounts()
+    expect(afterFirst.commands - before.commands).toBe(1)
+    expect(afterFirst.receipts - before.receipts).toBe(1)
+    expect(afterFirst.events - before.events).toBe(1)
+    expect(afterFirst.outboxIntents - before.outboxIntents).toBe(1)
+
+    const identity = "reviewed-chat-decision:v2:chat-ledger-1"
+    const command = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCommand(identity)
+    expect(command).toMatchObject({ type: "agentChangeDecision", requestId: "chat-ledger-1", message: "Accept the reviewed node." })
+    expect(command?.payload).toMatchObject({ schema: "athenaeum.reviewed-chat-decision.v1", chatId: chat.id, range: "all", pendingAppCount: 0, pendingAppWitness: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    const custody = await workspaceDurableObjectStub(workspaceId).debugGetLedgerCustody(identity)
+    expect(custody).toMatchObject({ type: "agentChangeDecision", actorKind: "user", targetKind: "chat", targetId: chat.id })
+    expect(custody?.actorLabel).toMatch(/@example\.com$/)
+    expect(command?.principal).toBe(custody?.actorLabel)
+    const event = await workspaceDurableObjectStub(workspaceId).debugGetLedgerEvent(identity)
+    expect(JSON.stringify(event)).not.toContain(chat.id)
+    expect(event).toMatchObject({ kind: "agent-change-decision", payload: { schema: "athenaeum.agent-change-decision-event.v1", operation: "accept", range: "all" } })
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerOutboxIntent(identity)).toEqual(event)
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerReceipt(identity)).toMatchObject({
+      output: { version: "athenaeum.workspace-ledger-receipt.v2", type: "agentChangeDecision" }
+    })
+    const activity = Schema.decodeUnknownSync(ListRecentLedgerActivityOutput)(await workspaceStub.listRecentLedgerActivity({ workspaceId, limit: 20 }))
+    const decisionActivity = activity.entries.find((entry) => entry.type === "agentChangeDecision")
+    expect(decisionActivity).toMatchObject({ actor: "you", message: "Accept the reviewed node." })
+    expect(decisionActivity?.target).toBeUndefined()
+
+    const replay = await workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(decisionInput))
+    expect(replay).toEqual(first)
+    expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerArtifactCounts()).toEqual(afterFirst)
+  })
+
+  it("rejects anonymous compatibility promotion without changing pending state or ledger artifacts", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    const anonymous = await connectToWorkspace(workspaceId)
+    try {
+      installScriptedModel([
+        new ModelTurnToolCalls({
+          kind: "tool_calls",
+          calls: [new ToolCallRequest({ id: "anonymous-compat-call", name: "createNode", input: { title: "Auth required", binding: "AUTH_REQUIRED" } })]
+        }),
+        new ModelTurnFinalText({ kind: "final_text", text: "Created a node." })
+      ])
+      const chat = Schema.decodeUnknownSync(CreateChatOutput)(
+        await workspaceStub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Anonymous compatibility" })))
+      ).chat
+      await workspaceStub.sendChatMessage(Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Create a node." })))
+      const before = await workspaceDurableObjectStub(workspaceId).debugGetLedgerArtifactCounts()
+      await expect(anonymous.mergeChanges(Schema.encodeSync(MergeChangesInput)(new MergeChangesInput({ chatId: chat.id, mergeThrough: 0 })))).rejects.toThrow(/authenticated user is required/i)
+      const pending = Schema.decodeUnknownSync(ListPendingChangesOutput)(await workspaceStub.listPendingChanges(
+        Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id }))
+      ))
+      expect(pending.nodes.map((node) => node.title)).toEqual(["Auth required"])
+      expect(await workspaceDurableObjectStub(workspaceId).debugGetLedgerArtifactCounts()).toEqual(before)
+    } finally {
+      anonymous[Symbol.dispose]()
+    }
+  })
+
+  it("rolls back the promotion and all ledger artifacts when a post-mutation step fails", async () => {
+    const workspaceId = freshWorkspaceId()
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
+    installScriptedModel([
+      new ModelTurnToolCalls({
+        kind: "tool_calls",
+        calls: [new ToolCallRequest({ id: "rollback-call", name: "createNode", input: { title: "Rollback me", binding: "ROLLBACK" } })]
+      }),
+      new ModelTurnFinalText({ kind: "final_text", text: "Created a node." })
+    ])
+    const chat = Schema.decodeUnknownSync(CreateChatOutput)(
+      await workspaceStub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Rollback review" })))
+    ).chat
+    await workspaceStub.sendChatMessage(Schema.encodeSync(SendChatMessageInput)(new SendChatMessageInput({ chatId: chat.id, text: "Create a node." })))
+    const review = Schema.decodeUnknownSync(GetChatReviewOutput)(
+      await workspaceStub.getChatReview(Schema.encodeSync(GetChatReviewInput)(new GetChatReviewInput({ chatId: chat.id })))
+    )
+    const makeInput = (requestId: string) => new DecideChatReviewInput({
+      chatId: chat.id, operation: "accept", sequenceBoundary: 0, expectedWitness: review.witness,
+      requestId, message: "Accept with rollback proof.", provenance: "agent-edit-rollback.test"
+    })
+    const native = workspaceDurableObjectStub(workspaceId)
+    const before = await native.debugGetLedgerArtifactCounts()
+    ledgerExecuteTestHook.afterMutation = () => { throw new Error("simulate decision failure") }
+    await expect(workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(makeInput("rollback-after-mutation")))).rejects.toThrow(/ledgered chat review decision failed/)
+    ledgerExecuteTestHook.afterMutation = undefined
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(before)
+    expect((await workspaceStub.listPendingChanges(Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id })))).nodes).toHaveLength(1)
+
+    ledgerCustodyTestHook.beforeInsert = () => { throw new Error("simulate custody failure") }
+    await expect(workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(makeInput("rollback-before-custody")))).rejects.toThrow(/ledgered chat review decision failed/)
+    ledgerCustodyTestHook.beforeInsert = undefined
+    expect(await native.debugGetLedgerArtifactCounts()).toEqual(before)
+    expect((await workspaceStub.listPendingChanges(Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id })))).nodes).toHaveLength(1)
+
+    await workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(makeInput("rollback-success")))
+    expect((await workspaceStub.listPendingChanges(Schema.encodeSync(ListPendingChangesInput)(new ListPendingChangesInput({ chatId: chat.id })))).nodes).toHaveLength(0)
   })
 })
 

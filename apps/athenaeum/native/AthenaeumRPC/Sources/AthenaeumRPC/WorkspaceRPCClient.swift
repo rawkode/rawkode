@@ -138,9 +138,9 @@ public final class WorkspaceRPCClient: Sendable {
     ///
     /// `bearerCredential` (Phase 4 addition) — a `DevSignInOutput.credential` from
     /// `DevAuthClient.signIn`, threaded straight through to `CapnWebBatchClient`. `nil` (the
-    /// default) is every pre-Phase-4 call site's exact prior behavior: an anonymous connection,
-    /// which every method except `whoami` and the sharing surface still accepts today (see
-    /// `workspace-durable-object.ts`'s own header comment on `#currentUser`).
+    /// default) is every pre-Phase-4 call site's exact prior behavior: an anonymous connection.
+    /// Governed writes and reviewed chat decisions require a credential; read-only and legacy
+    /// ungoverned surfaces retain their anonymous compatibility behavior.
     public init(baseURL: URL, workspaceId: String, urlSession: URLSession = .shared, bearerCredential: String? = nil) {
         self.client = CapnWebBatchClient(baseURL: baseURL, urlSession: urlSession, bearerCredential: bearerCredential)
         self.workspaceId = workspaceId

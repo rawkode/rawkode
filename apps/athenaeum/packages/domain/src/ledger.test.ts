@@ -23,6 +23,7 @@ import {
   ApplySupertagLedgerPayload,
   HumanUiMutationAttribution,
   LedgerCommand,
+  ReviewedChatDecisionLedgerPayload,
   MutationAttribution,
   SystemMutationAttribution,
   UnassignTagLedgerCommand,
@@ -45,7 +46,10 @@ import {
   tagRevision,
   unassignTagCommitMessage,
   syncNoteReferencesCommitMessage,
-  startMeetingCommitMessage
+  startMeetingCommitMessage,
+  canonicalMutationCommitMessage,
+  canonicalMutationProvenance,
+  canonicalMutationRequestId
 } from "./ledger.js"
 import { EntityId } from "./node.js"
 import { normalizeTagFieldName } from "./tag-field-definition.js"
@@ -152,6 +156,26 @@ describe("transitional ledger domain contract", () => {
     expect(Schema.decodeUnknownSync(LedgerCommand)(valid)).toMatchObject({ type: "agentChangeDecision" })
     expect(() => Schema.decodeUnknownSync(LedgerCommand)({ ...valid, message: "" })).toThrow()
     expect(() => Schema.decodeUnknownSync(LedgerCommand)({ ...valid, provenance: "" })).toThrow()
+  })
+
+  it("keeps reviewed chat decision evidence typed and canonical", () => {
+    const valid = new ReviewedChatDecisionLedgerPayload({
+      schema: "athenaeum.reviewed-chat-decision.v1",
+      chatId: "00000000-0000-4000-8000-000000000002" as any,
+      operation: "accept",
+      range: "all",
+      sequenceBoundary: 3,
+      pendingAppCount: 0,
+      pendingAppWitness: "b".repeat(64),
+      expectedWitness: "a".repeat(64),
+      commitMessage: "Accept the reviewed changes.",
+      provenance: "agent-edit-review.test"
+    })
+    expect(Schema.decodeUnknownSync(ReviewedChatDecisionLedgerPayload)(Schema.encodeSync(ReviewedChatDecisionLedgerPayload)(valid))).toEqual(valid)
+    expect(() => Schema.decodeUnknownSync(ReviewedChatDecisionLedgerPayload)({ ...valid, expectedWitness: "not-a-digest" })).toThrow()
+    expect(canonicalMutationRequestId("  request-1  ")).toBe("request-1")
+    expect(canonicalMutationProvenance("  review-surface  ")).toBe("review-surface")
+    expect(canonicalMutationCommitMessage("  explain the change  ")).toBe("explain the change")
   })
 
   it("accepts only bounded, typed mutation attribution variants", () => {

@@ -45,7 +45,7 @@ import {
 import { agentEditTestHooks } from "../src/agent-edit-service-live.js"
 import { agentEditModelClientTestHook } from "../src/workspace-durable-object.js"
 import { makeModelClientScripted } from "../src/model-client-scripted.js"
-import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspaceAsTestUser, freshWorkspaceId, rejectionToDomainError } from "./support.js"
 
 const installScriptedModel = (script: ReadonlyArray<ModelTurnToolCalls | ModelTurnFinalText>) => {
   const scripted = makeModelClientScripted(script)
@@ -100,7 +100,7 @@ const COUNTER_CLIENT_CODE = `
 `.trim()
 
 describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/getAppCode/deleteApp)", () => {
-  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspaceAsTestUser>> | undefined
   afterEach(() => {
     workspaceStub?.[Symbol.dispose]()
     workspaceStub = undefined
@@ -108,7 +108,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
 
   it("creates a codeless App, writes real server+client code, reads it back, versions correctly, then deletes", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
@@ -214,7 +214,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
 
   it("getAppCode fails AppCodeVersionNotFound when a kind has no code yet", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
         Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title: "Blank", icon: AppIcon.make("✨") }))
@@ -231,7 +231,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
 
   it("updateAppCode rejects code over MAX_APP_CODE_BYTES with AppCodeTooLarge", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
         Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title: "Huge", icon: AppIcon.make("🧮") }))
@@ -251,7 +251,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
 })
 
 describe("AgentEditService: createApp/updateAppCode tools — real counter app authored through the pending pipeline", () => {
-  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspaceAsTestUser>> | undefined
   afterEach(() => {
     workspaceStub?.[Symbol.dispose]()
     workspaceStub = undefined
@@ -260,7 +260,7 @@ describe("AgentEditService: createApp/updateAppCode tools — real counter app a
 
   it("proposes a new pending App with real server+client code, invisible to mainline reads, then mergeChanges makes it real", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -356,7 +356,7 @@ describe("AgentEditService: createApp/updateAppCode tools — real counter app a
 
   it("revertChanges deletes a never-merged pending App entirely, including its pending code versions", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -405,7 +405,7 @@ describe("AgentEditService: createApp/updateAppCode tools — real counter app a
 
   it("re-editing an already-accepted App (same chat, later turn) proposes a new pending code version; reverting it keeps the App real but discards only the proposal", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     // Turn 1: create the App and write its first server code, then accept — a real, mainline App
     // with `updatedAt !== createdAt` (the `promoteApp` bump), the exact precondition
@@ -503,7 +503,7 @@ describe("AgentEditService: createApp/updateAppCode tools — real counter app a
 })
 
 describe("AgentEditService: crash-safety — reconcilePendingChanges handles Apps too", () => {
-  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspace>> | undefined
+  let workspaceStub: Awaited<ReturnType<typeof connectToWorkspaceAsTestUser>> | undefined
   afterEach(() => {
     workspaceStub?.[Symbol.dispose]()
     workspaceStub = undefined
@@ -515,7 +515,7 @@ describe("AgentEditService: crash-safety — reconcilePendingChanges handles App
 
   it("orphan case: a pending App with no logged tool call is reaped, not re-adopted", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({
@@ -572,7 +572,7 @@ describe("AgentEditService: crash-safety — reconcilePendingChanges handles App
 
   it("re-adopt case: a pending App whose tool call WAS logged, but never flushed, is re-adopted (stamped) on reconcile", async () => {
     const workspaceId = freshWorkspaceId()
-    workspaceStub = await connectToWorkspace(workspaceId)
+    workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
 
     installScriptedModel([
       new ModelTurnToolCalls({

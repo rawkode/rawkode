@@ -48,8 +48,12 @@ export const COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION = "commit-message-mirror.v
 const boundedId = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))
 export const MutationRequestId = boundedId
 export const MutationCommitMessage = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))
+/** Short, canonical evidence about the surface or job that caused a mutation. This remains
+ * private command data and is bounded before it participates in a replay fingerprint. */
+export const MutationProvenance = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))
 export type MutationRequestId = typeof MutationRequestId.Type
 export type MutationCommitMessage = typeof MutationCommitMessage.Type
+export type MutationProvenance = typeof MutationProvenance.Type
 
 const utf8ByteLength = (value: string): number => {
   let length = 0
@@ -82,6 +86,24 @@ export const canonicalMutationCommitMessage = (value: unknown): MutationCommitMe
   const canonical = value.trim()
   if (!isWellFormedUnicode(canonical) || Array.from(canonical).length > 500 || utf8ByteLength(canonical) > 2_000) throw new TypeError("commit message exceeds public bounds")
   return Schema.decodeUnknownSync(MutationCommitMessage)(canonical)
+}
+
+export const canonicalMutationProvenance = (value: unknown): MutationProvenance => {
+  if (typeof value !== "string") throw new TypeError("mutation provenance must be a string")
+  const canonical = value.trim()
+  if (!isWellFormedUnicode(canonical) || Array.from(canonical).length > 200 || utf8ByteLength(canonical) > 800) {
+    throw new TypeError("mutation provenance exceeds private bounds")
+  }
+  return Schema.decodeUnknownSync(MutationProvenance)(canonical)
+}
+
+export const canonicalMutationRequestId = (value: unknown): MutationRequestId => {
+  if (typeof value !== "string") throw new TypeError("mutation request id must be a string")
+  const canonical = value.trim()
+  if (!isWellFormedUnicode(canonical) || Array.from(canonical).length > 200 || utf8ByteLength(canonical) > 800) {
+    throw new TypeError("mutation request id exceeds private bounds")
+  }
+  return Schema.decodeUnknownSync(MutationRequestId)(canonical)
 }
 
 /** Asserted author evidence. Principal, capability, and policy remain server-derived authority. */
@@ -516,13 +538,30 @@ export class AgentChangeDecisionLedgerCommand extends Schema.Class<AgentChangeDe
   proposalId: EntityId,
   decision: Schema.Literal("accept", "reject"),
   principal: Schema.String.pipe(Schema.minLength(1)),
-  provenance: Schema.String.pipe(Schema.minLength(1)),
+  provenance: MutationProvenance,
   capability: Schema.Literal("build"),
   policy: Schema.String.pipe(Schema.minLength(1)),
   messageDerivationVersion: Schema.Literal(AGENT_CHANGE_DECISION_MESSAGE_DERIVATION_VERSION),
-  message: Schema.String.pipe(Schema.minLength(1)),
+  message: MutationCommitMessage,
   payload: Schema.Unknown,
   createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+/** Strict private evidence for the reviewed-chat decision route. The chat id is the single batch
+ * target; individual node/fact/edge ids remain in the server-recomputed witness and never cross
+ * the public activity boundary. Pending Apps use their own exact row/code-version witness because
+ * their source projection is not part of the structured node/fact/edge review payload. */
+export class ReviewedChatDecisionLedgerPayload extends Schema.Class<ReviewedChatDecisionLedgerPayload>("ReviewedChatDecisionLedgerPayload")({
+  schema: Schema.Literal("athenaeum.reviewed-chat-decision.v1"),
+  chatId: EntityId,
+  operation: Schema.Literal("accept", "revert"),
+  range: Schema.Literal("all", "through", "from"),
+  sequenceBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  pendingAppCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  pendingAppWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  expectedWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  commitMessage: MutationCommitMessage,
+  provenance: MutationProvenance
 }) {}
 
 /** Mainline Supertag application command. Attribution and caller rationale are private payload

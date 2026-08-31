@@ -51,7 +51,7 @@ struct Phase3Driver {
     static func run() async throws {
         var args = Array(CommandLine.arguments.dropFirst())
         guard !args.isEmpty else {
-            fail("usage: phase3-driver <subcommand> [args] --backend <url> [--workspace <id>]")
+            fail("usage: phase3-driver <subcommand> [args] --backend <url> [--workspace <id>] [--token <bearer>]")
         }
         let subcommand = args.removeFirst()
         let allArgs = CommandLine.arguments.map { $0 }
@@ -60,7 +60,7 @@ struct Phase3Driver {
         guard let backendURLString else { fail("--backend <url> (or ATHENAEUM_BACKEND_URL) is required") }
         guard let backendURL = URL(string: backendURLString) else { fail("invalid backend URL: \(backendURLString)") }
 
-        let flagsWithValues: Set<String> = ["--backend", "--workspace", "--title", "--binding", "--predicate", "--value"]
+        let flagsWithValues: Set<String> = ["--backend", "--workspace", "--token", "--title", "--binding", "--predicate", "--value"]
         var positional: [String] = []
         var i = 0
         while i < args.count {
@@ -107,7 +107,8 @@ struct Phase3Driver {
         guard let apiURL = URL(string: "\(backendURLString)/api/workspace/\(workspaceId.rawValue)") else {
             fail("invalid backend URL: \(backendURLString)")
         }
-        let client = WorkspaceRPCClient(baseURL: apiURL, workspaceId: workspaceId.rawValue)
+        let bearerCredential = optionValue(allArgs, "--token") ?? ProcessInfo.processInfo.environment["ATHENAEUM_TOKEN"]
+        let client = WorkspaceRPCClient(baseURL: apiURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
 
         switch subcommand {
         case "create-chat":
@@ -149,12 +150,18 @@ struct Phase3Driver {
 
         case "accept":
             let chatId = requireArg(positional, 0, "chatId")
-            let mergeThrough = try await client.mergeChanges(chatId: chatId, mergeThrough: 1_000_000_000)
+            let review = try await client.getChatReview(chatId: chatId)
+            let sequences = review.items.filter { $0.lane == "structured" && $0.stamped && $0.actionable }.map(\.sequence)
+            guard let mergeThrough = sequences.max() else { fail("chat has no actionable structured changes") }
+            _ = try await client.decideChatReview(chatId: chatId, operation: "accept", sequenceBoundary: mergeThrough, expectedWitness: review.witness, requestId: UUID().uuidString, message: "Accept the reviewed structured changes from the native phase-3 driver.", provenance: "native.phase3-exit-criterion")
             print("MERGED_THROUGH: \(mergeThrough)")
 
         case "revert":
             let chatId = requireArg(positional, 0, "chatId")
-            let revertFrom = try await client.revertChanges(chatId: chatId, revertFrom: 0)
+            let review = try await client.getChatReview(chatId: chatId)
+            let sequences = review.items.filter { $0.lane == "structured" && $0.stamped && $0.actionable }.map(\.sequence)
+            guard let revertFrom = sequences.min() else { fail("chat has no actionable structured changes") }
+            _ = try await client.decideChatReview(chatId: chatId, operation: "revert", sequenceBoundary: revertFrom, expectedWitness: review.witness, requestId: UUID().uuidString, message: "Revert the reviewed structured changes from the native phase-3 driver.", provenance: "native.phase3-exit-criterion")
             print("REVERTED_FROM: \(revertFrom)")
 
         case "list-nodes":

@@ -41,6 +41,7 @@ import { makeRealtimeVoiceClientScripted } from "../src/realtime-voice-client-sc
 import {
   connectToUserAs,
   connectToWorkspace,
+  connectToWorkspaceAsTestUser,
   connectToWorkspaceWithSocketAs,
   devSignIn,
   freshWorkspaceId,
@@ -221,7 +222,7 @@ describe("Live voice-audio session (voice-audio-rpc.ts)", () => {
 describe("Live voice-audio session -> AgentEditService wiring (against the REAL AgentEditService)", () => {
   it("a live-polled voice transcript triggers a real pending record, visible after mergeChanges", async () => {
     const workspaceId = freshWorkspaceId()
-    const stub = await connectToWorkspace(workspaceId)
+    const stub = await connectToWorkspaceAsTestUser(workspaceId)
     try {
       const chat = Schema.decodeUnknownSync(CreateChatOutput)(
         await stub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Live voice-driven chat" })))

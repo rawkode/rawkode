@@ -164,6 +164,7 @@ import {
   ChatReviewForkLaneStatus,
   DecideChatReviewInput,
   DecideChatReviewOutput,
+  ReviewedChatDecisionLedgerPayload,
   EditNoteToolOutput,
   GetMeetingInput,
   GetMeetingOutput,
@@ -243,6 +244,9 @@ import {
   HumanUiMutationAttribution,
   MutationAttribution,
   MutationCommitMessage,
+  canonicalMutationCommitMessage,
+  canonicalMutationProvenance,
+  canonicalMutationRequestId,
   NodeAlreadyExists,
   NodeNotFound,
   SystemMutationAttribution,
@@ -3332,102 +3336,114 @@ class WorkspaceRpcApi extends RpcTarget {
     return runRpcProgram(this.#runtime, program, SendChatMessageOutput)
   }
 
-  async mergeChanges(input: unknown): Promise<unknown> {
-    const workspaceId = this.#workspaceId
-    const currentUser = this.#currentUser
-    const program = decodeRpcInput(MergeChangesInput, input).pipe(
-      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
-          const agentEdit = yield* AgentEditService
-          const { chat } = yield* agentEdit.getChat(decoded.chatId)
-          yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
-          yield* agentEdit.mergeChanges(decoded.chatId, decoded.mergeThrough)
-          return new MergeChangesOutput({ chatId: decoded.chatId, mergeThrough: decoded.mergeThrough })
-        })
-      )
-    )
-    return runRpcProgram(this.#runtime, program, MergeChangesOutput)
-  }
-
-  async revertChanges(input: unknown): Promise<unknown> {
-    const workspaceId = this.#workspaceId
-    const currentUser = this.#currentUser
-    const program = decodeRpcInput(RevertChangesInput, input).pipe(
-      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) =>
-        Effect.gen(function* () {
-          const agentEdit = yield* AgentEditService
-          const { chat } = yield* agentEdit.getChat(decoded.chatId)
-          yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
-          yield* agentEdit.revertChanges(decoded.chatId, decoded.revertFrom)
-          return new RevertChangesOutput({ chatId: decoded.chatId, revertFrom: decoded.revertFrom })
-        })
-      )
-    )
-    return runRpcProgram(this.#runtime, program, RevertChangesOutput)
-  }
-
-  /**
-   * Ledgered review decision. Compatibility `mergeChanges`/`revertChanges` remain available for
-   * older clients, but new clients must bind their decision to this server-recomputed witness.
-   * The legacy agent-change decision ledger envelope is intentionally reused only with the
-   * explicit `reviewed-chat-decision.v1` payload below; it records chat, action, witness,
-   * boundary, authenticated actor, rationale, and provenance as one replay-conflict unit.
-   */
-  async decideChatReview(input: unknown): Promise<unknown> {
+  /** One transaction for every structured chat decision. Legacy merge/revert callers are adapted
+   * to this method with a server-generated compatibility rationale, while the modern review UI
+   * supplies its own witness, request id, commit message, and provenance. */
+  #executeReviewedChatDecision(input: {
+    readonly chatId: EntityId
+    readonly operation: "accept" | "revert"
+    readonly sequenceBoundary: number
+    readonly expectedWitness: string
+    readonly requestId: string
+    readonly message: string
+    readonly provenance: string
+    readonly range: "all" | "through" | "from"
+    readonly pendingAppCount: number
+    readonly pendingAppWitness: string
+    readonly allowEmpty: boolean
+  }): Effect.Effect<DecideChatReviewOutput, DomainError, WorkspaceServices> {
     const workspaceId = this.#workspaceId
     const currentUser = this.#currentUser
     const storage = this.#storage
     const ledger = this.#ledger
-    const program = decodeRpcInput(DecideChatReviewInput, input).pipe(
-      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
-      Effect.flatMap((decoded) => {
-        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to decide a chat review." }))
-        return Effect.gen(function* () {
-          const agentEdit = yield* AgentEditService
-          const sharing = yield* SharingService
-          const calendar = yield* CalendarService
-          const { chat } = yield* agentEdit.getChat(decoded.chatId)
-          yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
-          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
-          const requestIdentity = `reviewed-chat-decision:${decoded.requestId}`
-          const command = {
-            requestIdentity,
-            requestId: decoded.requestId,
-            workspaceId,
-            proposalId: decoded.chatId,
-            decision: decoded.operation === "accept" ? "accept" as const : "reject" as const,
-            principal: currentUser.email,
-            provenance: decoded.provenance,
-            policy,
-            message: decoded.message,
-            payload: {
-              schema: "athenaeum.reviewed-chat-decision.v1",
-              chatId: decoded.chatId,
-              operation: decoded.operation,
-              sequenceBoundary: decoded.sequenceBoundary,
-              expectedWitness: decoded.expectedWitness,
-              commitMessage: decoded.message,
-              provenance: decoded.provenance
-            }
+    return Effect.gen(function* () {
+      if (currentUser === undefined) {
+        return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to decide a chat review." }))
+      }
+      const actor = currentUser
+      const agentEdit = yield* AgentEditService
+      const sharing = yield* SharingService
+      const calendar = yield* CalendarService
+      const { chat } = yield* agentEdit.getChat(input.chatId)
+      yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+      const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+      const requestId = canonicalMutationRequestId(input.requestId)
+      const message = canonicalMutationCommitMessage(input.message)
+      const provenance = canonicalMutationProvenance(input.provenance)
+      const payload = Schema.encodeSync(ReviewedChatDecisionLedgerPayload)(new ReviewedChatDecisionLedgerPayload({
+        schema: "athenaeum.reviewed-chat-decision.v1",
+        chatId: input.chatId,
+        operation: input.operation,
+        sequenceBoundary: input.sequenceBoundary,
+        expectedWitness: input.expectedWitness,
+        commitMessage: message,
+        provenance,
+        range: input.range,
+        pendingAppCount: input.pendingAppCount,
+        pendingAppWitness: input.pendingAppWitness
+      }))
+      const v2RequestIdentity = `reviewed-chat-decision:v2:${requestId}`
+      const command = {
+        requestIdentity: v2RequestIdentity,
+        requestId,
+        workspaceId,
+        proposalId: input.chatId,
+        decision: input.operation === "accept" ? "accept" as const : "reject" as const,
+        principal: actor.email,
+        provenance,
+        policy,
+        message,
+        payload
+      }
+      const fingerprint = agentChangeDecisionLedgerFingerprint(command)
+      const persistedCommand = { ...command, fingerprint, createdAt: new Date().toISOString() }
+      // Before the v2 identity existed, this route wrote a legacy command and raw receipt. An
+      // exact historical receipt is safe to replay; a command without its receipt is not safe to
+      // rebuild, so force a fresh request identity instead of duplicating the decision.
+      const legacyRequestIdentity = `reviewed-chat-decision:${requestId}`
+      const legacyPayload = {
+        schema: "athenaeum.reviewed-chat-decision.v1",
+        chatId: input.chatId,
+        operation: input.operation,
+        sequenceBoundary: input.sequenceBoundary,
+        expectedWitness: input.expectedWitness,
+        commitMessage: message,
+        provenance
+      }
+      const legacyCommand = {
+        ...command,
+        requestIdentity: legacyRequestIdentity,
+        payload: legacyPayload
+      }
+      const legacyFingerprint = agentChangeDecisionLedgerFingerprint(legacyCommand)
+      return yield* Effect.try({
+        try: () => storage.transactionSync(() => {
+          const legacy = ledger.legacyAgentChangeDecisionState(legacyRequestIdentity, legacyFingerprint)
+          if (legacy.state === "missing-receipt") {
+            throw new LedgerConflict("legacy chat review command is missing its receipt; retry with a new request id")
           }
-          const fingerprint = agentChangeDecisionLedgerFingerprint(command)
-          return yield* Effect.try({
-            try: () => storage.transactionSync(() => {
-              const replay = ledger.existing(requestIdentity, fingerprint)
-              if (replay !== undefined) return Schema.decodeUnknownSync(DecideChatReviewOutput)(replay.output)
-              const currentChat = Effect.runSyncExit(agentEdit.getChat(decoded.chatId))
+          if (legacy.state === "exact") return Schema.decodeUnknownSync(DecideChatReviewOutput)(legacy.output)
+          return ledger.executeV2({
+            requestIdentity: v2RequestIdentity,
+            fingerprint,
+            type: "agentChangeDecision",
+            mutationScope: { workspaceId, targetKind: "chat", targetId: input.chatId },
+            mutate: () => {
+              const currentChat = Effect.runSyncExit(agentEdit.getChat(input.chatId))
               if (Exit.isFailure(currentChat)) throw domainErrorFromCause(currentChat.cause)
               if (currentChat.value.chat.workspaceId !== workspaceId) throw new ValidationError({ message: "chat does not belong to this workspace" })
-              const currentPending = Effect.runSyncExit(agentEdit.listPendingChanges(decoded.chatId))
+              const currentPending = Effect.runSyncExit(agentEdit.listPendingChanges(input.chatId))
               if (Exit.isFailure(currentPending)) throw domainErrorFromCause(currentPending.cause)
-              const pendingAppCount = Effect.runSyncExit(agentEdit.pendingAppCount(decoded.chatId))
+              const pendingAppCount = Effect.runSyncExit(agentEdit.pendingAppCount(input.chatId))
               if (Exit.isFailure(pendingAppCount)) throw domainErrorFromCause(pendingAppCount.cause)
-              if (pendingAppCount.value !== 0) throw new ValidationError({ message: "chat review has pending app changes outside this decision projection" })
-              const snapshot = chatReviewWitness(decoded.chatId, currentPending.value)
-              if (snapshot.witness !== decoded.expectedWitness) throw new ValidationError({ message: "chat review is stale; refresh before deciding" })
-              const hidden = Effect.runSyncExit(calendar.hiddenCalendarDerivedNodeIds(workspaceId, currentUser.email))
+              if (pendingAppCount.value !== input.pendingAppCount) throw new ValidationError({ message: "chat review changed while it was being decided; refresh before deciding" })
+              const pendingAppWitness = Effect.runSyncExit(agentEdit.pendingAppWitness(input.chatId))
+              if (Exit.isFailure(pendingAppWitness)) throw domainErrorFromCause(pendingAppWitness.cause)
+              if (pendingAppWitness.value !== input.pendingAppWitness) throw new ValidationError({ message: "chat review Apps changed while it was being decided; refresh before deciding" })
+              if (input.range === "all" && pendingAppCount.value !== 0) throw new ValidationError({ message: "chat review has pending app changes outside this decision projection" })
+              const snapshot = chatReviewWitness(input.chatId, currentPending.value)
+              if (snapshot.witness !== input.expectedWitness) throw new ValidationError({ message: "chat review is stale; refresh before deciding" })
+              const hidden = Effect.runSyncExit(calendar.hiddenCalendarDerivedNodeIds(workspaceId, actor.email))
               if (Exit.isFailure(hidden)) throw domainErrorFromCause(hidden.cause)
               if (
                 snapshot.nodes.some((node) => hidden.value.has(Schema.decodeUnknownSync(EntityId)(node.id))) ||
@@ -3441,27 +3457,163 @@ class WorkspaceRpcApi extends RpcTarget {
               if (allRecords.some((record) => record.pending?.sequence === undefined)) {
                 throw new ValidationError({ message: "chat review contains unfinished recovery records and cannot be decided yet" })
               }
-              const stampedSequences = allRecords.map((record) => record.pending!.sequence!)
-              if (stampedSequences.length === 0) throw new ValidationError({ message: "chat review has no stamped changes to decide" })
-              const derivedBoundary = decoded.operation === "accept" ? Math.max(...stampedSequences) : Math.min(...stampedSequences)
-              if (decoded.sequenceBoundary !== derivedBoundary) throw new ValidationError({ message: "chat review boundary no longer matches the witnessed pending changes" })
-              const apply = decoded.operation === "accept"
-                ? agentEdit.mergeChanges(decoded.chatId, decoded.sequenceBoundary)
-                : agentEdit.revertChanges(decoded.chatId, decoded.sequenceBoundary)
+              if (allRecords.length === 0 && pendingAppCount.value === 0 && !input.allowEmpty) {
+                throw new ValidationError({ message: "chat review has no stamped changes to decide" })
+              }
+              if (input.range === "all" && allRecords.length > 0) {
+                const stampedSequences = allRecords.map((record) => record.pending!.sequence!)
+                const derivedBoundary = input.operation === "accept" ? Math.max(...stampedSequences) : Math.min(...stampedSequences)
+                if (input.sequenceBoundary !== derivedBoundary) throw new ValidationError({ message: "chat review boundary no longer matches the witnessed pending changes" })
+              }
+              const apply = input.operation === "accept"
+                ? agentEdit.mergeChanges(input.chatId, input.sequenceBoundary)
+                : agentEdit.revertChanges(input.chatId, input.sequenceBoundary)
               const exit = Effect.runSyncExit(apply)
               if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
-              const output = new DecideChatReviewOutput({ chatId: decoded.chatId, operation: decoded.operation, sequenceBoundary: decoded.sequenceBoundary, witness: snapshot.witness })
-              ledger.appendAgentChangeDecision({ ...command, fingerprint, createdAt: new Date().toISOString() }, Schema.encodeSync(DecideChatReviewOutput)(output))
-              return output
+              return new DecideChatReviewOutput({ chatId: input.chatId, operation: input.operation, sequenceBoundary: input.sequenceBoundary, witness: snapshot.witness })
+            },
+            encodeOutput: (output) => Schema.encodeSync(DecideChatReviewOutput)(output),
+            decodeOutput: (output) => Schema.decodeUnknownSync(DecideChatReviewOutput)(output),
+            appendCommand: () => {
+              Schema.decodeUnknownSync(ReviewedChatDecisionLedgerPayload)(payload)
+              ledger.appendAgentChangeDecisionCommand(persistedCommand)
+            },
+            appendCustody: () => ledger.appendCustody({
+              requestIdentity: v2RequestIdentity,
+              fingerprint,
+              type: "agentChangeDecision",
+              workspaceId,
+              actorKind: "user",
+              actorLabel: actor.email,
+              targetKind: "chat",
+              targetId: input.chatId
             }),
-            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
-              ? new ValidationError({ message: error.message })
-              : error instanceof Unauthorized || error instanceof UnexpectedError
-                ? error
-                : new UnexpectedError({ message: `ledgered chat review decision failed: ${error instanceof Error ? error.message : String(error)}` })
+            validateReplayCustody: () => ledger.validateCustody({
+              requestIdentity: v2RequestIdentity,
+              fingerprint,
+              type: "agentChangeDecision",
+              workspaceId,
+              actorKind: "user",
+              actorLabel: actor.email,
+              targetKind: "chat",
+              targetId: input.chatId
+            }),
+            appendSideEffects: () => ledger.appendAgentChangeDecisionSideEffects(persistedCommand, {
+              schema: "athenaeum.agent-change-decision-event.v1",
+              operation: input.operation,
+              range: input.range,
+              sequenceBoundary: input.sequenceBoundary,
+              state: input.operation === "accept" ? "accepted" : "reverted"
+            })
           })
-        })
+        }),
+        catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+          ? new ValidationError({ message: error.message })
+          : error instanceof Unauthorized || error instanceof UnexpectedError
+            ? error
+            : new UnexpectedError({ message: `ledgered chat review decision failed: ${error instanceof Error ? error.message : String(error)}` })
       })
+    })
+  }
+
+  async mergeChanges(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const executeReviewedChatDecision = this.#executeReviewedChatDecision.bind(this)
+    const program = decodeRpcInput(MergeChangesInput, input).pipe(
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const agentEdit = yield* AgentEditService
+        const { chat } = yield* agentEdit.getChat(decoded.chatId)
+        yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+        const pending = yield* agentEdit.listPendingChanges(decoded.chatId)
+        const pendingAppCount = yield* agentEdit.pendingAppCount(decoded.chatId)
+        const pendingAppWitness = yield* agentEdit.pendingAppWitness(decoded.chatId)
+        const hasPending = pending.nodes.length > 0 || pending.facts.length > 0 || pending.edges.length > 0 || pendingAppCount > 0
+        if (!hasPending) return new MergeChangesOutput({ chatId: decoded.chatId, mergeThrough: decoded.mergeThrough })
+        if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to promote pending chat changes." }))
+        const review = yield* executeReviewedChatDecision({
+          chatId: decoded.chatId,
+          operation: "accept",
+          sequenceBoundary: decoded.mergeThrough,
+          expectedWitness: chatReviewWitness(decoded.chatId, pending).witness,
+          requestId: `legacy-merge-${crypto.randomUUID()}`,
+          message: "Promote pending chat changes through the legacy compatibility route.",
+          provenance: "legacy-merge-rpc.compatibility.v1",
+          range: "through",
+          pendingAppCount,
+          pendingAppWitness,
+          allowEmpty: true
+        })
+        return new MergeChangesOutput({ chatId: review.chatId, mergeThrough: review.sequenceBoundary })
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, MergeChangesOutput)
+  }
+
+  async revertChanges(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const executeReviewedChatDecision = this.#executeReviewedChatDecision.bind(this)
+    const program = decodeRpcInput(RevertChangesInput, input).pipe(
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const agentEdit = yield* AgentEditService
+        const { chat } = yield* agentEdit.getChat(decoded.chatId)
+        yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+        const pending = yield* agentEdit.listPendingChanges(decoded.chatId)
+        const pendingAppCount = yield* agentEdit.pendingAppCount(decoded.chatId)
+        const pendingAppWitness = yield* agentEdit.pendingAppWitness(decoded.chatId)
+        const hasPending = pending.nodes.length > 0 || pending.facts.length > 0 || pending.edges.length > 0 || pendingAppCount > 0
+        if (!hasPending) return new RevertChangesOutput({ chatId: decoded.chatId, revertFrom: decoded.revertFrom })
+        if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required to revert pending chat changes." }))
+        const review = yield* executeReviewedChatDecision({
+          chatId: decoded.chatId,
+          operation: "revert",
+          sequenceBoundary: decoded.revertFrom,
+          expectedWitness: chatReviewWitness(decoded.chatId, pending).witness,
+          requestId: `legacy-revert-${crypto.randomUUID()}`,
+          message: "Revert pending chat changes from the legacy compatibility route.",
+          provenance: "legacy-revert-rpc.compatibility.v1",
+          range: "from",
+          pendingAppCount,
+          pendingAppWitness,
+          allowEmpty: true
+        })
+        return new RevertChangesOutput({ chatId: review.chatId, revertFrom: review.sequenceBoundary })
+      }))
+    )
+    return runRpcProgram(this.#runtime, program, RevertChangesOutput)
+  }
+
+  /**
+   * Ledgered review decision. Both legacy merge/revert methods adapt into this same transaction,
+   * so there is no direct mutation escape hatch. New clients bind their decision to a witness and
+   * supply a canonical commit message and provenance explicitly.
+   */
+  async decideChatReview(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const executeReviewedChatDecision = this.#executeReviewedChatDecision.bind(this)
+    const program = decodeRpcInput(DecideChatReviewInput, input).pipe(
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const agentEdit = yield* AgentEditService
+        const pendingAppWitness = yield* agentEdit.pendingAppWitness(decoded.chatId)
+        return yield* executeReviewedChatDecision({
+          chatId: decoded.chatId,
+          operation: decoded.operation,
+          sequenceBoundary: decoded.sequenceBoundary,
+          expectedWitness: decoded.expectedWitness,
+          requestId: decoded.requestId,
+          message: decoded.message,
+          provenance: decoded.provenance,
+          range: "all",
+          pendingAppCount: 0,
+          pendingAppWitness,
+          allowEmpty: false
+        })
+      }))
     )
     return runRpcProgram(this.#runtime, program, DecideChatReviewOutput)
   }

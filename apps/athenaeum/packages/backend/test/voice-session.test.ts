@@ -46,6 +46,7 @@ import { makeRealtimeVoiceClientScripted } from "../src/realtime-voice-client-sc
 import {
   connectToUserAs,
   connectToWorkspace,
+  connectToWorkspaceAsTestUser,
   connectToWorkspaceWithSocketAs,
   devSignIn,
   freshWorkspaceId,
@@ -167,7 +168,7 @@ describe("VoiceSessionService: startVoiceSession/endVoiceSession", () => {
 describe("Voice → AgentEditService wiring (task item 3, against the REAL AgentEditService)", () => {
   it("a scripted voice transcript triggering a tool call produces a real pending record, visible after mergeChanges", async () => {
     const workspaceId = freshWorkspaceId()
-    const stub = await connectToWorkspace(workspaceId)
+    const stub = await connectToWorkspaceAsTestUser(workspaceId)
     try {
       const chat = Schema.decodeUnknownSync(CreateChatOutput)(
         await stub.createChat(Schema.encodeSync(CreateChatInput)(new CreateChatInput({ workspaceId, title: "Voice-driven chat" })))

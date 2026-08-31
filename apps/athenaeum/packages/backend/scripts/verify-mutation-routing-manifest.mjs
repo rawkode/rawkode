@@ -43,7 +43,7 @@ const stale = listed.filter((name) => !actual.includes(name))
 if (missing.length || stale.length) {
   throw new Error(`mutation-routing manifest drift; missing=[${missing}] stale=[${stale}] (root ${backendRoot})`)
 }
-const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "updateTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "decideAgentChangeProposal", "decideChatReview", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "linkCalendarEventToNode", "createBookmark", "appendTranscriptSegment", "startMeeting"]
+const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "updateTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "mergeChanges", "revertChanges", "decideAgentChangeProposal", "decideChatReview", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "linkCalendarEventToNode", "createBookmark", "appendTranscriptSegment", "startMeeting"]
 if (ledgerRoutes.some((name) => manifestExports.WORKSPACE_MUTATION_ROUTING[name] !== "ledger") || Object.values(manifestExports.WORKSPACE_MUTATION_ROUTING).filter((route) => route === "ledger").length !== ledgerRoutes.length) {
   throw new Error(`ledger routing manifest must contain exactly ${ledgerRoutes.join(", ")}`)
 }

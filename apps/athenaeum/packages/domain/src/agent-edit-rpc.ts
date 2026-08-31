@@ -95,9 +95,9 @@ export class DecideChatReviewInput extends Schema.Class<DecideChatReviewInput>("
   operation: Schema.Literal("accept", "revert"),
   sequenceBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   expectedWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
-  requestId: Schema.String.pipe(Schema.minLength(1)),
-  message: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1)),
-  provenance: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1))
+  requestId: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1), Schema.maxLength(200)),
+  message: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1), Schema.maxLength(500)),
+  provenance: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1), Schema.maxLength(200))
 }) {}
 
 export class DecideChatReviewOutput extends Schema.Class<DecideChatReviewOutput>("DecideChatReviewOutput")({
