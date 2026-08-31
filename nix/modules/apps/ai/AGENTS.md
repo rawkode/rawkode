@@ -7,8 +7,8 @@
 
 ## Homebrew Declarations
 
-- Keep Homebrew resource types exact: `taps` declares tap repositories, `brews` declares formulae, and `casks` declares casks. Do not reinterpret an explicitly requested tap/formula as a fully qualified cask based on an upstream install command.
-- Orca is intentionally managed as a tapped formula: add `"stablyai/orca"` to `homebrew.taps` and `"orca"` to `homebrew.brews`. Do not add `"stablyai/orca/orca"` to `homebrew.casks`.
+- Keep Homebrew resource types exact: `taps` declares tap repositories, `brews` declares formulae, and `casks` declares casks. Use the resource type published by the upstream tap, including a fully qualified cask when needed to select the intended tap.
+- Orca is managed as a tapped cask: add `"stablyai/orca"` to `homebrew.taps` and `"stablyai/orca/orca"` to `homebrew.casks`. Do not add `"orca"` to `homebrew.brews` or use an unqualified `"orca"` cask, which resolves to an unrelated package.
 
 ## Low-Risk Package-List Changes
 
