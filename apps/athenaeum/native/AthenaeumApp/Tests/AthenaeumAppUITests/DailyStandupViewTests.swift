@@ -146,6 +146,7 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(snapshot.totalAttention, 4)
         XCTAssertEqual(snapshot.displayed.count, 3)
         XCTAssertEqual(snapshot.remainder, 1)
+        XCTAssertEqual(WorkforceAttentionPresentation.treatment(for: snapshot), .urgent)
         XCTAssertEqual(snapshot.displayed.map(\.outcome), [.blocked, .blocked, .blocked])
         XCTAssertEqual(snapshot.displayed.map(\.employee), ["Executive", "Executive", "Executive"])
         XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
@@ -158,6 +159,7 @@ final class DailyStandupViewTests: XCTestCase {
         let publication = try makePublication(id: "00000000-0000-4000-8000-000000000310", resultKind: .completed)
         let snapshot = WorkforceAttentionPresentation.snapshot([publication])
         XCTAssertTrue(snapshot.isClear)
+        XCTAssertEqual(WorkforceAttentionPresentation.treatment(for: snapshot), .calm)
         XCTAssertEqual(snapshot.routineCount, 1)
         XCTAssertEqual(
             WorkforceAttentionPresentation.summary(

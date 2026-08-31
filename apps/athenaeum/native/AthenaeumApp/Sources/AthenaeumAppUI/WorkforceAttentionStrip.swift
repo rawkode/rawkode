@@ -34,6 +34,14 @@ enum WorkforceAttentionPresentation {
         var isClear: Bool { totalAttention == 0 }
     }
 
+    /// Keeps the visual hierarchy honest: routine work is a calm status, while blocked or failed
+    /// work is an interruption that deserves an urgent treatment. The same distinction is already
+    /// present in the web strip; keeping it as a value contract makes native parity testable.
+    enum Treatment: Equatable, Sendable {
+        case calm
+        case urgent
+    }
+
     static func snapshot(_ publications: [StandupPublication]) -> Snapshot {
         // `compactMap` preserves durable source order; only blocked/failed publications enter
         // the attention lane, while completed/skipped/nil are routine.
@@ -51,6 +59,10 @@ enum WorkforceAttentionPresentation {
             return "\(routineCount) \(routineCount == 1 ? "employee update" : "employee updates") · no exceptions"
         }
         return totalAttention == 1 ? "1 workforce update needs attention" : "\(totalAttention) workforce updates need attention"
+    }
+
+    static func treatment(for snapshot: Snapshot) -> Treatment {
+        snapshot.isClear ? .calm : .urgent
     }
 
     static func remainderTitle(_ remainder: Int) -> String? {
@@ -129,10 +141,7 @@ struct WorkforceAttentionStrip: View {
             failureContent
         case .loaded(let publications) where !publications.isEmpty:
             let snapshot = WorkforceAttentionPresentation.snapshot(publications)
-            attentionContent(snapshot)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(.orange.opacity(0.08), in: Capsule())
+            loadedContent(snapshot)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
         default:
@@ -160,6 +169,23 @@ struct WorkforceAttentionStrip: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(WorkforceAttentionPresentation.failureMessage)
         .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    @ViewBuilder
+    private func loadedContent(_ snapshot: WorkforceAttentionPresentation.Snapshot) -> some View {
+        switch WorkforceAttentionPresentation.treatment(for: snapshot) {
+        case .calm:
+            attentionContent(snapshot)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(.secondary.opacity(0.06), in: Capsule())
+                .overlay(Capsule().stroke(.secondary.opacity(0.16), lineWidth: 1))
+        case .urgent:
+            attentionContent(snapshot)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(.orange.opacity(0.08), in: Capsule())
+        }
     }
 
     @ViewBuilder
