@@ -282,6 +282,7 @@ describe("Loro semantic checkpoint coordinator", () => {
         container: document.createElement("div"),
         writer,
         coordinator,
+        isPlanTodayEligible: () => false,
         workspaceId: "00000000-0000-4000-8000-000000000001" as never,
         nodeId: "00000000-0000-4000-8000-000000000002" as never,
         onSupertagApplied: () => undefined

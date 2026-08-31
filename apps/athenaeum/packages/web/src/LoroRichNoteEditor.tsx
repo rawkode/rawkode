@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { LoroSyncPlugin, LoroUndoPlugin, loroSyncPluginKey, redo, undo, type LoroDocType } from "loro-prosemirror"
 import * as Effect from "effect/Effect"
 import { EditorState, TextSelection, type Transaction } from "prosemirror-state"
-import { Fragment } from "prosemirror-model"
+import { Fragment, type Node as PMNode } from "prosemirror-model"
 import { EditorView } from "prosemirror-view"
 import { CommitLoroPageContentInput, GetPageDocumentDescriptorInput, HumanUiMutationAttribution, IanaTimeZone, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, type EntityId, type LocalDate, type PageDocumentDescriptor, type PrepareMeetingInDailyNoteOutput } from "@athenaeum/domain"
 import { runtime, runtimeConnectionIdentity } from "./runtime.js"
@@ -317,6 +317,30 @@ export const isAuthoritativeMeetingPreparationReload = (args: {
   readonly nodeId: EntityId
 }): boolean => args.current && args.clean && args.descriptorNodeId === args.nodeId
 
+/**
+ * Builds the one Plan Today admission rule used by both its presentation and mutation paths.
+ * The attachment callback intentionally remains a dependency of the predicate: a PM document
+ * alone is never sufficient authority to overwrite a live daily note.
+ */
+export const createPlanTodayEligibility = (args: {
+  readonly offerPlanToday: boolean
+  readonly nodeId: EntityId
+  readonly isCurrentUiAttachment: (snapshot: LoroSemanticCustodySnapshot) => boolean
+}) => (snapshot: LoroSemanticCustodySnapshot, document: PMNode): boolean => {
+  const acceptedDescriptor = snapshot.acceptedBase?.descriptor
+  return args.offerPlanToday &&
+    args.isCurrentUiAttachment(snapshot) &&
+    snapshot.bindable &&
+    snapshot.state === "clean" &&
+    snapshot.frozenA === undefined &&
+    !snapshot.hasPostFreezeDraft &&
+    acceptedDescriptor !== undefined &&
+    acceptedDescriptor.nodeId === args.nodeId &&
+    acceptedDescriptor.activeFormat === "loro-v1" &&
+    acceptedDescriptor.storageVersion === 1 &&
+    isCanonicalEmptyPlanTodayDocument(document)
+}
+
 /** Visible terminal-conflict affordance; dismissal is deliberately an explicit destructive choice. */
 export function LoroConflictNotice({
   state,
@@ -435,6 +459,8 @@ export const createLoroEditorBinding = (options: {
   readonly onHumanEdit?: () => void
   /** Called after any PM state change so hosts can update presentation-only affordances. */
   readonly onDocumentStateChange?: (state: EditorState) => void
+  /** Re-evaluated immediately before Plan Today's unowned human transaction dispatches. */
+  readonly isPlanTodayEligible: (document: PMNode) => boolean
   /** A stale attachment/runtime makes an old live view noneditable before React remounts it. */
   readonly isAttachmentActive?: () => boolean
   readonly workspaceId: EntityId
@@ -602,12 +628,14 @@ export const createLoroEditorBinding = (options: {
      */
     applyPlanTodayStarter: (): boolean => {
       if (view === undefined || semanticReadOnly || options.isAttachmentActive?.() === false) return false
-      if (!isCanonicalEmptyPlanTodayDocument(view.state.doc)) return false
       const nodes = createPlanTodayStarterNodes(view.state.schema)
       const transaction = view.state.tr.replaceWith(0, view.state.doc.content.size, Fragment.fromArray(nodes))
       const nextDocument = transaction.doc
       transaction.setSelection(TextSelection.create(nextDocument, firstPlanTodayPriorityPosition(nextDocument)))
       transaction.scrollIntoView()
+      // React's visible affordance may be stale for one render turn. Re-read the custody
+      // snapshot through the component-owned predicate at the final dispatch boundary.
+      if (!options.isPlanTodayEligible(view.state.doc)) return false
       view.dispatch(transaction)
       view.focus()
       return true
@@ -747,19 +775,16 @@ export function LoroRichNoteEditor({
     const isAttachmentUiLive = (): boolean =>
       isCurrentUiScope() && attachment.active
 
+    const isPlanTodayEligible = createPlanTodayEligibility({
+      offerPlanToday,
+      nodeId,
+      isCurrentUiAttachment
+    })
+
     const refreshPlanTodayAvailability = (editorState?: EditorState): void => {
       const snapshot = attachment.snapshot()
-      const acceptedDescriptor = snapshot.acceptedBase?.descriptor
-      const available = offerPlanToday &&
-        initialDescriptor.storageVersion === 1 &&
-        snapshot.bindable &&
-        snapshot.state === "clean" &&
-        snapshot.frozenA === undefined &&
-        !snapshot.hasPostFreezeDraft &&
-        acceptedDescriptor?.storageVersion === 1 &&
-        (editorState === undefined
-          ? binding?.view !== undefined && isCanonicalEmptyPlanTodayDocument(binding.view.state.doc)
-          : isCanonicalEmptyPlanTodayDocument(editorState.doc))
+      const document = editorState?.doc ?? binding?.view?.state.doc
+      const available = document !== undefined && isPlanTodayEligible(snapshot, document)
       if (isCurrentUiScope()) setPlanTodayAvailable(available)
     }
 
@@ -951,6 +976,7 @@ export function LoroRichNoteEditor({
         }
       },
       onDocumentStateChange: (editorState) => refreshPlanTodayAvailability(editorState),
+      isPlanTodayEligible: (document) => isPlanTodayEligible(attachment.snapshot(), document),
       isAttachmentActive: isAttachmentUiLive,
       workspaceId,
       nodeId,
@@ -966,10 +992,8 @@ export function LoroRichNoteEditor({
     }
     planTodayApplyRef.current = () => {
       const snapshot = attachment.snapshot()
-      const acceptedDescriptor = snapshot.acceptedBase?.descriptor
-      if (!offerPlanToday || initialDescriptor.storageVersion !== 1 ||
-          !snapshot.bindable || snapshot.state !== "clean" || snapshot.frozenA !== undefined ||
-          snapshot.hasPostFreezeDraft || acceptedDescriptor?.storageVersion !== 1) return false
+      const document = binding?.view?.state.doc
+      if (document === undefined || !isPlanTodayEligible(snapshot, document)) return false
       const applied = binding?.applyPlanTodayStarter() === true
       if (applied) setPlanTodayAvailable(false)
       return applied
