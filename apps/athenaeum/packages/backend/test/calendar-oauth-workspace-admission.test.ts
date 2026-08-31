@@ -22,6 +22,23 @@ describe("Workspace calendar OAuth admission", () => {
     expect(() => begin(store, "Connect another calendar.")).toThrow(CalendarOAuthWorkspaceAdmissionError)
   })
 
+  it("constrains the opaque first flow to the primary calendar", () => {
+    const store = new CalendarOAuthWorkspaceAdmissions()
+    const admission = begin(store)
+    expect(admission.receipt.calendarId).toBe("primary")
+    expect(admission.receipt.mode).toBe("selected")
+    expect(() => store.begin({
+      workspaceId,
+      principal,
+      requestId: "connect-other-calendar",
+      commitMessage: "Connect my work calendar.",
+      attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" },
+      calendarId: "work" as never,
+      handleSecret: secret,
+      now
+    })).toThrow("primary calendar")
+  })
+
   it("replays a receipt after HMAC key rotation only when the old key is retained", () => {
     const store = new CalendarOAuthWorkspaceAdmissions()
     const first = begin(store)

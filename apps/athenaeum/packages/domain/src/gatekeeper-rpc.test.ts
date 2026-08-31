@@ -91,6 +91,13 @@ describe("Google Calendar connect/disconnect/sync RPC schemas", () => {
     const attribution = new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" })
     const attemptHandle = Schema.decodeUnknownSync(CalendarOAuthClientAttemptHandle)("oca_3fa85f64-5717-4562-b3fc-2c963f66afa0")
     roundTrip(BeginGoogleCalendarConnectionInput, new BeginGoogleCalendarConnectionInput({ workspaceId, requestId: "calendar-connect-1", commitMessage: "Connect my work calendar.", attribution }))
+    expect(() => Schema.decodeUnknownSync(BeginGoogleCalendarConnectionInput)({
+      workspaceId,
+      requestId: "calendar-connect-2",
+      commitMessage: "Connect a non-primary calendar.",
+      attribution,
+      calendarId: "work"
+    })).toThrow()
     roundTrip(BeginGoogleCalendarConnectionOutput, new BeginGoogleCalendarConnectionOutput({ attemptHandle }))
     roundTrip(IssueGoogleCalendarLaunchInput, new IssueGoogleCalendarLaunchInput({ workspaceId, attemptHandle }))
     roundTrip(IssueGoogleCalendarLaunchOutput, new IssueGoogleCalendarLaunchOutput({ fixedLaunchUrl: Schema.decodeUnknownSync(FixedGoogleCalendarLaunchUrl)("https://athenaeum.example/oauth/google-calendar/launch/ocl_3fa85f64-5717-4562-b3fc-2c963f66afa0") }))

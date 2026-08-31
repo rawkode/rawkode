@@ -80,7 +80,7 @@ export class CalendarOAuthAdmissionReceiptV2 extends Schema.Class<CalendarOAuthA
   gatekeeperAttemptId: GoogleCalendarGatekeeperAttemptId,
   /** Workspace-owned binding identity is fixed before the provider is contacted. */
   bindingId: EntityId,
-  calendarId: Schema.String.pipe(Schema.minLength(1)),
+  calendarId: Schema.Literal("primary"),
   /** The opaque first-flow contract binds only Google's primary/selected calendar. */
   mode: Schema.Literal("selected"),
   admissionWitnessDigest: CalendarOAuthWitnessDigest,
@@ -123,7 +123,7 @@ export const calendarOAuthBeginRequestFingerprint = (input: {
   requestId: string
   commitMessage: string
   attribution: unknown
-  calendarId?: string
+  calendarId?: "primary"
   mode?: "selected"
 }): CalendarOAuthRequestFingerprint =>
   Schema.decodeUnknownSync(CalendarOAuthRequestFingerprint)(sha256HexSync(canonicalJsonBytes({

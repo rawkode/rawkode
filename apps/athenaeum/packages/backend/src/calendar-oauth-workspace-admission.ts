@@ -168,12 +168,15 @@ export class CalendarOAuthWorkspaceAdmissions {
     requestId: string
     commitMessage: string
     attribution: MutationAttribution
-    calendarId?: string
+    calendarId?: "primary"
     mode?: "selected"
     handleSecret: string
     retainedHandleSecrets?: readonly string[]
     now: string
   }): CalendarOAuthWorkspaceAdmission {
+    if (input.calendarId !== undefined && input.calendarId !== "primary") {
+      throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection must target the primary calendar.")
+    }
     const requestFingerprint = calendarOAuthBeginRequestFingerprint(input)
     const requestIdentity = `${input.workspaceId}:${input.principal}:${input.requestId}`
     const keyring = calendarOAuthKeyring(input.handleSecret, input.retainedHandleSecrets)
@@ -202,7 +205,7 @@ export class CalendarOAuthWorkspaceAdmissions {
       // Gatekeeper's opaque attempt namespace is `coa_`; bind it to the coordinator identity.
       gatekeeperAttemptId: authorityAttemptId as never,
       bindingId: crypto.randomUUID() as CalendarOAuthAdmissionReceiptV2["bindingId"],
-      calendarId: input.calendarId ?? "primary", mode: input.mode ?? "selected",
+      calendarId: "primary" as const, mode: "selected" as const,
       admittedAt: input.now as CalendarOAuthAdmissionReceiptV2["admittedAt"]
     }
     const receipt = new CalendarOAuthAdmissionReceiptV2({ ...withoutWitness, admissionWitnessDigest: witnessDigest(calendarOAuthAdmissionWitnessDigest(input.handleSecret, withoutWitness)) })
