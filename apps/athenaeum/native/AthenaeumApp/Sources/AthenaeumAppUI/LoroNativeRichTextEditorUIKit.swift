@@ -27,6 +27,9 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     /// The host owns the SwiftUI picker; the adapter only reports an immutable trigger snapshot.
     let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
     let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
+    /// Delivered only after a contextual insertion has published and reached the host document
+    /// callback, so follow-up capture cannot race a rejected or no-op command.
+    let onInlineReferenceInserted: (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void
 
     init(
         state: LoroNativeRichEditorState,
@@ -41,7 +44,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         onFocusChange: @escaping (Bool) -> Void,
         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void,
         onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
-        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in }
+        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in },
+        onInlineReferenceInserted: @escaping (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void = { _ in }
     ) {
         self.state = state
         self.isEditable = isEditable
@@ -56,6 +60,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         self.onOpenReference = onOpenReference
         self.onMentionQueryChange = onMentionQueryChange
         self.onSupertagQueryChange = onSupertagQueryChange
+        self.onInlineReferenceInserted = onInlineReferenceInserted
     }
 
     func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
@@ -68,7 +73,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             onFocusChange: onFocusChange,
             onOpenReference: onOpenReference,
             onMentionQueryChange: onMentionQueryChange,
-            onSupertagQueryChange: onSupertagQueryChange
+            onSupertagQueryChange: onSupertagQueryChange,
+            onInlineReferenceInserted: onInlineReferenceInserted
         )
     }
 
@@ -120,6 +126,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
     private let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
     private let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
+    private let onInlineReferenceInserted: (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void
     private var nextReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
     private var lastReferenceContexts: [LoroNativeRichTextReferenceTrigger: LoroNativeRichTextInlineReferenceContext] = [:]
     private var lastAppliedReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
@@ -133,7 +140,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         onFocusChange: @escaping (Bool) -> Void = { _ in },
         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in },
         onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
-        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in }
+        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in },
+        onInlineReferenceInserted: @escaping (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void = { _ in }
     ) {
         engine = .init(document: document)
         isEditableInput = isEditable
@@ -144,6 +152,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         self.onOpenReference = onOpenReference
         self.onMentionQueryChange = onMentionQueryChange
         self.onSupertagQueryChange = onSupertagQueryChange
+        self.onInlineReferenceInserted = onInlineReferenceInserted
         super.init()
         textView.richController = self
         textView.delegate = self
@@ -231,7 +240,10 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // UIKit owns transient marked presentation. We only accept its final plain string through
         // the shared engine after unmark/insert establishes an exactly-once boundary.
         guard !pendingComposition, !hasMarkedText else { return true }
-        return apply(engine.replace(utf16Range: range, withPlainText: text))
+        // The engine has rendered the admitted document itself. Returning `true` would allow
+        // UIKit to replay the original native edit into that rendered document.
+        _ = apply(engine.replace(utf16Range: range, withPlainText: text))
+        return false
     }
 
     func textViewDidChange(_ textView: UITextView) {
@@ -290,15 +302,16 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
 
     /// Inserts an already-resolved semantic reference without exposing UIKit's attributed-text
     /// mutation path. A future SwiftUI picker can call this after it captures its trigger range.
+    @discardableResult
     func insert(
         reference: LoroCanonicalSemanticValueV1.InlineReference,
         replacingUTF16Range range: NSRange
-    ) {
+    ) -> Bool {
         guard isEditableInput, !pendingComposition, !hasMarkedText else {
             reject(.disabled)
-            return
+            return false
         }
-        _ = apply(engine.insert(reference: reference, replacingUTF16Range: range))
+        return apply(engine.insert(reference: reference, replacingUTF16Range: range))
     }
 
     fileprivate func reject(_ reason: LoroNativeRichTextEditorRejection) {
@@ -410,10 +423,12 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     // MARK: Rendering and reconciliation
 
     private func apply(_ effect: LoroNativeRichEditingEffect) -> Bool {
+        var didPublish = false
         switch effect {
         case let .publish(document, selection):
             render(document, preserving: selection)
             onDocumentChange(document)
+            didPublish = true
         case let .restore(document, selection):
             render(document, preserving: selection)
         case let .rejected(reason):
@@ -422,7 +437,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
             break
         }
         publishReferenceContexts()
-        return false
+        return didPublish
     }
 
     private func render(_ document: LoroNativeRichDocumentV1, preserving selection: LoroNativeRichTextSelection?) {
@@ -477,8 +492,9 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
               current.utf16Range == published.utf16Range,
               current.selection == published.selection
         else { reject(.invalidEdit); return }
+        guard insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range) else { return }
         lastAppliedReferenceGenerations[trigger] = insertion.generation
-        insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range)
+        onInlineReferenceInserted(.init(insertion))
     }
 
     func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {

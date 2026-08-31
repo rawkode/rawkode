@@ -60,21 +60,50 @@ struct LoroNativeRichTextInlineReferenceContext: Identifiable, Equatable {
 /// reference. The generation and trigger prevent a delayed picker result from mutating a newer
 /// note, caret, or reference kind.
 struct LoroNativeRichTextInlineReferenceInsertion: Equatable {
+    /// A host-generated identity distinguishes two otherwise identical picker commands at the
+    /// same caret.  In particular, an acknowledgement must never be enough to advance a later
+    /// field-capture request merely because the tag/range happen to match.
+    let commandID: UUID
     let generation: Int
     let utf16Range: NSRange
     let reference: LoroCanonicalSemanticValueV1.InlineReference
     let trigger: LoroNativeRichTextReferenceTrigger
 
     init(
+        commandID: UUID = UUID(),
         generation: Int,
         utf16Range: NSRange,
         reference: LoroCanonicalSemanticValueV1.InlineReference,
         trigger: LoroNativeRichTextReferenceTrigger = .mention
     ) {
+        self.commandID = commandID
         self.generation = generation
         self.utf16Range = utf16Range
         self.reference = reference
         self.trigger = trigger
+    }
+}
+
+/// Emitted only after a contextual insertion has passed the adapter's complete admission checks,
+/// the editing engine has published the resulting semantic document, and the host has received
+/// that document through `onDocumentChange`.  It is deliberately the immutable command identity,
+/// not an inferred text/range observation, so follow-up UI cannot mistake a stale or rejected
+/// command for a successful insertion.
+struct LoroNativeRichTextInlineReferenceInsertionAcknowledgement: Equatable, Identifiable {
+    let commandID: UUID
+    let generation: Int
+    let utf16Range: NSRange
+    let reference: LoroCanonicalSemanticValueV1.InlineReference
+    let trigger: LoroNativeRichTextReferenceTrigger
+
+    var id: UUID { commandID }
+
+    init(_ insertion: LoroNativeRichTextInlineReferenceInsertion) {
+        commandID = insertion.commandID
+        generation = insertion.generation
+        utf16Range = insertion.utf16Range
+        reference = insertion.reference
+        trigger = insertion.trigger
     }
 }
 

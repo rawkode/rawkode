@@ -17,6 +17,9 @@ public enum DailyNoteSupertagAssignmentState: Equatable {
 protocol DailyNoteSupertagClient {
     func listTags() async throws -> [RPCTag]
     func runView(viewName: String, viewSpec: CapnWebValue) async throws -> [CapnWebValue]
+    /// The inline capture surface reads the server-resolved own + inherited field ordering rather
+    /// than trying to rebuild tag closure from a local cache.
+    func listTagFields(tagId: String) async throws -> [RPCResolvedTagField]
     func applySupertag(
         nodeId: String,
         tagId: String,
@@ -25,6 +28,17 @@ protocol DailyNoteSupertagClient {
         attribution: MutationAttribution,
         fieldValues: [ApplySupertagFieldValue]?
     ) async throws -> ApplySupertagOutput
+    /// This stays on the RPC client, not `WorkspaceSyncClient`: a field receipt is an authority
+    /// acknowledgement that must be matched against the frozen inline-capture intent.
+    func addFact(
+        nodeId: String,
+        predicateId: String,
+        value: CapnWebValue,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution,
+        id: String?
+    ) async throws -> RPCFact
 }
 
 extension WorkspaceRPCClient: DailyNoteSupertagClient {}
@@ -172,6 +186,63 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
+    /// Field capture can only start from the exact editor command that rendered a typed
+    /// `supertagRef`. The editor acknowledgement is retained in full so no later command that
+    /// happens to have the same tag/range can borrow this route witness.
+    private struct DailyNoteInlineSupertagFieldCaptureClaim: Equatable {
+        let acknowledgement: LoroNativeRichTextInlineReferenceInsertionAcknowledgement
+        let tagID: EntityId
+        let readClaim: DailyNoteSupertagReadClaim
+    }
+
+    private struct DailyNoteInlineSupertagFieldCaptureSession {
+        let capture: DailyNoteInlineSupertagFieldCapture
+        let claim: DailyNoteInlineSupertagFieldCaptureClaim
+        var factsByPredicate: [String: Fact]
+    }
+
+    /// A capture UUID identifies one rendered command, while custody must survive a later
+    /// command for the same still-live note. The route deliberately excludes the transient
+    /// membership-read token: a reconciliation read may refresh that token without creating a
+    /// new safe place to mint a fact/request pair.
+    private struct DailyNoteInlineSupertagFactCustodyRoute: Equatable {
+        let nodeID: EntityId
+        let date: Date
+        let pageGeneration: Int
+        let witness: PageRouteWitness
+
+        init(nodeID: EntityId, date: Date, pageGeneration: Int, witness: PageRouteWitness) {
+            self.nodeID = nodeID
+            self.date = date
+            self.pageGeneration = pageGeneration
+            self.witness = witness
+        }
+
+        init(_ claim: DailyNoteSupertagReadClaim) {
+            nodeID = claim.selection.nodeId
+            date = claim.selection.date
+            pageGeneration = claim.pageGeneration
+            witness = claim.witness
+        }
+    }
+
+    /// This is the complete stable `addFact` operation. It is held unchanged through transport
+    /// failure so retry cannot accidentally mint a second fact or change the ledger fingerprint.
+    private struct PendingDailyNoteInlineSupertagFactIntent: Equatable {
+        let captureClaim: DailyNoteInlineSupertagFieldCaptureClaim
+        let factID: EntityId
+        let requestID: String
+        let nodeID: EntityId
+        let predicateID: String
+        let value: JSONValue
+        let commitMessage: String
+        let attribution: MutationAttribution
+
+        var custodyRoute: DailyNoteInlineSupertagFactCustodyRoute {
+            .init(captureClaim.readClaim)
+        }
+    }
+
     private enum DailyNotePageRouteError: Error {
         case descriptorNodeMismatch
         case routeChanged
@@ -288,6 +359,9 @@ public final class AthenaeumViewModel: ObservableObject {
     @Published public private(set) var acceptedHumanEditGeneration = 0
     @Published public private(set) var dailyNoteSupertagAssignmentState: DailyNoteSupertagAssignmentState = .idle
     @Published public private(set) var isDailyNoteSupertagMutationInFlight = false
+    /// The field form observes this only for presentation. The model retains the full immutable
+    /// operation so closing/re-rendering the form cannot change a retry's fact/request identity.
+    @Published public private(set) var isDailyNoteInlineSupertagFieldMutationInFlight = false
 
     public let workspaceId: EntityId
     /// The deterministic node currently presented by the daily-note route. Secondary projections
@@ -422,6 +496,9 @@ public final class AthenaeumViewModel: ObservableObject {
     private var dailyNoteSupertagMutationGate = DailyNoteSupertagMutationGate()
     private var dailyNoteSupertagReadClaim: DailyNoteSupertagReadClaim?
     private var pendingDailyNoteSupertagIntent: PendingDailyNoteSupertagIntent?
+    private var dailyNoteInlineSupertagFieldMutationGate = DailyNoteSupertagMutationGate()
+    private var dailyNoteInlineSupertagFieldCaptureSessions: [UUID: DailyNoteInlineSupertagFieldCaptureSession] = [:]
+    private var pendingDailyNoteInlineSupertagFactIntents: [UUID: [String: PendingDailyNoteInlineSupertagFactIntent]] = [:]
     private var presentedPageRouteWitness: PageRouteWitness?
     /// Test-only completion witness for deterministic out-of-order graph-read fixtures.
     private let graphReadCompletionObserver: (() -> Void)?
@@ -1219,6 +1296,308 @@ public final class AthenaeumViewModel: ObservableObject {
         externalMutationInFlight = false
     }
 
+    // MARK: - Inline Supertag field capture
+
+    /// A failed field write remains retryable only through its original capture. A later
+    /// acknowledgement for the same live note must not create a replacement fact/request pair
+    /// just because its command UUID differs.
+    func canDismissDailyNoteInlineSupertagFieldCapture(captureID: UUID) -> Bool {
+        guard let session = dailyNoteInlineSupertagFieldCaptureSessions[captureID] else { return true }
+        return !hasUnresolvedDailyNoteInlineSupertagFactIntent(on: .init(session.claim.readClaim))
+    }
+
+    /// Used when a platform popover is dismissed outside the form's Done button. Re-present the
+    /// original capture while its frozen operation is unresolved so retry remains reachable.
+    func retainedDailyNoteInlineSupertagFieldCaptureRequiringResolution(
+        captureID: UUID
+    ) -> DailyNoteInlineSupertagFieldCapture? {
+        guard let session = dailyNoteInlineSupertagFieldCaptureSessions[captureID],
+              isCurrentDailyNoteInlineSupertagFieldCapture(session.claim),
+              hasUnresolvedDailyNoteInlineSupertagFactIntent(on: .init(session.claim.readClaim))
+        else { return nil }
+        return session.capture
+    }
+
+    private func currentDailyNoteInlineSupertagFactCustodyRoute() -> DailyNoteInlineSupertagFactCustodyRoute? {
+        guard let witness = presentedPageRouteWitness else { return nil }
+        return .init(
+            nodeID: activeSelection.nodeId,
+            date: activeSelection.date,
+            pageGeneration: pageOperationGeneration,
+            witness: witness
+        )
+    }
+
+    private func hasUnresolvedDailyNoteInlineSupertagFactIntent(
+        on route: DailyNoteInlineSupertagFactCustodyRoute
+    ) -> Bool {
+        pendingDailyNoteInlineSupertagFactIntents.values.contains { intents in
+            intents.values.contains { $0.custodyRoute == route }
+        }
+    }
+
+    /// Reads the effective schema and current facts only after the rich editor has acknowledged
+    /// the exact typed insertion. A field popover is therefore never driven by a picker result,
+    /// a textual `#tag` observation, or an unacknowledged/no-op engine command.
+    func prepareDailyNoteInlineSupertagFieldCapture(
+        acknowledgement: LoroNativeRichTextInlineReferenceInsertionAcknowledgement
+    ) async -> DailyNoteInlineSupertagFieldCapture? {
+        guard acknowledgement.trigger == .supertag,
+              acknowledgement.reference.kind == .supertag,
+              !acknowledgement.reference.label.isEmpty,
+              !externalMutationInFlight,
+              isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true),
+              let currentRoute = currentDailyNoteInlineSupertagFactCustodyRoute(),
+              !hasUnresolvedDailyNoteInlineSupertagFactIntent(on: currentRoute)
+        else { return nil }
+
+        // The membership decision is reread before the independent schema/fact reads. A local
+        // picker catalog must never imply that the tag is still attached to this note.
+        await refreshDailyNoteSupertags(allowDirtyRichDraft: true)
+        guard case .loaded(_, let appliedTagIDs) = dailyNoteSupertagAssignmentState,
+              appliedTagIDs.contains(acknowledgement.reference.id.rawValue),
+              let readClaim = dailyNoteSupertagReadClaim,
+              isCurrentDailyNoteSupertagRead(readClaim)
+        else { return nil }
+
+        let claim = DailyNoteInlineSupertagFieldCaptureClaim(
+            acknowledgement: acknowledgement,
+            tagID: acknowledgement.reference.id,
+            readClaim: readClaim
+        )
+        do {
+            async let effectiveFields = dailyNoteSupertagClient.listTagFields(tagId: claim.tagID.rawValue)
+            async let graphFactRows = dailyNoteSupertagClient.runView(
+                viewName: "graph_facts",
+                viewSpec: Self.dailyNoteInlineSupertagFactsViewSpec(nodeId: claim.readClaim.selection.nodeId)
+            )
+            let (fields, rows) = try await (effectiveFields, graphFactRows)
+
+            let predicateIDs = Set(fields.map(\.field.id))
+            guard fields.count == predicateIDs.count,
+                  fields.allSatisfy({
+                      EntityId.isValid($0.field.id) &&
+                          EntityId.isValid($0.field.tagId) &&
+                          !$0.field.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  }),
+                  isCurrentDailyNoteInlineSupertagFieldCapture(claim),
+                  !hasUnresolvedDailyNoteInlineSupertagFactIntent(on: .init(claim.readClaim))
+            else { return nil }
+
+            let factsByPredicate = try Self.decodeDailyNoteInlineSupertagFacts(
+                rows,
+                expectedNodeID: claim.readClaim.selection.nodeId,
+                permittedPredicateIDs: predicateIDs
+            )
+            guard isCurrentDailyNoteInlineSupertagFieldCapture(claim) else { return nil }
+
+            let capture = DailyNoteInlineSupertagFieldCapture(
+                commandID: acknowledgement.commandID,
+                tagID: claim.tagID,
+                tagName: acknowledgement.reference.label,
+                fields: fields.map { .init(resolved: $0, existingFact: factsByPredicate[$0.field.id]) }
+            )
+            // An empty effective schema is a successful no-UI outcome. In particular, it must
+            // not steal editor focus or create a blank popover merely because a `#` reference
+            // was inserted.
+            guard !capture.fields.isEmpty else { return nil }
+            dailyNoteInlineSupertagFieldCaptureSessions[capture.commandID] = .init(
+                capture: capture,
+                claim: claim,
+                factsByPredicate: factsByPredicate
+            )
+            return capture
+        } catch {
+            // This is intentionally silent at the editor boundary: an unreadable schema/facts
+            // snapshot cannot be safely guessed, so no capture surface is presented.
+            return nil
+        }
+    }
+
+    /// Starts exactly one fact operation for a loaded field. A failed operation remains in the
+    /// session as the immutable retry target; a changed draft cannot silently replace it.
+    @discardableResult
+    func saveDailyNoteInlineSupertagField(
+        captureID: UUID,
+        fieldID: String,
+        value: JSONValue
+    ) async -> Bool {
+        guard let session = dailyNoteInlineSupertagFieldCaptureSessions[captureID],
+              let field = session.capture.fields.first(where: { $0.id == fieldID })
+        else { return false }
+
+        if let retained = pendingDailyNoteInlineSupertagFactIntents[captureID]?[fieldID] {
+            // A retry has to replay every custody-bearing value, not merely the request id.
+            guard retained.value == value else { return false }
+            return await submitDailyNoteInlineSupertagFact(retained, captureID: captureID, fieldID: fieldID)
+        }
+
+        guard !externalMutationInFlight,
+              isCurrentDailyNoteInlineSupertagFieldCapture(session.claim),
+              !hasUnresolvedDailyNoteInlineSupertagFactIntent(on: .init(session.claim.readClaim))
+        else { return false }
+        let existingFact = session.factsByPredicate[fieldID] ?? field.existingFact
+        guard let factID = existingFact?.id ?? (try? EntityId(validating: UUID().uuidString.lowercased())) else {
+            return false
+        }
+        let intent = PendingDailyNoteInlineSupertagFactIntent(
+            captureClaim: session.claim,
+            factID: factID,
+            requestID: UUID().uuidString.lowercased(),
+            nodeID: session.claim.readClaim.selection.nodeId,
+            predicateID: fieldID,
+            value: value,
+            commitMessage: "Update the \(field.resolved.field.name) field on #\(session.capture.tagName).",
+            attribution: MutationAttribution(kind: "humanUi", surface: Self.nativeSurface)
+        )
+        var intents = pendingDailyNoteInlineSupertagFactIntents[captureID] ?? [:]
+        intents[fieldID] = intent
+        pendingDailyNoteInlineSupertagFactIntents[captureID] = intents
+        return await submitDailyNoteInlineSupertagFact(intent, captureID: captureID, fieldID: fieldID)
+    }
+
+    /// Replays the frozen operation verbatim. Callers cannot supply a replacement value, fact
+    /// id, route, or attribution here because those would turn an uncertain response into a new
+    /// logical mutation.
+    @discardableResult
+    func retryDailyNoteInlineSupertagField(captureID: UUID, fieldID: String) async -> Bool {
+        guard let intent = pendingDailyNoteInlineSupertagFactIntents[captureID]?[fieldID] else { return false }
+        return await submitDailyNoteInlineSupertagFact(intent, captureID: captureID, fieldID: fieldID)
+    }
+
+    private func submitDailyNoteInlineSupertagFact(
+        _ intent: PendingDailyNoteInlineSupertagFactIntent,
+        captureID: UUID,
+        fieldID: String
+    ) async -> Bool {
+        guard dailyNoteInlineSupertagFieldCaptureSessions[captureID]?.claim == intent.captureClaim,
+              pendingDailyNoteInlineSupertagFactIntents[captureID]?[fieldID] == intent,
+              !externalMutationInFlight,
+              isCurrentDailyNoteInlineSupertagFieldCapture(intent.captureClaim),
+              let mutationToken = dailyNoteInlineSupertagFieldMutationGate.claim()
+        else { return false }
+
+        isDailyNoteInlineSupertagFieldMutationInFlight = true
+        externalMutationInFlight = true
+        defer {
+            releaseDailyNoteInlineSupertagFieldMutation(mutationToken)
+        }
+
+        do {
+            let receipt = try await dailyNoteSupertagClient.addFact(
+                nodeId: intent.nodeID.rawValue,
+                predicateId: intent.predicateID,
+                value: Self.capnWebValue(intent.value),
+                requestId: intent.requestID,
+                commitMessage: intent.commitMessage,
+                attribution: intent.attribution,
+                id: intent.factID.rawValue
+            )
+            guard dailyNoteInlineSupertagFieldCaptureSessions[captureID]?.claim == intent.captureClaim,
+                  pendingDailyNoteInlineSupertagFactIntents[captureID]?[fieldID] == intent,
+                  isCurrentDailyNoteInlineSupertagFieldCapture(intent.captureClaim),
+                  receipt.id == intent.factID.rawValue,
+                  receipt.nodeId == intent.nodeID.rawValue,
+                  receipt.predicateId == intent.predicateID,
+                  receipt.pending == nil,
+                  let receiptValue = try? Self.jsonValue(receipt.value),
+                  receiptValue == intent.value
+            else { return false }
+
+            var session = dailyNoteInlineSupertagFieldCaptureSessions[captureID]!
+            session.factsByPredicate[intent.predicateID] = Fact(
+                id: intent.factID,
+                nodeId: intent.nodeID,
+                predicateId: intent.predicateID,
+                value: intent.value
+            )
+            dailyNoteInlineSupertagFieldCaptureSessions[captureID] = session
+            clearPendingDailyNoteInlineSupertagFact(captureID: captureID, fieldID: fieldID)
+            return true
+        } catch {
+            // Preserve the entire immutable intent for an exact retry. A transport error cannot
+            // be interpreted as permission to mint a new fact/request pair.
+            return false
+        }
+    }
+
+    private func releaseDailyNoteInlineSupertagFieldMutation(_ mutationToken: Int) {
+        guard dailyNoteInlineSupertagFieldMutationGate.release(mutationToken) else { return }
+        isDailyNoteInlineSupertagFieldMutationInFlight = false
+        externalMutationInFlight = false
+    }
+
+    private func clearPendingDailyNoteInlineSupertagFact(captureID: UUID, fieldID: String) {
+        guard var intents = pendingDailyNoteInlineSupertagFactIntents[captureID] else { return }
+        intents.removeValue(forKey: fieldID)
+        if intents.isEmpty {
+            pendingDailyNoteInlineSupertagFactIntents.removeValue(forKey: captureID)
+        } else {
+            pendingDailyNoteInlineSupertagFactIntents[captureID] = intents
+        }
+    }
+
+    private func isCurrentDailyNoteInlineSupertagFieldCapture(
+        _ claim: DailyNoteInlineSupertagFieldCaptureClaim
+    ) -> Bool {
+        guard claim.acknowledgement.trigger == .supertag,
+              claim.acknowledgement.reference.kind == .supertag,
+              claim.acknowledgement.reference.id == claim.tagID,
+              currentDailyNoteInlineSupertagFactCustodyRoute() == .init(claim.readClaim),
+              let currentReadClaim = dailyNoteSupertagReadClaim,
+              isCurrentDailyNoteSupertagRead(currentReadClaim),
+              isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true),
+              case .loaded(_, let appliedTagIDs) = dailyNoteSupertagAssignmentState
+        else { return false }
+        return appliedTagIDs.contains(claim.tagID.rawValue)
+    }
+
+    private static func decodeDailyNoteInlineSupertagFacts(
+        _ rows: [CapnWebValue],
+        expectedNodeID: EntityId,
+        permittedPredicateIDs: Set<String>
+    ) throws -> [String: Fact] {
+        var facts: [String: Fact] = [:]
+        for row in rows {
+            guard let id = try row.field("id").stringValue.flatMap({ try? EntityId(validating: $0) }),
+                  let nodeID = try row.field("nodeId").stringValue.flatMap({ try? EntityId(validating: $0) }),
+                  let predicateID = try row.field("predicateId").stringValue,
+                  let encodedValue = try row.field("value").stringValue,
+                  nodeID == expectedNodeID
+            else { throw CapnWebError.malformedMessage("malformed inline Supertag graph fact") }
+            guard permittedPredicateIDs.contains(predicateID) else { continue }
+            guard facts[predicateID] == nil,
+                  let value = try? JSONDecoder().decode(JSONValue.self, from: Data(encodedValue.utf8))
+            else { throw CapnWebError.malformedMessage("ambiguous inline Supertag graph fact") }
+            facts[predicateID] = .init(id: id, nodeId: nodeID, predicateId: predicateID, value: value)
+        }
+        return facts
+    }
+
+    private static func capnWebValue(_ value: JSONValue) -> CapnWebValue {
+        switch value {
+        case .null: return .null
+        case .bool(let value): return .bool(value)
+        case .number(let value): return .number(value)
+        case .string(let value): return .string(value)
+        case .array(let values): return .array(values.map(capnWebValue))
+        case .object(let fields): return .object(fields.mapValues(capnWebValue))
+        }
+    }
+
+    private static func jsonValue(_ value: CapnWebValue) throws -> JSONValue {
+        switch value {
+        case .null: return .null
+        case .bool(let value): return .bool(value)
+        case .number(let value): return .number(value)
+        case .string(let value): return .string(value)
+        case .array(let values): return .array(try values.map(jsonValue))
+        case .object(let fields): return .object(try fields.mapValues(jsonValue))
+        case .bytes, .undefined, .error:
+            throw CapnWebError.malformedMessage("non-JSON inline Supertag fact receipt")
+        }
+    }
+
     /// Resumes a rich draft whose debounce was paused for an inline membership confirmation. The
     /// inline host calls this only when confirmation fails or the live editor context disappears;
     /// a successful typed-reference insertion schedules the ordinary debounce itself.
@@ -1554,6 +1933,11 @@ public final class AthenaeumViewModel: ObservableObject {
         // Preserve a claimed semantic request only while its route remains live. A route change
         // must not expose a retry that could target the newly selected note.
         pendingDailyNoteSupertagIntent = nil
+        // The editor command acknowledgement and every frozen fact intent are route-scoped.
+        // Dropping their lookup entries makes all suspended schema/fact reads and receipts stale;
+        // an in-flight owner still releases only its own mutation token in its deferred finish.
+        dailyNoteInlineSupertagFieldCaptureSessions.removeAll()
+        pendingDailyNoteInlineSupertagFactIntents.removeAll()
         syncTask?.cancel()
         syncTask = nil
         syncTasksByNodeId[activeSelection.nodeId.rawValue]?.cancel()
@@ -2454,6 +2838,22 @@ public final class AthenaeumViewModel: ObservableObject {
             "view": .string("table"),
             "visibleColumns": .array([.string("nodeId"), .string("tagId")]),
             "rowLimit": .int(100)
+        ])
+    }
+
+    /// `graph_facts.value` is intentionally requested as raw JSON text. The capture decoder is
+    /// the one typed recovery point, matching the Web field popover and keeping fact identity in
+    /// the same server-owned read model used for replacement/upsert decisions.
+    static func dailyNoteInlineSupertagFactsViewSpec(nodeId: EntityId) -> CapnWebValue {
+        .object([
+            "filter": .object([
+                "op": .string("eq"),
+                "field": .object(["kind": .string("column"), "column": .string("nodeId")]),
+                "value": .string(nodeId.rawValue)
+            ]),
+            "view": .string("table"),
+            "visibleColumns": .array([.string("id"), .string("nodeId"), .string("predicateId"), .string("value")]),
+            "rowLimit": .int(500)
         ])
     }
 }

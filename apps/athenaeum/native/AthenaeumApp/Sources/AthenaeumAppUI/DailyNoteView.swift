@@ -190,6 +190,28 @@ enum DailyNoteWritingPresentation {
     }
 }
 
+/// The field form can only be reached from an editor-issued command acknowledgement.  This
+/// view-level witness adds the selected-note route to the editor's immutable command identity
+/// before an asynchronous schema/fact load is allowed to present UI.
+private struct PendingDailyNoteInlineSupertagFieldCapture: Equatable {
+    let commandID: UUID
+    let generation: Int
+    let utf16Range: NSRange
+    let reference: LoroCanonicalSemanticValueV1.InlineReference
+    let dailyNoteID: EntityId
+    let date: Date
+    let operationGeneration: Int
+    let presentation: AthenaeumViewModel.PagePresentation
+
+    func matches(_ acknowledgement: LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Bool {
+        acknowledgement.commandID == commandID &&
+            acknowledgement.generation == generation &&
+            acknowledgement.utf16Range == utf16Range &&
+            acknowledgement.trigger == .supertag &&
+            acknowledgement.reference == reference
+    }
+}
+
 /// Native mirror of `web/src/DailyNote.tsx`: resolves/creates today's note (via
 /// `AthenaeumViewModel.start()`), then routes active Loro pages to the native plain-text editor
 /// and explicit legacy descriptors to a server-owned, read-only projection. It also owns the sync
@@ -239,6 +261,10 @@ public struct DailyNoteView: View {
     @State private var supertagContext: LoroNativeRichTextSupertagContext?
     @State private var supertagInsertion: LoroNativeRichTextSupertagInsertion?
     @State private var supertagSelectionInFlight = false
+    @State private var pendingSupertagFieldCapture: PendingDailyNoteInlineSupertagFieldCapture?
+    @State private var supertagFieldCapture: DailyNoteInlineSupertagFieldCapture?
+    @State private var supertagFieldCaptureLoadCommandID: UUID?
+    @State private var supertagFieldCaptureFocusWitness: DailyNoteInlineSupertagFieldCaptureFocusWitness?
 
     public init(model: AthenaeumViewModel) {
         self.model = model
@@ -414,7 +440,7 @@ public struct DailyNoteView: View {
             focusEditorIfNeeded()
         }
         .onChange(of: model.pagePresentation) { presentation in
-            dismissMentionPicker()
+            dismissMentionPicker(restoringSupertagFieldFocus: false)
             if presentation != .automergeEditable && presentation != .loroPlainEditable && presentation != .loroRichEditable {
                 clearEditorFocus()
                 hasAutofocused = false
@@ -436,7 +462,21 @@ public struct DailyNoteView: View {
             preparationFocusGeneration += 1
             hasAutofocused = false
             preparationNotice = nil
-            dismissMentionPicker()
+            dismissMentionPicker(restoringSupertagFieldFocus: false)
+        }
+        .onChange(of: supertagFieldCapture) { capture in
+            guard capture == nil else { return }
+            // A click outside a platform popover can bypass the form's disabled Done button.
+            // Keep the exact capture alive while it owns an ambiguous addFact retry; a new `#`
+            // acknowledgement is separately rejected by the model's route-scoped custody gate.
+            if let captureID = supertagFieldCaptureFocusWitness?.commandID,
+               let retained = model.retainedDailyNoteInlineSupertagFieldCaptureRequiringResolution(
+                captureID: captureID
+               ) {
+                supertagFieldCapture = retained
+                return
+            }
+            restoreEditorFocusAfterSupertagFieldCaptureDismissal()
         }
         .onChange(of: dailyStandupModel.employeeLoadGeneration) { _ in
             // Refreshing the same note is still a new snapshot; never let an old row focus after
@@ -668,12 +708,52 @@ public struct DailyNoteView: View {
         richEditorIsFocused = false
     }
 
-    private func dismissMentionPicker() {
+    private func dismissMentionPicker(restoringSupertagFieldFocus: Bool = true) {
         mentionContext = nil
         mentionInsertion = nil
         supertagContext = nil
         supertagInsertion = nil
         supertagSelectionInFlight = false
+        pendingSupertagFieldCapture = nil
+        supertagFieldCapture = nil
+        supertagFieldCaptureLoadCommandID = nil
+        if !restoringSupertagFieldFocus {
+            supertagFieldCaptureFocusWitness = nil
+        }
+    }
+
+    /// The editor already owns the scalar selection it rendered for the inserted reference. Do
+    /// not reconstruct that selection from the acknowledgement's UTF-16 range (which can split
+    /// grapheme clusters); a nil selection request deliberately asks the native adapter to retain
+    /// its authoritative current selection while regaining first responder.
+    private func restoreEditorFocusAfterSupertagFieldCaptureDismissal() {
+        guard let witness = supertagFieldCaptureFocusWitness else { return }
+        supertagFieldCaptureFocusWitness = nil
+        guard witness.permitsRestoration(
+            hasResolvedDailyNote: hasResolvedDailyNote,
+            dailyNoteID: model.dailyNoteId,
+            selectedDate: model.selectedDate,
+            operationGeneration: model.dailyNoteOperationGeneration,
+            presentation: model.pagePresentation,
+            isEditorInputDisabled: model.isEditorInputDisabled
+        ) else { return }
+
+        richEditorFocusSelection = nil
+        Task { @MainActor in
+            // Let the popover relinquish first responder before requesting it for the same
+            // editor. Recheck the complete route witness after this suspension.
+            await Task.yield()
+            guard supertagFieldCapture == nil,
+                  witness.permitsRestoration(
+                    hasResolvedDailyNote: hasResolvedDailyNote,
+                    dailyNoteID: model.dailyNoteId,
+                    selectedDate: model.selectedDate,
+                    operationGeneration: model.dailyNoteOperationGeneration,
+                    presentation: model.pagePresentation,
+                    isEditorInputDisabled: model.isEditorInputDisabled
+                  ) else { return }
+            richEditorFocusGeneration += 1
+        }
     }
 
     /// Captures the editor's presentation witness before a note-level menu command can toggle
@@ -1199,7 +1279,8 @@ public struct DailyNoteView: View {
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) },
                     onMentionQueryChange: handleMentionQueryChange,
-                    onSupertagQueryChange: handleSupertagQueryChange
+                    onSupertagQueryChange: handleSupertagQueryChange,
+                    onInlineReferenceInserted: handleInlineReferenceInserted
                 )
                 #elseif os(iOS)
                 LoroNativeRichTextEditorUIKit(
@@ -1218,7 +1299,8 @@ public struct DailyNoteView: View {
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) },
                     onMentionQueryChange: handleMentionQueryChange,
-                    onSupertagQueryChange: handleSupertagQueryChange
+                    onSupertagQueryChange: handleSupertagQueryChange,
+                    onInlineReferenceInserted: handleInlineReferenceInserted
                 )
                 #endif
                 if let prompt = LoroNativeRichEmptyStatePresentation(
@@ -1247,7 +1329,7 @@ public struct DailyNoteView: View {
                             reference: candidate.reference
                         )
                     },
-                    onDismiss: dismissMentionPicker
+                    onDismiss: { dismissMentionPicker() }
                 )
             }
             .popover(item: $supertagContext) { context in
@@ -1258,7 +1340,14 @@ public struct DailyNoteView: View {
                     onSelect: { candidate in
                         selectInlineSupertag(candidate, context: context)
                     },
-                    onDismiss: dismissMentionPicker
+                    onDismiss: { dismissMentionPicker() }
+                )
+            }
+            .popover(item: $supertagFieldCapture) { capture in
+                DailyNoteInlineSupertagFieldCaptureView(
+                    model: model,
+                    capture: capture,
+                    activeCapture: $supertagFieldCapture
                 )
             }
         } else {
@@ -1287,8 +1376,63 @@ public struct DailyNoteView: View {
         }
         if context == nil {
             supertagInsertion = nil
+        } else if pendingSupertagFieldCapture != nil {
+            // A replacement trigger is a new editor command context, never a continuation of a
+            // prior picker selection that merely shared a visible range.
+            pendingSupertagFieldCapture = nil
         }
         supertagContext = context
+    }
+
+    /// The adapter has already rendered the typed chip and delivered the resulting semantic
+    /// document. This final host fence binds that acknowledgement to the selected daily-note
+    /// route before a suspended effective-field/current-fact read may surface capture UI.
+    private func handleInlineReferenceInserted(
+        _ acknowledgement: LoroNativeRichTextInlineReferenceInsertionAcknowledgement
+    ) {
+        guard supertagFieldCaptureLoadCommandID == nil,
+              let pending = pendingSupertagFieldCapture,
+              pending.matches(acknowledgement),
+              isCurrentSupertagFieldCaptureRoute(pending)
+        else { return }
+
+        supertagInsertion = nil
+        pendingSupertagFieldCapture = nil
+        supertagFieldCaptureLoadCommandID = acknowledgement.commandID
+        Task { @MainActor in
+            let capture = await model.prepareDailyNoteInlineSupertagFieldCapture(
+                acknowledgement: acknowledgement
+            )
+            guard supertagFieldCaptureLoadCommandID == acknowledgement.commandID else { return }
+            supertagFieldCaptureLoadCommandID = nil
+            guard isCurrentSupertagFieldCaptureRoute(pending),
+                  let capture,
+                  capture.commandID == acknowledgement.commandID,
+                  capture.tagID == acknowledgement.reference.id
+            else { return }
+            // Empty schemas return nil from the model, which intentionally skips this popover
+            // and any capture-specific focus choreography.
+            supertagFieldCaptureFocusWitness = .init(
+                commandID: acknowledgement.commandID,
+                dailyNoteID: pending.dailyNoteID,
+                date: pending.date,
+                operationGeneration: pending.operationGeneration,
+                presentation: pending.presentation
+            )
+            supertagFieldCapture = capture
+        }
+    }
+
+    private func isCurrentSupertagFieldCaptureRoute(
+        _ pending: PendingDailyNoteInlineSupertagFieldCapture
+    ) -> Bool {
+        hasResolvedDailyNote &&
+            model.dailyNoteId == pending.dailyNoteID &&
+            model.selectedDate == pending.date &&
+            model.dailyNoteOperationGeneration == pending.operationGeneration &&
+            model.pagePresentation == pending.presentation &&
+            model.pagePresentation == .loroRichEditable &&
+            !model.isEditorInputDisabled
     }
 
     /// Resolves an inline `#` reference through the same authoritative membership route as the
@@ -1373,12 +1517,25 @@ public struct DailyNoteView: View {
             }
 
             supertagContext = nil
-            supertagInsertion = .init(
+            let insertion = LoroNativeRichTextSupertagInsertion(
                 generation: liveContext.generation,
                 utf16Range: liveContext.utf16Range,
                 reference: candidate.reference,
                 trigger: .supertag
             )
+            // Do not start schema/fact reads from this picker result. The matching immutable
+            // command acknowledgement arrives only after the editor has rendered/published it.
+            pendingSupertagFieldCapture = .init(
+                commandID: insertion.commandID,
+                generation: insertion.generation,
+                utf16Range: insertion.utf16Range,
+                reference: insertion.reference,
+                dailyNoteID: expectedNoteId,
+                date: expectedDate,
+                operationGeneration: expectedOperationGeneration,
+                presentation: expectedPresentation
+            )
+            supertagInsertion = insertion
         }
     }
 

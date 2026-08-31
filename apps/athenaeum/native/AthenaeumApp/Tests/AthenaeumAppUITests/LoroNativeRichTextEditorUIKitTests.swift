@@ -76,6 +76,26 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published, [persisted])
     }
 
+    func testOrdinaryDelegateEditRendersOnceAndVetoesUIKitReplay() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("x"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        let textKitMayReplay = controller.textView(
+            UITextView(),
+            shouldChangeTextIn: NSRange(location: 1, length: 0),
+            replacementText: "y"
+        )
+
+        let expected = paragraph("xy")
+        XCTAssertFalse(textKitMayReplay, "the controller has already rendered the only admitted edit")
+        XCTAssertEqual(controller.testingDocument(), expected)
+        XCTAssertEqual(published, [expected])
+    }
+
     func testReferencePasteAndActivationStayAtTheTypedUIKitBoundary() {
         let source = referenceParagraph()
         var opened: LoroCanonicalSemanticValueV1.InlineReference?
@@ -136,12 +156,15 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         var supertagContexts: [LoroNativeRichTextSupertagContext] = []
         var rejected: [LoroNativeRichTextEditorRejection] = []
         var published: [LoroNativeRichDocumentV1] = []
+        var acknowledgements: [LoroNativeRichTextInlineReferenceInsertionAcknowledgement] = []
+        var deliveryOrder: [String] = []
         let controller = LoroNativeRichTextEditorUIKitController(
             document: paragraph("Meet #pr"),
             isEditable: true,
-            onDocumentChange: { published.append($0) },
+            onDocumentChange: { published.append($0); deliveryOrder.append("document") },
             onRejectedInput: { rejected.append($0) },
-            onSupertagQueryChange: { context in if let context { supertagContexts.append(context) } }
+            onSupertagQueryChange: { context in if let context { supertagContexts.append(context) } },
+            onInlineReferenceInserted: { acknowledgements.append($0); deliveryOrder.append("acknowledgement") }
         )
 
         controller.testingSelect(NSRange(location: 8, length: 0))
@@ -157,6 +180,7 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), paragraph("Meet #pr"))
         XCTAssertEqual(published, [])
         XCTAssertEqual(rejected, [.invalidEdit])
+        XCTAssertEqual(acknowledgements, [])
 
         controller.testingApplySupertagInsertion(.init(
             generation: context.generation,
@@ -171,18 +195,23 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), paragraph("Meet #pr"))
         XCTAssertEqual(published, [])
         XCTAssertEqual(rejected, [.invalidEdit, .invalidEdit])
+        XCTAssertEqual(acknowledgements, [])
 
-        controller.testingApplySupertagInsertion(.init(
+        let command = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(),
             generation: context.generation,
             utf16Range: context.utf16Range,
             reference: tag,
             trigger: .supertag
-        ))
+        )
+        controller.testingApplySupertagInsertion(command)
         let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
             .init(text: "Meet "), .init(text: "Project", reference: tag)
         ])]))
         XCTAssertEqual(controller.testingDocument(), expected)
         XCTAssertEqual(published, [expected])
+        XCTAssertEqual(acknowledgements, [.init(command)])
+        XCTAssertEqual(deliveryOrder, ["document", "acknowledgement"])
     }
 
     func testStaleMentionInsertionIsRejectedAfterTheQueryChanges() throws {

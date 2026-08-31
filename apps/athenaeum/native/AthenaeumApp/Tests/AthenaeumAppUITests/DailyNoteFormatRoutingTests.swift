@@ -2153,6 +2153,270 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
     }
 #endif
 
+    func testInlineSupertagFieldCaptureReadsEffectiveFieldsAndRetainsFactIdentityForReplacement() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let factID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e81")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Role", kind: .text, inherited: true)
+        ]
+        client.graphFactRows = [Self.graphFactRow(id: factID, node: node, predicateID: fieldID.rawValue, encodedValue: "\"Engineer\"")]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let command = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(),
+            generation: 7,
+            utf16Range: NSRange(location: 0, length: 1),
+            reference: .init(kind: .supertag, id: tagID, label: "Person"),
+            trigger: .supertag
+        )
+        let preparedCapture = await model.prepareDailyNoteInlineSupertagFieldCapture(acknowledgement: .init(command))
+        let capture = try XCTUnwrap(preparedCapture)
+        XCTAssertEqual(capture.commandID, command.commandID)
+        XCTAssertEqual(capture.fields.map(\.resolved.field.id), [fieldID.rawValue], "server field order must be retained")
+        XCTAssertTrue(capture.fields[0].resolved.inherited, "inherited metadata must remain visible to native")
+        XCTAssertEqual(capture.fields[0].existingFact?.id, factID)
+        XCTAssertEqual(capture.fields[0].existingFact?.value, .string("Engineer"))
+
+        let didSave = await model.saveDailyNoteInlineSupertagField(
+            captureID: capture.commandID,
+            fieldID: fieldID.rawValue,
+            value: .string("Staff Engineer")
+        )
+        XCTAssertTrue(didSave)
+        let write = try XCTUnwrap(client.addFactInputs.last)
+        XCTAssertEqual(write.id, factID.rawValue, "an existing predicate must be an upsert, never a duplicate fact")
+        XCTAssertEqual(write.nodeID, node.rawValue)
+        XCTAssertEqual(write.predicateID, fieldID.rawValue)
+        XCTAssertEqual(write.value, .string("Staff Engineer"))
+        XCTAssertEqual(write.commitMessage, "Update the Role field on #Person.")
+        XCTAssertEqual(write.attribution, MutationAttribution(kind: "humanUi", surface: "macos"))
+    }
+
+    func testInlineSupertagFieldCaptureFocusWitnessRejectsStaleOrDisabledRoute() throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let noteID = dailyNoteIdForDate(date, calendar: .current)
+        let otherNoteID = dailyNoteIdForDate(date.addingTimeInterval(86_400), calendar: .current)
+        let witness = DailyNoteInlineSupertagFieldCaptureFocusWitness(
+            commandID: UUID(),
+            dailyNoteID: noteID,
+            date: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable
+        )
+
+        XCTAssertTrue(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: noteID,
+            selectedDate: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable,
+            isEditorInputDisabled: false
+        ))
+        XCTAssertFalse(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: otherNoteID,
+            selectedDate: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable,
+            isEditorInputDisabled: false
+        ))
+        XCTAssertFalse(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: noteID,
+            selectedDate: date,
+            operationGeneration: 8,
+            presentation: .loroRichEditable,
+            isEditorInputDisabled: false
+        ))
+        XCTAssertFalse(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: noteID,
+            selectedDate: date,
+            operationGeneration: 7,
+            presentation: .loroPlainEditable,
+            isEditorInputDisabled: false
+        ))
+        XCTAssertFalse(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: noteID,
+            selectedDate: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable,
+            isEditorInputDisabled: true
+        ))
+    }
+
+    func testInlineSupertagFieldCaptureResponseLossRetriesTheExactFrozenOperation() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Score", kind: .number)
+        ]
+        client.addFactResults = [.failure(DailyNoteSupertagTestError.responseLost)]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let command = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(), generation: 8, utf16Range: NSRange(location: 0, length: 1),
+            reference: .init(kind: .supertag, id: tagID, label: "Person"), trigger: .supertag
+        )
+        let preparedCapture = await model.prepareDailyNoteInlineSupertagFieldCapture(acknowledgement: .init(command))
+        let capture = try XCTUnwrap(preparedCapture)
+        let firstSave = await model.saveDailyNoteInlineSupertagField(
+            captureID: capture.commandID, fieldID: fieldID.rawValue, value: .number(42)
+        )
+        XCTAssertFalse(firstSave)
+        let retried = await model.retryDailyNoteInlineSupertagField(captureID: capture.commandID, fieldID: fieldID.rawValue)
+        XCTAssertTrue(retried)
+
+        XCTAssertEqual(client.addFactInputs.count, 2)
+        XCTAssertEqual(client.addFactInputs[0], client.addFactInputs[1], "retry must replay the full frozen fact operation")
+        XCTAssertEqual(client.addFactInputs[0].nodeID, node.rawValue)
+        XCTAssertEqual(client.addFactInputs[0].value, .number(42))
+        XCTAssertNotNil(client.addFactInputs[0].id)
+        XCTAssertFalse(client.addFactInputs[0].requestID.isEmpty)
+    }
+
+    func testInlineSupertagFieldCaptureResponseLossBlocksCloseReopenAndNewRequestIdentity() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Score", kind: .number)
+        ]
+        client.addFactResults = [.failure(DailyNoteSupertagTestError.responseLost)]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let firstCommand = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(), generation: 10, utf16Range: NSRange(location: 0, length: 1),
+            reference: .init(kind: .supertag, id: tagID, label: "Person"), trigger: .supertag
+        )
+        let preparedCapture = await model.prepareDailyNoteInlineSupertagFieldCapture(
+            acknowledgement: .init(firstCommand)
+        )
+        let capture = try XCTUnwrap(preparedCapture)
+        let firstSave = await model.saveDailyNoteInlineSupertagField(
+            captureID: capture.commandID,
+            fieldID: fieldID.rawValue,
+            value: .number(42)
+        )
+        XCTAssertFalse(firstSave)
+        XCTAssertFalse(model.canDismissDailyNoteInlineSupertagFieldCapture(captureID: capture.commandID))
+        XCTAssertEqual(
+            model.retainedDailyNoteInlineSupertagFieldCaptureRequiringResolution(captureID: capture.commandID),
+            capture,
+            "an externally dismissed popover must reopen the capture that owns retry"
+        )
+
+        let reopenedCommand = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(), generation: 11, utf16Range: NSRange(location: 0, length: 1),
+            reference: .init(kind: .supertag, id: tagID, label: "Person"), trigger: .supertag
+        )
+        let replacementCapture = await model.prepareDailyNoteInlineSupertagFieldCapture(
+            acknowledgement: .init(reopenedCommand)
+        )
+        XCTAssertNil(replacementCapture, "a fresh command UUID cannot bypass the retained route-scoped fact custody")
+        XCTAssertEqual(client.addFactInputs.count, 1)
+
+        let retried = await model.retryDailyNoteInlineSupertagField(
+            captureID: capture.commandID,
+            fieldID: fieldID.rawValue
+        )
+        XCTAssertTrue(retried)
+        XCTAssertEqual(client.addFactInputs.count, 2)
+        XCTAssertEqual(client.addFactInputs[0], client.addFactInputs[1], "only the original frozen operation may retry")
+        XCTAssertTrue(model.canDismissDailyNoteInlineSupertagFieldCapture(captureID: capture.commandID))
+    }
+
+    func testInlineSupertagFieldCaptureSuspendedReadCannotPublishAfterRouteInvalidation() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Role", kind: .text)
+        ]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        client.blockNextFieldRead = true
+        let command = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(), generation: 9, utf16Range: NSRange(location: 0, length: 1),
+            reference: .init(kind: .supertag, id: tagID, label: "Person"), trigger: .supertag
+        )
+        let load = Task { await model.prepareDailyNoteInlineSupertagFieldCapture(acknowledgement: .init(command)) }
+        try await waitUntil { client.fieldReadBlocked }
+        model.invalidatePageRouteForTesting()
+        client.releaseFieldRead()
+        let staleCapture = await load.value
+        XCTAssertNil(staleCapture, "a field/schema response must be fenced by the original route and membership witness")
+    }
+
+    func testInlineSupertagFieldDraftCanonicalizesOnlyTypedValues() throws {
+        XCTAssertEqual(
+            try DailyNoteInlineSupertagFieldDraft.canonicalValue(
+                valueKind: .text, draft: .init(raw: "hello")
+            ).get(),
+            .string("hello")
+        )
+        XCTAssertEqual(
+            try DailyNoteInlineSupertagFieldDraft.canonicalValue(
+                valueKind: .number, draft: .init(raw: "42.5")
+            ).get(),
+            .number(42.5)
+        )
+        XCTAssertEqual(
+            try DailyNoteInlineSupertagFieldDraft.canonicalValue(
+                valueKind: .date, draft: .init(raw: "2026-08-31")
+            ).get(),
+            .string("2026-08-31")
+        )
+        XCTAssertEqual(
+            try DailyNoteInlineSupertagFieldDraft.canonicalValue(
+                valueKind: .checkbox, draft: .init(checked: true)
+            ).get(),
+            .bool(true)
+        )
+        let entityID = "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e91"
+        XCTAssertEqual(
+            try DailyNoteInlineSupertagFieldDraft.canonicalValue(
+                valueKind: .entityRef, draft: .init(raw: entityID)
+            ).get(),
+            .string(entityID)
+        )
+        guard case .failure(.invalidEntityReference) = DailyNoteInlineSupertagFieldDraft.canonicalValue(
+            valueKind: .entityRef, draft: .init(raw: "not-an-id")
+        ) else { return XCTFail("entity refs must fail closed") }
+    }
+
     private func makeSupertagModel(
         client: FakeDailyNoteSupertagClient,
         loroIsDirty: Bool = false,
@@ -2203,6 +2467,38 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
 
     private static func supertag(id: EntityId, name: String) -> RPCTag? {
         RPCTag(id: id.rawValue, name: name, builtin: false)
+    }
+
+    private static func resolvedSupertagField(
+        id: EntityId,
+        tagID: EntityId,
+        name: String,
+        kind: RPCTagFieldValueKind,
+        inherited: Bool = false
+    ) throws -> RPCResolvedTagField {
+        let definition = try RPCTagFieldDefinition(.object([
+            "id": .string(id.rawValue),
+            "tagId": .string(tagID.rawValue),
+            "name": .string(name),
+            "valueKind": .string(kind.rawValue),
+            "sortOrder": .int(0),
+            "builtin": .bool(false)
+        ]))
+        return .init(field: definition, inherited: inherited)
+    }
+
+    private static func graphFactRow(
+        id: EntityId,
+        node: EntityId,
+        predicateID: String,
+        encodedValue: String
+    ) -> CapnWebValue {
+        .object([
+            "id": .string(id.rawValue),
+            "nodeId": .string(node.rawValue),
+            "predicateId": .string(predicateID),
+            "value": .string(encodedValue)
+        ])
     }
 
     private static func plainEditorState(node: EntityId, text: String, snapshot: Character) -> LoroNativePlainEditorState {
@@ -2518,10 +2814,23 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
         let attribution: MutationAttribution
     }
 
+    struct AddedFactInput: Equatable {
+        let nodeID: String
+        let predicateID: String
+        let value: CapnWebValue
+        let requestID: String
+        let commitMessage: String
+        let attribution: MutationAttribution
+        let id: String?
+    }
+
     var tags: [RPCTag]
     let initialMembershipRows: [CapnWebValue]
     let membershipRowsByApplyCount: [[CapnWebValue]]
     var applyResults: [Result<ApplySupertagOutput, Error>] = []
+    var addFactResults: [Result<RPCFact, Error>] = []
+    var fieldsByTagID: [String: [RPCResolvedTagField]] = [:]
+    var graphFactRows: [CapnWebValue] = []
     var applyDelayNanoseconds: UInt64 = 0
     var listTagsCount = 0
     var membershipReadCount = 0
@@ -2531,8 +2840,12 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
     var blockNextMembershipRead = false
     var membershipReadBlocked = false
     private var membershipReadContinuation: CheckedContinuation<Void, Never>?
+    var blockNextFieldRead = false
+    var fieldReadBlocked = false
+    private var fieldReadContinuation: CheckedContinuation<Void, Never>?
     var applyCount = 0
     var appliedInputs: [AppliedInput] = []
+    var addFactInputs: [AddedFactInput] = []
 
     init(
         tags: [RPCTag],
@@ -2562,8 +2875,9 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
     }
 
     func runView(viewName: String, viewSpec _: CapnWebValue) async throws -> [CapnWebValue] {
-        membershipReadCount += 1
+        if viewName == "graph_facts" { return graphFactRows }
         guard viewName == "graph_node_tags" else { return [] }
+        membershipReadCount += 1
         let snapshot: [CapnWebValue]
         if !membershipRowsByApplyCount.isEmpty {
             let index = min(applyCount, membershipRowsByApplyCount.count - 1)
@@ -2580,9 +2894,25 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
         return snapshot
     }
 
+    func listTagFields(tagId: String) async throws -> [RPCResolvedTagField] {
+        let fields = fieldsByTagID[tagId] ?? []
+        if blockNextFieldRead {
+            blockNextFieldRead = false
+            fieldReadBlocked = true
+            await withCheckedContinuation { fieldReadContinuation = $0 }
+            fieldReadBlocked = false
+        }
+        return fields
+    }
+
     func releaseMembershipRead() {
         membershipReadContinuation?.resume()
         membershipReadContinuation = nil
+    }
+
+    func releaseFieldRead() {
+        fieldReadContinuation?.resume()
+        fieldReadContinuation = nil
     }
 
     func applySupertag(
@@ -2607,6 +2937,33 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
                 )
             )
             : applyResults.removeFirst()
+        return try result.get()
+    }
+
+    func addFact(
+        nodeId: String,
+        predicateId: String,
+        value: CapnWebValue,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution,
+        id: String?
+    ) async throws -> RPCFact {
+        addFactInputs.append(.init(
+            nodeID: nodeId,
+            predicateID: predicateId,
+            value: value,
+            requestID: requestId,
+            commitMessage: commitMessage,
+            attribution: attribution,
+            id: id
+        ))
+        let result = addFactResults.isEmpty ? Result.success(try RPCFact(.object([
+            "id": .string(id ?? UUID().uuidString.lowercased()),
+            "nodeId": .string(nodeId),
+            "predicateId": .string(predicateId),
+            "value": value
+        ]))) : addFactResults.removeFirst()
         return try result.get()
     }
 }

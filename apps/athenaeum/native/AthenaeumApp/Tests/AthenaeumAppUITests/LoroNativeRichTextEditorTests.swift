@@ -176,12 +176,15 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         var supertagContexts: [LoroNativeRichTextSupertagContext] = []
         var rejected: [LoroNativeRichTextEditorController.Rejection] = []
         var published: [LoroNativeRichDocumentV1] = []
+        var acknowledgements: [LoroNativeRichTextInlineReferenceInsertionAcknowledgement] = []
+        var deliveryOrder: [String] = []
         let editor = LoroNativeRichTextEditorController(
             document: paragraph("Meet #pr"),
             isEditable: true,
-            onDocumentChange: { published.append($0) },
+            onDocumentChange: { published.append($0); deliveryOrder.append("document") },
             onRejectedInput: { rejected.append($0) },
-            onSupertagQueryChange: { context in if let context { supertagContexts.append(context) } }
+            onSupertagQueryChange: { context in if let context { supertagContexts.append(context) } },
+            onInlineReferenceInserted: { acknowledgements.append($0); deliveryOrder.append("acknowledgement") }
         )
 
         editor.testingSelect(NSRange(location: 8, length: 0))
@@ -197,6 +200,7 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(editor.testingDocument(), paragraph("Meet #pr"))
         XCTAssertEqual(published, [])
         XCTAssertEqual(rejected, [.invalidEdit])
+        XCTAssertEqual(acknowledgements, [])
 
         editor.testingApplySupertagInsertion(.init(
             generation: context.generation,
@@ -207,18 +211,23 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(editor.testingDocument(), paragraph("Meet #pr"))
         XCTAssertEqual(published, [])
         XCTAssertEqual(rejected, [.invalidEdit, .invalidEdit])
+        XCTAssertEqual(acknowledgements, [])
 
-        editor.testingApplySupertagInsertion(.init(
+        let command = LoroNativeRichTextSupertagInsertion(
+            commandID: UUID(),
             generation: context.generation,
             utf16Range: context.utf16Range,
             reference: tag,
             trigger: .supertag
-        ))
+        )
+        editor.testingApplySupertagInsertion(command)
         let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
             .init(text: "Meet "), .init(text: "Project", reference: tag)
         ])]))
         XCTAssertEqual(editor.testingDocument(), expected)
         XCTAssertEqual(published, [expected])
+        XCTAssertEqual(acknowledgements, [.init(command)])
+        XCTAssertEqual(deliveryOrder, ["document", "acknowledgement"])
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), expected)
     }
 
@@ -331,6 +340,27 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         let editor = LoroNativeRichTextEditorController(document: paragraph("x"), isEditable: false, onDocumentChange: { _ in published += 1 }, onRejectedInput: { rejected.append($0) })
         let allowed = editor.textView(NSTextView(), shouldChangeTextIn: NSRange(location: 0, length: 0), replacementString: "y")
         XCTAssertFalse(allowed); XCTAssertEqual(editor.testingDocument(), paragraph("x")); XCTAssertEqual(published, 0); XCTAssertEqual(rejected, [.disabled])
+    }
+
+    func testOrdinaryDelegateEditRendersOnceAndVetoesTextKitReplay() throws {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("x"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        let textKitMayReplay = editor.textView(
+            NSTextView(),
+            shouldChangeTextIn: NSRange(location: 1, length: 0),
+            replacementString: "y"
+        )
+
+        let expected = paragraph("xy")
+        XCTAssertFalse(textKitMayReplay, "the controller has already rendered the only admitted edit")
+        XCTAssertEqual(editor.testingDocument(), expected)
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), expected)
     }
 
     func testDisabledMarkedTextIsRejectedBeforeDisplayOrSemanticMutation() {
