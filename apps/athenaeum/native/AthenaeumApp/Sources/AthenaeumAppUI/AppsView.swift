@@ -345,6 +345,9 @@ public struct AppsView: View {
             return false
         }
         isLibraryRefreshInFlight = true
+        // A refresh invalidates the list/detail witness immediately. Tear down any capability-
+        // backed run before its async mint can publish a WebView against the old App revision.
+        dismissRun()
         return true
     }
 
