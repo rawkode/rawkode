@@ -93,6 +93,26 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(opened, reference())
     }
 
+    func testReferenceInsertionSeamPublishesTypedAtomicRunAndSelection() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("Meet @pr now"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        controller.testingInsert(reference: reference(), replacingUTF16Range: NSRange(location: 5, length: 3))
+
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "),
+            .init(text: "Project", reference: reference()),
+            .init(text: " now")
+        ])]))
+        XCTAssertEqual(controller.testingDocument(), expected)
+        XCTAssertEqual(controller.testingSelection(), .init(location: 12, length: 0))
+        XCTAssertEqual(published, [expected])
+    }
+
     func testReferenceKeyboardSelectionActivationUsesOnlyTheTypedMarker() {
         var opened = 0
         let controller = LoroNativeRichTextEditorUIKitController(document: referenceParagraph(), isEditable: true, onOpenReference: { _ in opened += 1 })

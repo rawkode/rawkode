@@ -108,6 +108,30 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         XCTAssertEqual(deleted.semantic.blocks, [.paragraph([.init(text: "Meet  today")])])
     }
 
+    func testInsertReferenceReplacesExplicitTriggerRangeAndMovesCaretAfterAtomicRun() {
+        var engine = LoroNativeRichEditingEngine(document: paragraph("Meet @al today"))
+
+        let effect = engine.insert(reference: reference(), replacingUTF16Range: NSRange(location: 5, length: 3))
+
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "),
+            .init(text: "Alice", reference: reference()),
+            .init(text: " today")
+        ])]))
+        XCTAssertEqual(effect, .publish(document: expected, selection: .init(location: 10, length: 0)))
+        XCTAssertEqual(engine.admittedDocument, expected)
+    }
+
+    func testInsertReferenceRejectsCompositionAndAnyReferenceOverlap() {
+        let source = referenceParagraph()
+        var engine = LoroNativeRichEditingEngine(document: source)
+
+        XCTAssertEqual(engine.insert(reference: reference(), replacingUTF16Range: NSRange(location: 5, length: 5)), .rejected(.invalidEdit))
+        XCTAssertEqual(engine.beginComposition(utf16Range: NSRange(location: 0, length: 0)), .noChange)
+        XCTAssertEqual(engine.insert(reference: reference(), replacingUTF16Range: NSRange(location: 0, length: 0)), .rejected(.invalidEdit))
+        XCTAssertEqual(engine.admittedDocument, source)
+    }
+
     private func paragraph(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
         .init(semantic: .init(blocks: [.paragraph(text.isEmpty ? [] : [.init(text: text, marks: marks)])]))
     }

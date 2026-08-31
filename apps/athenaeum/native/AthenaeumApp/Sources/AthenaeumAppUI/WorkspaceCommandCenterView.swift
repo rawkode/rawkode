@@ -901,7 +901,8 @@ public struct WorkspaceCommandCenterView: View {
                     onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                     onReviewStandup: onReviewStandup,
                     onFocusMeetingPreparation: onFocusMeetingPreparation,
-                    onOpenReference: { reference in openReference(reference) }
+                    onOpenReference: { reference in openReference(reference) },
+                    mentionSearchClient: host.readClient
                 )
                 .frame(maxWidth: 600, alignment: .leading)
                 dailyBrief(model: model)
@@ -917,7 +918,8 @@ public struct WorkspaceCommandCenterView: View {
                 onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                 onReviewStandup: onReviewStandup,
                 onFocusMeetingPreparation: onFocusMeetingPreparation,
-                onOpenReference: { reference in openReference(reference) }
+                onOpenReference: { reference in openReference(reference) },
+                mentionSearchClient: host.readClient
             )
             #endif
         case .supertags:

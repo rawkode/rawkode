@@ -5,6 +5,23 @@ import AthenaeumCore
 /// they may display text and collect intent, but all admission, mark toggling, scalar conversion,
 /// pending-parent acknowledgement, and composition recovery happens here.
 struct LoroNativeRichEditingEngine {
+    private enum Replacement {
+        case plainText(String)
+        case inlineReference(LoroCanonicalSemanticValueV1.InlineReference)
+
+        var utf16Count: Int {
+            switch self {
+            case let .plainText(text): text.utf16.count
+            case let .inlineReference(reference): reference.label.utf16.count
+            }
+        }
+
+        var permitsReferenceDeletion: Bool {
+            if case let .plainText(text) = self { return text.isEmpty }
+            return false
+        }
+    }
+
     private struct Composition: Equatable, Sendable {
         let base: LoroNativeRichDocumentV1
         let range: NSRange
@@ -45,6 +62,16 @@ struct LoroNativeRichEditingEngine {
 
     mutating func replace(utf16Range: NSRange, withPlainText replacement: String) -> LoroNativeRichEditingEffect {
         replace(in: admittedDocument, utf16Range: utf16Range, withPlainText: replacement)
+    }
+
+    /// Replaces an explicit UTF-16 range with an already-resolved typed reference. The reference
+    /// remains a single semantic run, so later text input cannot split or mutate its identity.
+    mutating func insert(
+        reference: LoroCanonicalSemanticValueV1.InlineReference,
+        replacingUTF16Range utf16Range: NSRange
+    ) -> LoroNativeRichEditingEffect {
+        guard composition == nil else { return .rejected(.invalidEdit) }
+        return replace(in: admittedDocument, utf16Range: utf16Range, with: .inlineReference(reference))
     }
 
     mutating func toggle(mark: LoroCanonicalSemanticValueV1.Mark, utf16Range: NSRange) -> LoroNativeRichEditingEffect {
@@ -118,10 +145,18 @@ struct LoroNativeRichEditingEngine {
         utf16Range: NSRange,
         withPlainText replacement: String
     ) -> LoroNativeRichEditingEffect {
+        replace(in: document, utf16Range: utf16Range, with: .plainText(replacement))
+    }
+
+    private mutating func replace(
+        in document: LoroNativeRichDocumentV1,
+        utf16Range: NSRange,
+        with replacement: Replacement
+    ) -> LoroNativeRichEditingEffect {
         guard let candidate = Self.semanticSplice(document, utf16Range: utf16Range, replacement: replacement),
               let rendered = try? LoroNativeRichTextCodec.attributedString(for: candidate),
               let selection = try? LoroNativeRichTextCodec.scalarSelection(
-                forUTF16Range: NSRange(location: utf16Range.location + replacement.utf16.count, length: 0),
+                forUTF16Range: NSRange(location: utf16Range.location + replacement.utf16Count, length: 0),
                 in: rendered
               )
         else { return .rejected(.invalidEdit) }
@@ -144,7 +179,7 @@ struct LoroNativeRichEditingEngine {
     private static func semanticSplice(
         _ document: LoroNativeRichDocumentV1,
         utf16Range: NSRange,
-        replacement: String
+        replacement: Replacement
     ) -> LoroNativeRichDocumentV1? {
         guard let rendered = try? LoroNativeRichTextCodec.attributedString(for: document),
               let scalarRange = try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: utf16Range, in: rendered)
@@ -200,7 +235,7 @@ struct LoroNativeRichEditingEngine {
             if localStart == localEnd {
                 guard !(referenceStart < localStart && localStart < referenceEnd) else { return nil }
             } else if localStart < referenceEnd && localEnd > referenceStart {
-                guard replacement.isEmpty, localStart <= referenceStart, localEnd >= referenceEnd else { return nil }
+                guard replacement.permitsReferenceDeletion, localStart <= referenceStart, localEnd >= referenceEnd else { return nil }
             }
         }
         let prefix = split(originalRuns, at: localStart).0
@@ -210,17 +245,26 @@ struct LoroNativeRichEditingEngine {
             defer { traversed += run.text.unicodeScalars.count }
             return localStart < traversed + run.text.unicodeScalars.count
         }?.marks ?? originalRuns.last?.marks ?? []
-        let lines = replacement.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var emitted: [Block] = []
-        for index in lines.indices {
-            var lineRuns = index == lines.startIndex ? prefix : []
-            if !lines[index].isEmpty { lineRuns.append(.init(text: lines[index], marks: inherited)) }
-            if index == lines.index(before: lines.endIndex) { lineRuns += suffix }
-            emitted.append(index == lines.startIndex ? makeLike(original, runs: coalesced(lineRuns)) : .paragraph(coalesced(lineRuns)))
+        switch replacement {
+        case let .plainText(text):
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            var emitted: [Block] = []
+            for index in lines.indices {
+                var lineRuns = index == lines.startIndex ? prefix : []
+                if !lines[index].isEmpty { lineRuns.append(.init(text: lines[index], marks: inherited)) }
+                if index == lines.index(before: lines.endIndex) { lineRuns += suffix }
+                emitted.append(index == lines.startIndex ? makeLike(original, runs: coalesced(lineRuns)) : .paragraph(coalesced(lineRuns)))
+            }
+            var blocks = document.semantic.blocks
+            blocks.replaceSubrange(blockIndex...blockIndex, with: emitted)
+            return .init(semantic: .init(blocks: blocks))
+        case let .inlineReference(reference):
+            guard !reference.label.contains("\n"), !reference.label.contains("\r"), !reference.label.isEmpty else { return nil }
+            let runs = coalesced(prefix + [.init(text: reference.label, reference: reference)] + suffix)
+            var blocks = document.semantic.blocks
+            blocks[blockIndex] = makeLike(original, runs: runs)
+            return .init(semantic: .init(blocks: blocks))
         }
-        var blocks = document.semantic.blocks
-        blocks.replaceSubrange(blockIndex...blockIndex, with: emitted)
-        return .init(semantic: .init(blocks: blocks))
     }
 
     private static func coalesced(_ runs: [LoroCanonicalSemanticValueV1.TextRun]) -> [LoroCanonicalSemanticValueV1.TextRun] {

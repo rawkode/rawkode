@@ -116,6 +116,43 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(published, 0)
     }
 
+    func testReferenceInsertionSeamPublishesTypedAtomicRunAndSelection() throws {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: paragraph("Meet @pr now"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        editor.testingInsert(reference: reference(), replacingUTF16Range: NSRange(location: 5, length: 3))
+
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([
+            .init(text: "Meet "),
+            .init(text: "Alice", reference: reference()),
+            .init(text: " now")
+        ])]))
+        XCTAssertEqual(editor.testingDocument(), expected)
+        XCTAssertEqual(editor.testingSelection(), .init(location: 10, length: 0))
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), expected)
+    }
+
+    func testMentionContextCapturesTheAtQueryAndRejectsInlineEmailText() throws {
+        let attributed = try LoroNativeRichTextCodec.attributedString(for: paragraph("Meet @al"))
+        let context = LoroNativeRichTextMentionContext.detect(
+            in: attributed,
+            selection: NSRange(location: attributed.length, length: 0)
+        )
+        XCTAssertEqual(context?.query, "al")
+        XCTAssertEqual(context?.utf16Range, NSRange(location: 5, length: 3))
+
+        let email = try LoroNativeRichTextCodec.attributedString(for: paragraph("mail@alice"))
+        XCTAssertNil(LoroNativeRichTextMentionContext.detect(
+            in: email,
+            selection: NSRange(location: email.length, length: 0)
+        ))
+    }
+
     func testReferenceActivationIsTypedAndDoesNotExposeAProjectionIdentifier() {
         var opened: LoroCanonicalSemanticValueV1.InlineReference?
         let editor = LoroNativeRichTextEditorController(document: referenceParagraph(), isEditable: true, onOpenReference: { opened = $0 })

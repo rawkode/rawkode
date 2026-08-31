@@ -13,6 +13,9 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     /// Optional scalar selection captured before an editor-adjacent command moved focus. It is
     /// consumed only with the matching focus generation, never on ordinary SwiftUI updates.
     let focusRequestSelection: LoroNativeRichTextSelection?
+    /// A picker result is a one-shot command keyed by the trigger generation. The controller
+    /// validates the captured range against its current semantic document before admitting it.
+    let mentionInsertion: LoroNativeRichTextMentionInsertion?
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
@@ -20,6 +23,34 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     let onFocusChange: (Bool) -> Void
     /// Semantic activation stays typed; routing belongs to the parent workspace surface.
     let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
+    /// The host owns the SwiftUI picker; the adapter only reports an immutable trigger snapshot.
+    let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
+
+    init(
+        state: LoroNativeRichEditorState,
+        isEditable: Bool,
+        focusRequestGeneration: Int,
+        focusRequestSelection: LoroNativeRichTextSelection?,
+        mentionInsertion: LoroNativeRichTextMentionInsertion? = nil,
+        onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void,
+        onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void,
+        onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void,
+        onFocusChange: @escaping (Bool) -> Void,
+        onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void,
+        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in }
+    ) {
+        self.state = state
+        self.isEditable = isEditable
+        self.focusRequestGeneration = focusRequestGeneration
+        self.focusRequestSelection = focusRequestSelection
+        self.mentionInsertion = mentionInsertion
+        self.onDocumentChange = onDocumentChange
+        self.onSelectionChange = onSelectionChange
+        self.onRejectedInput = onRejectedInput
+        self.onFocusChange = onFocusChange
+        self.onOpenReference = onOpenReference
+        self.onMentionQueryChange = onMentionQueryChange
+    }
 
     func makeCoordinator() -> LoroNativeRichTextEditorUIKitController {
         .init(
@@ -29,7 +60,8 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
             onSelectionChange: onSelectionChange,
             onRejectedInput: onRejectedInput,
             onFocusChange: onFocusChange,
-            onOpenReference: onOpenReference
+            onOpenReference: onOpenReference,
+            onMentionQueryChange: onMentionQueryChange
         )
     }
 
@@ -38,6 +70,7 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.update(document: state.document, isEditable: isEditable)
         context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
+        context.coordinator.applyMentionInsertion(mentionInsertion)
     }
 
     static func dismantleUIView(_ view: UITextView, coordinator: LoroNativeRichTextEditorUIKitController) {
@@ -77,6 +110,10 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     private let onFocusChange: (Bool) -> Void
     private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
+    private let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
+    private var nextMentionGeneration = 0
+    private var lastMentionContext: LoroNativeRichTextMentionContext?
+    private var lastAppliedMentionGeneration = 0
 
     init(
         document: LoroNativeRichDocumentV1,
@@ -85,7 +122,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void = { _ in },
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void = { _ in },
         onFocusChange: @escaping (Bool) -> Void = { _ in },
-        onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in }
+        onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in },
+        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in }
     ) {
         engine = .init(document: document)
         isEditableInput = isEditable
@@ -94,6 +132,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         self.onRejectedInput = onRejectedInput
         self.onFocusChange = onFocusChange
         self.onOpenReference = onOpenReference
+        self.onMentionQueryChange = onMentionQueryChange
         super.init()
         textView.richController = self
         textView.delegate = self
@@ -143,8 +182,10 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         case .deferredForComposition:
             deferredParentDocument = document
         case .deferredForLocalProposal, .unchanged:
-            break
+            publishMentionContext()
+            return
         }
+        publishMentionContext()
     }
 
     func requestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
@@ -193,6 +234,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard !rendering, let selection = scalarSelection() else { return }
         engine.setSelection(selection)
         onSelectionChange(selection)
+        publishMentionContext()
     }
 
     fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
@@ -227,6 +269,19 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         _ = apply(engine.replace(utf16Range: textView.selectedRange, withPlainText: plain))
     }
 
+    /// Inserts an already-resolved semantic reference without exposing UIKit's attributed-text
+    /// mutation path. A future SwiftUI picker can call this after it captures its trigger range.
+    func insert(
+        reference: LoroCanonicalSemanticValueV1.InlineReference,
+        replacingUTF16Range range: NSRange
+    ) {
+        guard isEditableInput, !pendingComposition, !hasMarkedText else {
+            reject(.disabled)
+            return
+        }
+        _ = apply(engine.insert(reference: reference, replacingUTF16Range: range))
+    }
+
     fileprivate func reject(_ reason: LoroNativeRichTextEditorRejection) {
         guard !rendering else { return }
         render(engine.admittedDocument, preserving: engine.admittedSelection)
@@ -242,6 +297,9 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         requestFocus(generation: generation, selection: selection)
     }
     func testingReplace(_ range: NSRange, with text: String) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
+    func testingInsert(reference: LoroCanonicalSemanticValueV1.InlineReference, replacingUTF16Range range: NSRange) {
+        insert(reference: reference, replacingUTF16Range: range)
+    }
     /// Exercises the same plain-text-only admission path as `paste(_:)` without UIPasteboard.
     func testingPastePlainText(_ text: String, at range: NSRange) { _ = apply(engine.replace(utf16Range: range, withPlainText: text)) }
     func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
@@ -332,6 +390,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         case .noChange:
             break
         }
+        publishMentionContext()
         return false
     }
 
@@ -357,6 +416,44 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // non-semantic presentation hook again.
         textView.font = .preferredFont(forTextStyle: .body)
         textView.textColor = .label
+    }
+
+    /// Consumes a picker result exactly once. Delayed results are intentionally sent through the
+    /// same semantic engine as keyboard input, so a stale range or disabled editor fails closed.
+    func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+        guard let insertion, insertion.generation > lastAppliedMentionGeneration else { return }
+        lastAppliedMentionGeneration = insertion.generation
+        insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range)
+    }
+
+    private func publishMentionContext() {
+        guard isEditableInput, !pendingComposition, !hasMarkedText,
+              let context = LoroNativeRichTextMentionContext.detect(
+                  in: textView.attributedText ?? NSAttributedString(),
+                  selection: textView.selectedRange
+              ) else {
+            if lastMentionContext != nil {
+                lastMentionContext = nil
+                onMentionQueryChange(nil)
+            }
+            return
+        }
+
+        if let previous = lastMentionContext,
+           previous.query == context.query,
+           previous.utf16Range == context.utf16Range,
+           previous.selection == context.selection {
+            return
+        }
+        nextMentionGeneration &+= 1
+        let published = LoroNativeRichTextMentionContext(
+            generation: nextMentionGeneration,
+            query: context.query,
+            utf16Range: context.utf16Range,
+            selection: context.selection
+        )
+        lastMentionContext = published
+        onMentionQueryChange(published)
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {

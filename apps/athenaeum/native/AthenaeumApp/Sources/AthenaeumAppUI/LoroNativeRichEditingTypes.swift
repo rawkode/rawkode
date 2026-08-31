@@ -13,6 +13,73 @@ struct LoroNativeRichTextSelection: Equatable, Sendable {
     }
 }
 
+/// The native mention picker receives an immutable snapshot of the trigger before it leaves the
+/// editor. The UTF-16 range is deliberately retained alongside the scalar selection because the
+/// platform adapters use TextKit ranges while the semantic engine uses scalar-safe selections.
+struct LoroNativeRichTextMentionContext: Identifiable, Equatable {
+    let generation: Int
+    let query: String
+    let utf16Range: NSRange
+    let selection: LoroNativeRichTextSelection
+
+    var id: Int { generation }
+}
+
+/// A SwiftUI host sends this command back to the native adapter after the user chooses an existing
+/// entity. The generation prevents a delayed picker result from mutating a newer note or caret.
+struct LoroNativeRichTextMentionInsertion: Equatable {
+    let generation: Int
+    let utf16Range: NSRange
+    let reference: LoroCanonicalSemanticValueV1.InlineReference
+}
+
+extension LoroNativeRichTextMentionContext {
+    /// Mirrors the web editor's `(?:^|\\s)@...` trigger while keeping the range in the native
+    /// adapter's coordinate space. This is a pure value helper so AppKit and UIKit cannot drift in
+    /// how they decide whether a picker is eligible.
+    static func detect(in attributed: NSAttributedString, selection: NSRange) -> Self? {
+        guard selection.length == 0,
+              selection.location >= 0,
+              NSMaxRange(selection) <= attributed.length,
+              let scalarSelection = try? LoroNativeRichTextCodec.scalarSelection(
+                forUTF16Range: selection,
+                in: attributed
+              )
+        else { return nil }
+
+        // A caret inside or immediately after a reference belongs to that atomic value, not to a
+        // new mention query. The latter guard also avoids reopening the picker while a user is
+        // navigating out of a just-inserted reference.
+        if selection.location < attributed.length,
+           LoroNativeRichTextCodec.reference(atUTF16Offset: selection.location, in: attributed) != nil {
+            return nil
+        }
+        if selection.location > 0,
+           LoroNativeRichTextCodec.reference(atUTF16Offset: selection.location - 1, in: attributed) != nil {
+            return nil
+        }
+
+        let string = attributed.string
+        let prefix = (string as NSString).substring(with: NSRange(location: 0, length: selection.location))
+        guard let at = prefix.lastIndex(of: "@") else { return nil }
+        let beforeAt = prefix[..<at]
+        guard beforeAt.last.map(\.isWhitespace) ?? true else { return nil }
+
+        let queryStart = prefix.index(after: at)
+        let query = String(prefix[queryStart...])
+        guard query.unicodeScalars.count <= 40,
+              !query.contains(where: { $0.isWhitespace || $0 == "@" }) else { return nil }
+
+        let from = String(prefix[..<at]).utf16.count
+        return .init(
+            generation: 0,
+            query: query,
+            utf16Range: NSRange(location: from, length: selection.location - from),
+            selection: .init(location: scalarSelection.location, length: scalarSelection.length)
+        )
+    }
+}
+
 /// Rejections are product-level outcomes rather than AppKit implementation details, so each
 /// native host reports the same reason to the view model and its audit trail.
 enum LoroNativeRichTextEditorRejection: Equatable, Sendable {

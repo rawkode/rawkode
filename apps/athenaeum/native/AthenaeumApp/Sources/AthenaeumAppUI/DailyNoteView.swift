@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AthenaeumDomain
 import AthenaeumCore
+import AthenaeumRPC
 
 /// The native reader intentionally has no entity/tag/link interaction surface.  This small,
 /// value-free policy is testable without exposing projection attributes to the UI layer.
@@ -186,6 +187,7 @@ public struct DailyNoteView: View {
     private let onReviewStandup: (() -> Void)?
     private let onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
+    private let mentionSearchClient: WorkspaceRPCClient?
     private let standupLifecycleDriver: DailyStandupLifecycleDriver
     /// DailyNote is the sole owner; standup detail/strip are passive observers.
     @StateObject private var dailyStandupModel: DailyStandupViewModel
@@ -208,6 +210,9 @@ public struct DailyNoteView: View {
     @State private var supertagFocusPresentation: AthenaeumViewModel.PagePresentation?
     @State private var supertagFocusSelection: LoroNativeRichTextSelection?
     @State private var richEditorFocusSelection: LoroNativeRichTextSelection?
+    @StateObject private var mentionSearchModel: DailyNoteMentionSearchModel
+    @State private var mentionContext: LoroNativeRichTextMentionContext?
+    @State private var mentionInsertion: LoroNativeRichTextMentionInsertion?
 
     public init(model: AthenaeumViewModel) {
         self.model = model
@@ -217,8 +222,10 @@ public struct DailyNoteView: View {
         self.onReviewStandup = nil
         self.onFocusMeetingPreparation = nil
         self.onOpenReference = nil
+        self.mentionSearchClient = nil
         self.standupLifecycleDriver = .live
         _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
+        _mentionSearchModel = StateObject(wrappedValue: .init(client: nil))
     }
 
     /// Keeps secondary daily-note documents inside the note's own composition. The command
@@ -233,6 +240,7 @@ public struct DailyNoteView: View {
         onReviewStandup: (() -> Void)? = nil,
         onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil,
         onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil,
+        mentionSearchClient: WorkspaceRPCClient? = nil,
         standupLifecycleDriver: DailyStandupLifecycleDriver = .live
     ) {
         self.model = model
@@ -246,6 +254,7 @@ public struct DailyNoteView: View {
         self.onReviewStandup = onReviewStandup
         self.onFocusMeetingPreparation = onFocusMeetingPreparation
         self.onOpenReference = onOpenReference
+        self.mentionSearchClient = mentionSearchClient
         self.standupLifecycleDriver = standupLifecycleDriver
         _dailyStandupModel = StateObject(wrappedValue: .init(
             backendURL: standupBackendURL,
@@ -254,6 +263,7 @@ public struct DailyNoteView: View {
             dailyNoteId: model.dailyNoteId,
             includeLedger: true
         ))
+        _mentionSearchModel = StateObject(wrappedValue: .init(client: mentionSearchClient))
     }
 
     public var body: some View {
@@ -365,6 +375,7 @@ public struct DailyNoteView: View {
             focusEditorIfNeeded()
         }
         .onChange(of: model.pagePresentation) { presentation in
+            dismissMentionPicker()
             if presentation != .automergeEditable && presentation != .loroPlainEditable && presentation != .loroRichEditable {
                 clearEditorFocus()
                 hasAutofocused = false
@@ -385,6 +396,7 @@ public struct DailyNoteView: View {
             preparationFocusGeneration += 1
             hasAutofocused = false
             preparationNotice = nil
+            dismissMentionPicker()
         }
         .onChange(of: model.isDailyNoteSupertagMutationInFlight) { inFlight in
             if inFlight {
@@ -547,6 +559,11 @@ public struct DailyNoteView: View {
     private func clearEditorFocus() {
         editorFocused = false
         richEditorIsFocused = false
+    }
+
+    private func dismissMentionPicker() {
+        mentionContext = nil
+        mentionInsertion = nil
     }
 
     /// Captures the editor's presentation witness before a note-level menu command can toggle
@@ -1041,6 +1058,7 @@ public struct DailyNoteView: View {
                     isEditable: !model.isEditorInputDisabled,
                     focusRequestGeneration: richEditorFocusGeneration,
                     focusRequestSelection: richEditorFocusSelection,
+                    mentionInsertion: mentionInsertion,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
@@ -1048,7 +1066,8 @@ public struct DailyNoteView: View {
                     },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
-                    onOpenReference: { onOpenReference?($0) }
+                    onOpenReference: { onOpenReference?($0) },
+                    onMentionQueryChange: handleMentionQueryChange
                 )
                 #elseif os(iOS)
                 LoroNativeRichTextEditorUIKit(
@@ -1056,6 +1075,7 @@ public struct DailyNoteView: View {
                     isEditable: !model.isEditorInputDisabled,
                     focusRequestGeneration: richEditorFocusGeneration,
                     focusRequestSelection: richEditorFocusSelection,
+                    mentionInsertion: mentionInsertion,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
@@ -1063,7 +1083,8 @@ public struct DailyNoteView: View {
                     },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
-                    onOpenReference: { onOpenReference?($0) }
+                    onOpenReference: { onOpenReference?($0) },
+                    onMentionQueryChange: handleMentionQueryChange
                 )
                 #endif
                 if let prompt = LoroNativeRichEmptyStatePresentation(
@@ -1081,10 +1102,36 @@ public struct DailyNoteView: View {
             }
             .writingSurface(isFocused: richEditorIsFocused)
             .accessibilityLabel("Native Loro rich-text daily note")
+            .popover(item: $mentionContext) { context in
+                DailyNoteMentionPicker(
+                    context: context,
+                    model: mentionSearchModel,
+                    onSelect: { candidate in
+                        mentionInsertion = .init(
+                            generation: context.generation,
+                            utf16Range: context.utf16Range,
+                            reference: candidate.reference
+                        )
+                    },
+                    onDismiss: dismissMentionPicker
+                )
+            }
         } else {
             Text("Rich-text state is unavailable. Reload this page.")
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func handleMentionQueryChange(_ context: LoroNativeRichTextMentionContext?) {
+        guard mentionSearchClient != nil else {
+            mentionContext = nil
+            mentionInsertion = nil
+            return
+        }
+        if context == nil {
+            mentionInsertion = nil
+        }
+        mentionContext = context
     }
 
     @ViewBuilder
