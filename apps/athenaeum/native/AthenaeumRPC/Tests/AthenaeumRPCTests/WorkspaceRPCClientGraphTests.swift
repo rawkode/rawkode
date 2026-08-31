@@ -32,6 +32,50 @@ private final class GraphWireProtocol: URLProtocol {
 }
 
 final class WorkspaceRPCClientGraphTests: XCTestCase {
+    func testAppRunCredentialRequiresNonblankCredentialAndFutureISODate() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let future = "2023-11-14T22:14:00Z"
+        let valid = try RPCAppRunCredential(
+            .object(["credential": .string("app-capability"), "expiresAt": .string(future)]),
+            now: now
+        )
+        XCTAssertEqual(valid.credential, "app-capability")
+        XCTAssertEqual(valid.expiresAt, future)
+
+        for malformed in [
+            CapnWebValue.object(["credential": .string("  "), "expiresAt": .string(future)]),
+            CapnWebValue.object(["credential": .string("app-capability"), "expiresAt": .string("not-a-date")]),
+            CapnWebValue.object(["credential": .string("app-capability"), "expiresAt": .string("2023-11-14T22:12:59Z")])
+        ] {
+            XCTAssertThrowsError(try RPCAppRunCredential(malformed, now: now))
+        }
+    }
+
+    func testMintAppRunCredentialUsesWorkspaceAndAppArguments() async throws {
+        let response = try CapnWebValue.encodeMessageLine(["resolve", 1, CapnWebValue.object([
+            "credential": .string("app-capability"),
+            "expiresAt": .string("2099-01-01T00:00:00Z")
+        ]).toWireJSON()])
+        GraphWireProtocol.body = Data()
+        GraphWireProtocol.response = Data(response.utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GraphWireProtocol.self]
+        let client = WorkspaceRPCClient(
+            baseURL: URL(string: "http://apps-wire.invalid")!,
+            workspaceId: "workspace-1",
+            urlSession: URLSession(configuration: configuration)
+        )
+        let credential = try await client.mintAppRunCredential(appId: "app-1")
+        XCTAssertEqual(credential.credential, "app-capability")
+        let first = try XCTUnwrap(String(data: GraphWireProtocol.body, encoding: .utf8)?.split(separator: "\n").first)
+        let wire = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(first.utf8)) as? [Any])
+        let pipeline = try XCTUnwrap(wire[1] as? [Any])
+        XCTAssertEqual(pipeline[2] as? [String], ["mintAppRunCredential"])
+        let args = try XCTUnwrap((try XCTUnwrap(pipeline[3] as? [Any]).first) as? [String: Any])
+        XCTAssertEqual(args["workspaceId"] as? String, "workspace-1")
+        XCTAssertEqual(args["appId"] as? String, "app-1")
+    }
+
     func testAuthorityBearingTagReadRequiresCompleteValidatedTagAndLowercaseRevision() throws {
         let tag = CapnWebValue.object([
             "id": .string("00000000-0000-4000-8000-000000000501"),

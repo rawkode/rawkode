@@ -9,6 +9,37 @@ public enum RPCAppCodeKind: String, Sendable, Equatable {
     case server
 }
 
+/// The short-lived, app-scoped capability returned by `mintAppRunCredential`.
+///
+/// This is deliberately distinct from the user's bearer credential. It is only suitable for
+/// the app's client bundle and `/run` endpoint, and is never stored by the native client.
+public struct RPCAppRunCredential: Sendable, Equatable {
+    public let credential: String
+    public let expiresAt: String
+
+    init(_ value: CapnWebValue, now: Date = Date()) throws {
+        guard let credential = try value.field("credential").stringValue,
+              !credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let expiresAt = try value.field("expiresAt").stringValue,
+              let expiresDate = Self.parseDate(expiresAt),
+              expiresDate > now
+        else {
+            throw CapnWebError.malformedMessage("malformed or expired AppRunCredential")
+        }
+        self.credential = credential
+        self.expiresAt = expiresAt
+    }
+
+    static func parseDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? {
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: value)
+        }()
+    }
+}
+
 /// Mirrors `packages/domain/src/app.ts`'s `App`.
 public struct RPCApp: Sendable, Equatable, Identifiable {
     public let id: String
@@ -20,6 +51,28 @@ public struct RPCApp: Sendable, Equatable, Identifiable {
     public let createdAt: String
     public let updatedAt: String
     public let pending: RPCPendingMarker?
+
+    public init(
+        id: String,
+        workspaceId: String,
+        title: String,
+        icon: String,
+        clientCodeVersion: Int,
+        serverCodeVersion: Int,
+        createdAt: String,
+        updatedAt: String,
+        pending: RPCPendingMarker? = nil
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.title = title
+        self.icon = icon
+        self.clientCodeVersion = clientCodeVersion
+        self.serverCodeVersion = serverCodeVersion
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.pending = pending
+    }
 
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
@@ -95,5 +148,12 @@ extension WorkspaceRPCClient {
         args["version"] = version.map(CapnWebValue.int) ?? .undefined
         let result = try await rpc("getAppCode", args)
         return try RPCAppCodeVersion(result.field("codeVersion"))
+    }
+
+    /// Mints a short-lived, app-scoped run capability. The user's bearer remains inside the RPC
+    /// transport and is never returned to, or embedded by, the App Run document.
+    public func mintAppRunCredential(appId: String, now: Date = Date()) async throws -> RPCAppRunCredential {
+        let result = try await rpc("mintAppRunCredential", ["appId": .string(appId)])
+        return try RPCAppRunCredential(result, now: now)
     }
 }

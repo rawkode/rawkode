@@ -4,6 +4,29 @@ import AthenaeumRPC
 
 @MainActor
 final class AppsViewTests: XCTestCase {
+    func testAppRunIdentityIncludesEveryAcceptedDetailField() throws {
+        let app = RPCApp(
+            id: "app-1", workspaceId: "workspace-1", title: "Focus", icon: "⚡",
+            clientCodeVersion: 3, serverCodeVersion: 4,
+            createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z"
+        )
+        let identity = NativeAppRunPresentation.identity(workspaceId: "workspace-1", app: app)
+        XCTAssertEqual(identity.workspaceId, "workspace-1")
+        XCTAssertEqual(identity.appId, "app-1")
+        XCTAssertNil(identity.pending)
+        XCTAssertEqual(identity.clientCodeVersion, 3)
+        XCTAssertEqual(identity.serverCodeVersion, 4)
+        XCTAssertEqual(identity.updatedAt, "2024-01-02T00:00:00Z")
+        XCTAssertTrue(NativeAppRunPresentation.canPublish(
+            candidate: NativeAppRunLaunchIdentity(detail: identity, generation: 2),
+            accepted: NativeAppRunLaunchIdentity(detail: identity, generation: 2)
+        ))
+        XCTAssertFalse(NativeAppRunPresentation.canPublish(
+            candidate: NativeAppRunLaunchIdentity(detail: identity, generation: 1),
+            accepted: NativeAppRunLaunchIdentity(detail: identity, generation: 2)
+        ))
+    }
+
     private struct PrivateTransportError: Error, CustomStringConvertible {
         let description = "backend=https://internal.example/api?credential=private-token"
     }
