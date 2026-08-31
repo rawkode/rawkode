@@ -4,6 +4,14 @@ import SwiftUI
 /// typed-token or block ownership support: the view only reflects a confirmed server snapshot.
 struct DailyNoteSupertagAssignmentView: View {
     @ObservedObject var model: AthenaeumViewModel
+    /// Called synchronously from the menu action, before the async mutation can change editor
+    /// admission or let the menu steal first-responder state.
+    let onWillAssign: () -> Void
+
+    init(model: AthenaeumViewModel, onWillAssign: @escaping () -> Void = {}) {
+        self.model = model
+        self.onWillAssign = onWillAssign
+    }
 
     var body: some View {
         switch model.dailyNoteSupertagAssignmentState {
@@ -38,6 +46,7 @@ struct DailyNoteSupertagAssignmentView: View {
                 Menu("Tag this note") {
                     ForEach(tags, id: \.id) { tag in
                         Button {
+                            onWillAssign()
                             Task { await model.applyDailyNoteSupertag(tagId: tag.id) }
                         } label: {
                             if appliedTagIds.contains(tag.id) {

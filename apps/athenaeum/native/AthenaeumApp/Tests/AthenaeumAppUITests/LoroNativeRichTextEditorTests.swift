@@ -165,6 +165,30 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: selection, in: editor.testingStorage()), .init(location: 1, length: 1))
     }
 
+    func testSupertagMutationTogglePreservesSelectionAndRestoresCapturedFocusRequest() {
+        let document = paragraph("A😀B")
+        let editor = LoroNativeRichTextEditorController(document: document, isEditable: true)
+        let selection = LoroNativeRichTextSelection(location: 1, length: 1)
+        editor.testingSelect(NSRange(location: 1, length: 2))
+        XCTAssertEqual(editor.testingSelection(), selection)
+
+        editor.update(document: document, isEditable: false)
+        XCTAssertEqual(editor.testingSelection(), selection, "disabling the editor must not lose its semantic selection")
+
+        var focusAttempts = 0
+        editor.testingSetFocusAttempt {
+            focusAttempts += 1
+            return true
+        }
+        editor.testingRequestFocus(generation: 1, selection: selection)
+        XCTAssertEqual(focusAttempts, 0, "a disabled editor cannot consume the restoration request")
+
+        editor.update(document: document, isEditable: true)
+        XCTAssertEqual(focusAttempts, 1)
+        XCTAssertEqual(editor.testingCompletedFocusGeneration(), 1)
+        XCTAssertEqual(editor.testingSelection(), selection, "re-enabled focus must restore the captured semantic selection")
+    }
+
     func testUnacknowledgedLocalProposalDefersDifferentParentDocument() {
         let editor = LoroNativeRichTextEditorController(document: paragraph("base"), isEditable: true)
         editor.testingReplace(NSRange(location: 4, length: 0), with: " local")

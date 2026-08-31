@@ -172,7 +172,13 @@ public struct DailyNoteView: View {
     /// Rich representables own the actual responder, so this state is presentation-only and is
     /// fed by their native focus callbacks rather than the plain-text FocusState binding.
     @State private var richEditorIsFocused = false
+    @State private var richEditorSelection: LoroNativeRichTextSelection?
     @FocusState private var editorFocused: Bool
+    @State private var restoreEditorFocusAfterSupertagMutation = false
+    @State private var supertagFocusRouteID: EntityId?
+    @State private var supertagFocusPresentation: AthenaeumViewModel.PagePresentation?
+    @State private var supertagFocusSelection: LoroNativeRichTextSelection?
+    @State private var richEditorFocusSelection: LoroNativeRichTextSelection?
 
     public init(model: AthenaeumViewModel) {
         self.model = model
@@ -265,7 +271,12 @@ public struct DailyNoteView: View {
                     ProgressView("Preparing daily note…")
                 }
                 statusLine
-                DailyNoteSupertagAssignmentView(model: model)
+                if model.isDailyNoteSupertagAssignmentEligible {
+                    DailyNoteSupertagAssignmentView(
+                        model: model,
+                        onWillAssign: captureSupertagEditorFocus
+                    )
+                }
                 if let preparationNotice {
                     Text(preparationNotice)
                         .font(.caption)
@@ -323,6 +334,8 @@ public struct DailyNoteView: View {
             if presentation != .automergeEditable && presentation != .loroPlainEditable && presentation != .loroRichEditable {
                 clearEditorFocus()
                 hasAutofocused = false
+                clearSupertagEditorFocusWitness()
+                richEditorFocusSelection = nil
             } else {
                 // A format transition replaces the underlying editing control. Let that control
                 // receive its own first-focus request instead of retaining the prior editor's.
@@ -332,10 +345,43 @@ public struct DailyNoteView: View {
         }
         .onChange(of: model.selectedDate) { _ in
             clearEditorFocus()
+            clearSupertagEditorFocusWitness()
             isStandupHeadingFocused = false
             standupFocusGeneration += 1
             hasAutofocused = false
             preparationNotice = nil
+        }
+        .onChange(of: model.isDailyNoteSupertagMutationInFlight) { inFlight in
+            if inFlight {
+                // The menu action captures this witness synchronously before the task starts. A
+                // fallback keeps programmatic callers safe, but never replaces an already-captured
+                // witness after the menu has changed responder state.
+                if supertagFocusRouteID == nil {
+                    captureSupertagEditorFocus()
+                }
+            } else {
+                guard restoreEditorFocusAfterSupertagMutation,
+                      supertagFocusRouteID == model.dailyNoteId,
+                      supertagFocusPresentation == model.pagePresentation,
+                      model.isDailyNoteSupertagAssignmentEligible else {
+                    clearSupertagEditorFocusWitness()
+                    return
+                }
+                let selection = supertagFocusSelection
+                restoreEditorFocusAfterSupertagMutation = false
+                richEditorFocusSelection = selection
+                Task { @MainActor in
+                    await Task.yield()
+                    guard supertagFocusRouteID == model.dailyNoteId,
+                          supertagFocusPresentation == model.pagePresentation else { return }
+                    if model.pagePresentation == .loroRichEditable {
+                        richEditorFocusGeneration += 1
+                    } else {
+                        editorFocused = true
+                    }
+                    clearSupertagEditorFocusWitness()
+                }
+            }
         }
         .onChange(of: model.preparationCompletionGeneration) { _ in
             consumePreparationCompletion()
@@ -455,6 +501,7 @@ public struct DailyNoteView: View {
         hasAutofocused = true
         if model.pagePresentation == .loroRichEditable {
             clearEditorFocus()
+            richEditorFocusSelection = nil
             richEditorFocusGeneration += 1
         } else {
             richEditorIsFocused = false
@@ -465,6 +512,25 @@ public struct DailyNoteView: View {
     private func clearEditorFocus() {
         editorFocused = false
         richEditorIsFocused = false
+    }
+
+    /// Captures the editor's presentation witness before a note-level menu command can toggle
+    /// `isEditable` or move first responder to the menu. Native rich adapters report their last
+    /// scalar selection; their controllers keep that selection through a disabled interval and
+    /// restore it when this exact route receives the focus request again.
+    private func captureSupertagEditorFocus() {
+        guard model.isDailyNoteSupertagAssignmentEligible else { return }
+        restoreEditorFocusAfterSupertagMutation = editorFocused || richEditorIsFocused
+        supertagFocusRouteID = model.dailyNoteId
+        supertagFocusPresentation = model.pagePresentation
+        supertagFocusSelection = richEditorSelection
+    }
+
+    private func clearSupertagEditorFocusWitness() {
+        restoreEditorFocusAfterSupertagMutation = false
+        supertagFocusRouteID = nil
+        supertagFocusPresentation = nil
+        supertagFocusSelection = nil
     }
 
     private func consumePreparationCompletion() {
@@ -870,8 +936,12 @@ public struct DailyNoteView: View {
                     state: state,
                     isEditable: !model.isEditorInputDisabled,
                     focusRequestGeneration: richEditorFocusGeneration,
+                    focusRequestSelection: richEditorFocusSelection,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
-                    onSelectionChange: { model.handleLoroRichSelectionChange($0) },
+                    onSelectionChange: {
+                        richEditorSelection = $0
+                        model.handleLoroRichSelectionChange($0)
+                    },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) }
@@ -881,8 +951,12 @@ public struct DailyNoteView: View {
                     state: state,
                     isEditable: !model.isEditorInputDisabled,
                     focusRequestGeneration: richEditorFocusGeneration,
+                    focusRequestSelection: richEditorFocusSelection,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
-                    onSelectionChange: { model.handleLoroRichSelectionChange($0) },
+                    onSelectionChange: {
+                        richEditorSelection = $0
+                        model.handleLoroRichSelectionChange($0)
+                    },
                     onRejectedInput: { model.handleLoroRichRejectedInput($0) },
                     onFocusChange: { richEditorIsFocused = $0 },
                     onOpenReference: { onOpenReference?($0) }

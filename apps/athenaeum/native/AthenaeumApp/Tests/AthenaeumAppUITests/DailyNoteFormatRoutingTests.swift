@@ -1679,11 +1679,162 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(client.applyCount, 1, "the synchronous pending-intent claim must fence a second press")
     }
 
+    func testDailyNoteSupertagStaleMutationCompletionCannotReleaseNewerClaim() {
+        var gate = DailyNoteSupertagMutationGate()
+        guard let first = gate.claim() else { return XCTFail("expected the first mutation claim") }
+        XCTAssertTrue(gate.release(first))
+        guard let newer = gate.claim() else { return XCTFail("expected the newer mutation claim") }
+
+        XCTAssertFalse(gate.release(first), "a delayed first completion cannot release the newer claim")
+        XCTAssertEqual(gate.activeToken, newer)
+        XCTAssertTrue(gate.release(newer))
+        XCTAssertNil(gate.activeToken)
+    }
+
+    func testDailyNoteSupertagMutationPinsTheExactDailyNoteUntilItsReceiptReconciles() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRowsByApplyCount: [[], [Self.membershipRow(node: node, tag: tagID)]]
+        )
+        client.applyDelayNanoseconds = 150_000_000
+        let model = try makeSupertagModel(client: client)
+        await model.start()
+        let pinnedDate = model.selectedDate
+
+        let mutation = Task { await model.applyDailyNoteSupertag(tagId: tagID.rawValue) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        model.showDate(date.addingTimeInterval(86_400))
+
+        XCTAssertEqual(model.selectedDate, pinnedDate, "navigation must not discard a claimed note-level semantic operation")
+        await mutation.value
+        XCTAssertEqual(model.dailyNoteId, node, "the accepted receipt belongs only to the pinned note")
+        XCTAssertEqual(client.appliedInputs.map(\.nodeId), [node.rawValue])
+    }
+
+    func testDailyNoteSupertagLateCatalogSnapshotCannotOverwriteNewerSameNoteGeneration() async throws {
+        let tagAID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tagBID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let client = FakeDailyNoteSupertagClient(tags: [try XCTUnwrap(Self.supertag(id: tagAID, name: "Old"))])
+        let model = try makeSupertagModel(client: client)
+        await model.start()
+
+        client.blockNextCatalogRead = true
+        let staleRefresh = Task { await model.refreshDailyNoteSupertags() }
+        try await waitUntil { client.catalogReadBlocked }
+        client.tags = [try XCTUnwrap(Self.supertag(id: tagBID, name: "Current"))]
+        await model.refreshDailyNoteSupertags()
+        client.releaseCatalogRead()
+        await staleRefresh.value
+
+        guard case .loaded(let tags, _) = model.dailyNoteSupertagAssignmentState else { return XCTFail("expected latest snapshot") }
+        XCTAssertEqual(tags.map(\.id), [tagBID.rawValue])
+        XCTAssertEqual(client.listTagsCount, 3, "only the explicitly requested stale/current generations may run")
+    }
+
+    func testDailyNoteSupertagLateSnapshotCannotPublishAfterDateChanges() async throws {
+        let dateA = Date(timeIntervalSince1970: 0)
+        let dateB = dateA.addingTimeInterval(86_400)
+        let nodeA = dailyNoteIdForDate(dateA, calendar: .current)
+        let nodeB = dailyNoteIdForDate(dateB, calendar: .current)
+        let tagAID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tagBID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let tagA = try XCTUnwrap(Self.supertag(id: tagAID, name: "A"))
+        let tagB = try XCTUnwrap(Self.supertag(id: tagBID, name: "B"))
+        let operations = FakeOperations(
+            descriptors: [native(nodeA, snapshot: "a"), native(nodeB, snapshot: "b")],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        operations.eligibilityResults = [
+            .editable(Self.plainEditorState(node: nodeA, text: "A", snapshot: "a")),
+            .editable(Self.plainEditorState(node: nodeB, text: "B", snapshot: "b"))
+        ]
+        let client = FakeDailyNoteSupertagClient(tags: [tagA])
+        let model = try makeSupertagModel(client: client, operations: operations)
+        await model.start()
+        try await waitUntil {
+            model.dailyNoteId == nodeA && model.loroPlainDraft == "A" &&
+                model.dailyNoteSupertagAssignmentState != .idle
+        }
+
+        client.blockNextCatalogRead = true
+        let staleRefresh = Task { await model.refreshDailyNoteSupertags() }
+        try await waitUntil { client.catalogReadBlocked }
+
+        client.tags = [tagB]
+        model.showDate(dateB)
+        try await waitUntil {
+            model.dailyNoteId == nodeB && model.loroPlainDraft == "B" &&
+                model.dailyNoteSupertagAssignmentState != .idle
+        }
+
+        client.releaseCatalogRead()
+        await staleRefresh.value
+        try await waitUntil {
+            guard case .loaded(let tags, _) = model.dailyNoteSupertagAssignmentState else { return false }
+            return tags.map(\.id) == [tagBID.rawValue]
+        }
+
+        guard case .loaded(let tags, _) = model.dailyNoteSupertagAssignmentState else {
+            return XCTFail("expected the current date's authoritative snapshot")
+        }
+        XCTAssertEqual(tags.map(\.id), [tagBID.rawValue], "a stale A snapshot must not publish over date B")
+        XCTAssertTrue(client.appliedInputs.isEmpty, "a stale read must never authorize a mutation on the new date")
+    }
+
+    func testDailyNoteSupertagDescriptorABARejectsLateReadFromTheFirstRoute() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let oldTagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let currentTagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let finalTagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e63")
+        let oldTag = try XCTUnwrap(Self.supertag(id: oldTagID, name: "Old"))
+        _ = try XCTUnwrap(Self.supertag(id: currentTagID, name: "Current"))
+        let finalTag = try XCTUnwrap(Self.supertag(id: finalTagID, name: "Final"))
+        let operations = FakeOperations(
+            descriptors: [native(node, snapshot: "a"), native(node, snapshot: "b"), native(node, snapshot: "a")],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        operations.eligibilityResults = [
+            .editable(Self.plainEditorState(node: node, text: "A", snapshot: "a")),
+            .editable(Self.plainEditorState(node: node, text: "B", snapshot: "b")),
+            .editable(Self.plainEditorState(node: node, text: "A", snapshot: "a"))
+        ]
+        let client = FakeDailyNoteSupertagClient(tags: [oldTag])
+        let model = try makeSupertagModel(client: client, operations: operations)
+        await model.start()
+        try await waitUntil { model.loroPlainDraft == "A" && model.dailyNoteSupertagAssignmentState != .idle }
+
+        client.blockNextMembershipRead = true
+        let staleRefresh = Task { await model.refreshDailyNoteSupertags() }
+        try await waitUntil { client.membershipReadBlocked }
+
+        model.invalidatePageRouteForTesting()
+        model.retryCurrentNote()
+        try await waitUntil { model.loroPlainDraft == "B" }
+        client.tags = [finalTag]
+        model.retryCurrentNote()
+        try await waitUntil { model.loroPlainDraft == "A" && operations.currentDescriptor == self.native(node, snapshot: "a") }
+        client.releaseMembershipRead()
+        await staleRefresh.value
+        try await waitUntil {
+            guard case .loaded(let tags, _) = model.dailyNoteSupertagAssignmentState else { return false }
+            return tags.map(\.id) == [finalTagID.rawValue]
+        }
+
+        guard case .loaded(let tags, _) = model.dailyNoteSupertagAssignmentState else { return XCTFail("expected the final A route snapshot") }
+        XCTAssertEqual(tags.map(\.id), [finalTagID.rawValue], "the stale first-route read must not publish over the final A route")
+        XCTAssertEqual(operations.currentDescriptor, native(node, snapshot: "a"))
+    }
+
     func testDailyNoteSupertagDirtyProjectionNeverMutates() async throws {
         let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
         let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
         let client = FakeDailyNoteSupertagClient(tags: [tag])
-        let model = try makeSupertagModel(client: client, loroIsDirty: true)
+        let model = try makeSupertagModel(client: client, loroIsDirty: true, plainEligibility: false)
         await model.start()
 
         await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
@@ -1691,16 +1842,57 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(client.applyCount, 0, "dirty Loro projection has no safe external-mutation boundary")
     }
 
+    func testDailyNoteSupertagCleanReadOnlyRouteIsIneligible() {
+        let projection = DailyNoteLoroReadOnlyState(format: .loroV1, schemaVersion: 1, isDirty: false)
+        XCTAssertFalse(AthenaeumViewModel.isDailyNoteSupertagPresentationEligible(.loroReadOnly(projection)))
+    }
+
+    func testDailyNoteSupertagCleanProjectedRouteMakesNoCatalogMembershipOrApplyRPC() async throws {
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let client = FakeDailyNoteSupertagClient(tags: [try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))])
+        let model = try makeSupertagModel(client: client, plainEligibility: false)
+
+        await model.start()
+        await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+
+        guard case .loroProjectedReadOnly = model.pagePresentation else { return XCTFail("expected clean projected Loro route") }
+        XCTAssertEqual(model.dailyNoteSupertagAssignmentState, .idle)
+        XCTAssertEqual(client.listTagsCount, 0)
+        XCTAssertEqual(client.membershipReadCount, 0)
+        XCTAssertEqual(client.applyCount, 0)
+    }
+
     private func makeSupertagModel(
         client: FakeDailyNoteSupertagClient,
-        loroIsDirty: Bool = false
+        loroIsDirty: Bool = false,
+        nativeLoroEditingEnabled: Bool = true,
+        plainEligibility: Bool = true,
+        operations: FakeOperations? = nil
     ) throws -> AthenaeumViewModel {
         let date = Date(timeIntervalSince1970: 0)
         let node = dailyNoteIdForDate(date, calendar: .current)
-        let fake = FakeOperations(
+        let fake = operations ?? FakeOperations(
             descriptors: [native(node)],
             loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: loroIsDirty)
         )
+        if operations == nil {
+            fake.loroResult = .init(format: .loroV1, schemaVersion: 1, isDirty: loroIsDirty)
+        }
+        if operations == nil && nativeLoroEditingEnabled && plainEligibility {
+            let route = LoroPageRouteWitness(
+                nodeId: node,
+                format: .loroV1,
+                storageVersion: 1,
+                schemaVersion: 1,
+                snapshotSHA256: String(repeating: "b", count: 64)
+            )
+            fake.eligibilityResult = .editable(.init(
+                text: "",
+                scalarCount: 0,
+                route: route,
+                replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64))
+            ))
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [EmptyWorkspaceRPCURLProtocol.self]
         let readClient = WorkspaceRPCClient(
@@ -1714,12 +1906,21 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
             date: date,
             readClient: readClient,
             dailyNoteSupertagClient: client,
-            nativeLoroEditingEnabled: true
+            nativeLoroEditingEnabled: nativeLoroEditingEnabled
         )
     }
 
     private static func supertag(id: EntityId, name: String) -> RPCTag? {
         RPCTag(id: id.rawValue, name: name, builtin: false)
+    }
+
+    private static func plainEditorState(node: EntityId, text: String, snapshot: Character) -> LoroNativePlainEditorState {
+        .init(
+            text: text,
+            scalarCount: text.count,
+            route: .init(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: snapshot, count: 64)),
+            replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64))
+        )
     }
 
     private static func membershipRow(node: EntityId, tag: EntityId) -> CapnWebValue {
@@ -1791,6 +1992,7 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
 @MainActor
 private final class FakeOperations: DailyNotePageOperations {
     var descriptors: [PageDocumentDescriptor]
+    private(set) var currentDescriptor: PageDocumentDescriptor?
     var descriptorError: Error?
     var durableHeads: String?
     var loadedHeads: String?
@@ -1859,9 +2061,15 @@ private final class FakeOperations: DailyNotePageOperations {
     func resolveNode(id: EntityId, title: String) async throws { resolveNodeCount += 1; if resolveDelayNanoseconds > 0 { try await Task.sleep(nanoseconds: resolveDelayNanoseconds) } }
     func descriptor(nodeId: EntityId) async throws -> PageDocumentDescriptor {
         if let descriptorError { throw descriptorError }
-        if dynamicLegacy { return .legacy(nodeId: nodeId, storageVersion: 1, automerge: .init(docId: nodeId.rawValue, headsHash: "h", bytesSha256: String(repeating: "a", count: 64))) }
+        if dynamicLegacy {
+            let descriptor = PageDocumentDescriptor.legacy(nodeId: nodeId, storageVersion: 1, automerge: .init(docId: nodeId.rawValue, headsHash: "h", bytesSha256: String(repeating: "a", count: 64)))
+            currentDescriptor = descriptor
+            return descriptor
+        }
         guard !descriptors.isEmpty else { throw AthenaeumDomainError.unexpectedError(message: "no descriptor") }
-        return descriptors.count == 1 ? descriptors[0] : descriptors.removeFirst()
+        let descriptor = descriptors.count == 1 ? descriptors[0] : descriptors.removeFirst()
+        currentDescriptor = descriptor
+        return descriptor
     }
     func resolveOrCreateLoro(nodeId: EntityId, creationIntent: CreationIntent) async throws -> PageDocumentDescriptor {
         loroCreateCount += 1
@@ -1909,7 +2117,7 @@ private final class FakeOperations: DailyNotePageOperations {
     func syncLoroProjection(nodeId: EntityId) async throws -> DailyNoteLoroProjectionState {
         loroSyncCount += 1
         guard let result = loroResult else { throw AthenaeumDomainError.unexpectedError(message: "injected Loro failure") }
-        let descriptor = descriptors.first ?? .nativeLoro(nodeId: nodeId, storageVersion: 1, loro: .init(schemaVersion: 1, snapshotSha256: String(repeating: "b", count: 64)))
+        let descriptor = currentDescriptor ?? descriptors.first ?? .nativeLoro(nodeId: nodeId, storageVersion: 1, loro: .init(schemaVersion: 1, snapshotSha256: String(repeating: "b", count: 64)))
         let route: LoroPageRouteWitness
         switch descriptor {
         case .migratedLoro(_, let version, _, let loro), .nativeLoro(_, let version, let loro):
@@ -1984,11 +2192,19 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
         let attribution: MutationAttribution
     }
 
-    let tags: [RPCTag]
+    var tags: [RPCTag]
     let initialMembershipRows: [CapnWebValue]
     let membershipRowsByApplyCount: [[CapnWebValue]]
     var applyResults: [Result<ApplySupertagOutput, Error>] = []
     var applyDelayNanoseconds: UInt64 = 0
+    var listTagsCount = 0
+    var membershipReadCount = 0
+    var blockNextCatalogRead = false
+    var catalogReadBlocked = false
+    private var catalogReadContinuation: CheckedContinuation<Void, Never>?
+    var blockNextMembershipRead = false
+    var membershipReadBlocked = false
+    private var membershipReadContinuation: CheckedContinuation<Void, Never>?
     var applyCount = 0
     var appliedInputs: [AppliedInput] = []
 
@@ -2002,15 +2218,45 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
         self.membershipRowsByApplyCount = membershipRowsByApplyCount
     }
 
-    func listTags() async throws -> [RPCTag] { tags }
+    func listTags() async throws -> [RPCTag] {
+        listTagsCount += 1
+        let snapshot = tags
+        if blockNextCatalogRead {
+            blockNextCatalogRead = false
+            catalogReadBlocked = true
+            await withCheckedContinuation { catalogReadContinuation = $0 }
+            catalogReadBlocked = false
+        }
+        return snapshot
+    }
+
+    func releaseCatalogRead() {
+        catalogReadContinuation?.resume()
+        catalogReadContinuation = nil
+    }
 
     func runView(viewName: String, viewSpec _: CapnWebValue) async throws -> [CapnWebValue] {
+        membershipReadCount += 1
         guard viewName == "graph_node_tags" else { return [] }
+        let snapshot: [CapnWebValue]
         if !membershipRowsByApplyCount.isEmpty {
             let index = min(applyCount, membershipRowsByApplyCount.count - 1)
-            return membershipRowsByApplyCount[index]
+            snapshot = membershipRowsByApplyCount[index]
+        } else {
+            snapshot = initialMembershipRows
         }
-        return initialMembershipRows
+        if blockNextMembershipRead {
+            blockNextMembershipRead = false
+            membershipReadBlocked = true
+            await withCheckedContinuation { membershipReadContinuation = $0 }
+            membershipReadBlocked = false
+        }
+        return snapshot
+    }
+
+    func releaseMembershipRead() {
+        membershipReadContinuation?.resume()
+        membershipReadContinuation = nil
     }
 
     func applySupertag(

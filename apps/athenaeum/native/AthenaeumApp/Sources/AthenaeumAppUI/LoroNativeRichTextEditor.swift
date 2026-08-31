@@ -11,6 +11,9 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
     /// Monotonic SwiftUI-owned focus requests. The controller consumes each generation only
     /// after its own NSTextView is attached to a window and remains editable.
     let focusRequestGeneration: Int
+    /// Optional scalar selection captured before an editor-adjacent command moved focus. It is
+    /// consumed only with the matching focus generation, never on ordinary SwiftUI updates.
+    let focusRequestSelection: LoroNativeRichTextSelection?
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
@@ -32,7 +35,7 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
 
     func updateNSView(_ view: NSScrollView, context: Context) {
         context.coordinator.update(document: state.document, isEditable: isEditable)
-        context.coordinator.requestFocus(generation: focusRequestGeneration)
+        context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
     }
 }
 
@@ -65,6 +68,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private var isEditableInput: Bool
     private var completedFocusGeneration = 0
     private var pendingFocusGeneration: Int?
+    private var pendingFocusSelection: LoroNativeRichTextSelection?
     #if DEBUG
     /// Test-only responder result seam. Production always asks this controller's own window.
     private var testingFocusAttempt: (() -> Bool)?
@@ -133,9 +137,10 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 
     /// Stores a SwiftUI request until this editor has an actual window. The controller owns no
     /// global window state, and it never makes a disabled editor first responder.
-    func requestFocus(generation: Int) {
+    func requestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
         guard generation > completedFocusGeneration else { return }
         pendingFocusGeneration = max(pendingFocusGeneration ?? 0, generation)
+        pendingFocusSelection = selection
         fulfillFocusRequestIfPossible()
     }
 
@@ -254,7 +259,10 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func testingInsertText(_ value: Any, replacementRange: NSRange) { textView.insertText(value, replacementRange: replacementRange) }
     func testingCompositionReplacement() -> String? { engine.compositionReplacement() }
     func testingDisplayedString() -> String { textView.attributedString().string }
-    func testingRequestFocus(generation: Int) { requestFocus(generation: generation) }
+    func testingRequestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
+        requestFocus(generation: generation, selection: selection)
+    }
+    func testingSelection() -> LoroNativeRichTextSelection? { scalarSelection() }
     func testingSetFocusAttempt(_ attempt: @escaping () -> Bool) {
         #if DEBUG
         testingFocusAttempt = attempt
@@ -284,8 +292,14 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         didFocus = textView.window?.makeFirstResponder(textView) ?? false
         #endif
         guard didFocus else { return }
+        if let selection = pendingFocusSelection,
+           let range = try? LoroNativeRichTextCodec.utf16Range(forScalarSelection: selection, in: semanticStorage) {
+            textView.setSelectedRange(range)
+            engine.setSelection(selection)
+        }
         completedFocusGeneration = generation
         pendingFocusGeneration = nil
+        pendingFocusSelection = nil
     }
 
     private func replace(range: NSRange, withPlainText replacement: String) -> Bool {

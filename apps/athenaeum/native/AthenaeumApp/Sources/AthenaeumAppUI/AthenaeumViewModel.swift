@@ -29,6 +29,27 @@ protocol DailyNoteSupertagClient {
 
 extension WorkspaceRPCClient: DailyNoteSupertagClient {}
 
+/// Single-flight custody for one note-level external mutation. A completion carries the token it
+/// claimed; a delayed completion from an older claim can therefore never release a newer claim.
+struct DailyNoteSupertagMutationGate: Equatable {
+    private(set) var nextToken = 0
+    private(set) var activeToken: Int?
+
+    mutating func claim() -> Int? {
+        guard activeToken == nil else { return nil }
+        nextToken &+= 1
+        activeToken = nextToken
+        return nextToken
+    }
+
+    @discardableResult
+    mutating func release(_ token: Int) -> Bool {
+        guard activeToken == token else { return false }
+        activeToken = nil
+        return true
+    }
+}
+
 // The native mirror of `web/src/App.tsx` + `DailyNote.tsx` + `Backlinks.tsx` + `GraphView.tsx`'s
 // combined data layer, built on real `AthenaeumCore` actors instead of Effect/React hooks: one
 // `@MainActor` `ObservableObject` owning the local-authority/CRDT/sync stack for exactly one
@@ -266,6 +287,7 @@ public final class AthenaeumViewModel: ObservableObject {
     /// Changes only after a guarded native human edit enters either editable Loro draft lane.
     @Published public private(set) var acceptedHumanEditGeneration = 0
     @Published public private(set) var dailyNoteSupertagAssignmentState: DailyNoteSupertagAssignmentState = .idle
+    @Published public private(set) var isDailyNoteSupertagMutationInFlight = false
 
     public let workspaceId: EntityId
     /// The deterministic node currently presented by the daily-note route. Secondary projections
@@ -293,6 +315,16 @@ public final class AthenaeumViewModel: ObservableObject {
     /// been reconciled or retried; another daily note must never inherit that operation.
     public var isDailyNoteSupertagRetryAvailable: Bool {
         pendingDailyNoteSupertagIntent != nil && !externalMutationInFlight && !isNavigating && !loroDraftBlocked
+    }
+    /// Membership is an editor-adjacent command, not a generic page action. A read-only or
+    /// projected page has no native editing custody, even when its projection happens to be
+    /// clean, so it must never start the catalog/membership RPC pair.
+    public var isDailyNoteSupertagAssignmentEligible: Bool {
+        Self.isDailyNoteSupertagPresentationEligible(pagePresentation) && isDailyNoteSupertagPresentationSafe
+    }
+
+    static func isDailyNoteSupertagPresentationEligible(_ presentation: PagePresentation) -> Bool {
+        presentation == .loroPlainEditable || presentation == .loroRichEditable
     }
 
     /// The command center may open a direct entity from Today while this same model owns the
@@ -349,8 +381,7 @@ public final class AthenaeumViewModel: ObservableObject {
     /// to finish last. This stays actor-isolated with the published graph state.
     private var graphReadGeneration = 0
     private var dailyNoteSupertagReadGeneration = 0
-    private var dailyNoteSupertagMutationGeneration = 0
-    private var activeDailyNoteSupertagMutationToken: Int?
+    private var dailyNoteSupertagMutationGate = DailyNoteSupertagMutationGate()
     private var dailyNoteSupertagReadClaim: DailyNoteSupertagReadClaim?
     private var pendingDailyNoteSupertagIntent: PendingDailyNoteSupertagIntent?
     private var presentedPageRouteWitness: PageRouteWitness?
@@ -911,6 +942,12 @@ public final class AthenaeumViewModel: ObservableObject {
     /// Reads both sides of the assignment decision from server authority. A tag selector is never
     /// enabled from an old catalog or an optimistic local membership cache.
     public func refreshDailyNoteSupertags() async {
+        guard isDailyNoteSupertagAssignmentEligible else {
+            dailyNoteSupertagReadGeneration &+= 1
+            dailyNoteSupertagReadClaim = nil
+            dailyNoteSupertagAssignmentState = .idle
+            return
+        }
         // An ambiguous operation remains the same operation across a reconciliation read. The
         // read fence itself must change, but the request id/reason/attribution must not.
         let retainedIntent = pendingDailyNoteSupertagIntent
@@ -984,9 +1021,11 @@ public final class AthenaeumViewModel: ObservableObject {
         // Claim synchronously before the first suspension. A second tap observes this identity
         // and cannot independently mint a request id during the descriptor check below.
         pendingDailyNoteSupertagIntent = intent
-        dailyNoteSupertagMutationGeneration &+= 1
-        let mutationToken = dailyNoteSupertagMutationGeneration
-        activeDailyNoteSupertagMutationToken = mutationToken
+        guard let mutationToken = dailyNoteSupertagMutationGate.claim() else {
+            pendingDailyNoteSupertagIntent = nil
+            return
+        }
+        isDailyNoteSupertagMutationInFlight = true
         externalMutationInFlight = true
         await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
     }
@@ -996,9 +1035,8 @@ public final class AthenaeumViewModel: ObservableObject {
               isCurrent(intent.claim.selection, generation: intent.claim.pageGeneration),
               !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
               isDailyNoteSupertagPresentationSafe else { return }
-        dailyNoteSupertagMutationGeneration &+= 1
-        let mutationToken = dailyNoteSupertagMutationGeneration
-        activeDailyNoteSupertagMutationToken = mutationToken
+        guard let mutationToken = dailyNoteSupertagMutationGate.claim() else { return }
+        isDailyNoteSupertagMutationInFlight = true
         externalMutationInFlight = true
         await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
     }
@@ -1049,8 +1087,8 @@ public final class AthenaeumViewModel: ObservableObject {
     }
 
     private func releaseDailyNoteSupertagMutation(_ mutationToken: Int) {
-        guard activeDailyNoteSupertagMutationToken == mutationToken else { return }
-        activeDailyNoteSupertagMutationToken = nil
+        guard dailyNoteSupertagMutationGate.release(mutationToken) else { return }
+        isDailyNoteSupertagMutationInFlight = false
         externalMutationInFlight = false
     }
 
@@ -1060,8 +1098,6 @@ public final class AthenaeumViewModel: ObservableObject {
             return loroEditorBase != nil && loroPlainDraft == loroEditorBase?.text
         case .loroRichEditable:
             return loroRichSession != nil && loroRichSession?.draft == loroRichSession?.base.document
-        case .loroReadOnly(let projection): return !projection.isDirty
-        case .loroProjectedReadOnly(let projection): return !projection.projection.isDirty
         default: return false
         }
     }
