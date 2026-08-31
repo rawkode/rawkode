@@ -34,13 +34,15 @@ public final class AgentEditViewModel: ObservableObject {
     @Published public var selectedChatId: String?
     @Published public private(set) var messages: [RPCChatMessage] = []
     @Published public private(set) var pending = RPCPendingChanges()
-    /// Adversarial-review fix (finding: "No references anywhere in AthenaeumRPC or AthenaeumApp
-    /// to forkChatEdit/acceptChatFork/revertChatFork/chatForkPreview... the native client has
-    /// zero capability to review or act on agent note-body edits") — the note-body-edit
-    /// counterpart to `pending` above. Populated by `selectChat`/`sendMessage` via
-    /// `refreshNoteForks()`: scan the chat's own message log for candidate node ids (see that
-    /// method's doc comment), then re-check each against the real, live `chatForkPreview` state —
-    /// mirrors the web stage's `ChatPanel.tsx` `forkNodeIds`/`forksState` design exactly.
+    /// Server-owned, human-readable review rows. Unlike `pending`, this is safe to render: its
+    /// labels never interpolate opaque graph ids or fact values.
+    @Published public private(set) var pendingReviewItems: [RPCChatReviewItem] = []
+    @Published public private(set) var structuredReviewStatus: RPCChatReviewLaneStatus?
+    @Published public private(set) var legacyReviewStatus: RPCChatReviewLaneStatus?
+    @Published public private(set) var reviewStatus: LoadStatus = .idle
+    /// Legacy note-body edits are projected by the server's explicit `legacy-fork` lane. The
+    /// native surface keeps them separate from structured pending changes so an unavailable or
+    /// capped fork cannot disable an otherwise safe structured decision.
     @Published public private(set) var pendingNoteForks: [RPCChatForkPreview] = []
     @Published public private(set) var noteForkBusyKey: String?
     @Published public var newChatTitle: String = ""
@@ -53,22 +55,20 @@ public final class AgentEditViewModel: ObservableObject {
     /// as the web drawer without presenting deployment diagnostics as a user error.
     @Published public private(set) var isModelUnavailable = false
     @Published public private(set) var errorMessage: String?
+    private var reviewGeneration = 0
+    private var reviewWitness: String?
+
+    /// A non-empty lane with omitted or unavailable rows must be visible even when no actionable
+    /// fork preview survived projection; otherwise the UI would incorrectly claim there are no
+    /// note edits waiting for review.
+    public var hasLegacyReviewGap: Bool {
+        guard let lane = legacyReviewStatus else { return false }
+        return lane.total > lane.shown || lane.truncated || lane.unavailable > 0
+    }
 
     static let modelUnavailableMessage =
         "Agent replies are unavailable for this workspace. Your message is saved. " +
         "You can keep reviewing this conversation and try again later."
-
-    /// A `mergeThrough`/`revertFrom` value comfortably beyond any real `ChangesMessage.sequence`
-    /// a single chat will ever produce — "accept/revert everything currently pending for this
-    /// chat," the same wide-range-is-a-safe-no-op-beyond-what-exists pattern
-    /// `agent-edit.test.ts`'s own `mergeThrough: 100` reconcile-sweep assertion already relies on
-    /// (see that test's comment: "A merge over any range is a safe no-op — there is nothing left
-    /// pending to promote"). Deliberately not computed as `max(pending sequences)`: a record can
-    /// legitimately have no stamped `sequence` yet (§Q15's "unstamped" window, node.ts's
-    /// `PendingMarker` doc comment) between being written and the enclosing turn's flush, and
-    /// `sendChatMessage` has already returned by the time this UI ever sees a chat's pending list
-    /// — so this sentinel is simpler and exactly as correct as a computed max would be here.
-    private static let acceptAllSentinel = 1_000_000_000
 
     /// Turns a first prompt into the same compact, deterministic title used by the web composer.
     /// Determinism matters here: a retry after a failed model call should continue the existing
@@ -137,7 +137,11 @@ public final class AgentEditViewModel: ObservableObject {
                 selectedChatId = nil
                 messages = []
                 pending = RPCPendingChanges()
+                pendingReviewItems = []
+                structuredReviewStatus = nil
+                legacyReviewStatus = nil
                 pendingNoteForks = []
+                reviewStatus = .idle
             }
             status = .loaded
         } catch {
@@ -175,14 +179,43 @@ public final class AgentEditViewModel: ObservableObject {
     }
 
     public func selectChat(_ chatId: String) async {
+        reviewGeneration += 1
+        let generation = reviewGeneration
         selectedChatId = chatId
+        reviewWitness = nil
+        reviewStatus = .loading
+        messages = []
+        pending = RPCPendingChanges()
+        pendingReviewItems = []
+        structuredReviewStatus = nil
+        legacyReviewStatus = nil
+        pendingNoteForks = []
         do {
-            let (_, chatMessages) = try await client.getChat(chatId: chatId)
-            let pendingChanges = try await client.listPendingChanges(chatId: chatId)
-            messages = chatMessages
-            pending = pendingChanges
-            await refreshNoteForks(chatId: chatId, messages: chatMessages)
+            let review = try await client.getChatReview(chatId: chatId)
+            guard generation == reviewGeneration, selectedChatId == chatId, review.chat.id == chatId else { return }
+            messages = review.messages
+            pendingReviewItems = review.items.filter { $0.lane == "structured" }
+            structuredReviewStatus = review.structuredForks
+            legacyReviewStatus = review.legacyForks
+            pendingNoteForks = review.items.compactMap { item in
+                guard item.lane == "legacy-fork", let nodeId = item.nodeId, let lines = item.forkPreviewLines else { return nil }
+                return RPCChatForkPreview(
+                    nodeId: nodeId,
+                    forked: true,
+                    text: lines.joined(separator: "\n"),
+                    label: item.label,
+                    previewLines: lines,
+                    previewTruncated: item.forkPreviewTruncated == true,
+                    targetAvailable: item.targetAvailable,
+                    actionable: item.actionable,
+                    previewDigest: item.previewDigest
+                )
+            }
+            reviewWitness = review.witness
+            reviewStatus = .loaded
         } catch {
+            guard generation == reviewGeneration, selectedChatId == chatId else { return }
+            reviewStatus = .error(Self.chatDetailLoadFailureMessage(for: error))
             errorMessage = Self.chatDetailLoadFailureMessage(for: error)
         }
     }
@@ -202,69 +235,39 @@ public final class AgentEditViewModel: ObservableObject {
         selectedChatId = chat.id
         messages = []
         pending = RPCPendingChanges()
+        pendingReviewItems = []
+        structuredReviewStatus = nil
+        legacyReviewStatus = nil
         pendingNoteForks = []
+        reviewStatus = .idle
         return chat.id
     }
 
     // MARK: - Note-body edits (chat-fork accept/revert) — adversarial-review fix
 
-    /// Every `"tool"`-role message's content is `{toolUseId, entityIds, result, isError}` JSON
-    /// (`agent-edit-service-live.ts`'s `executeToolCall` convention — same shape the web stage's
-    /// `ChatPanel.tsx` decodes via `decodeToolLogEntry`). An `editNote` call is identified
-    /// structurally rather than by tool name — this view model deliberately doesn't decode
-    /// `toolCalls` (see this file's header comment) — by TWO facts that are jointly unique to it
-    /// among today's tools: `entityIds` is empty (only `readNote`/`editNote` ever leave it empty —
-    /// see `EditNoteToolOutput`'s own doc comment in agent-tools.ts for why `editNote` never
-    /// populates `refs`), AND its JSON-stringified `result` (`EditNoteToolOutput`) carries a
-    /// `nodeId` string field that `readNote`'s own output (`ReadNoteToolOutput`, `{text}` only)
-    /// does not. `createNode`'s output also has a `nodeId` field, but always with a non-empty
-    /// `entityIds` — so the combined check has no false positives against any tool this codebase
-    /// implements today. (If a future tool is added whose output also carries a bare `nodeId` key
-    /// with empty `entityIds`, this heuristic would need revisiting — flagged here rather than
-    /// silently assumed permanent.)
-    private static func editNoteCandidateNodeIds(from messages: [RPCChatMessage]) -> [String] {
-        var ids: [String] = []
-        var seen = Set<String>()
-        for message in messages where message.role == "tool" {
-            guard let logData = message.content.data(using: .utf8),
-                  let log = try? JSONSerialization.jsonObject(with: logData) as? [String: Any],
-                  let entityIds = log["entityIds"] as? [Any], entityIds.isEmpty,
-                  let resultString = log["result"] as? String,
-                  let resultData = resultString.data(using: .utf8),
-                  let result = try? JSONSerialization.jsonObject(with: resultData) as? [String: Any],
-                  let nodeId = result["nodeId"] as? String
-            else { continue }
-            if seen.insert(nodeId).inserted { ids.append(nodeId) }
-        }
-        return ids
-    }
-
-    /// Re-checks every candidate node id from this chat's own log against the real, live
-    /// `chatForkPreview` state, keeping only those still actually forked — a chat's history
-    /// includes edits already accepted/reverted in earlier turns too, so candidates are never
-    /// assumed still active. Called after every load/send/accept/revert that could change fork
-    /// state, mirroring `selectChat`'s own refresh-after-mutate pattern.
-    private func refreshNoteForks(chatId: String, messages: [RPCChatMessage]) async {
-        let candidates = Self.editNoteCandidateNodeIds(from: messages)
-        var previews: [RPCChatForkPreview] = []
-        for nodeId in candidates {
-            if let preview = try? await client.chatForkPreview(chatId: chatId, nodeId: nodeId), preview.forked {
-                previews.append(preview)
-            }
-        }
-        pendingNoteForks = previews
-    }
+    // The server's getChatReview projection is the sole source of note-fork rows. This keeps
+    // hidden, unavailable, and stale candidates in the same witnessed lane as the web client.
 
     public func acceptNoteFork(nodeId: String) async {
         guard let chatId = selectedChatId else { return }
+        guard let fork = pendingNoteForks.first(where: { $0.nodeId == nodeId }),
+              fork.forked,
+              fork.targetAvailable,
+              fork.actionable,
+              !fork.previewTruncated,
+              let digest = fork.previewDigest else { return }
         noteForkBusyKey = "accept:\(nodeId)"
         errorMessage = nil
         defer { noteForkBusyKey = nil }
         do {
-            _ = try await client.acceptChatFork(chatId: chatId, nodeId: nodeId)
+            _ = try await client.acceptChatFork(
+                chatId: chatId,
+                nodeId: nodeId,
+                expectedPreviewDigest: digest
+            )
             await selectChat(chatId)
         } catch {
-            errorMessage = "Failed to accept note edit: \(error)"
+            errorMessage = "We couldn’t confirm that this note edit was accepted. Review it before taking another action."
         }
     }
 
@@ -277,7 +280,7 @@ public final class AgentEditViewModel: ObservableObject {
             try await client.revertChatFork(chatId: chatId, nodeId: nodeId)
             await selectChat(chatId)
         } catch {
-            errorMessage = "Failed to revert note edit: \(error)"
+            errorMessage = "We couldn’t confirm that this note edit was reverted. Review it before taking another action."
         }
     }
 
@@ -339,12 +342,15 @@ public final class AgentEditViewModel: ObservableObject {
     // MARK: - Accept / revert (the flow this stage is scoped to get right)
 
     public func accept() async {
-        guard let chatId = selectedChatId else { return }
+        guard let chatId = selectedChatId, reviewStatus == .loaded,
+              !pendingReviewItems.isEmpty, let witness = reviewWitness,
+              pendingReviewItems.allSatisfy({ $0.stamped && $0.targetAvailable && $0.actionable }) else { return }
+        let sequenceBoundary = pendingReviewItems.map(\.sequence).max()!
         isMutatingPending = true
         errorMessage = nil
         defer { isMutatingPending = false }
         do {
-            _ = try await client.mergeChanges(chatId: chatId, mergeThrough: Self.acceptAllSentinel)
+            try await client.decideChatReview(chatId: chatId, operation: "accept", sequenceBoundary: sequenceBoundary, expectedWitness: witness, requestId: UUID().uuidString, message: "Accepted reviewed agent changes.", provenance: "chat-review-native")
             await selectChat(chatId)
         } catch {
             errorMessage = Self.pendingChangesAcceptFailureMessage(for: error)
@@ -356,12 +362,14 @@ public final class AgentEditViewModel: ObservableObject {
     }
 
     public func revert() async {
-        guard let chatId = selectedChatId else { return }
+        guard let chatId = selectedChatId, reviewStatus == .loaded, let witness = reviewWitness,
+              !pendingReviewItems.isEmpty, pendingReviewItems.allSatisfy({ $0.stamped && $0.targetAvailable && $0.actionable }) else { return }
+        let sequenceBoundary = pendingReviewItems.map(\.sequence).min()!
         isMutatingPending = true
         errorMessage = nil
         defer { isMutatingPending = false }
         do {
-            _ = try await client.revertChanges(chatId: chatId, revertFrom: 0)
+            try await client.decideChatReview(chatId: chatId, operation: "revert", sequenceBoundary: sequenceBoundary, expectedWitness: witness, requestId: UUID().uuidString, message: "Reverted reviewed agent changes.", provenance: "chat-review-native")
             await selectChat(chatId)
         } catch {
             errorMessage = Self.pendingChangesRevertFailureMessage(for: error)

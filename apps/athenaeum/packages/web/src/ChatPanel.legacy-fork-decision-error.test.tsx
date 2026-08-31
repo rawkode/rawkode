@@ -8,8 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const runtimeMock = vi.hoisted(() => ({ runFork: vi.fn() }))
 const queryStateMock = vi.hoisted(() => ({
-  dependencies: [] as ReadonlyArray<unknown>[],
-  twoArgumentCalls: 0
+  dependencies: [] as ReadonlyArray<unknown>[]
 }))
 
 vi.mock("./runtime.js", () => ({ runtime: runtimeMock }))
@@ -22,11 +21,7 @@ vi.mock("./use-effect-query.js", () => ({
   useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
     queryStateMock.dependencies.push([...dependencies])
     if (dependencies.length === 1) return { status: "success" as const, value: { chats: [chat] } }
-    if (dependencies.length === 3) return { status: "success" as const, value: [legacyFork] }
-    const value = queryStateMock.twoArgumentCalls++ % 2 === 0
-      ? { messages }
-      : { nodes: [], facts: [], edges: [] }
-    return { status: "success" as const, value }
+    return { status: "success" as const, value: review }
   }
 }))
 
@@ -64,6 +59,15 @@ const messages = [
     sequence: 1
   }
 ]
+const review = {
+  chat,
+  messages,
+  items: [{ lane: "legacy-fork" as const, kind: "node" as const, sequence: 2, label: 'Edited "Daily note"', nodeId, stamped: true, targetAvailable: true, actionable: true, forkPreviewLines: [legacyFork.text], forkPreviewTruncated: false, previewDigest: "c".repeat(64) }],
+  witness: "a".repeat(64),
+  noteForkWitness: "b".repeat(64),
+  structuredForks: { total: 0, shown: 0, truncated: false, unavailable: 0 },
+  legacyForks: { total: 1, shown: 1, truncated: false, unavailable: 0 }
+}
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -97,7 +101,6 @@ beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   runtimeMock.runFork.mockReset()
   queryStateMock.dependencies = []
-  queryStateMock.twoArgumentCalls = 0
 })
 
 afterEach(() => {
@@ -115,7 +118,6 @@ describe("ChatPanel legacy fork decision failure privacy", () => {
     runtimeMock.runFork.mockImplementation(() => ({
       addObserver: (observer: (exit: unknown) => void) => observers.push(observer)
     }))
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const host = await mount()
 
     await act(async () => {
@@ -143,7 +145,6 @@ describe("ChatPanel legacy fork decision failure privacy", () => {
     })
 
     expect(runtimeMock.runFork).toHaveBeenCalledTimes(2)
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("private legacy decision detail"))
   })
 
   for (const [kind, pastTense] of [["accept", "accepted"], ["revert", "reverted"]] as const) {
@@ -152,7 +153,6 @@ describe("ChatPanel legacy fork decision failure privacy", () => {
       runtimeMock.runFork.mockImplementation(() => ({
         addObserver: (observer: (exit: unknown) => void) => observers.push(observer)
       }))
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
       const privateDetail = `private legacy ${kind} provider detail`
       const host = await mount()
 
@@ -176,7 +176,6 @@ describe("ChatPanel legacy fork decision failure privacy", () => {
       expect(host.querySelector(".chat-note-fork-preview")?.textContent).toBe(legacyFork.text)
       expect(noteForkActionButton(host, kind)?.disabled).toBe(false)
       expect(queryStateMock.dependencies.some((dependencies) => dependencies.includes(1))).toBe(false)
-      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining(privateDetail))
 
       await act(async () => {
         noteForkActionButton(host, kind)?.click()

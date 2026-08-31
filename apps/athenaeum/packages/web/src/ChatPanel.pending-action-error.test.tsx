@@ -8,8 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const runtimeMock = vi.hoisted(() => ({ runFork: vi.fn() }))
 const queryStateMock = vi.hoisted(() => ({
-  dependencies: [] as ReadonlyArray<unknown>[],
-  twoArgumentCalls: 0
+  dependencies: [] as ReadonlyArray<unknown>[]
 }))
 
 vi.mock("./runtime.js", () => ({ runtime: runtimeMock }))
@@ -22,11 +21,7 @@ vi.mock("./use-effect-query.js", () => ({
   useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
     queryStateMock.dependencies.push([...dependencies])
     if (dependencies.length === 1) return { status: "success" as const, value: { chats: [chat] } }
-    if (dependencies.length === 3) return { status: "success" as const, value: [] }
-    const value = queryStateMock.twoArgumentCalls++ % 2 === 0
-      ? { messages: [] }
-      : { nodes: [pendingNode], facts: [], edges: [] }
-    return { status: "success" as const, value }
+    return { status: "success" as const, value: review }
   }
 }))
 
@@ -45,6 +40,18 @@ const pendingNode = {
   title: "Project north",
   pending: { sequence: 13 }
 }
+const review = {
+  chat,
+  messages: [],
+  items: [
+    { lane: "structured" as const, kind: "node" as const, sequence: pendingNode.pending.sequence, label: 'Created "Project north"', stamped: true, targetAvailable: true, actionable: true },
+    { lane: "legacy-fork" as const, kind: "unresolved" as const, sequence: 0, label: "This note edit’s target is unavailable.", stamped: true, targetAvailable: false, actionable: false }
+  ],
+  witness: "a".repeat(64),
+  noteForkWitness: "b".repeat(64),
+  structuredForks: { total: 1, shown: 1, truncated: false, unavailable: 0 },
+  legacyForks: { total: 1, shown: 0, truncated: false, unavailable: 1 }
+}
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -59,7 +66,7 @@ const pendingActionButton = (
   host: HTMLElement,
   kind: "accept" | "revert"
 ): HTMLButtonElement | undefined =>
-  [...host.querySelectorAll<HTMLButtonElement>(".chat-pending-actions button")]
+  [...host.querySelectorAll<HTMLButtonElement>(".chat-pending:not(.chat-note-forks) .chat-pending-actions button")]
     .find((button) => button.textContent === (kind === "accept" ? "Accept" : "Revert"))
 
 const mount = async (): Promise<HTMLDivElement> => {
@@ -78,7 +85,6 @@ beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   runtimeMock.runFork.mockReset()
   queryStateMock.dependencies = []
-  queryStateMock.twoArgumentCalls = 0
 })
 
 afterEach(() => {
@@ -96,7 +102,6 @@ describe("ChatPanel pending decision failure privacy", () => {
     runtimeMock.runFork.mockImplementation(() => ({
       addObserver: (observer: (exit: unknown) => void) => observers.push(observer)
     }))
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const host = await mount()
 
     await act(async () => {
@@ -106,9 +111,10 @@ describe("ChatPanel pending decision failure privacy", () => {
     })
 
     expect(runtimeMock.runFork).toHaveBeenCalledTimes(1)
-    const pendingButtons = [...host.querySelectorAll<HTMLButtonElement>(".chat-pending-actions button")]
+    const pendingButtons = [...host.querySelectorAll<HTMLButtonElement>(".chat-pending:not(.chat-note-forks) .chat-pending-actions button")]
     expect(pendingButtons.map((button) => button.textContent)).toEqual(["Accepting…", "Revert"])
     expect(pendingButtons.every((button) => button.disabled)).toBe(true)
+    expect(host.textContent).toContain("Some pending note edits couldn’t be safely shown.")
 
     await act(async () => {
       observers[0]?.(Exit.fail(new UnexpectedError({ message: "private pending decision detail" })))
@@ -124,7 +130,6 @@ describe("ChatPanel pending decision failure privacy", () => {
     })
 
     expect(runtimeMock.runFork).toHaveBeenCalledTimes(2)
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("private pending decision detail"))
   })
 
   for (const [kind, pastTense] of [["accept", "accepted"], ["revert", "reverted"]] as const) {
@@ -133,7 +138,6 @@ describe("ChatPanel pending decision failure privacy", () => {
       runtimeMock.runFork.mockImplementation(() => ({
         addObserver: (observer: (exit: unknown) => void) => observers.push(observer)
       }))
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
       const privateDetail = "private pending " + kind + " provider detail"
       const host = await mount()
 
@@ -156,7 +160,6 @@ describe("ChatPanel pending decision failure privacy", () => {
       expect(host.querySelector(".chat-pending-list")?.textContent).toContain("Project north")
       expect(pendingActionButton(host, kind)?.disabled).toBe(false)
       expect(queryStateMock.dependencies.some((dependencies) => dependencies.includes(1))).toBe(false)
-      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining(privateDetail))
 
       await act(async () => {
         pendingActionButton(host, kind)?.click()

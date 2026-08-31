@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const queryStateMock = vi.hoisted(() => ({
   dependencies: [] as ReadonlyArray<unknown>[],
   forksState: "failure" as "failure" | "loading" | "success",
-  twoArgumentCalls: 0
+  retryLoadingSeen: false
 }))
 
 vi.mock("./model-availability.js", () => ({
@@ -20,16 +20,14 @@ vi.mock("./use-effect-query.js", () => ({
   useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
     queryStateMock.dependencies.push([...dependencies])
     if (dependencies.length === 1) return { status: "success" as const, value: { chats: [chat] } }
-    if (dependencies.length === 3) {
-      if (queryStateMock.forksState === "loading") return { status: "loading" as const }
-      return queryStateMock.forksState === "success"
-        ? { status: "success" as const, value: [legacyFork] }
-        : { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
+    if (dependencies[1] === 1 && queryStateMock.forksState === "success" && !queryStateMock.retryLoadingSeen) {
+      queryStateMock.retryLoadingSeen = true
+      return { status: "loading" as const }
     }
-    const value = queryStateMock.twoArgumentCalls++ % 2 === 0
-      ? { messages }
-      : { nodes: [], facts: [], edges: [] }
-    return { status: "success" as const, value }
+    if (queryStateMock.forksState === "loading") return { status: "loading" as const }
+    return queryStateMock.forksState === "success"
+      ? { status: "success" as const, value: review }
+      : { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
   }
 }))
 
@@ -68,6 +66,15 @@ const messages = [
     sequence: 1
   }
 ]
+const review = {
+  chat,
+  messages,
+  items: [{ lane: "legacy-fork" as const, kind: "node" as const, sequence: 2, label: 'Edited "Daily note"', nodeId, stamped: true, targetAvailable: true, actionable: true, forkPreviewLines: [legacyFork.text], forkPreviewTruncated: false, previewDigest: "c".repeat(64) }],
+  witness: "a".repeat(64),
+  noteForkWitness: "b".repeat(64),
+  structuredForks: { total: 0, shown: 0, truncated: false, unavailable: 0 },
+  legacyForks: { total: 1, shown: 1, truncated: false, unavailable: 0 }
+}
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -94,7 +101,7 @@ beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   queryStateMock.dependencies = []
   queryStateMock.forksState = "failure"
-  queryStateMock.twoArgumentCalls = 0
+  queryStateMock.retryLoadingSeen = false
 })
 
 afterEach(() => {
@@ -128,11 +135,15 @@ describe("ChatPanel legacy fork recovery", () => {
       alert?.querySelector<HTMLButtonElement>("button")?.click()
       await flush()
     })
+    await act(async () => {
+      roots[0]?.root.render(<ChatPanel />)
+      await flush()
+    })
 
     expect(host.querySelector(".chat-note-forks-load-state")).toBeNull()
     expect(host.querySelector(".chat-note-fork-preview")?.textContent).toBe(legacyFork.text)
     expect(host.querySelector(".chat-note-forks .chat-pending-actions")).not.toBeNull()
-    expect(queryStateMock.dependencies).toContainEqual([chatId, 1, nodeId])
+    expect(queryStateMock.dependencies).toContainEqual([chatId, 1])
     const finalListRefreshes = queryStateMock.dependencies.filter((dependencies) => dependencies.length === 1)
     expect(finalListRefreshes.every((dependencies) => dependencies[0] === 0)).toBe(true)
   })

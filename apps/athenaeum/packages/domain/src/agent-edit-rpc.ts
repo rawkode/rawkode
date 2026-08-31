@@ -49,11 +49,30 @@ export class GetChatReviewInput extends Schema.Class<GetChatReviewInput>("GetCha
 }) {}
 
 export class ChatReviewItem extends Schema.Class<ChatReviewItem>("ChatReviewItem")({
+  /** Explicit lane identity keeps hidden legacy rows out of structured decisions. */
+  lane: Schema.Literal("structured", "legacy-fork"),
   kind: Schema.Literal("node", "fact", "edge", "unresolved"),
   sequence: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   label: Schema.String.pipe(Schema.minLength(1)),
+  /** An unstamped record is recovery work, never an accept/revert target. */
+  stamped: Schema.Boolean,
+  /** False means the target was hidden, missing, or outside the bounded review read. */
+  targetAvailable: Schema.Boolean,
+  /** Structural action identity is present only for a stamped, visible target. */
+  actionable: Schema.Boolean,
   nodeId: Schema.optional(EntityId),
-  forkPreview: Schema.optional(Schema.String)
+  /** Line-preserving fork preview. This is deliberately distinct from a generic item label. */
+  forkPreviewLines: Schema.optional(Schema.Array(Schema.String)),
+  forkPreviewTruncated: Schema.optional(Schema.Boolean),
+  previewDigest: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)))
+}) {}
+
+/** Independent lanes prevent a legacy-fork cap from suppressing structured pending changes. */
+export class ChatReviewForkLaneStatus extends Schema.Class<ChatReviewForkLaneStatus>("ChatReviewForkLaneStatus")({
+  total: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  shown: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  truncated: Schema.Boolean,
+  unavailable: Schema.Number.pipe(Schema.int(), Schema.nonNegative())
 }) {}
 
 export class GetChatReviewOutput extends Schema.Class<GetChatReviewOutput>("GetChatReviewOutput")({
@@ -61,7 +80,31 @@ export class GetChatReviewOutput extends Schema.Class<GetChatReviewOutput>("GetC
   messages: Schema.Array(ChatMessageRecord),
   items: Schema.Array(ChatReviewItem),
   witness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
-  noteForkWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))
+  noteForkWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  structuredForks: ChatReviewForkLaneStatus,
+  legacyForks: ChatReviewForkLaneStatus
+}) {}
+
+/**
+ * The server recomputes the full pending witness in the same WorkspaceDO transaction that
+ * applies this bounded decision. `sequenceBoundary` keeps the historical range semantics while
+ * refusing to act on unstamped recovery records.
+ */
+export class DecideChatReviewInput extends Schema.Class<DecideChatReviewInput>("DecideChatReviewInput")({
+  chatId: EntityId,
+  operation: Schema.Literal("accept", "revert"),
+  sequenceBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  expectedWitness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  requestId: Schema.String.pipe(Schema.minLength(1)),
+  message: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1)),
+  provenance: Schema.String.pipe(Schema.trimmed(), Schema.minLength(1))
+}) {}
+
+export class DecideChatReviewOutput extends Schema.Class<DecideChatReviewOutput>("DecideChatReviewOutput")({
+  chatId: EntityId,
+  operation: Schema.Literal("accept", "revert"),
+  sequenceBoundary: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  witness: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))
 }) {}
 
 /**

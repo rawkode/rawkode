@@ -1,7 +1,7 @@
 /**
  * Source-verified routing inventory for the public Workspace RPC mutation surface, including
  * credential minting even though it does not itself persist workspace application state.
- * `createNode`, `createNodeWithIntent`, `acceptChatFork`, `acceptPageProposal`, `decideAgentChangeProposal`, `applySupertag`,
+ * `createNode`, `createNodeWithIntent`, `acceptChatFork`, `acceptPageProposal`, `decideAgentChangeProposal`, `decideChatReview`, `applySupertag`,
  * `addFact`, `createRelationDefinition`, `createEdge`, `createTag`, `syncNoteReferences`, `defineTagField`, `assignTag`, `unassignTag`, `linkCalendarEventToNode`, `createBookmark`, and `appendTranscriptSegment` are ledger routes. Every other entry is deliberately a
  * direct bypass until it receives its own compatible command contract; this manifest prevents
  * silently implying that the ledger governs mutations it does not yet govern.
@@ -18,7 +18,7 @@ export const WORKSPACE_MUTATION_ROUTING = {
   proposePageEdit: "direct", acceptPageProposal: "ledger", revertPageProposal: "direct",
   addFact: "ledger", createRelationDefinition: "ledger", createEdge: "ledger", createTag: "ledger", updateTag: "ledger",
   syncNoteReferences: "ledger", assignTag: "ledger", unassignTag: "ledger", defineTagField: "ledger", applySupertag: "ledger",
-  rotateEpoch: "direct", createChat: "direct", sendChatMessage: "direct", mergeChanges: "direct", revertChanges: "direct", decideAgentChangeProposal: "ledger",
+  rotateEpoch: "direct", createChat: "direct", sendChatMessage: "direct", mergeChanges: "direct", revertChanges: "direct", decideAgentChangeProposal: "ledger", decideChatReview: "ledger",
   createApp: "direct", updateAppCode: "direct", deleteApp: "direct",
   mintAppRunCredential: "direct",
   migrateLegacyPage: "ledger", commitLoroPageContent: "ledger", prepareMeetingInDailyNote: "ledger", startLoroPageSync: "direct", loroPageSyncMessage: "direct",

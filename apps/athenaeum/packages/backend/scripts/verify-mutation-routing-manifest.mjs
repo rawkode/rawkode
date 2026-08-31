@@ -29,7 +29,7 @@ const readOnlyRpcMethods = new Set([
   "whoami", "listNodes", "getNode", "subscribeToNodes", "getPageDocumentDescriptor", "getLegacyPageProjection", "getPageText",
   "previewPageProposal", "chatForkPreview", "listBacklinks", "listGraphIssues", "listTags", "getTag", "listTagClosure",
   "listTagFields", "runView", "searchNodes", "syncFeed", "listChats", "getChat", "listChatChanges",
-  "listPendingChanges", "listApps", "getApp", "getAppCode", "previewRemoveCollaborator", "previewRevokeShareLink",
+  "listPendingChanges", "getChatReview", "listApps", "getApp", "getAppCode", "previewRemoveCollaborator", "previewRevokeShareLink",
   "listCollaborators", "listShareLinks", "listCalendarEvents", "listGatekeeperBindings", "getTodayBrief", "listBookmarks", "getMeeting",
   "listMeetings", "listWorkoutImports", "listWorkouts", "getWorkout", "pollVoiceAudioEvents", "listRecentLedgerActivity", "listStandupPublications",
   // A historical endpoint which now throws before decoding input. It has no manifest entry and
@@ -43,7 +43,7 @@ const stale = listed.filter((name) => !actual.includes(name))
 if (missing.length || stale.length) {
   throw new Error(`mutation-routing manifest drift; missing=[${missing}] stale=[${stale}] (root ${backendRoot})`)
 }
-const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "updateTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "decideAgentChangeProposal", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "linkCalendarEventToNode", "createBookmark", "appendTranscriptSegment", "startMeeting"]
+const ledgerRoutes = ["createNode", "createNodeWithIntent", "createLoroPage", "acceptChatFork", "acceptPageProposal", "addFact", "createRelationDefinition", "createEdge", "createTag", "updateTag", "syncNoteReferences", "assignTag", "unassignTag", "defineTagField", "applySupertag", "decideAgentChangeProposal", "decideChatReview", "migrateLegacyPage", "commitLoroPageContent", "prepareMeetingInDailyNote", "linkCalendarEventToNode", "createBookmark", "appendTranscriptSegment", "startMeeting"]
 if (ledgerRoutes.some((name) => manifestExports.WORKSPACE_MUTATION_ROUTING[name] !== "ledger") || Object.values(manifestExports.WORKSPACE_MUTATION_ROUTING).filter((route) => route === "ledger").length !== ledgerRoutes.length) {
   throw new Error(`ledger routing manifest must contain exactly ${ledgerRoutes.join(", ")}`)
 }

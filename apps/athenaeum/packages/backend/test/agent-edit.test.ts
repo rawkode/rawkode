@@ -36,6 +36,10 @@ import {
   CreationIntent,
   GetChatInput,
   GetChatOutput,
+  GetChatReviewInput,
+  GetChatReviewOutput,
+  DecideChatReviewInput,
+  DecideChatReviewOutput,
   GetPageDocumentDescriptorInput,
   GetPageDocumentDescriptorOutput,
   GetPageTextInput,
@@ -1237,6 +1241,21 @@ describe("AgentEditService: crash-safety — reconcilePendingChanges", () => {
     ).changes
     expect(beforeReconcile.length).toBe(0)
 
+    // An unstamped crash-recovery row is disclosed only as non-actionable recovery work. Neither
+    // accept nor revert may claim to have decided it before reconciliation has durably stamped it.
+    const recoveryReview = Schema.decodeUnknownSync(GetChatReviewOutput)(
+      await workspaceStub.getChatReview(Schema.encodeSync(GetChatReviewInput)(new GetChatReviewInput({ chatId: chat.id })))
+    )
+    expect(recoveryReview.items.some((item) => !item.stamped && !item.actionable)).toBe(true)
+    for (const operation of ["accept", "revert"] as const) {
+      await expect(workspaceStub.decideChatReview(
+        Schema.encodeSync(DecideChatReviewInput)(new DecideChatReviewInput({
+          chatId: chat.id, operation, sequenceBoundary: 0, expectedWitness: recoveryReview.witness,
+          requestId: `recovery-${operation}`, message: "Do not decide recovery work", provenance: "user-review"
+        }))
+      )).rejects.toThrow(/unfinished recovery/)
+    }
+
     // "The DO restarts": both hooks back to normal, and a fresh turn's start-of-turn reconcile
     // finds the logged-but-unstamped record and re-adopts it (stamps it via a brand-new
     // `ChangesMessage`) before the model is even called.
@@ -1484,6 +1503,64 @@ describe("AgentEditService: a single turn mixing editNote with createNode/addFac
     expect(pendingBeforeMerge.facts).toHaveLength(1)
     expect(pendingBeforeMerge.facts[0]!.predicateId).toBe("topic")
     expect(pendingBeforeMerge.edges).toHaveLength(1)
+
+    // The review RPC is the one coherent read used by both clients: it carries the transcript,
+    // server-derived labels, and independent witnesses in one snapshot. Opaque graph ids must
+    // never become user-facing copy, even though they remain structural action identities.
+    const reviewBeforeMerge = Schema.decodeUnknownSync(GetChatReviewOutput)(
+      await workspaceStub.getChatReview(
+        Schema.encodeSync(GetChatReviewInput)(new GetChatReviewInput({ chatId: chat.id }))
+      )
+    )
+    expect(reviewBeforeMerge.chat.id).toBe(chat.id)
+    expect(reviewBeforeMerge.messages.length).toBeGreaterThan(0)
+    expect(reviewBeforeMerge.items.map((item) => item.label)).toEqual([
+      'Create “Meeting notes”',
+      'Create “Dave”',
+      'Set topic on “Meeting notes” to "planning"',
+      'Link “Meeting notes” to “Dave”'
+    ])
+    expect(reviewBeforeMerge.items.some((item) => item.label.includes(noteNodeId))).toBe(false)
+    expect(reviewBeforeMerge.witness).toMatch(/^[a-f0-9]{64}$/)
+    expect(reviewBeforeMerge.noteForkWitness).toMatch(/^[a-f0-9]{64}$/)
+    expect(reviewBeforeMerge.items.every((item) => item.stamped && item.targetAvailable && item.actionable)).toBe(true)
+    expect(reviewBeforeMerge.structuredForks.truncated).toBe(false)
+
+    // The reviewed decision recomputes the complete raw pending preimage in the same DO
+    // transaction. A stale witness cannot merge or revert even if the caller knows a sequence.
+    await expect(workspaceStub.decideChatReview(
+      Schema.encodeSync(DecideChatReviewInput)(new DecideChatReviewInput({
+        chatId: chat.id, operation: "accept", sequenceBoundary: 3, expectedWitness: "0".repeat(64),
+        requestId: "review-stale-witness", message: "Accept reviewed changes", provenance: "user-review"
+      }))
+    )).rejects.toThrow(/stale/)
+    for (const sequenceBoundary of [2, 4]) {
+      await expect(workspaceStub.decideChatReview(
+        Schema.encodeSync(DecideChatReviewInput)(new DecideChatReviewInput({
+          chatId: chat.id, operation: "accept", sequenceBoundary, expectedWitness: reviewBeforeMerge.witness,
+          requestId: `review-boundary-${sequenceBoundary}`, message: "Accept reviewed changes", provenance: "user-review"
+        }))
+      )).rejects.toThrow(/boundary/)
+    }
+    const reviewedDecision = Schema.decodeUnknownSync(DecideChatReviewOutput)(
+      await workspaceStub.decideChatReview(
+        Schema.encodeSync(DecideChatReviewInput)(new DecideChatReviewInput({
+          chatId: chat.id, operation: "accept", sequenceBoundary: 3, expectedWitness: reviewBeforeMerge.witness,
+          requestId: "review-accept-witness", message: "Accept reviewed changes", provenance: "user-review"
+        }))
+      )
+    )
+    expect(reviewedDecision.witness).toBe(reviewBeforeMerge.witness)
+
+    const emptyReview = Schema.decodeUnknownSync(GetChatReviewOutput)(
+      await workspaceStub.getChatReview(Schema.encodeSync(GetChatReviewInput)(new GetChatReviewInput({ chatId: chat.id })))
+    )
+    await expect(workspaceStub.decideChatReview(
+      Schema.encodeSync(DecideChatReviewInput)(new DecideChatReviewInput({
+        chatId: chat.id, operation: "revert", sequenceBoundary: 0, expectedWitness: emptyReview.witness,
+        requestId: "review-empty", message: "Revert reviewed changes", provenance: "user-review"
+      }))
+    )).rejects.toThrow(/no stamped changes/)
 
     // --- Kind 2 reviewable + discoverable: the tool log's `editNote` entry carries `nodeId`
     // (the adversarial-review fix) equal to the real note node — proving a client CAN discover

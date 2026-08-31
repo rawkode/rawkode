@@ -60,7 +60,9 @@ export class ChatForkPreviewOutput extends Schema.Class<ChatForkPreviewOutput>("
 export class AcceptChatForkInput extends Schema.Class<AcceptChatForkInput>("AcceptChatForkInput")({
   workspaceId: EntityId,
   chatId: Schema.String.pipe(Schema.minLength(1)),
-  nodeId: EntityId
+  nodeId: EntityId,
+  /** New callers bind acceptance to the exact preview; legacy callers retain compatibility. */
+  expectedPreviewDigest: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)))
 }) {}
 
 export class AcceptChatForkOutput extends Schema.Class<AcceptChatForkOutput>("AcceptChatForkOutput")({

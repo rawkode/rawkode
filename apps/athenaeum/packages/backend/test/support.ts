@@ -83,10 +83,12 @@ export interface WorkspaceApi {
   createChat(input: unknown): Promise<unknown>
   listChats(input: unknown): Promise<unknown>
   getChat(input: unknown): Promise<unknown>
+  getChatReview(input: unknown): Promise<unknown>
   sendChatMessage(input: unknown): Promise<unknown>
   mergeChanges(input: unknown): Promise<unknown>
   revertChanges(input: unknown): Promise<unknown>
   decideAgentChangeProposal(input: unknown): Promise<unknown>
+  decideChatReview(input: unknown): Promise<unknown>
   listChatChanges(input: unknown): Promise<unknown>
   listPendingChanges(input: unknown): Promise<unknown>
 

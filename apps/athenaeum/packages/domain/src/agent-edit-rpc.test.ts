@@ -10,9 +10,11 @@ describe("GetChatReviewOutput", () => {
     const value = {
       chat: new Chat({ id: chatId as never, workspaceId: chatId as never, title: "Review", createdAt: "2026-08-31T00:00:00.000Z" as never }),
       messages: [new ChatMessageRecord({ id: "00000000-0000-4000-8000-000000000002" as never, chatId: chatId as never, role: "assistant", content: "Done", sequence: 0 })],
-      items: [{ kind: "unresolved", sequence: 0, label: "Unresolved relationship endpoint" }],
+      items: [{ lane: "structured", kind: "unresolved", sequence: 0, label: "Unresolved relationship endpoint", stamped: false, targetAvailable: false, actionable: false }],
       witness: "a".repeat(64),
-      noteForkWitness: "b".repeat(64)
+      noteForkWitness: "b".repeat(64),
+      structuredForks: { total: 0, shown: 0, truncated: false, unavailable: 0 },
+      legacyForks: { total: 0, shown: 0, truncated: false, unavailable: 0 }
     }
     expect(Schema.decodeUnknownSync(GetChatReviewOutput)(value)).toMatchObject(value)
     expect(Schema.decodeUnknownEither(GetChatReviewOutput)({ ...value, witness: "short" })._tag).toBe("Left")

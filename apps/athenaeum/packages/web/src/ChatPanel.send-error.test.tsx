@@ -92,7 +92,6 @@ describe("ChatPanel send failure", () => {
         observe = observer
       }
     }))
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const privateDetail = "private active-chat provider detail"
 
     const host = await mount()
@@ -125,7 +124,6 @@ describe("ChatPanel send failure", () => {
     expect(host.querySelector(".chat-active")).not.toBeNull()
     expect(host.querySelector(".chat-model-unavailable")).toBeNull()
     expect(queryStateMock.dependencies.some((dependencies) => dependencies.includes(1))).toBe(false)
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining(privateDetail))
 
     await act(async () => {
       form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))

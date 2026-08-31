@@ -94,6 +94,134 @@ public struct RPCChatMessage: Sendable, Equatable, Identifiable {
     }
 }
 
+/// One server-resolved, presentation-safe review item. `lane` is the server-owned discriminator
+/// between structured pending changes and legacy note-fork actions. `nodeId` is structural
+/// identity for a legacy note-fork action only; the native UI must never display it.
+public struct RPCChatReviewItem: Sendable, Equatable, Identifiable {
+    public let lane: String
+    public let kind: String
+    public let sequence: Int
+    public let label: String
+    public let stamped: Bool
+    public let targetAvailable: Bool
+    public let actionable: Bool
+    public let nodeId: String?
+    public let forkPreviewLines: [String]?
+    public let forkPreviewTruncated: Bool?
+    public let previewDigest: String?
+
+    public var id: String {
+        if let nodeId { return "\(kind):\(nodeId)" }
+        return "\(kind):\(sequence):\(label)"
+    }
+
+    init(_ value: CapnWebValue) throws {
+        guard let lane = try value.field("lane").stringValue,
+              let kind = try value.field("kind").stringValue,
+              let sequence = try value.field("sequence").intValue,
+              let label = try value.field("label").stringValue,
+              let stamped = try value.field("stamped").boolValue,
+              let targetAvailable = try value.field("targetAvailable").boolValue,
+              let actionable = try value.field("actionable").boolValue,
+              ["structured", "legacy-fork"].contains(lane),
+              ["node", "fact", "edge", "unresolved"].contains(kind),
+              sequence >= 0,
+              !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw CapnWebError.malformedMessage("malformed ChatReviewItem: \(value)") }
+        self.lane = lane
+        self.kind = kind
+        self.sequence = sequence
+        self.label = label
+        self.stamped = stamped; self.targetAvailable = targetAvailable; self.actionable = actionable
+        self.nodeId = try value.field("nodeId").stringValue
+        if let rawLines = try value.field("forkPreviewLines").arrayValue {
+            self.forkPreviewLines = try rawLines.map { line in
+                guard let line = line.stringValue else {
+                    throw CapnWebError.malformedMessage("malformed ChatReviewItem fork preview line")
+                }
+                return line
+            }
+        } else {
+            self.forkPreviewLines = nil
+        }
+        self.forkPreviewTruncated = try value.field("forkPreviewTruncated").boolValue
+        let previewDigest = try value.field("previewDigest").stringValue
+        if let previewDigest,
+           previewDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == nil {
+            throw CapnWebError.malformedMessage("malformed ChatReviewItem preview digest")
+        }
+        self.previewDigest = previewDigest
+    }
+}
+
+public struct RPCChatReviewLaneStatus: Sendable, Equatable {
+    public let total: Int
+    public let shown: Int
+    public let truncated: Bool
+    public let unavailable: Int
+
+    init(_ value: CapnWebValue) throws {
+        guard let total = try value.field("total").intValue,
+              let shown = try value.field("shown").intValue,
+              let truncated = try value.field("truncated").boolValue,
+              let unavailable = try value.field("unavailable").intValue,
+              total >= 0, shown >= 0, unavailable >= 0, shown <= total
+        else { throw CapnWebError.malformedMessage("malformed ChatReviewForkLaneStatus: \(value)") }
+        self.total = total
+        self.shown = shown
+        self.truncated = truncated
+        self.unavailable = unavailable
+    }
+}
+
+/// Coherent transcript + server-owned review projection. Witnesses are opaque SHA-256 version
+/// tokens used only to fence stale reads; they are never rendered or sent to diagnostics.
+public struct RPCChatReview: Sendable, Equatable {
+    public let chat: RPCChat
+    public let messages: [RPCChatMessage]
+    public let items: [RPCChatReviewItem]
+    public let witness: String
+    public let noteForkWitness: String
+    public let structuredForks: RPCChatReviewLaneStatus
+    public let legacyForks: RPCChatReviewLaneStatus
+
+    init(_ value: CapnWebValue) throws {
+        self.chat = try RPCChat(value.field("chat"))
+        self.messages = try (value.field("messages").arrayValue ?? []).map(RPCChatMessage.init)
+        self.items = try (value.field("items").arrayValue ?? []).map(RPCChatReviewItem.init)
+        self.structuredForks = try RPCChatReviewLaneStatus(value.field("structuredForks"))
+        self.legacyForks = try RPCChatReviewLaneStatus(value.field("legacyForks"))
+        guard let witness = try value.field("witness").stringValue,
+              let noteForkWitness = try value.field("noteForkWitness").stringValue,
+              witness.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+              noteForkWitness.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+        else { throw CapnWebError.malformedMessage("malformed ChatReview witnesses") }
+        self.witness = witness
+        self.noteForkWitness = noteForkWitness
+    }
+}
+
+public struct RPCChatReviewDecision: Sendable, Equatable {
+    public let chatId: String
+    public let operation: String
+    public let sequenceBoundary: Int
+    public let witness: String
+
+    init(_ value: CapnWebValue) throws {
+        guard let chatId = try value.field("chatId").stringValue,
+              let operation = try value.field("operation").stringValue,
+              let sequenceBoundary = try value.field("sequenceBoundary").intValue,
+              let witness = try value.field("witness").stringValue,
+              ["accept", "revert"].contains(operation), sequenceBoundary >= 0,
+              witness.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+        else { throw CapnWebError.malformedMessage("malformed DecideChatReviewOutput: \(value)") }
+        self.chatId = chatId
+        self.operation = operation
+        self.sequenceBoundary = sequenceBoundary
+        self.witness = witness
+    }
+}
+
 /// The three pending-record collections a chat can currently have outstanding — mirrors
 /// `agent-edit-rpc.ts`'s `ListPendingChangesOutput` exactly (`{nodes, facts, edges}`).
 public struct RPCPendingChanges: Sendable, Equatable {
@@ -120,7 +248,35 @@ public struct RPCChatForkPreview: Sendable, Equatable, Identifiable {
     public let nodeId: String
     public let forked: Bool
     public let text: String
+    public let label: String
+    public let previewLines: [String]
+    public let previewTruncated: Bool
+    public let targetAvailable: Bool
+    public let actionable: Bool
+    public let previewDigest: String?
     public var id: String { nodeId }
+
+    public init(
+        nodeId: String,
+        forked: Bool,
+        text: String,
+        label: String = "Pending note edit",
+        previewLines: [String]? = nil,
+        previewTruncated: Bool = false,
+        targetAvailable: Bool = true,
+        actionable: Bool = true,
+        previewDigest: String? = nil
+    ) {
+        self.nodeId = nodeId
+        self.forked = forked
+        self.text = text
+        self.label = label
+        self.previewLines = previewLines ?? text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        self.previewTruncated = previewTruncated
+        self.targetAvailable = targetAvailable
+        self.actionable = actionable
+        self.previewDigest = previewDigest
+    }
 }
 
 extension WorkspaceRPCClient {
@@ -149,6 +305,18 @@ extension WorkspaceRPCClient {
         let result = try await rpc("getChat", ["chatId": .string(chatId)])
         let messages = try result.field("messages").arrayValue ?? []
         return (try RPCChat(result.field("chat")), try messages.map(RPCChatMessage.init))
+    }
+
+    /// Returns one coherent transcript/review snapshot. The server resolves titles and legacy
+    /// note forks in the same read so native never performs per-row lookups or mixes snapshots.
+    public func getChatReview(chatId: String) async throws -> RPCChatReview {
+        let result = try await rpc("getChatReview", ["chatId": .string(chatId)])
+        return try RPCChatReview(result)
+    }
+
+    public func decideChatReview(chatId: String, operation: String, sequenceBoundary: Int, expectedWitness: String, requestId: String, message: String, provenance: String) async throws -> RPCChatReviewDecision {
+        let result = try await rpc("decideChatReview", ["chatId": .string(chatId), "operation": .string(operation), "sequenceBoundary": .number(Double(sequenceBoundary)), "expectedWitness": .string(expectedWitness), "requestId": .string(requestId), "message": .string(message), "provenance": .string(provenance)])
+        return try RPCChatReviewDecision(result)
     }
 
     public func sendChatMessage(
@@ -237,8 +405,12 @@ extension WorkspaceRPCClient {
 
     /// Merges the chat's fork into freshly-reloaded mainline via real `Automerge.merge` and
     /// discards the fork — the "Accept" half of the note-edit review flow.
-    public func acceptChatFork(chatId: String, nodeId: String) async throws -> (page: RPCPage, text: String) {
-        let result = try await rpc("acceptChatFork", ["chatId": .string(chatId), "nodeId": .string(nodeId)])
+    public func acceptChatFork(chatId: String, nodeId: String, expectedPreviewDigest: String? = nil) async throws -> (page: RPCPage, text: String) {
+        var input: [String: CapnWebValue] = ["chatId": .string(chatId), "nodeId": .string(nodeId)]
+        if let expectedPreviewDigest {
+            input["expectedPreviewDigest"] = .string(expectedPreviewDigest)
+        }
+        let result = try await rpc("acceptChatFork", input)
         return (try RPCPage(result.field("page")), try result.field("text").stringValue ?? "")
     }
 

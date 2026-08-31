@@ -131,11 +131,11 @@ public struct PendingChangesView: View {
                 } else {
                     messageLog
                     composeBox
-                    if !model.pending.isEmpty {
+                    if !model.pendingReviewItems.isEmpty || (model.structuredReviewStatus?.total ?? 0) > 0 {
                         Divider()
                         pendingSummary
                     }
-                    if !model.pendingNoteForks.isEmpty {
+                    if model.hasLegacyReviewGap || !model.pendingNoteForks.isEmpty {
                         Divider()
                         noteForkSummary
                     }
@@ -390,21 +390,25 @@ public struct PendingChangesView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Pending changes").font(.subheadline.bold())
 
-            if model.pending.isEmpty {
+            if model.reviewStatus == .loading {
+                Text("Loading pending changes…")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if case .error = model.reviewStatus {
+                Text("Pending changes couldn’t be loaded. Nothing has been changed. Retry to review them.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if model.pendingReviewItems.isEmpty {
                 Text("Nothing pending for this chat.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                ForEach(model.pending.nodes, id: \.id) { node in
-                    Label("New node: \(node.title)", systemImage: "circle.fill")
+                ForEach(model.pendingReviewItems) { item in
+                    Label(item.label, systemImage: "circle.fill")
                         .font(.callout)
                 }
-                ForEach(model.pending.facts, id: \.id) { fact in
-                    Label("New fact: \(fact.predicateId) on \(fact.nodeId)", systemImage: "tag.fill")
-                        .font(.callout)
-                }
-                ForEach(model.pending.edges, id: \.id) { edge in
-                    Label("New link: \(edge.sourceNodeId) → \(edge.targetNodeId)", systemImage: "arrow.right")
-                        .font(.callout)
+
+                if let lane = model.structuredReviewStatus, lane.truncated || lane.unavailable > 0 {
+                    Text("Some structured details are unavailable; refresh before deciding.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 HStack {
@@ -419,13 +423,21 @@ public struct PendingChangesView: View {
                     Button(accepting ? "Accepting…" : "Accept") {
                         startPendingDecision(.accept)
                     }
-                    .disabled(decisionsBusy)
+                    .disabled(
+                        decisionsBusy ||
+                        model.reviewStatus != .loaded ||
+                        model.pendingReviewItems.contains(where: { !$0.stamped || !$0.targetAvailable || !$0.actionable })
+                    )
                     .buttonStyle(.borderedProminent)
 
                     Button(reverting ? "Reverting…" : "Revert") {
                         startPendingDecision(.revert)
                     }
-                    .disabled(decisionsBusy)
+                    .disabled(
+                        decisionsBusy ||
+                        model.reviewStatus != .loaded ||
+                        model.pendingReviewItems.contains(where: { !$0.stamped || !$0.targetAvailable || !$0.actionable })
+                    )
                     .buttonStyle(.bordered)
                     .tint(.red)
                 }
@@ -467,16 +479,34 @@ public struct PendingChangesView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Pending note edits").font(.subheadline.bold())
 
+            if model.pendingNoteForks.isEmpty {
+                Text("Some pending note edits couldn’t be safely shown. Refresh before taking action.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let lane = model.legacyReviewStatus,
+               lane.total > lane.shown || lane.truncated || lane.unavailable > 0 {
+                Text("Showing \(lane.shown) of \(lane.total) note edits; \(lane.unavailable) unavailable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             ForEach(model.pendingNoteForks) { fork in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Note: \(fork.nodeId)").font(.caption).foregroundStyle(.secondary)
-                    Text(fork.text)
+                    Text(fork.label).font(.caption).foregroundStyle(.secondary)
+                    Text(fork.previewLines.joined(separator: "\n"))
                         .font(.callout)
                         .textSelection(.enabled)
                         .padding(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.secondary.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                    if fork.previewTruncated || !fork.targetAvailable {
+                        Text("Preview incomplete; refresh before taking action.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     HStack {
                         let acceptBusy = model.noteForkBusyKey == "accept:\(fork.nodeId)"
@@ -486,13 +516,13 @@ public struct PendingChangesView: View {
                         Button(acceptBusy ? "Accepting…" : "Accept") {
                             Task { await model.acceptNoteFork(nodeId: fork.nodeId) }
                         }
-                        .disabled(anyBusy)
+                        .disabled(anyBusy || !fork.actionable || fork.previewTruncated || !fork.targetAvailable)
                         .buttonStyle(.borderedProminent)
 
                         Button(revertBusy ? "Reverting…" : "Revert") {
                             Task { await model.revertNoteFork(nodeId: fork.nodeId) }
                         }
-                        .disabled(anyBusy)
+                        .disabled(anyBusy || !fork.actionable || fork.previewTruncated || !fork.targetAvailable)
                         .buttonStyle(.bordered)
                         .tint(.red)
                     }

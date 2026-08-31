@@ -264,6 +264,8 @@ export class AgentEditService extends Context.Tag("@athenaeum/backend/AgentEditS
     readonly listPendingChanges: (
       chatId: EntityId
     ) => Effect.Effect<{ nodes: ReadonlyArray<NodeEntity>; facts: ReadonlyArray<Fact>; edges: ReadonlyArray<Edge> }, DomainError>
+    /** Internal reviewed-decision guard: Apps are not represented by the v1 review witness. */
+    readonly pendingAppCount: (chatId: EntityId) => Effect.Effect<number, DomainError>
     readonly reconcilePendingChanges: (chatId: EntityId) => Effect.Effect<ReconcileResult, DomainError>
     /** Must be invoked inside the Workspace DO's one outer `storage.transactionSync` callback. */
     readonly captureProposalAndReserve: (input: {
@@ -1814,6 +1816,7 @@ export const makeAgentEditServiceLive = (
             const edges = yield* pendingEdgesForChat(chatId)
             return { nodes, facts, edges }
           }),
+        pendingAppCount: (chatId) => pendingAppsForChat(chatId).pipe(Effect.map((apps) => apps.length)),
         reconcilePendingChanges,
 
         readNoteTool,

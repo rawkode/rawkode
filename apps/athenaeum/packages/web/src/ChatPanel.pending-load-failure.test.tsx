@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const queryStateMock = vi.hoisted(() => ({
   dependencies: [] as ReadonlyArray<unknown>[],
   pendingState: "failure" as "failure" | "loading" | "success",
-  twoArgumentCalls: 0
+  retryLoadingSeen: false
 }))
 
 vi.mock("./model-availability.js", () => ({
@@ -21,12 +21,13 @@ vi.mock("./use-effect-query.js", () => ({
     queryStateMock.dependencies.push([...dependencies])
     if (dependencies.length === 1) return { status: "success" as const, value: { chats: [chat] } }
     if (dependencies.length === 3) return { status: "success" as const, value: [] }
-    if (queryStateMock.twoArgumentCalls++ % 2 === 0) {
-      return { status: "success" as const, value: { messages: [] } }
+    if (dependencies[1] === 1 && !queryStateMock.retryLoadingSeen) {
+      queryStateMock.retryLoadingSeen = true
+      return { status: "loading" as const }
     }
     if (queryStateMock.pendingState === "loading") return { status: "loading" as const }
     return queryStateMock.pendingState === "success"
-      ? { status: "success" as const, value: { nodes: [], facts: [], edges: [] } }
+      ? { status: "success" as const, value: review }
       : { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
   }
 }))
@@ -42,6 +43,15 @@ const chat = {
   createdAt: "2026-08-28T00:00:00.000Z"
 }
 const privateDetail = "private pending-changes provider detail"
+const review = {
+  chat,
+  messages: [],
+  items: [],
+  witness: "a".repeat(64),
+  noteForkWitness: "b".repeat(64),
+  structuredForks: { total: 0, shown: 0, truncated: false, unavailable: 0 },
+  legacyForks: { total: 0, shown: 0, truncated: false, unavailable: 0 }
+}
 
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -68,7 +78,7 @@ beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   queryStateMock.dependencies = []
   queryStateMock.pendingState = "failure"
-  queryStateMock.twoArgumentCalls = 0
+  queryStateMock.retryLoadingSeen = false
 })
 
 afterEach(() => {
@@ -100,6 +110,10 @@ describe("ChatPanel pending changes recovery", () => {
     queryStateMock.pendingState = "success"
     await act(async () => {
       alert?.querySelector<HTMLButtonElement>("button")?.click()
+      await flush()
+    })
+    await act(async () => {
+      roots[0]?.root.render(<ChatPanel />)
       await flush()
     })
 

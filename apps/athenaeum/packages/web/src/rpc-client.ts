@@ -78,6 +78,10 @@ import {
   ForkChatEditOutput,
   GetChatInput,
   GetChatOutput,
+  GetChatReviewInput,
+  GetChatReviewOutput,
+  DecideChatReviewInput,
+  DecideChatReviewOutput,
   GetMeetingInput,
   GetMeetingOutput,
   GetNodeInput,
@@ -258,6 +262,8 @@ interface WorkspaceApi {
   createChat(input: unknown): Promise<unknown>
   listChats(input: unknown): Promise<unknown>
   getChat(input: unknown): Promise<unknown>
+  getChatReview(input: unknown): Promise<unknown>
+  decideChatReview(input: unknown): Promise<unknown>
   sendChatMessage(input: unknown): Promise<unknown>
   mergeChanges(input: unknown): Promise<unknown>
   revertChanges(input: unknown): Promise<unknown>
@@ -421,6 +427,8 @@ export interface WorkspaceRpcClientService {
   readonly createChat: (input: CreateChatInput) => Effect.Effect<CreateChatOutput, DomainError>
   readonly listChats: (input: ListChatsInput) => Effect.Effect<ListChatsOutput, DomainError>
   readonly getChat: (input: GetChatInput) => Effect.Effect<GetChatOutput, DomainError>
+  readonly getChatReview: (input: GetChatReviewInput) => Effect.Effect<GetChatReviewOutput, DomainError>
+  readonly decideChatReview: (input: DecideChatReviewInput) => Effect.Effect<DecideChatReviewOutput, DomainError>
   readonly sendChatMessage: (
     input: SendChatMessageInput
   ) => Effect.Effect<SendChatMessageOutput, DomainError>
@@ -734,6 +742,16 @@ export const makeWorkspaceRpcClientLive = (wsUrl: string): Layer.Layer<Workspace
 
         getChat: (input) =>
           callForValue(GetChatOutput, () => workspaceStub.getChat(Schema.encodeSync(GetChatInput)(input))),
+
+        getChatReview: (input) =>
+          callForValue(GetChatReviewOutput, () =>
+            workspaceStub.getChatReview(Schema.encodeSync(GetChatReviewInput)(input))
+          ),
+
+        decideChatReview: (input) =>
+          callForValue(DecideChatReviewOutput, () =>
+            workspaceStub.decideChatReview(Schema.encodeSync(DecideChatReviewInput)(input))
+          ),
 
         sendChatMessage: (input) =>
           callForValue(SendChatMessageOutput, () =>

@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const queryStateMock = vi.hoisted(() => ({
   dependencies: [] as ReadonlyArray<unknown>[],
-  twoArgumentCalls: 0,
   chatAvailable: false,
   chats: [] as unknown[]
 }))
@@ -21,13 +20,16 @@ vi.mock("./use-effect-query.js", () => ({
   useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
     queryStateMock.dependencies.push([...dependencies])
     if (dependencies.length === 1) return { status: "success" as const, value: { chats: queryStateMock.chats } }
-    if (dependencies.length === 3) return { status: "success" as const, value: [] }
-    const value = queryStateMock.twoArgumentCalls++ % 2 === 0
-      ? queryStateMock.chatAvailable
-        ? { status: "success" as const, value: { messages: [] } }
-        : { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
-      : { status: "success" as const, value: { nodes: [], facts: [], edges: [] } }
-    return value
+    if (!queryStateMock.chatAvailable) {
+      return { status: "failure" as const, error: new UnexpectedError({ message: privateDetail }) }
+    }
+    const selectedChat = queryStateMock.chats.find((candidate) =>
+      typeof candidate === "object" && candidate !== null && "id" in candidate && candidate.id === dependencies[0]
+    ) ?? chat
+    return {
+      status: "success" as const,
+      value: { chat: selectedChat, messages: [], items: [], witness: "a".repeat(64), noteForkWitness: "b".repeat(64) }
+    }
   }
 }))
 
@@ -74,7 +76,6 @@ const mount = async (): Promise<HTMLDivElement> => {
 beforeEach(() => {
   reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   queryStateMock.dependencies = []
-  queryStateMock.twoArgumentCalls = 0
   queryStateMock.chatAvailable = false
   queryStateMock.chats = [chat]
 })
@@ -134,6 +135,5 @@ describe("ChatPanel active chat recovery", () => {
     const finalListRefreshes = queryStateMock.dependencies.filter((dependencies) => dependencies.length === 1)
     expect(finalListRefreshes.every((dependencies) => dependencies[0] === 0)).toBe(true)
     expect(queryStateMock.dependencies).toContainEqual([chatId, 1])
-    expect(queryStateMock.dependencies).toContainEqual([chatId, 1, ""])
   })
 })

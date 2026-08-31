@@ -161,6 +161,10 @@ import {
   GetChatReviewInput,
   GetChatReviewOutput,
   ChatReviewItem,
+  ChatReviewForkLaneStatus,
+  DecideChatReviewInput,
+  DecideChatReviewOutput,
+  EditNoteToolOutput,
   GetMeetingInput,
   GetMeetingOutput,
   GetNodeInput,
@@ -670,6 +674,28 @@ const requireOwnWorkspace = (
           message: `workspaceId ${requestedWorkspaceId} does not match this connection's workspace (${ownWorkspaceId})`
         })
       )
+
+type ReviewPendingRecord = { readonly id: string; readonly pending?: { readonly sequence?: number } }
+
+/** The raw, ordered preimage shared by the read projection and the atomic decision route. It
+ * deliberately includes hidden rows: the digest proves what was reviewed without rendering it. */
+const orderedReviewPending = <T extends ReviewPendingRecord>(records: ReadonlyArray<T>): ReadonlyArray<T> =>
+  [...records].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
+
+const chatReviewWitness = <N extends ReviewPendingRecord, F extends ReviewPendingRecord, E extends ReviewPendingRecord>(
+  chatId: EntityId,
+  pending: { readonly nodes: ReadonlyArray<N>; readonly facts: ReadonlyArray<F>; readonly edges: ReadonlyArray<E> }
+): { readonly witness: string; readonly nodes: ReadonlyArray<N>; readonly facts: ReadonlyArray<F>; readonly edges: ReadonlyArray<E> } => {
+  const nodes = orderedReviewPending(pending.nodes)
+  const facts = orderedReviewPending(pending.facts)
+  const edges = orderedReviewPending(pending.edges)
+  return {
+    nodes,
+    facts,
+    edges,
+    witness: sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-review.v1", chatId, nodes, facts, edges }))
+  }
+}
 
 type StandupCompanionProjectionStatus =
   | "verified-original"
@@ -2032,6 +2058,11 @@ class WorkspaceRpcApi extends RpcTarget {
           const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-open-v1" : "governed-role-v1"
           const accepted = yield* Effect.try({
             try: () => storage.transactionSync(() => {
+              if (decoded.expectedPreviewDigest !== undefined) {
+                const preview = Effect.runSync(chatFork.previewFork(decoded.chatId, decoded.nodeId))
+                const digest = sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-fork-preview.v1", chatId: decoded.chatId, nodeId: decoded.nodeId, forked: preview.forked, text: preview.text }))
+                if (digest !== decoded.expectedPreviewDigest) throw new ValidationError({ message: "chat fork preview is stale; refresh before accepting" })
+              }
               const exit = Effect.runSyncExit(chatFork.accept(proposal.proposalId))
               if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
               const result = exit.value
@@ -3034,21 +3065,87 @@ class WorkspaceRpcApi extends RpcTarget {
   async getChatReview(input: unknown): Promise<unknown> {
     const workspaceId = this.#workspaceId
     const currentUser = this.#currentUser
-    const clamp = (value: string, limit = 160): string => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
+    const MAX_REVIEW_REFERENCES = 64
+    const MAX_FORK_PREVIEW_LINES = 40
+    const MAX_FORK_PREVIEW_LINE_GRAPHEMES = 240
+    const MAX_FORK_PREVIEW_BYTES = 16 * 1024
+    const unsafeForkControl = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u
+    const normalizeText = (value: string, limit = 160): string => {
+      const normalized = value
+        .normalize("NFKC")
+        .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+      return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`
+    }
+    const quote = (value: string, limit = 120): string => `“${normalizeText(value, limit)}”`
+    const entityIdPattern = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{26})$/i
+    const predicateLabel = (value: string): string => {
+      const normalized = normalizeText(value, 80)
+      // A predicate is a user-facing field name only when it is legible. Never turn a UUID,
+      // ULID, or long identifier-like token into an apparently meaningful label.
+      if (
+        normalized.length === 0 ||
+        entityIdPattern.test(normalized) ||
+        (normalized.length >= 20 && /^[A-Za-z0-9_.-]+$/.test(normalized) && new Set(normalized).size >= 12)
+      ) {
+        return "field"
+      }
+      return normalized.replace(/[-_]+/g, " ")
+    }
     /** Deterministic, presentation-only JSON renderer: no thrown values, control characters,
      * unstable object ordering, or unbounded nested payloads cross this review boundary. */
     const safeJson = (value: unknown, depth = 0): string => {
       if (depth > 3) return "…"
       if (value === null) return "null"
-      if (typeof value === "string") return JSON.stringify(clamp(value.replace(/\s+/g, " ").trim(), 80))
+      if (typeof value === "string") return JSON.stringify(normalizeText(value, 80))
       if (typeof value === "number" || typeof value === "boolean") return String(value)
-      if (Array.isArray(value)) return `[${value.slice(0, 8).map((item) => safeJson(item, depth + 1)).join(", ")}${value.length > 8 ? ", …" : ""}]`
+      if (Array.isArray(value)) return normalizeText(`[${value.slice(0, 8).map((item) => safeJson(item, depth + 1)).join(", ")}${value.length > 8 ? ", …" : ""}]`, 240)
       if (typeof value === "object") {
         const record = value as Record<string, unknown>
         const keys = Object.keys(record).sort().slice(0, 8)
-        return `{${keys.map((key) => `${JSON.stringify(clamp(key.replace(/\s+/g, " "), 48))}: ${safeJson(record[key], depth + 1)}`).join(", ")}${Object.keys(record).length > 8 ? ", …" : ""}}`
+        return normalizeText(`{${keys.map((key) => `${JSON.stringify(normalizeText(key, 48))}: ${safeJson(record[key], depth + 1)}`).join(", ")}${Object.keys(record).length > 8 ? ", …" : ""}}`, 240)
       }
       return "[unavailable value]"
+    }
+    /** Keep the review body byte-for-byte meaningful. Newlines are split only on LF so a CRLF
+     * line round-trips when clients join the returned lines; tabs, repeated spaces, and CR are
+     * retained. Any unsafe control, grapheme cap, or total byte cap makes the item incomplete and
+     * therefore non-actionable. The raw fork text remains the decision witness. */
+    const forkPreview = (text: string): { readonly lines: ReadonlyArray<string>; readonly incomplete: boolean } => {
+      const rawLines = text.split("\n")
+      let incomplete = rawLines.length > MAX_FORK_PREVIEW_LINES
+      let remainingBytes = MAX_FORK_PREVIEW_BYTES
+      const lines: string[] = []
+      for (const rawLine of rawLines.slice(0, MAX_FORK_PREVIEW_LINES)) {
+        let line = rawLine
+        if (unsafeForkControl.test(line)) {
+          line = [...line].map((character) => unsafeForkControl.test(character) ? "�" : character).join("")
+          incomplete = true
+        }
+        const graphemes = [...line]
+        if (graphemes.length > MAX_FORK_PREVIEW_LINE_GRAPHEMES) {
+          line = graphemes.slice(0, MAX_FORK_PREVIEW_LINE_GRAPHEMES).join("")
+          incomplete = true
+        }
+        let encodedBytes = new TextEncoder().encode(line).length
+        if (encodedBytes > remainingBytes) {
+          const bounded: string[] = []
+          let used = 0
+          for (const character of [...line]) {
+            const bytes = new TextEncoder().encode(character).length
+            if (used + bytes > remainingBytes) break
+            bounded.push(character)
+            used += bytes
+          }
+          line = bounded.join("")
+          encodedBytes = used
+          incomplete = true
+        }
+        remainingBytes = Math.max(0, remainingBytes - encodedBytes)
+        lines.push(line)
+      }
+      return { lines, incomplete }
     }
     const program = decodeRpcInput(GetChatReviewInput, input).pipe(
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
@@ -3058,56 +3155,100 @@ class WorkspaceRpcApi extends RpcTarget {
         const nodesRepository = yield* NodesRepository
         const { chat, messages } = yield* agentEdit.getChat(decoded.chatId)
         yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+        const calendar = yield* CalendarService
+        // This is the same visibility gate used by node/graph reads. A review witness may bind
+        // hidden rows, but its projection must never disclose a title, value, preview, or action id.
+        const hidden = yield* calendar.hiddenCalendarDerivedNodeIds(workspaceId, currentUser?.email)
         const pending = yield* agentEdit.listPendingChanges(decoded.chatId)
+        const pendingAppCount = yield* agentEdit.pendingAppCount(decoded.chatId)
         const orderedNodes = [...pending.nodes].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
         const orderedFacts = [...pending.facts].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
         const orderedEdges = [...pending.edges].sort((left, right) => (left.pending?.sequence ?? 0) - (right.pending?.sequence ?? 0) || left.id.localeCompare(right.id))
         const pendingById = new Map<string, (typeof orderedNodes)[number]>(orderedNodes.map((node) => [node.id, node] as const))
-        const legacyForkNodeIds = messages.flatMap((message) => (message.toolCalls ?? []).flatMap((call) => {
-          if (call.name !== "editNote" || typeof call.input !== "object" || call.input === null) return []
-          const nodeId = (call.input as Record<string, unknown>).nodeId
-          const decodedId = Schema.decodeUnknownEither(EntityId)(nodeId)
-          return decodedId._tag === "Right" ? [decodedId.right] : []
-        }))
-        const forkNodeIds = [...new Set([...orderedNodes.map((node) => node.id), ...legacyForkNodeIds])].slice(0, 64)
-        const referenced = [...new Set([
+        // `editNote` addresses a chat binding, so its input has no node id. The durable tool
+        // result is the authoritative, schema-validated place to discover the fork target.
+        const toolCallsById = new Map(messages.flatMap((message) => (message.toolCalls ?? []).map((call) => [call.id, call] as const)))
+        const legacyForkNodeIds = messages.flatMap((message) => {
+          if (message.role !== "tool") return []
+          let log: { toolUseId?: unknown; result?: unknown; isError?: unknown }
+          try { log = JSON.parse(message.content) as typeof log } catch { return [] }
+          if (log.isError !== false || typeof log.toolUseId !== "string" || typeof log.result !== "string") return []
+          if (toolCallsById.get(log.toolUseId)?.name !== "editNote") return []
+          try {
+            return [Schema.decodeUnknownSync(EditNoteToolOutput)(JSON.parse(log.result)).nodeId]
+          } catch { return [] }
+        })
+        const uniqueLegacyForkNodeIds = [...new Set(legacyForkNodeIds)]
+        const visibleLegacyForkNodeIds = uniqueLegacyForkNodeIds.filter((id) => !hidden.has(Schema.decodeUnknownSync(EntityId)(id)))
+        const forkNodeIds = visibleLegacyForkNodeIds.slice(0, MAX_REVIEW_REFERENCES)
+        // Structured pending records and legacy note forks have independent bounded lanes. A
+        // large legacy transcript must not suppress exact fact/edge labels (or vice versa).
+        const structuredReferences = [
           ...orderedFacts.map((fact) => fact.nodeId),
-          ...orderedEdges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId]),
+          ...orderedEdges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId])
+        ].filter((id) => !pendingById.has(id) && !hidden.has(Schema.decodeUnknownSync(EntityId)(id)))
+        const referenced = [...new Set([
+          ...[...new Set(structuredReferences)].slice(0, MAX_REVIEW_REFERENCES),
           ...forkNodeIds
-        ].filter((id) => !pendingById.has(id)))].slice(0, 64)
+        ])]
+        const structuredReferencesCapped = new Set(structuredReferences).size > MAX_REVIEW_REFERENCES
         const resolved = new Map<string, string>()
         for (const id of referenced) {
           const result = yield* Effect.either(nodesRepository.get(Schema.decodeUnknownSync(EntityId)(id)))
-          if (result._tag === "Right") resolved.set(id, result.right.title)
+          if (result._tag === "Right") resolved.set(id, normalizeText(result.right.title, 120))
         }
-        const nodeLabel = (id: string): string | undefined => pendingById.get(id)?.title ?? resolved.get(id)
+        const nodeLabel = (id: string): string | undefined => {
+          if (hidden.has(Schema.decodeUnknownSync(EntityId)(id))) return undefined
+          const title = pendingById.get(id)?.title ?? resolved.get(id)
+          const normalized = title === undefined ? "" : normalizeText(title, 120)
+          return normalized.length > 0 ? normalized : undefined
+        }
         const previews = yield* Effect.forEach(forkNodeIds, (nodeId) => chatFork.previewFork(decoded.chatId, nodeId))
         const previewByNodeId = new Map(forkNodeIds.map((nodeId, index) => [nodeId, previews[index]!] as const))
         const items: ChatReviewItem[] = []
         for (let index = 0; index < orderedNodes.length; index += 1) {
           const node = orderedNodes[index]!
-          const preview = previewByNodeId.get(node.id)
-          items.push(new ChatReviewItem({ kind: "node", sequence: node.pending?.sequence ?? 0, nodeId: node.id, label: clamp(node.title), ...(preview?.forked ? { forkPreview: clamp(preview.text, 2_000) } : {}) }))
+          const targetAvailable = !hidden.has(node.id)
+          const stamped = node.pending?.sequence !== undefined
+          items.push(!targetAvailable
+            ? new ChatReviewItem({ lane: "structured", kind: "unresolved", sequence: stamped ? node.pending!.sequence! : 0, label: "This pending change’s target is unavailable.", stamped, targetAvailable, actionable: false })
+            : !stamped
+              ? new ChatReviewItem({ lane: "structured", kind: "unresolved", sequence: 0, label: "This pending change is still being recorded.", stamped: false, targetAvailable: true, actionable: false })
+              : new ChatReviewItem({ lane: "structured", kind: "node", sequence: node.pending!.sequence!, label: `Create ${quote(node.title)}`, stamped: true, targetAvailable: true, actionable: true }))
         }
-        for (const nodeId of legacyForkNodeIds) {
+        for (const nodeId of visibleLegacyForkNodeIds.slice(0, MAX_REVIEW_REFERENCES)) {
           if (pendingById.has(nodeId)) continue
           const preview = previewByNodeId.get(nodeId)
           if (preview?.forked !== true) continue
-          items.push(new ChatReviewItem({ kind: "node", sequence: 0, nodeId, label: clamp(nodeLabel(nodeId) ?? "Pending note edit"), forkPreview: clamp(preview.text, 2_000) }))
+          const title = nodeLabel(nodeId)
+          // Never normalize a fork body in the review response: spaces, tabs, CRLF and control
+          // bytes are content evidence. Any non-canonical or over-cap preview is explicitly
+          // incomplete and cannot become an action target from this projection.
+          const previewProjection = forkPreview(preview.text)
+          const targetAvailable = title !== undefined
+          const previewDigest = sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-fork-preview.v1", chatId: decoded.chatId, nodeId, forked: preview.forked, text: preview.text }))
+          items.push(new ChatReviewItem({ lane: "legacy-fork", kind: targetAvailable ? "node" : "unresolved", sequence: 0, ...(targetAvailable ? { nodeId } : {}), label: targetAvailable ? `Edit ${quote(title)}` : "This note edit’s target is unavailable.", stamped: true, targetAvailable, actionable: targetAvailable && !previewProjection.incomplete, ...(targetAvailable ? { forkPreviewLines: previewProjection.lines, forkPreviewTruncated: previewProjection.incomplete, previewDigest } : {}) }))
         }
         for (const fact of orderedFacts) {
           const subject = nodeLabel(fact.nodeId)
-          items.push(new ChatReviewItem({ kind: subject === undefined ? "unresolved" : "fact", sequence: fact.pending?.sequence ?? 0, ...(subject === undefined ? {} : { nodeId: fact.nodeId }), label: subject === undefined ? "Unresolved fact target" : `${clamp(subject, 80)} · ${clamp(fact.predicateId, 80)} = ${safeJson(fact.value)}` }))
+          const stamped = fact.pending?.sequence !== undefined
+          items.push(new ChatReviewItem({ lane: "structured", kind: subject === undefined || !stamped ? "unresolved" : "fact", sequence: fact.pending?.sequence ?? 0, label: subject === undefined ? "This fact’s target is unavailable." : !stamped ? "This fact is still being recorded." : `Set ${predicateLabel(fact.predicateId)} on ${quote(subject)} to ${safeJson(fact.value)}`, stamped, targetAvailable: subject !== undefined, actionable: subject !== undefined && stamped }))
         }
         for (const edge of orderedEdges) {
           const source = nodeLabel(edge.sourceNodeId), target = nodeLabel(edge.targetNodeId)
-          items.push(new ChatReviewItem({ kind: source === undefined || target === undefined ? "unresolved" : "edge", sequence: edge.pending?.sequence ?? 0, label: source === undefined || target === undefined ? "Unresolved relationship endpoint" : `${clamp(source, 80)} → ${clamp(target, 80)}` }))
+          const stamped = edge.pending?.sequence !== undefined
+          items.push(new ChatReviewItem({ lane: "structured", kind: source === undefined || target === undefined || !stamped ? "unresolved" : "edge", sequence: edge.pending?.sequence ?? 0, label: source === undefined || target === undefined ? "This relationship’s endpoint is unavailable." : !stamped ? "This relationship is still being recorded." : `Link ${quote(source)} to ${quote(target)}`, stamped, targetAvailable: source !== undefined && target !== undefined, actionable: source !== undefined && target !== undefined && stamped }))
         }
+        if (structuredReferencesCapped) items.push(new ChatReviewItem({ lane: "structured", kind: "unresolved", sequence: 0, label: "Some pending details could not be loaded yet.", stamped: false, targetAvailable: false, actionable: false }))
+        if (pendingAppCount > 0) items.push(new ChatReviewItem({ lane: "structured", kind: "unresolved", sequence: 0, label: "Pending application changes require App Library review before this chat can be decided.", stamped: false, targetAvailable: false, actionable: false }))
         items.sort((left, right) => left.sequence - right.sequence || left.kind.localeCompare(right.kind) || left.label.localeCompare(right.label))
-        const fullPending = { schema: "athenaeum.chat-review.v1", chatId: decoded.chatId, nodes: orderedNodes, facts: orderedFacts, edges: orderedEdges }
-        const witness = sha256HexSync(canonicalJsonBytes(fullPending))
+        const { witness } = chatReviewWitness(decoded.chatId, { nodes: orderedNodes, facts: orderedFacts, edges: orderedEdges })
         const noteForkWitness = sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-review-forks.v1", chatId: decoded.chatId, forks: forkNodeIds.map((nodeId) => ({ nodeId, forked: previewByNodeId.get(nodeId)?.forked ?? false, text: previewByNodeId.get(nodeId)?.text ?? "" })) }))
-        return new GetChatReviewOutput({ chat, messages, items, witness, noteForkWitness })
+        const structuredTargetIds = [...new Set([...orderedNodes.map((node) => node.id), ...orderedFacts.map((fact) => fact.nodeId), ...orderedEdges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId])])]
+        const structuredUnavailable = structuredTargetIds.filter((id) => nodeLabel(id) === undefined).length
+        const structuredForks = new ChatReviewForkLaneStatus({ total: structuredTargetIds.length + pendingAppCount, shown: Math.min(new Set(structuredReferences).size, MAX_REVIEW_REFERENCES), truncated: structuredReferencesCapped, unavailable: structuredUnavailable + pendingAppCount })
+        const legacyForks = new ChatReviewForkLaneStatus({ total: uniqueLegacyForkNodeIds.length, shown: forkNodeIds.length, truncated: visibleLegacyForkNodeIds.length > forkNodeIds.length || [...previewByNodeId.values()].some((preview) => preview !== undefined && forkPreview(preview.text).incomplete), unavailable: uniqueLegacyForkNodeIds.length - visibleLegacyForkNodeIds.length + forkNodeIds.filter((id) => nodeLabel(id) === undefined).length })
+        return new GetChatReviewOutput({ chat, messages, items, witness, noteForkWitness, structuredForks, legacyForks })
       }))
     )
     return runRpcProgram(this.#runtime, program, GetChatReviewOutput)
@@ -3168,6 +3309,104 @@ class WorkspaceRpcApi extends RpcTarget {
       )
     )
     return runRpcProgram(this.#runtime, program, RevertChangesOutput)
+  }
+
+  /**
+   * Ledgered review decision. Compatibility `mergeChanges`/`revertChanges` remain available for
+   * older clients, but new clients must bind their decision to this server-recomputed witness.
+   * The legacy agent-change decision ledger envelope is intentionally reused only with the
+   * explicit `reviewed-chat-decision.v1` payload below; it records chat, action, witness,
+   * boundary, authenticated actor, rationale, and provenance as one replay-conflict unit.
+   */
+  async decideChatReview(input: unknown): Promise<unknown> {
+    const workspaceId = this.#workspaceId
+    const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
+    const program = decodeRpcInput(DecideChatReviewInput, input).pipe(
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => {
+        if (currentUser === undefined) return Effect.fail(new Unauthorized({ message: "An authenticated user is required to decide a chat review." }))
+        return Effect.gen(function* () {
+          const agentEdit = yield* AgentEditService
+          const sharing = yield* SharingService
+          const calendar = yield* CalendarService
+          const { chat } = yield* agentEdit.getChat(decoded.chatId)
+          yield* requireOwnWorkspace(workspaceId, chat.workspaceId)
+          const policy = (yield* sharing.getOwnerEmail) === null ? "ungoverned-authenticated-v1" : "governed-role-v1"
+          const requestIdentity = `reviewed-chat-decision:${decoded.requestId}`
+          const command = {
+            requestIdentity,
+            requestId: decoded.requestId,
+            workspaceId,
+            proposalId: decoded.chatId,
+            decision: decoded.operation === "accept" ? "accept" as const : "reject" as const,
+            principal: currentUser.email,
+            provenance: decoded.provenance,
+            policy,
+            message: decoded.message,
+            payload: {
+              schema: "athenaeum.reviewed-chat-decision.v1",
+              chatId: decoded.chatId,
+              operation: decoded.operation,
+              sequenceBoundary: decoded.sequenceBoundary,
+              expectedWitness: decoded.expectedWitness,
+              commitMessage: decoded.message,
+              provenance: decoded.provenance
+            }
+          }
+          const fingerprint = agentChangeDecisionLedgerFingerprint(command)
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => {
+              const replay = ledger.existing(requestIdentity, fingerprint)
+              if (replay !== undefined) return Schema.decodeUnknownSync(DecideChatReviewOutput)(replay.output)
+              const currentChat = Effect.runSyncExit(agentEdit.getChat(decoded.chatId))
+              if (Exit.isFailure(currentChat)) throw domainErrorFromCause(currentChat.cause)
+              if (currentChat.value.chat.workspaceId !== workspaceId) throw new ValidationError({ message: "chat does not belong to this workspace" })
+              const currentPending = Effect.runSyncExit(agentEdit.listPendingChanges(decoded.chatId))
+              if (Exit.isFailure(currentPending)) throw domainErrorFromCause(currentPending.cause)
+              const pendingAppCount = Effect.runSyncExit(agentEdit.pendingAppCount(decoded.chatId))
+              if (Exit.isFailure(pendingAppCount)) throw domainErrorFromCause(pendingAppCount.cause)
+              if (pendingAppCount.value !== 0) throw new ValidationError({ message: "chat review has pending app changes outside this decision projection" })
+              const snapshot = chatReviewWitness(decoded.chatId, currentPending.value)
+              if (snapshot.witness !== decoded.expectedWitness) throw new ValidationError({ message: "chat review is stale; refresh before deciding" })
+              const hidden = Effect.runSyncExit(calendar.hiddenCalendarDerivedNodeIds(workspaceId, currentUser.email))
+              if (Exit.isFailure(hidden)) throw domainErrorFromCause(hidden.cause)
+              if (
+                snapshot.nodes.some((node) => hidden.value.has(Schema.decodeUnknownSync(EntityId)(node.id))) ||
+                snapshot.facts.some((fact) => hidden.value.has(Schema.decodeUnknownSync(EntityId)((fact as { readonly nodeId: string }).nodeId))) ||
+                snapshot.edges.some((edge) => {
+                  const relation = edge as { readonly sourceNodeId: string; readonly targetNodeId: string }
+                  return hidden.value.has(Schema.decodeUnknownSync(EntityId)(relation.sourceNodeId)) || hidden.value.has(Schema.decodeUnknownSync(EntityId)(relation.targetNodeId))
+                })
+              ) throw new ValidationError({ message: "chat review contains an unavailable target and cannot be decided" })
+              const allRecords = [...snapshot.nodes, ...snapshot.facts, ...snapshot.edges]
+              if (allRecords.some((record) => record.pending?.sequence === undefined)) {
+                throw new ValidationError({ message: "chat review contains unfinished recovery records and cannot be decided yet" })
+              }
+              const stampedSequences = allRecords.map((record) => record.pending!.sequence!)
+              if (stampedSequences.length === 0) throw new ValidationError({ message: "chat review has no stamped changes to decide" })
+              const derivedBoundary = decoded.operation === "accept" ? Math.max(...stampedSequences) : Math.min(...stampedSequences)
+              if (decoded.sequenceBoundary !== derivedBoundary) throw new ValidationError({ message: "chat review boundary no longer matches the witnessed pending changes" })
+              const apply = decoded.operation === "accept"
+                ? agentEdit.mergeChanges(decoded.chatId, decoded.sequenceBoundary)
+                : agentEdit.revertChanges(decoded.chatId, decoded.sequenceBoundary)
+              const exit = Effect.runSyncExit(apply)
+              if (Exit.isFailure(exit)) throw domainErrorFromCause(exit.cause)
+              const output = new DecideChatReviewOutput({ chatId: decoded.chatId, operation: decoded.operation, sequenceBoundary: decoded.sequenceBoundary, witness: snapshot.witness })
+              ledger.appendAgentChangeDecision({ ...command, fingerprint, createdAt: new Date().toISOString() }, Schema.encodeSync(DecideChatReviewOutput)(output))
+              return output
+            }),
+            catch: (error): DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message })
+              : error instanceof Unauthorized || error instanceof UnexpectedError
+                ? error
+                : new UnexpectedError({ message: `ledgered chat review decision failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
+        })
+      })
+    )
+    return runRpcProgram(this.#runtime, program, DecideChatReviewOutput)
   }
 
   /** Public P5.2 decision boundary. The authenticated user is derived from the connection; the

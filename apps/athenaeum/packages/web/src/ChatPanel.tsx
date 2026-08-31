@@ -5,20 +5,15 @@ import * as Exit from "effect/Exit"
 import {
   AcceptChatForkInput,
   CreateChatInput,
-  GetChatInput,
+  DecideChatReviewInput,
+  GetChatReviewInput,
   ListChatsInput,
-  ListPendingChangesInput,
-  MergeChangesInput,
-  RevertChangesInput,
   RevertChatForkInput,
   SendChatMessageInput,
   type Chat,
   type ChatMessageRecord,
   type DomainError,
-  type Edge,
-  type EntityId,
-  type Fact,
-  type Node as NodeEntity
+  type EntityId
 } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
@@ -26,7 +21,8 @@ import { useEffectQuery } from "./use-effect-query.js"
 import { workspaceId } from "./workspace-id.js"
 import { isModelUnavailable, setModelUnavailable, subscribeModelAvailability } from "./model-availability.js"
 import { chatTitleFromMessage } from "./chat-title.js"
-import { collectLegacyForkNodeIds, decodeToolLogEntry, loadLegacyForkPreviews } from "./chat-fork-routing.js"
+import { decodeToolLogEntry } from "./chat-fork-routing.js"
+import { chatReviewPresentationWitness, isNoteForkReviewItem, visibleReviewLabel } from "./chat-review-presentation.js"
 
 // Web-stage task ("Extend the web app... 1. A chat UI... 2. An accept/revert UI... 3. ...the chat
 // UI must clearly and correctly handle/display a 'model not configured' state"). Talks to the
@@ -45,7 +41,7 @@ import { collectLegacyForkNodeIds, decodeToolLogEntry, loadLegacyForkPreviews } 
 // not a live `subscribeToNodes`-style subscription. A chat turn is a single request/response
 // RPC call (`sendChatMessage` runs the whole tool-calling loop server-side and returns once,
 // per its own doc comment in agent-edit-rpc.ts), so there's no server-push stream to subscribe
-// to yet — refetching `getChat`/`listPendingChanges` after every mutation (send/merge/revert) is
+// to yet — refetching `getChat`/`getChatReview` after every mutation (send/merge/revert) is
 // both simpler and a faithful match to what the RPC surface actually offers today. A live
 // `subscribeToChat`-style push is a natural future addition, not something to fake here.
 
@@ -174,23 +170,40 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   const [noteForkBusyKey, setNoteForkBusyKey] = useState<string | null>(null)
   const [noteForkError, setNoteForkError] = useState<string | null>(null)
   const noteForkBusyNodeIdsRef = useRef(new Set<EntityId>())
+  const reviewWitnessRef = useRef<string | undefined>(undefined)
+  const rawReviewWitnessRef = useRef<string | undefined>(undefined)
+  const reviewRequestKeyRef = useRef(`${chatId}:0`)
+  const reviewAwaitingCurrentResultRef = useRef(false)
 
-  const chatEffect = useMemo(
-    () => WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.getChat(new GetChatInput({ chatId })))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chatId, refreshKey]
-  )
-  const chatState = useEffectQuery(chatEffect, [chatId, refreshKey])
-
-  const pendingEffect = useMemo(
+  // One authoritative review read per chat/refresh. It carries server-resolved, privacy-safe
+  // labels and is intentionally not assembled from client-side `getNode` calls: pending rows can
+  // themselves be hidden from normal node lists, and per-row resolution races on chat switches.
+  const reviewEffect = useMemo(
     () =>
       WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) => client.listPendingChanges(new ListPendingChangesInput({ chatId })))
+        Effect.flatMap((client) => client.getChatReview(new GetChatReviewInput({ chatId })))
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [chatId, refreshKey]
   )
-  const pendingState = useEffectQuery(pendingEffect, [chatId, refreshKey])
+  const reviewState = useEffectQuery(reviewEffect, [chatId, refreshKey])
+  const reviewRequestKey = `${chatId}:${refreshKey}`
+  // Render-time invalidation is intentional: a click cannot observe a previous chat/refresh
+  // witness in the passive-effect gap between props changing and the new RPC beginning.
+  if (reviewRequestKeyRef.current !== reviewRequestKey) {
+    reviewRequestKeyRef.current = reviewRequestKey
+    reviewAwaitingCurrentResultRef.current = true
+    reviewWitnessRef.current = undefined
+    rawReviewWitnessRef.current = undefined
+  }
+  if (reviewState.status === "loading") reviewAwaitingCurrentResultRef.current = false
+
+  const reviewHasUnavailableItems = reviewState.status === "success" &&
+    !reviewAwaitingCurrentResultRef.current &&
+    reviewState.value.chat?.id === chatId &&
+    reviewState.value.items
+      .filter((item) => !isNoteForkReviewItem(item))
+      .some((item) => !item.stamped || !item.targetAvailable || !item.actionable)
 
   // Reset per-chat transient state when switching chats (deliberately keyed on `chatId`, not
   // `refreshKey` — a send/merge/revert on the *same* chat shouldn't clear the message the user is
@@ -247,14 +260,24 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           setRefreshKey((k) => k + 1)
         } else {
           setSendError(activeChatSendFailureMessage)
-          console.error(exit.cause.toString())
         }
       }
     })
   }
 
-  const runMergeOrRevert = (kind: "merge" | "revert", sequences: ReadonlyArray<number>) => {
-    if (sequences.length === 0 || mergeRevertBusyRef.current !== null) return
+  const runMergeOrRevert = (
+    kind: "merge" | "revert",
+    sequences: ReadonlyArray<number>,
+    witness: string | undefined
+  ) => {
+    // Do not decide a change from an incomplete or invalidated review snapshot.
+    if (
+      sequences.length === 0 ||
+      witness === undefined ||
+      rawReviewWitnessRef.current !== witness ||
+      (kind === "merge" && reviewHasUnavailableItems) ||
+      mergeRevertBusyRef.current !== null
+    ) return
     mergeRevertBusyRef.current = kind
     setMergeRevertBusy(kind)
     setMergeRevertError(null)
@@ -267,13 +290,13 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
       kind === "merge"
         ? WorkspaceRpcClient.pipe(
             Effect.flatMap((client) =>
-              client.mergeChanges(new MergeChangesInput({ chatId, mergeThrough: Math.max(...sequences) }))
+              client.decideChatReview(new DecideChatReviewInput({ chatId, operation: "accept", sequenceBoundary: Math.max(...sequences), expectedWitness: witness, requestId: crypto.randomUUID(), message: "Accepted reviewed agent changes.", provenance: "chat-review-web" }))
             ),
             Effect.asVoid
           )
         : WorkspaceRpcClient.pipe(
             Effect.flatMap((client) =>
-              client.revertChanges(new RevertChangesInput({ chatId, revertFrom: Math.min(...sequences) }))
+              client.decideChatReview(new DecideChatReviewInput({ chatId, operation: "revert", sequenceBoundary: Math.min(...sequences), expectedWitness: witness, requestId: crypto.randomUUID(), message: "Reverted reviewed agent changes.", provenance: "chat-review-web" }))
             ),
             Effect.asVoid
           )
@@ -286,25 +309,43 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
         setMergeRevertError(pendingChangesFailureMessage(kind))
-        console.error(exit.cause.toString())
       }
     })
   }
 
-  const messages = chatState.status === "success" ? chatState.value.messages : []
-  const pendingNodes: ReadonlyArray<NodeEntity> = pendingState.status === "success" ? pendingState.value.nodes : []
-  const pendingFacts: ReadonlyArray<Fact> = pendingState.status === "success" ? pendingState.value.facts : []
-  const pendingEdges: ReadonlyArray<Edge> = pendingState.status === "success" ? pendingState.value.edges : []
-  const pendingCount = pendingNodes.length + pendingFacts.length + pendingEdges.length
+  // The response's `chat` and stable SHA-256 witnesses fence a cancelled/stale query before it
+  // reaches the UI. `useEffectQuery` interrupts old fibers; this additional check is needed for
+  // a response that completes at the same time as a chat switch.
+  const review = reviewState.status === "success" && !reviewAwaitingCurrentResultRef.current && reviewState.value.chat?.id === chatId
+    ? reviewState.value
+    : undefined
+  const messages = review?.messages ?? []
+  const reviewPresentationWitness = review === undefined
+    ? undefined
+    : chatReviewPresentationWitness({
+        chatId: review.chat.id,
+        witness: review.witness,
+        noteForkWitness: review.noteForkWitness,
+        items: review.items
+      })
+  // Private control state only. A chat switch or mutation refresh synchronously invalidates the
+  // previous witness before the next review response can enable a decision.
+  reviewWitnessRef.current = reviewPresentationWitness
+  rawReviewWitnessRef.current = review?.witness
+  const pendingItems = review?.items.filter((item) => !isNoteForkReviewItem(item)) ?? []
+  // Only complete legacy previews become action rows. The lane discriminator still keeps hidden
+  // or unavailable legacy rows out of the structured lane while `legacyReviewHasGap` exposes the
+  // missing work without manufacturing an action target.
+  const pendingForks = review?.items.filter((item) => isNoteForkReviewItem(item) && item.forkPreviewLines !== undefined) ?? []
+  const legacyReviewHasGap = review?.legacyForks.truncated === true || (review?.legacyForks.unavailable ?? 0) > 0
+  const pendingCount = pendingItems.length
   // `mergeChanges(chatId, mergeThrough)`/`revertChanges(chatId, revertFrom)` both operate over a
   // `PendingMarker.sequence` range (§Q15) — every currently-pending item's stamped sequence,
   // pooled across nodes/facts/edges, is what "accept/revert everything shown below" needs.
   // `sequence` is only ever absent in the brief crash window before a turn's flush stamps it
   // (node.ts's own doc comment) — filtered out here since there's nothing yet for this UI to act
   // on for an unstamped record; it becomes actionable once reconciled.
-  const pendingSequences = [...pendingNodes, ...pendingFacts, ...pendingEdges]
-    .map((entity) => entity.pending?.sequence)
-    .filter((sequence): sequence is number => sequence !== undefined)
+  const pendingSequences = pendingItems.map((item) => item.sequence)
 
   const toolNameByCallId = useMemo(() => {
     const map = new Map<string, string>()
@@ -315,34 +356,7 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
     return map
   }, [messages])
 
-  // --- Explicit legacy note-body (`editNote`) pending edits — the chat-fork mechanism --------
-  //
-  // Distinct node ids this chat has successfully run `editNote` against, scanned out of the
-  // chat's own "tool"-role log entries (`decodeEditNoteNodeId` validates the output schema and
-  // EntityId at runtime). This is a candidate set, not a "currently pending" set: a chat's
-  // history includes edits already accepted/reverted in earlier turns too, so every candidate is
-  // re-checked against the durable page descriptor and live `chatForkPreview` state below rather
-  // than assumed still active.
-  const forkNodeIds = useMemo(() => collectLegacyForkNodeIds(messages, toolNameByCallId), [messages, toolNameByCallId])
-  const forkNodeIdsKey = forkNodeIds.join(",")
-
-  // The durable format gate and live, authoritative "is this still forked" answer per candidate.
-  // `loadLegacyForkPreviews` never calls `chatForkPreview` for a Loro-active page, and
-  // `chatForkPreview` never falls back to mainline text (its own doc comment), so `forked: true`
-  // here means a real, currently-open legacy fork this UI can act on right now.
-  const forksEffect = useMemo(
-    () =>
-      WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) => loadLegacyForkPreviews(client, workspaceId, chatId, forkNodeIds)),
-        Effect.map((previews) => previews.filter((preview) => preview.forked))
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chatId, refreshKey, forkNodeIdsKey]
-  )
-  const forksState = useEffectQuery(forksEffect, [chatId, refreshKey, forkNodeIdsKey])
-  const pendingForks = forksState.status === "success" ? forksState.value : []
-
-  const runForkAction = (kind: "accept" | "revert", nodeId: EntityId) => {
+  const runForkAction = (kind: "accept" | "revert", nodeId: EntityId, expectedPreviewDigest?: string) => {
     if (noteForkBusyNodeIdsRef.current.has(nodeId)) return
     noteForkBusyNodeIdsRef.current.add(nodeId)
     const key = `${kind}:${nodeId}`
@@ -352,7 +366,7 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
     const program =
       kind === "accept"
         ? WorkspaceRpcClient.pipe(
-            Effect.flatMap((client) => client.acceptChatFork(new AcceptChatForkInput({ workspaceId, chatId, nodeId }))),
+            Effect.flatMap((client) => client.acceptChatFork(new AcceptChatForkInput({ workspaceId, chatId, nodeId, expectedPreviewDigest }))),
             Effect.asVoid
           )
         : WorkspaceRpcClient.pipe(
@@ -368,7 +382,6 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
         setRefreshKey((k) => k + 1)
       } else if (!Exit.isInterrupted(exit)) {
         setNoteForkError(legacyForkDecisionFailureMessage(kind))
-        console.error(exit.cause.toString())
       }
     })
   }
@@ -376,8 +389,8 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
   return (
     <div className="chat-active">
       <ul className="chat-messages">
-        {chatState.status === "loading" && <li>Loading…</li>}
-        {chatState.status === "failure" && (
+        {reviewState.status === "loading" && <li>Loading…</li>}
+        {reviewState.status === "failure" && (
           <li className="chat-active-load-state" role="alert">
             <p>This chat couldn’t be loaded. Your message composer remains available. Retry to check it again.</p>
             <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>
@@ -418,15 +431,15 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           not folded into mergeChanges/revertChanges") — so they don't appear here; their own
           "Pending note edits" section below is the fork-preview UI this comment used to say was
           future work (adversarial-review fix). */}
-      {(pendingState.status !== "success" || pendingCount > 0) && (
+      {(reviewState.status !== "success" || pendingCount > 0) && (
         <section className="chat-pending">
           <h4>Pending changes {pendingCount > 0 && <span className="chat-pending-count">{pendingCount}</span>}</h4>
-          {pendingState.status === "loading" && (
+          {reviewState.status === "loading" && (
             <p role="status" aria-live="polite" aria-atomic="true">
               Loading pending changes…
             </p>
           )}
-          {pendingState.status === "failure" && (
+          {reviewState.status === "failure" && (
             <div className="error chat-pending-load-state" role="alert">
               <p>Pending changes couldn&rsquo;t be loaded. Nothing has been changed. Retry to review them.</p>
               <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
@@ -435,35 +448,25 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           {pendingCount > 0 && (
             <>
               <ul className="chat-pending-list">
-                {pendingNodes.map((n) => (
-                  <li key={`node-${n.id}`}>
-                    <span className="chat-pending-kind">node</span> {n.title}
-                  </li>
-                ))}
-                {pendingFacts.map((f) => (
-                  <li key={`fact-${f.id}`}>
-                    <span className="chat-pending-kind">fact</span> {f.predicateId} on node {f.nodeId}
-                  </li>
-                ))}
-                {pendingEdges.map((e) => (
-                  <li key={`edge-${e.id}`}>
-                    <span className="chat-pending-kind">edge</span> {e.sourceNodeId} → {e.targetNodeId}
+                {pendingItems.map((item, index) => (
+                  <li key={`${item.kind}-${item.sequence}-${index}`}>
+                    <span className="chat-pending-kind">{item.kind}</span> {visibleReviewLabel(item)}
                   </li>
                 ))}
               </ul>
               <div className="chat-pending-actions">
                 <button
                   type="button"
-                  onClick={() => runMergeOrRevert("merge", pendingSequences)}
-                  disabled={mergeRevertBusy !== null}
+                  onClick={() => runMergeOrRevert("merge", pendingSequences, review?.witness)}
+                  disabled={mergeRevertBusy !== null || reviewPresentationWitness === undefined || reviewHasUnavailableItems}
                 >
                   {mergeRevertBusy === "merge" ? "Accepting…" : "Accept"}
                 </button>
                 <button
                   type="button"
                   className="chat-pending-revert"
-                  onClick={() => runMergeOrRevert("revert", pendingSequences)}
-                  disabled={mergeRevertBusy !== null}
+                  onClick={() => runMergeOrRevert("revert", pendingSequences, review?.witness)}
+                  disabled={mergeRevertBusy !== null || reviewPresentationWitness === undefined || reviewHasUnavailableItems}
                 >
                   {mergeRevertBusy === "revert" ? "Reverting…" : "Revert"}
                 </button>
@@ -480,44 +483,50 @@ function ActiveChatView({ chatId }: { readonly chatId: EntityId }) {
           separate from the structured-pending section above. Loro edits are already ledgered and
           never appear in this compatibility review card. Only rendered once there's at least one
           candidate to check, so an ordinary chat with no note edits shows nothing extra. */}
-      {forkNodeIds.length > 0 && (forksState.status !== "success" || pendingForks.length > 0) && (
+      {(reviewState.status !== "success" || pendingForks.length > 0 || legacyReviewHasGap) && (
         <section className="chat-pending chat-note-forks">
           <h4>
             Pending note edits {pendingForks.length > 0 && <span className="chat-pending-count">{pendingForks.length}</span>}
           </h4>
-          {forksState.status === "loading" && (
+          {reviewState.status === "loading" && (
             <p role="status" aria-live="polite" aria-atomic="true">
               Checking pending note edits…
             </p>
           )}
-          {forksState.status === "failure" && (
+          {reviewState.status === "failure" && (
             <div className="error chat-note-forks-load-state" role="alert">
               <p>Pending note edits couldn&rsquo;t be checked. Nothing has been changed. Retry to review them.</p>
               <button type="button" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
             </div>
           )}
-          {forksState.status === "success" && pendingForks.length === 0 && (
-            <p className="chat-pending-empty">No note edits pending — accepted or reverted edits disappear from here.</p>
+          {reviewState.status === "success" && pendingForks.length === 0 && (
+            <p className="chat-pending-empty">{review?.legacyForks.truncated === true || (review?.legacyForks.unavailable ?? 0) > 0 ? "Some pending note edits couldn’t be safely shown. Refresh to review available edits." : "No note edits pending — accepted or reverted edits disappear from here."}</p>
           )}
-          {pendingForks.map((fork) => {
-            const acceptKey = `accept:${fork.nodeId}`
-            const revertKey = `revert:${fork.nodeId}`
+          {review?.legacyForks.truncated === true && <p className="chat-pending-empty">Only {review.legacyForks.shown} of {review.legacyForks.total} pending note edits are shown.</p>}
+          {pendingForks.map((fork, index) => {
+            const nodeId = fork.nodeId
+            const acceptKey = `accept:${nodeId ?? fork.sequence}`
+            const revertKey = `revert:${nodeId ?? fork.sequence}`
             const busy = noteForkBusyKey === acceptKey || noteForkBusyKey === revertKey
             return (
-              <div key={fork.nodeId} className="chat-note-fork">
+              <div key={fork.nodeId ?? `${fork.kind}-${fork.sequence}-${index}`} className="chat-note-fork">
                 <p className="chat-note-fork-node">
-                  <span className="chat-pending-kind">note</span> node {fork.nodeId}
+                  <span className="chat-pending-kind">note</span> {visibleReviewLabel(fork)}
                 </p>
-                <pre className="chat-note-fork-preview">{fork.text}</pre>
+                <pre className="chat-note-fork-preview">{fork.forkPreviewLines?.join("\n")}</pre>
                 <div className="chat-pending-actions">
-                  <button type="button" onClick={() => runForkAction("accept", fork.nodeId)} disabled={busy}>
+                  <button
+                    type="button"
+                    onClick={() => nodeId !== undefined && fork.previewDigest !== undefined && runForkAction("accept", nodeId, fork.previewDigest)}
+                    disabled={busy || nodeId === undefined || fork.previewDigest === undefined || fork.forkPreviewTruncated === true || fork.targetAvailable === false || fork.actionable === false}
+                  >
                     {noteForkBusyKey === acceptKey ? "Accepting…" : "Accept"}
                   </button>
                   <button
                     type="button"
                     className="chat-pending-revert"
-                    onClick={() => runForkAction("revert", fork.nodeId)}
-                    disabled={busy}
+                    onClick={() => nodeId !== undefined && runForkAction("revert", nodeId)}
+                    disabled={busy || nodeId === undefined || fork.previewDigest === undefined || fork.forkPreviewTruncated === true || fork.targetAvailable === false || fork.actionable === false}
                   >
                     {noteForkBusyKey === revertKey ? "Reverting…" : "Revert"}
                   </button>

@@ -42,6 +42,8 @@ import {
   StartPageSyncOutput,
   SyncFeedInput,
   SyncFeedOutput,
+  canonicalJsonBytes,
+  sha256HexSync,
   type EntityId
 } from "@athenaeum/domain"
 import { connectToWorkspace, freshWorkspaceId, rejectionToDomainError, workspaceDurableObjectStub } from "./support.js"
@@ -207,6 +209,21 @@ describe("ChatForkService: accept merges the fork into mainline", () => {
       await workspaceStub.acceptChatFork(Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId })))
     )
     expect(second.text).toBe("Mainline content one two")
+  })
+
+  it("rejects an acceptance fenced to a stale reviewed fork preview", async () => {
+    const setup = await setupWorkspaceWithPage()
+    workspaceStub = setup.workspaceStub
+    const { workspaceId, nodeId } = setup
+    await workspaceStub.forkChatEdit(Schema.encodeSync(ForkChatEditInput)(new ForkChatEditInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    const preview = Schema.decodeUnknownSync(ChatForkPreviewOutput)(
+      await workspaceStub.chatForkPreview(Schema.encodeSync(ChatForkPreviewInput)(new ChatForkPreviewInput({ workspaceId, chatId: CHAT_ID, nodeId })))
+    )
+    const expectedPreviewDigest = sha256HexSync(canonicalJsonBytes({ schema: "athenaeum.chat-fork-preview.v1", chatId: CHAT_ID, nodeId, forked: preview.forked, text: preview.text }))
+    await workspaceStub.applyChatForkEdit(Schema.encodeSync(ApplyChatForkEditInput)(new ApplyChatForkEditInput({ workspaceId, chatId: CHAT_ID, nodeId, index: 0, deleteCount: 0, insertText: "changed " })))
+    await expect(workspaceStub.acceptChatFork(
+      Schema.encodeSync(AcceptChatForkInput)(new AcceptChatForkInput({ workspaceId, chatId: CHAT_ID, nodeId, expectedPreviewDigest }))
+    )).rejects.toThrow(/stale/)
   })
 })
 
