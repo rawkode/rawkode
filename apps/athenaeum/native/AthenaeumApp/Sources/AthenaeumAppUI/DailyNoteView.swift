@@ -45,6 +45,15 @@ enum DailyNoteStandupPresentation {
     static func shouldShowEmployeeUpdates(hasConfiguration: Bool) -> Bool {
         hasConfiguration
     }
+
+    static func shouldShowReviewAction(
+        isToday: Bool,
+        hasConfiguration: Bool,
+        hasResolvedDailyNote: Bool,
+        hasReviewCallback: Bool
+    ) -> Bool {
+        isToday && hasConfiguration && hasResolvedDailyNote && hasReviewCallback
+    }
 }
 
 /// The compact Today cue may ask to return to the lower standup sub-document. The request carries
@@ -564,6 +573,7 @@ public struct DailyNoteView: View {
             formatBadge
             Spacer(minLength: 8)
             dayNavigation
+            reviewStandupButton
         }
     }
 
@@ -584,6 +594,7 @@ public struct DailyNoteView: View {
                 }
             }
             dayNavigation
+            reviewStandupButton
         }
     }
 
@@ -660,6 +671,20 @@ public struct DailyNoteView: View {
             selectedDatePicker
             nextDayButton
             todayButton
+        }
+    }
+
+    @ViewBuilder
+    private var reviewStandupButton: some View {
+        if DailyNoteStandupPresentation.shouldShowReviewAction(
+            isToday: isToday,
+            hasConfiguration: standupConfiguration != nil,
+            hasResolvedDailyNote: hasResolvedDailyNote,
+            hasReviewCallback: onReviewStandup != nil
+        ) {
+            Button(WorkforceAttentionLayout.reviewStandupTitle, action: reviewStandup)
+                .buttonStyle(.borderless)
+                .accessibilityHint("Returns to the daily standup in this note.")
         }
     }
 

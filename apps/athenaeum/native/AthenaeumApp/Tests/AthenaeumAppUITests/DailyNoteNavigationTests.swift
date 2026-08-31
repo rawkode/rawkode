@@ -34,6 +34,49 @@ final class DailyNoteNavigationTests: XCTestCase {
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: false, hasConfiguration: false))
     }
 
+    func testStandupReviewActionRequiresTodayResolvedConfigurationAndCallback() {
+        XCTAssertTrue(
+            DailyNoteStandupPresentation.shouldShowReviewAction(
+                isToday: true,
+                hasConfiguration: true,
+                hasResolvedDailyNote: true,
+                hasReviewCallback: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupPresentation.shouldShowReviewAction(
+                isToday: false,
+                hasConfiguration: true,
+                hasResolvedDailyNote: true,
+                hasReviewCallback: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupPresentation.shouldShowReviewAction(
+                isToday: true,
+                hasConfiguration: false,
+                hasResolvedDailyNote: true,
+                hasReviewCallback: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupPresentation.shouldShowReviewAction(
+                isToday: true,
+                hasConfiguration: true,
+                hasResolvedDailyNote: false,
+                hasReviewCallback: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupPresentation.shouldShowReviewAction(
+                isToday: true,
+                hasConfiguration: true,
+                hasResolvedDailyNote: true,
+                hasReviewCallback: false
+            )
+        )
+    }
+
     func testStandupAccessibilityFocusIsFencedToTheCurrentResolvedTodayNote() throws {
         let todayNote = try EntityId(validating: "00000000-0000-4000-8000-000000000401")
         let nextNote = try EntityId(validating: "00000000-0000-4000-8000-000000000402")

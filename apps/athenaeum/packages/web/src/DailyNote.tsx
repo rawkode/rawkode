@@ -32,7 +32,7 @@ import { LoroRichNoteEditor, type PrepareMeetingHandler } from "./LoroRichNoteEd
 import { Backlinks } from "./Backlinks.js"
 import { NoteTags } from "./NoteTags.js"
 import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "./SupertagFieldPopover.js"
-import { DailyStandup } from "./LedgerActivityPanel.js"
+import { DAILY_STANDUP_ANCHOR_ID, DailyStandup } from "./LedgerActivityPanel.js"
 import { useDailyStandup } from "./use-daily-standup.js"
 import { WorkforceAttentionStrip } from "./WorkforceAttentionStrip.js"
 
@@ -398,6 +398,11 @@ export function DailyNote({
             {todayBriefTargetId !== undefined && (
               <a className="daily-note-brief-jump" href={`#${todayBriefTargetId}`}>
                 Today’s brief
+              </a>
+            )}
+            {isToday && state.status === "success" && standup.snapshot.dailyNoteId !== undefined && (
+              <a className="daily-note-standup-jump" href={`#${DAILY_STANDUP_ANCHOR_ID}`}>
+                Review standup
               </a>
             )}
           </nav>

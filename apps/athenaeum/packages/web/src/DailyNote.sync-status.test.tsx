@@ -30,7 +30,10 @@ vi.mock("./LoroRichNoteEditor.js", () => ({
 vi.mock("./Backlinks.js", () => ({ Backlinks: () => null }))
 vi.mock("./NoteTags.js", () => ({ NoteTags: () => null }))
 vi.mock("./SupertagFieldPopover.js", () => ({ SupertagFieldPopover: () => null }))
-vi.mock("./LedgerActivityPanel.js", () => ({ DailyStandup: () => null }))
+vi.mock("./LedgerActivityPanel.js", () => ({
+  DAILY_STANDUP_ANCHOR_ID: "daily-standup-title",
+  DailyStandup: () => null
+}))
 
 import { DailyNote } from "./DailyNote.js"
 
@@ -115,6 +118,14 @@ describe("DailyNote sync status", () => {
     const link = host.querySelector<HTMLAnchorElement>(".daily-note-brief-jump")
     expect(link?.textContent).toBe("Today’s brief")
     expect(link?.getAttribute("href")).toBe("#today-brief")
+  })
+
+  it("offers a current-day jump to the standup once the note is resolved", async () => {
+    const host = await mount(undefined, undefined, new Date())
+
+    const link = host.querySelector<HTMLAnchorElement>(".daily-note-standup-jump")
+    expect(link?.textContent).toBe("Review standup")
+    expect(link?.getAttribute("href")).toBe("#daily-standup-title")
   })
 
   it("keeps the writing canvas before the single contextual brief", async () => {
