@@ -4,6 +4,9 @@ import { EmployeeUpdates } from "./EmployeeUpdates.js"
 import { DAILY_STANDUP_FETCH_LIMIT, type DailyStandupController } from "./use-daily-standup.js"
 export { DAILY_STANDUP_FETCH_LIMIT } from "./use-daily-standup.js"
 
+/** Stable in-document return target used by the compact Today workforce cue. */
+export const DAILY_STANDUP_ANCHOR_ID = "daily-standup-title"
+
 /** Keep the read wide enough for a useful daily picture while the presentation stays calm. */
 const DAILY_STANDUP_INITIAL_VISIBLE_ENTRIES = 8
 
@@ -118,7 +121,7 @@ export function DailyStandup({ standup = emptyStandup }: { readonly standup?: Da
         <header className="daily-standup-subdocument-heading">
           <div>
             <span className="section-kicker">Daily note sub-document</span>
-            <h2 id="daily-standup-title">Daily standup</h2>
+            <h2 id={DAILY_STANDUP_ANCHOR_ID} tabIndex={-1}>Daily standup</h2>
           </div>
           <p>Employee updates and recorded changes for this day.</p>
         </header>

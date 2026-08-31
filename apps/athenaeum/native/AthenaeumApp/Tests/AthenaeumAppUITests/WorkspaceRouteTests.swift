@@ -72,7 +72,26 @@ final class WorkspaceRouteTests: XCTestCase {
 
         XCTAssertEqual(source.components(separatedBy: "DailyNoteView(").count - 1, 2)
         XCTAssertEqual(source.components(separatedBy: "onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) }").count - 1, 2)
+        // The iOS routing helper forwards the same callback once before both concrete
+        // DailyNoteView construction sites receive it.
+        XCTAssertGreaterThanOrEqual(source.components(separatedBy: "onReviewStandup: onReviewStandup").count - 1, 2)
         XCTAssertEqual(source.components(separatedBy: "onOpenReference: { reference in openReference(reference) }").count - 1, 2)
+    }
+
+    func testEveryTodaySurfaceProvidesTheExistingStandupScrollTarget() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/WorkspaceCommandCenterView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertEqual(
+            source.components(separatedBy: "proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top)").count - 1,
+            4
+        )
+        XCTAssertTrue(source.contains("iOSContent(WorkspaceIOSHomePresentation.homeSection, model: model, onReviewStandup:"))
     }
 
     func testSidebarKeepsCoreWorkSurfacesSeparateFromBrowseDestinations() {

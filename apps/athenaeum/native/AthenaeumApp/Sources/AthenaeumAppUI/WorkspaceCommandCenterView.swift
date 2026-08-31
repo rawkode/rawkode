@@ -495,11 +495,15 @@ public struct WorkspaceCommandCenterView: View {
 
     @ViewBuilder private var iOSHome: some View {
         if let model = host.model {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    iOSContent(WorkspaceIOSHomePresentation.homeSection, model: model)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        iOSContent(WorkspaceIOSHomePresentation.homeSection, model: model, onReviewStandup: {
+                            withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                        })
+                    }
+                    .padding(24)
                 }
-                .padding(24)
             }
         } else {
             startupError
@@ -589,11 +593,15 @@ public struct WorkspaceCommandCenterView: View {
         switch route {
         case .section(let section):
             if let model = host.model {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        iOSContent(section, model: model)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            iOSContent(section, model: model, onReviewStandup: {
+                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                            })
+                        }
+                        .padding(24)
                     }
-                    .padding(24)
                 }
                 .navigationTitle(section.title)
             } else {
@@ -607,11 +615,15 @@ public struct WorkspaceCommandCenterView: View {
             }
         case .dailyNote(let localDate):
             if let model = host.model {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        iOSContent(.today, model: model)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            iOSContent(.today, model: model, onReviewStandup: {
+                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                            })
+                        }
+                        .padding(24)
                     }
-                    .padding(24)
                 }
                 .task(id: localDate) {
                     model.showLocalDate(localDate)
@@ -654,7 +666,11 @@ public struct WorkspaceCommandCenterView: View {
             )
         }
     }
-    @ViewBuilder private func iOSContent(_ section: WorkspaceSection, model: AthenaeumViewModel) -> some View {
+    @ViewBuilder private func iOSContent(
+        _ section: WorkspaceSection,
+        model: AthenaeumViewModel,
+        onReviewStandup: (() -> Void)? = nil
+    ) -> some View {
         switch section {
         case .meetings:
             MeetingsView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential) { iOSPath.append(WorkspaceRoute.voiceAction) }
@@ -681,7 +697,7 @@ public struct WorkspaceCommandCenterView: View {
                 Divider()
                 CalendarDayView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential) { iOSPath.append(WorkspaceRoute.graphID($0)) }
             }
-        default: selectedContent(model: model, section: section)
+        default: selectedContent(model: model, section: section, onReviewStandup: onReviewStandup)
         }
     }
     #endif
@@ -709,15 +725,19 @@ public struct WorkspaceCommandCenterView: View {
                 onClose: { selectedGraphNodeId = nil }
             )
         } else if let model = host.model {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if selection.showsDestinationHeader {
-                        detailHeader
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if selection.showsDestinationHeader {
+                            detailHeader
+                        }
+                        selectedContent(model: model, onReviewStandup: {
+                            withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                        })
                     }
-                    selectedContent(model: model)
+                    .padding(24)
+                    .frame(maxWidth: 900, alignment: .leading)
                 }
-                .padding(24)
-                .frame(maxWidth: 900, alignment: .leading)
             }
         } else {
             startupError
@@ -766,7 +786,11 @@ public struct WorkspaceCommandCenterView: View {
     }
 
     @ViewBuilder
-    private func selectedContent(model: AthenaeumViewModel, section: WorkspaceSection? = nil) -> some View {
+    private func selectedContent(
+        model: AthenaeumViewModel,
+        section: WorkspaceSection? = nil,
+        onReviewStandup: (() -> Void)? = nil
+    ) -> some View {
         switch section ?? selection {
         case .today:
             #if os(macOS)
@@ -777,6 +801,7 @@ public struct WorkspaceCommandCenterView: View {
                     standupWorkspaceId: workspaceId,
                     standupBearerCredential: session.credential,
                     onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
+                    onReviewStandup: onReviewStandup,
                     onOpenReference: { reference in openReference(reference) }
                 )
                 .frame(maxWidth: 600, alignment: .leading)
@@ -791,6 +816,7 @@ public struct WorkspaceCommandCenterView: View {
                 standupBearerCredential: session.credential,
                 contextualView: AnyView(dailyBrief(model: model)),
                 onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
+                onReviewStandup: onReviewStandup,
                 onOpenReference: { reference in openReference(reference) }
             )
             #endif

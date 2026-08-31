@@ -36,6 +36,8 @@ enum DailyNoteFailurePresentation {
 /// Recorded work is scoped to the current calendar day. Historical Daily Notes retain their own
 /// document and backlinks, but must not embed the current day's standup activity.
 enum DailyNoteStandupPresentation {
+    static let anchorID = "athenaeum.daily-note.standup"
+
     static func shouldShow(isToday: Bool, hasConfiguration: Bool) -> Bool {
         isToday && hasConfiguration
     }
@@ -122,6 +124,7 @@ public struct DailyNoteView: View {
     /// client/model; this type-erased slot only controls composition and never fetches data.
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
+    private let onReviewStandup: (() -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
     private let standupLifecycleDriver: DailyStandupLifecycleDriver
     /// DailyNote is the sole owner; standup detail/strip are passive observers.
@@ -141,6 +144,7 @@ public struct DailyNoteView: View {
         self.standupConfiguration = nil
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
+        self.onReviewStandup = nil
         self.onOpenReference = nil
         self.standupLifecycleDriver = .live
         _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
@@ -155,6 +159,7 @@ public struct DailyNoteView: View {
         standupBearerCredential: String?,
         contextualView: AnyView? = nil,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
+        onReviewStandup: (() -> Void)? = nil,
         onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil,
         standupLifecycleDriver: DailyStandupLifecycleDriver = .live
     ) {
@@ -166,6 +171,7 @@ public struct DailyNoteView: View {
         )
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
+        self.onReviewStandup = onReviewStandup
         self.onOpenReference = onOpenReference
         self.standupLifecycleDriver = standupLifecycleDriver
         _dailyStandupModel = StateObject(wrappedValue: .init(
@@ -184,7 +190,11 @@ public struct DailyNoteView: View {
             // Today attention is deliberately the first operational context after the note
             // heading; the full historical/publication detail remains below the editor.
             if isToday, standupConfiguration != nil {
-                WorkforceAttentionStrip(model: dailyStandupModel, onOpen: onOpenEmployeeUpdate)
+                WorkforceAttentionStrip(
+                    model: dailyStandupModel,
+                    onOpen: onOpenEmployeeUpdate,
+                    onReviewStandup: hasResolvedDailyNote ? onReviewStandup : nil
+                )
             }
 
             switch model.status {
@@ -248,6 +258,7 @@ public struct DailyNoteView: View {
                         onOpenEmployeeUpdate: onOpenEmployeeUpdate,
                         onRefresh: refreshStandup
                     )
+                    .id(DailyNoteStandupPresentation.anchorID)
                 }
                 BacklinksView(model: model)
             }

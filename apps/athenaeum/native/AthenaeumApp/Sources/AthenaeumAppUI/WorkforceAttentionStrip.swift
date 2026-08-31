@@ -97,11 +97,14 @@ enum WorkforceAttentionLayout {
     static func reviewAccessibilityLabel(for disclosure: WorkforceAttentionPresentation.Disclosure) -> String {
         "Review \(disclosure.outcome.rawValue) update from \(disclosure.employee) for \(disclosure.job)"
     }
+
+    static let reviewStandupTitle = "Review standup"
 }
 
 struct WorkforceAttentionStrip: View {
     @ObservedObject var model: DailyStandupViewModel
     let onOpen: ((EntityId) -> Void)?
+    let onReviewStandup: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -166,6 +169,12 @@ struct WorkforceAttentionStrip: View {
             Text(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let onReviewStandup {
+                Button(WorkforceAttentionLayout.reviewStandupTitle, action: onReviewStandup)
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .accessibilityHint("Returns to the daily standup in this note.")
+            }
         }
     }
 

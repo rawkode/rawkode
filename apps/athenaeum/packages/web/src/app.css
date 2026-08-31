@@ -4013,6 +4013,10 @@
   scroll-margin-top: var(--space-5);
 }
 
+#daily-standup-title {
+  scroll-margin-top: var(--space-6);
+}
+
 /* Node view — reuses the shared bordered-panel language (.daily-note et al above). */
 .node-view {
   background: var(--color-surface);

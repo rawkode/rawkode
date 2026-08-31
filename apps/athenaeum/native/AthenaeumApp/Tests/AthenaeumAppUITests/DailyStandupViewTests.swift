@@ -122,6 +122,7 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
         XCTAssertEqual(WorkforceAttentionPresentation.summary(totalAttention: 4), "4 workforce updates need attention")
         XCTAssertEqual(WorkforceAttentionPresentation.remainderTitle(1), "and 1 more")
+        XCTAssertEqual(WorkforceAttentionLayout.reviewStandupTitle, "Review standup")
     }
 
     func testAttentionStripTreatsRoutinePublicationsAsClear() throws {

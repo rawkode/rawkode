@@ -26,6 +26,7 @@ final class DailyNoteNavigationTests: XCTestCase {
     }
 
     func testStandupPresentationOnlyShowsForTodayWhenConfigured() {
+        XCTAssertEqual(DailyNoteStandupPresentation.anchorID, "athenaeum.daily-note.standup")
         XCTAssertTrue(DailyNoteStandupPresentation.shouldShow(isToday: true, hasConfiguration: true))
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: false, hasConfiguration: true))
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: true, hasConfiguration: false))

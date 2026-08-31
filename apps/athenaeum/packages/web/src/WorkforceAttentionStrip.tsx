@@ -3,6 +3,7 @@ import {
   workforceAttentionPresentation,
   type EmployeeUpdatesState
 } from "./EmployeeUpdates.js"
+import { DAILY_STANDUP_ANCHOR_ID } from "./LedgerActivityPanel.js"
 
 /** A compact Today-only cue. The full workforce report remains below the writing canvas. */
 export function WorkforceAttentionStrip({
@@ -26,7 +27,7 @@ export function WorkforceAttentionStrip({
     return (
       <section className="workforce-attention-strip workforce-attention-strip-clear" aria-label="Workforce update status">
         <span>{presentation.routineCount} {presentation.routineCount === 1 ? "employee update" : "employee updates"} · no exceptions</span>
-        <a href="#daily-standup-title">Review standup</a>
+        <a href={`#${DAILY_STANDUP_ANCHOR_ID}`}>Review standup</a>
       </section>
     )
   }
@@ -34,7 +35,7 @@ export function WorkforceAttentionStrip({
     <section className="workforce-attention-strip workforce-attention-strip-alert" aria-labelledby="workforce-attention-title">
       <div className="workforce-attention-heading">
         <strong id="workforce-attention-title">{presentation.totalAttentionCount} {presentation.totalAttentionCount === 1 ? "employee update needs" : "employee updates need"} attention</strong>
-        <a href="#daily-standup-title">Review standup</a>
+        <a href={`#${DAILY_STANDUP_ANCHOR_ID}`}>Review standup</a>
       </div>
       <ul className="workforce-attention-list">
         {presentation.disclosures.map((item, index) => (

@@ -28,6 +28,14 @@ describe("WorkforceAttentionStrip", () => {
     expect(host.textContent).not.toContain("private workflow")
     expect(host.textContent).not.toContain("private schedule")
     expect(host.querySelectorAll("a[href^='/node/']")).toHaveLength(1)
+    expect(host.querySelector<HTMLAnchorElement>("a[href='#daily-standup-title']")?.textContent).toBe("Review standup")
+  })
+
+  it("keeps the all-clear return path in the same daily note", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host); roots.push(root)
+    await act(async () => root.render(<MemoryRouter><WorkforceAttentionStrip state={{ status: "success", publications: [publication("completed")] }} onRetry={vi.fn()} /></MemoryRouter>))
+    expect(host.querySelector<HTMLAnchorElement>("a[href='#daily-standup-title']")?.textContent).toBe("Review standup")
   })
 
   it("stays absent while loading and gives failure a safe retry", async () => {
