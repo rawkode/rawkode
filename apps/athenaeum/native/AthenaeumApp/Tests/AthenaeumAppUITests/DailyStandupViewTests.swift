@@ -64,6 +64,19 @@ private actor LifecycleSleepRecorder {
 
 @MainActor
 final class DailyStandupViewTests: XCTestCase {
+    func testStandupHeaderIsAnAccessibilityHeadingAndFocusTarget() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/DailyStandupView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains(".accessibilityAddTraits(.isHeader)"))
+        XCTAssertTrue(source.contains(".accessibilityFocused(isHeadingFocused)"))
+    }
+
     func testEmployeeUpdatesPartitionOutcomesWithoutReorderingOrLabelingLegacyRows() throws {
         let publications = try [
             makePublication(id: "00000000-0000-4000-8000-000000000201", resultKind: .completed),

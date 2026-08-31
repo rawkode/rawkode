@@ -306,6 +306,7 @@ public struct DailyStandupView: View {
     @State private var isShowingAllEntries = false
     private let dailyNoteId: EntityId?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
+    private let isHeadingFocused: AccessibilityFocusState<Bool>.Binding?
     private let onRefresh: () -> Void
 
     init(
@@ -313,12 +314,14 @@ public struct DailyStandupView: View {
         dailyNoteId: EntityId? = nil,
         includeLedger: Bool = true,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
+        isHeadingFocused: AccessibilityFocusState<Bool>.Binding? = nil,
         onRefresh: @escaping () -> Void = {}
     ) {
         self.model = model
         self.dailyNoteId = dailyNoteId
         self.includeLedger = includeLedger
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
+        self.isHeadingFocused = isHeadingFocused
         self.onRefresh = onRefresh
     }
 
@@ -348,8 +351,16 @@ public struct DailyStandupView: View {
             Text("Daily note sub-document")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Daily standup")
-                .font(.title2.bold())
+            if let isHeadingFocused {
+                Text("Daily standup")
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused(isHeadingFocused)
+            } else {
+                Text("Daily standup")
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+            }
             Text("Employee updates and recorded changes for this day.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import AthenaeumDomain
 @testable import AthenaeumAppUI
 
 @MainActor
@@ -31,6 +32,47 @@ final class DailyNoteNavigationTests: XCTestCase {
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: false, hasConfiguration: true))
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: true, hasConfiguration: false))
         XCTAssertFalse(DailyNoteStandupPresentation.shouldShow(isToday: false, hasConfiguration: false))
+    }
+
+    func testStandupAccessibilityFocusIsFencedToTheCurrentResolvedTodayNote() throws {
+        let todayNote = try EntityId(validating: "00000000-0000-4000-8000-000000000401")
+        let nextNote = try EntityId(validating: "00000000-0000-4000-8000-000000000402")
+        let request = try XCTUnwrap(
+            DailyNoteStandupFocusPresentation.request(
+                generation: 4,
+                dailyNoteId: todayNote,
+                isToday: true,
+                hasResolvedDailyNote: true
+            )
+        )
+
+        XCTAssertTrue(
+            DailyNoteStandupFocusPresentation.mayApply(
+                request,
+                currentGeneration: 4,
+                currentDailyNoteId: todayNote,
+                isToday: true,
+                hasResolvedDailyNote: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupFocusPresentation.mayApply(
+                request,
+                currentGeneration: 5,
+                currentDailyNoteId: todayNote,
+                isToday: true,
+                hasResolvedDailyNote: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNoteStandupFocusPresentation.mayApply(
+                request,
+                currentGeneration: 4,
+                currentDailyNoteId: nextNote,
+                isToday: false,
+                hasResolvedDailyNote: true
+            )
+        )
     }
 
     func testNavigationProgressExplainsExistingCustodyWithoutChangingIdleStatus() {

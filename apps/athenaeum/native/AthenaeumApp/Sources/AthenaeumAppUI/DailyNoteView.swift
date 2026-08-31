@@ -47,6 +47,39 @@ enum DailyNoteStandupPresentation {
     }
 }
 
+/// The compact Today cue may ask to return to the lower standup sub-document. The request carries
+/// the resolved daily-note identity so a deferred accessibility focus can never land in a note
+/// selected after the action.
+enum DailyNoteStandupFocusPresentation {
+    struct Request: Equatable {
+        let generation: Int
+        let dailyNoteId: EntityId
+    }
+
+    static func request(
+        generation: Int,
+        dailyNoteId: EntityId?,
+        isToday: Bool,
+        hasResolvedDailyNote: Bool
+    ) -> Request? {
+        guard isToday, hasResolvedDailyNote, let dailyNoteId else { return nil }
+        return .init(generation: generation, dailyNoteId: dailyNoteId)
+    }
+
+    static func mayApply(
+        _ request: Request,
+        currentGeneration: Int,
+        currentDailyNoteId: EntityId?,
+        isToday: Bool,
+        hasResolvedDailyNote: Bool
+    ) -> Bool {
+        request.generation == currentGeneration
+            && request.dailyNoteId == currentDailyNoteId
+            && isToday
+            && hasResolvedDailyNote
+    }
+}
+
 /// Navigation already waits at the view-model's durable-before-navigation boundary. This is only
 /// a contextual presentation of that existing state, so disabled date controls never feel inert.
 enum DailyNoteNavigationProgressPresentation {
@@ -130,6 +163,8 @@ public struct DailyNoteView: View {
     /// DailyNote is the sole owner; standup detail/strip are passive observers.
     @StateObject private var dailyStandupModel: DailyStandupViewModel
     @State private var preparationNotice: String?
+    @State private var standupFocusGeneration = 0
+    @AccessibilityFocusState private var isStandupHeadingFocused: Bool
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
@@ -193,7 +228,7 @@ public struct DailyNoteView: View {
                 WorkforceAttentionStrip(
                     model: dailyStandupModel,
                     onOpen: onOpenEmployeeUpdate,
-                    onReviewStandup: hasResolvedDailyNote ? onReviewStandup : nil
+                    onReviewStandup: hasResolvedDailyNote ? reviewStandup : nil
                 )
             }
 
@@ -256,6 +291,7 @@ public struct DailyNoteView: View {
                         dailyNoteId: model.dailyNoteId,
                         includeLedger: isToday,
                         onOpenEmployeeUpdate: onOpenEmployeeUpdate,
+                        isHeadingFocused: $isStandupHeadingFocused,
                         onRefresh: refreshStandup
                     )
                     .id(DailyNoteStandupPresentation.anchorID)
@@ -269,6 +305,16 @@ public struct DailyNoteView: View {
             consumePreparationCompletion()
         }
         .onChange(of: model.status) { status in
+            switch status {
+            case .loading, .error(_):
+                // A note transition invalidates any deferred standup focus just as it
+                // invalidates the editor focus request. Keep VoiceOver from landing on a
+                // heading that no longer belongs to the resolved note.
+                isStandupHeadingFocused = false
+                standupFocusGeneration += 1
+            default:
+                break
+            }
             guard case .synced = status else { return }
             focusEditorIfNeeded()
         }
@@ -285,6 +331,8 @@ public struct DailyNoteView: View {
         }
         .onChange(of: model.selectedDate) { _ in
             clearEditorFocus()
+            isStandupHeadingFocused = false
+            standupFocusGeneration += 1
             hasAutofocused = false
             preparationNotice = nil
         }
@@ -343,6 +391,32 @@ public struct DailyNoteView: View {
         let window = DailyStandupDayWindow(now: standupLifecycleDriver.now())
         dailyStandupModel.update(dailyNoteId: model.dailyNoteId, includeLedger: isToday, dayWindow: window)
         Task { @MainActor in await dailyStandupModel.refresh(window: window) }
+    }
+
+    private func reviewStandup() {
+        guard let onReviewStandup else { return }
+        standupFocusGeneration += 1
+        guard let request = DailyNoteStandupFocusPresentation.request(
+            generation: standupFocusGeneration,
+            dailyNoteId: model.dailyNoteId,
+            isToday: isToday,
+            hasResolvedDailyNote: hasResolvedDailyNote
+        ) else { return }
+
+        // The command center scrolls synchronously. Yield once so its target is laid out before
+        // VoiceOver moves to the existing standup heading.
+        onReviewStandup()
+        Task { @MainActor in
+            await Task.yield()
+            guard DailyNoteStandupFocusPresentation.mayApply(
+                request,
+                currentGeneration: standupFocusGeneration,
+                currentDailyNoteId: model.dailyNoteId,
+                isToday: isToday,
+                hasResolvedDailyNote: hasResolvedDailyNote
+            ) else { return }
+            isStandupHeadingFocused = true
+        }
     }
 
     private func dailyNoteFailureCard(_ rawMessage: String) -> some View {
