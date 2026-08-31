@@ -85,6 +85,7 @@ final class LoroNativeRichCrossClientJoinTests: XCTestCase {
             switch block {
             case let .paragraph(value): return value
             case let .heading(_, value): return value
+            case let .taskList(items): return items.flatMap(\.runs)
             }
         }
         let referenceRun = try XCTUnwrap(runs.first(where: { $0.reference != nil }), fixtureId)

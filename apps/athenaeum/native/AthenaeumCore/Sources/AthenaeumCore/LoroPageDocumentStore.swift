@@ -932,7 +932,41 @@ public actor LoroPageDocumentStore {
         for index in 0..<children.len() {
             guard let map = children.get(index: index)?.asLoroMap(), case let .map(value) = map.getDeepValue(), Set(value.keys) == ["nodeName", "attributes", "children"],
                   case let .string(name)? = value["nodeName"], case let .map(attrs)? = value["attributes"],
-                  let inline = map.get(key: "children")?.asLoroList(), inline.len() <= 1 else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+                  let inline = map.get(key: "children")?.asLoroList() else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+            if name == "task_list" {
+                guard attrs.count == 1, isNativePlainAttributes(attrs), inline.len() > 0 else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+                var items: [LoroCanonicalSemanticValueV1.TaskItem] = []
+                for itemIndex in 0..<inline.len() {
+                    guard let item = inline.get(index: itemIndex)?.asLoroMap(),
+                          case let .map(itemValue) = item.getDeepValue(), Set(itemValue.keys) == ["nodeName", "attributes", "children"],
+                          case .string("task_item")? = itemValue["nodeName"],
+                          case let .map(itemAttrs)? = itemValue["attributes"], itemAttrs.count == 2,
+                          itemAttrs["isAmgBlock"] == .bool(value: false), case let .bool(checked)? = itemAttrs["checked"],
+                          let itemChildren = item.get(key: "children")?.asLoroList(), itemChildren.len() == 1,
+                          let paragraph = itemChildren.get(index: 0)?.asLoroMap(),
+                          case let .map(paragraphValue) = paragraph.getDeepValue(), Set(paragraphValue.keys) == ["nodeName", "attributes", "children"],
+                          case .string("paragraph")? = paragraphValue["nodeName"],
+                          case let .map(paragraphAttrs)? = paragraphValue["attributes"], isNativePlainAttributes(paragraphAttrs),
+                          let paragraphChildren = paragraph.get(key: "children")?.asLoroList(), paragraphChildren.len() <= 1 else {
+                        throw LoroPageDocumentStoreError.nativeRichTextIneligible
+                    }
+                    let runs: [LoroCanonicalSemanticValueV1.TextRun]
+                    if paragraphChildren.len() == 0 {
+                        runs = []
+                    } else {
+                        guard let text = paragraphChildren.get(index: 0)?.asLoroText(), text.isAttached(), !text.isDeleted() else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
+                        bytes += Int(text.lenUtf8()); scalarCount += Int(text.lenUnicode())
+                        guard bytes <= LoroPageProjectionLimits().maxUTF8Bytes, scalarCount <= LoroPageProjectionLimits().maxUTF8Bytes else { throw LoroPageDocumentStoreError.inputTooLarge }
+                        runs = try richRuns(text)
+                    }
+                    runCount += runs.count
+                    guard runCount <= LoroPageProjectionLimits().maxTextRuns else { throw LoroPageDocumentStoreError.inputTooLarge }
+                    items.append(.init(checked: checked, runs: runs))
+                }
+                blocks.append(.taskList(items))
+                continue
+            }
+            guard inline.len() <= 1 else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
             let runs: [LoroCanonicalSemanticValueV1.TextRun]
             if inline.len() == 0 { runs = [] } else {
                 guard let text = inline.get(index: 0)?.asLoroText(), text.isAttached(), !text.isDeleted() else { throw LoroPageDocumentStoreError.nativeRichTextIneligible }
@@ -995,6 +1029,24 @@ public actor LoroPageDocumentStore {
             switch block {
             case let .paragraph(value): try node.insert(key: "nodeName", v: "paragraph"); try attributes.insert(key: "isAmgBlock", v: false); runs = value
             case let .heading(level, value): try node.insert(key: "nodeName", v: "heading"); try attributes.insert(key: "isAmgBlock", v: false); try attributes.insert(key: "level", v: level); runs = value
+            case let .taskList(items):
+                try node.insert(key: "nodeName", v: "task_list")
+                try attributes.insert(key: "isAmgBlock", v: false)
+                for item in items {
+                    let itemNode = try inline.insertMapContainer(pos: inline.len(), child: LoroMap())
+                    try itemNode.insert(key: "nodeName", v: "task_item")
+                    let itemAttributes = try itemNode.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+                    try itemAttributes.insert(key: "isAmgBlock", v: false)
+                    try itemAttributes.insert(key: "checked", v: item.checked)
+                    let itemChildren = try itemNode.getOrCreateListContainer(key: "children", child: LoroList())
+                    let paragraphNode = try itemChildren.insertMapContainer(pos: 0, child: LoroMap())
+                    try paragraphNode.insert(key: "nodeName", v: "paragraph")
+                    let paragraphAttributes = try paragraphNode.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+                    try paragraphAttributes.insert(key: "isAmgBlock", v: false)
+                    let paragraphInline = try paragraphNode.getOrCreateListContainer(key: "children", child: LoroList())
+                    try writeNativeRichRuns(item.runs, to: paragraphInline)
+                }
+                continue
             }
             guard !runs.isEmpty else { continue }
             let text = try inline.insertTextContainer(pos: 0, child: LoroText())
@@ -1014,6 +1066,24 @@ public actor LoroPageDocumentStore {
         }
     }
 
+    private func writeNativeRichRuns(_ runs: [LoroCanonicalSemanticValueV1.TextRun], to inline: LoroList) throws {
+        guard !runs.isEmpty else { return }
+        let text = try inline.insertTextContainer(pos: 0, child: LoroText())
+        var offset: UInt32 = 0
+        for run in runs {
+            try text.pushStr(s: run.text)
+            guard let count = UInt32(exactly: run.text.unicodeScalars.count), offset <= UInt32.max - count else { throw LoroPageDocumentStoreError.inputTooLarge }
+            for mark in run.marks { try text.mark(from: offset, to: offset + count, key: mark == .emphasis ? "em" : mark.rawValue, value: LoroValue.map(value: [:])) }
+            if let reference = run.reference {
+                let key = reference.kind == .entity ? "entityRef" : "supertagRef"
+                let idKey = reference.kind == .entity ? "nodeId" : "tagId"
+                let payload: LoroValue = .map(value: [idKey: .string(value: reference.id.rawValue), "label": .string(value: reference.label)])
+                try text.mark(from: offset, to: offset + count, key: key, value: payload)
+            }
+            offset += count
+        }
+    }
+
     private func configureNativeRichStyles(_ doc: LoroDoc) {
         let styles = StyleConfigMap.defaultRichTextConfig()
         // The canonical value form records exact mark spans. A mark that expands at either edge
@@ -1028,7 +1098,11 @@ public actor LoroPageDocumentStore {
 
     private func appliedText(from semantic: LoroCanonicalSemanticValueV1) -> String {
         semantic.blocks.map { block in
-            switch block { case let .paragraph(runs): return runs.map(\.text).joined(); case let .heading(_, runs): return runs.map(\.text).joined() }
+            switch block {
+            case let .paragraph(runs): return runs.map(\.text).joined()
+            case let .heading(_, runs): return runs.map(\.text).joined()
+            case let .taskList(items): return items.map { $0.runs.map(\.text).joined() }.joined(separator: "\n")
+            }
         }.joined(separator: "\n")
     }
 

@@ -8,6 +8,17 @@ public struct LoroCanonicalSemanticValueV1: Sendable, Equatable {
     public enum Block: Sendable, Equatable {
         case paragraph([TextRun])
         case heading(level: Int, runs: [TextRun])
+        case taskList([TaskItem])
+    }
+
+    public struct TaskItem: Sendable, Equatable {
+        public let checked: Bool
+        public let runs: [TextRun]
+
+        public init(checked: Bool, runs: [TextRun]) {
+            self.checked = checked
+            self.runs = runs
+        }
     }
 
     public struct TextRun: Sendable, Equatable {
@@ -63,14 +74,7 @@ extension LoroCanonicalSemanticValueV1 {
         let limits = LoroPageProjectionLimits()
         guard !blocks.isEmpty, blocks.count <= limits.maxChildren else { throw LoroNativeRichEditorError.bounds }
         var runCount = 0; var bytes = 0
-        for block in blocks {
-            let runs: [TextRun]
-            switch block {
-            case let .paragraph(value): runs = value
-            case let .heading(level, value):
-                guard (1...3).contains(level) else { throw LoroNativeRichEditorError.malformed }
-                runs = value
-            }
+        func validateRuns(_ runs: [TextRun]) throws {
             var previous: (marks: [Mark], reference: InlineReference?)?
             for run in runs {
                 runCount += 1; bytes += run.text.lengthOfBytes(using: .utf8)
@@ -88,6 +92,18 @@ extension LoroCanonicalSemanticValueV1 {
                 guard previous == nil || previous!.marks != run.marks || previous!.reference != run.reference else { throw LoroNativeRichEditorError.malformed }
                 guard runCount <= limits.maxTextRuns, bytes <= limits.maxUTF8Bytes, run.marks.count <= limits.maxMarks else { throw LoroNativeRichEditorError.bounds }
                 previous = (run.marks, run.reference)
+            }
+        }
+        for block in blocks {
+            switch block {
+            case let .paragraph(runs):
+                try validateRuns(runs)
+            case let .heading(level, runs):
+                guard (1...3).contains(level) else { throw LoroNativeRichEditorError.malformed }
+                try validateRuns(runs)
+            case let .taskList(items):
+                guard !items.isEmpty, items.count <= limits.maxChildren else { throw LoroNativeRichEditorError.bounds }
+                for item in items { try validateRuns(item.runs) }
             }
         }
         return self

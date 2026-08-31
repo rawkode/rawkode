@@ -4,6 +4,34 @@ import AthenaeumDomain
 @testable import AthenaeumCore
 
 final class LoroNativeRichEditorFacadeTests: XCTestCase {
+    func testCanonicalTaskListAcceptsCheckedUncheckedEmptyAndAdjacentMarkedReferences() throws {
+        let id = try EntityId(validating: "00000000-0000-4000-8000-000000000001")
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(kind: .supertag, id: id, label: "Project")
+        let value = LoroCanonicalSemanticValueV1(blocks: [
+            .paragraph([.init(text: "Before")]),
+            .taskList([
+                .init(checked: true, runs: [.init(text: "Done", marks: [.strong])]),
+                .init(checked: false, runs: [.init(text: "Project", marks: [.emphasis], reference: reference)]),
+                .init(checked: false, runs: [])
+            ]),
+            .paragraph([.init(text: "After")])
+        ])
+        XCTAssertEqual(try value.validated(), value)
+    }
+
+    func testCanonicalTaskListRejectsEmptyListNestedRunsAndNoncanonicalRuns() {
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.taskList([])]).validated())
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.taskList([
+            .init(checked: false, runs: [.init(text: "A"), .init(text: "B")])
+        ])]).validated())
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.taskList([
+            .init(checked: false, runs: [.init(text: "A", marks: [.strong, .code])])
+        ])]).validated())
+        XCTAssertThrowsError(try LoroCanonicalSemanticValueV1(blocks: [.taskList([
+            .init(checked: false, runs: [.init(text: "A\nB")])
+        ])]).validated())
+    }
+
     func testCanonicalValueAcceptsOrderedBlocksMarksAndUnicode() throws {
         let value = LoroCanonicalSemanticValueV1(blocks: [
             .paragraph([.init(text: "e\u{301} 😀", marks: [.code, .emphasis, .strong])]),
@@ -82,6 +110,32 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
             )
             XCTFail("empty rich semantic value is a no-op")
         } catch {}
+    }
+
+    func testTaskListRichCandidateRoundTripsCheckedStateEmptyItemMarksAndReference() async throws {
+        let fixture = try await LoroSemanticCheckpointStateMachineTests.Fixture.make()
+        let id = try EntityId(validating: "00000000-0000-4000-8000-000000000001")
+        let semantic = LoroCanonicalSemanticValueV1(blocks: [
+            .paragraph([.init(text: "Before")]),
+            .taskList([
+                .init(checked: true, runs: [.init(text: "Done", marks: [.strong])]),
+                .init(checked: false, runs: [.init(text: "Project", marks: [.emphasis], reference: .init(kind: .supertag, id: id, label: "Project"))]),
+                .init(checked: false, runs: [])
+            ]),
+            .paragraph([.init(text: "After")])
+        ])
+        let candidate = try await mintRichCandidate(fixture, requestId: "task-list", semantic: semantic)
+        XCTAssertEqual(candidate.semantic, semantic)
+        let document = LoroDoc()
+        _ = try document.import(bytes: candidate.literal.snapshotBytes)
+        let root = document.getMap(id: "athenaeum-prosemirror-v1")
+        let children = try XCTUnwrap(root.get(key: "children")?.asLoroList())
+        let task = try XCTUnwrap(children.get(index: 1)?.asLoroMap())
+        XCTAssertEqual(task.get(key: "nodeName")?.asValue(), .string(value: "task_list"))
+        let items = try XCTUnwrap(task.get(key: "children")?.asLoroList())
+        XCTAssertEqual(items.len(), 3)
+        XCTAssertEqual(items.get(index: 0)?.asLoroMap()?.get(key: "attributes")?.asLoroMap()?.get(key: "checked")?.asValue(), .bool(value: true))
+        XCTAssertEqual(items.get(index: 1)?.asLoroMap()?.get(key: "attributes")?.asLoroMap()?.get(key: "checked")?.asValue(), .bool(value: false))
     }
 
     func testSameFlattenedTextWithDifferentRichStructureIsNotEqual() throws {

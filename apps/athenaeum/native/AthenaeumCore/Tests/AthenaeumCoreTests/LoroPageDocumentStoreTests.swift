@@ -71,6 +71,38 @@ final class LoroPageDocumentStoreTests: XCTestCase {
         _ = try await LoroPageDocumentStore().prepare(nodeId: nodeId, snapshot: try doc.export(mode: .snapshot))
     }
 
+    func testRichAdmissionRejectsMalformedTaskListShapes() async throws {
+        let mutations: [(LoroMap, LoroMap, LoroList) throws -> Void] = [
+            { task, _, _ in try task.getOrCreateMapContainer(key: "attributes", child: LoroMap()).insert(key: "extra", v: true) },
+            { _, item, _ in try item.getOrCreateMapContainer(key: "attributes", child: LoroMap()).insert(key: "extra", v: true) },
+            { [self] _, _, itemChildren in _ = try self.appendParagraphForTest(to: itemChildren) },
+            { _, item, _ in try item.insert(key: "nodeName", v: "paragraph") }
+        ]
+        for mutate in mutations {
+            let nodeId = try id()
+            let doc = try canonicalDocument()
+            let rootChildren = try XCTUnwrap(doc.getMap(id: "athenaeum-prosemirror-v1").get(key: "children")?.asLoroList())
+            let task = try rootChildren.insertMapContainer(pos: 0, child: LoroMap())
+            try task.insert(key: "nodeName", v: "task_list")
+            let taskAttributes = try task.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+            try taskAttributes.insert(key: "isAmgBlock", v: false)
+            let taskChildren = try task.getOrCreateListContainer(key: "children", child: LoroList())
+            let item = try taskChildren.insertMapContainer(pos: 0, child: LoroMap())
+            try item.insert(key: "nodeName", v: "task_item")
+            let itemAttributes = try item.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+            try itemAttributes.insert(key: "isAmgBlock", v: false)
+            try itemAttributes.insert(key: "checked", v: false)
+            let itemChildren = try item.getOrCreateListContainer(key: "children", child: LoroList())
+            _ = try appendParagraphForTest(to: itemChildren)
+            try mutate(task, item, itemChildren)
+            doc.commit()
+            let store = LoroPageDocumentStore()
+            await XCTAssertThrowsErrorAsync(try await store.validateNativeRichLoroCandidateV1(nodeId: nodeId, snapshot: try doc.export(mode: .snapshot))) { error in
+                XCTAssertEqual(error as? LoroPageDocumentStoreError, .nativeRichTextIneligible)
+            }
+        }
+    }
+
     func testPublishedProjectionUsesActorReplicaAndProjectsSupportedMarks() async throws {
         let nodeId = try id()
         let doc = try canonicalDocument()
@@ -609,6 +641,11 @@ final class LoroPageDocumentStoreTests: XCTestCase {
         try paragraphAttributes.insert(key: "isAmgBlock", v: false)
         let inline = try paragraph.getOrCreateListContainer(key: "children", child: LoroList())
         return (paragraph, inline)
+    }
+
+    private func appendParagraphForTest(to children: LoroList) throws -> LoroMap {
+        let (paragraph, _) = try appendParagraph(to: children)
+        return paragraph
     }
 
     private func firstParagraph(in doc: LoroDoc) throws -> LoroMap {
