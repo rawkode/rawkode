@@ -14,6 +14,7 @@ mkCapability {
     comma.home
     cuenv.home
     cue.home
+    datumctl.home
     deno.home
     devenv.home
     direnv.home
@@ -85,6 +86,7 @@ mkCapability {
     comma.darwin
     cuenv.darwin
     cue.darwin
+    datumctl.darwin
     deno.darwin
     devenv.darwin
     direnv.darwin

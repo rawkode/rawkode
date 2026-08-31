@@ -44,6 +44,10 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    datumctl = {
+      url = "github:datum-cloud/datumctl/v0.18.2";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     kree = {
       url = "path:../apps/kree";
       inputs.nixpkgs.follows = "nixpkgs";
