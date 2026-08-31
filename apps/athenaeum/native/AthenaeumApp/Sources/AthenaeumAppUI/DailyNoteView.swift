@@ -1306,10 +1306,14 @@ public struct DailyNoteView: View {
 
         supertagSelectionInFlight = true
         let expectedNoteId = model.dailyNoteId
+        let expectedDate = model.selectedDate
+        let expectedOperationGeneration = model.dailyNoteOperationGeneration
         let expectedPresentation = model.pagePresentation
         Task { @MainActor in
             defer { supertagSelectionInFlight = false }
             guard model.dailyNoteId == expectedNoteId,
+                  model.selectedDate == expectedDate,
+                  model.dailyNoteOperationGeneration == expectedOperationGeneration,
                   model.pagePresentation == expectedPresentation,
                   !model.isEditorInputDisabled else { return }
 
@@ -1317,6 +1321,8 @@ public struct DailyNoteView: View {
             // intentionally independent, so a concurrent direct-picker change cannot be trusted.
             await model.refreshDailyNoteSupertags(allowDirtyRichDraft: true)
             guard model.dailyNoteId == expectedNoteId,
+                  model.selectedDate == expectedDate,
+                  model.dailyNoteOperationGeneration == expectedOperationGeneration,
                   model.pagePresentation == expectedPresentation,
                   let membership = model.isDailyNoteSupertagApplied(tagId: candidate.id.rawValue) else {
                 model.resumeLoroRichDraftSubmissionIfNeeded()
@@ -1335,6 +1341,8 @@ public struct DailyNoteView: View {
             }
 
             guard model.dailyNoteId == expectedNoteId,
+                  model.selectedDate == expectedDate,
+                  model.dailyNoteOperationGeneration == expectedOperationGeneration,
                   model.pagePresentation == expectedPresentation else {
                 model.resumeLoroRichDraftSubmissionIfNeeded()
                 return
@@ -1342,8 +1350,24 @@ public struct DailyNoteView: View {
 
             guard let liveContext = await waitForLiveSupertagContext(
                 matching: context,
-                requiresFreshGeneration: requiresFreshGeneration
+                requiresFreshGeneration: requiresFreshGeneration,
+                expectedNoteId: expectedNoteId,
+                expectedDate: expectedDate,
+                expectedOperationGeneration: expectedOperationGeneration,
+                expectedPresentation: expectedPresentation
             ) else {
+                model.resumeLoroRichDraftSubmissionIfNeeded()
+                return
+            }
+
+            // The wait returns to the main actor, but the route can still have changed while it
+            // was suspended. Recheck the complete immutable witness immediately before publishing
+            // the insertion so a delayed selection fails closed instead of targeting a new note.
+            guard model.dailyNoteId == expectedNoteId,
+                  model.selectedDate == expectedDate,
+                  model.dailyNoteOperationGeneration == expectedOperationGeneration,
+                  model.pagePresentation == expectedPresentation,
+                  supertagContext == liveContext else {
                 model.resumeLoroRichDraftSubmissionIfNeeded()
                 return
             }
@@ -1360,11 +1384,19 @@ public struct DailyNoteView: View {
 
     private func waitForLiveSupertagContext(
         matching expected: LoroNativeRichTextSupertagContext,
-        requiresFreshGeneration: Bool
+        requiresFreshGeneration: Bool,
+        expectedNoteId: EntityId,
+        expectedDate: Date,
+        expectedOperationGeneration: Int,
+        expectedPresentation: AthenaeumViewModel.PagePresentation
     ) async -> LoroNativeRichTextSupertagContext? {
         for _ in 0..<80 {
             guard !Task.isCancelled,
                   hasResolvedDailyNote,
+                  model.dailyNoteId == expectedNoteId,
+                  model.selectedDate == expectedDate,
+                  model.dailyNoteOperationGeneration == expectedOperationGeneration,
+                  model.pagePresentation == expectedPresentation,
                   model.pagePresentation == .loroRichEditable else { return nil }
             if let current = supertagContext,
                current.trigger == .supertag,

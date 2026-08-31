@@ -294,6 +294,10 @@ public final class AthenaeumViewModel: ObservableObject {
     /// use this identity rather than the wall clock so historical notes cannot inherit today’s
     /// workforce updates.
     public var dailyNoteId: EntityId { activeSelection.nodeId }
+    /// Monotonically changes whenever the daily-note route presentation is reset. Inline editor
+    /// commands capture this witness so an asynchronous selection cannot publish into a later
+    /// reload of the same note (where the node id and date may still match).
+    public var dailyNoteOperationGeneration: Int { pageOperationGeneration }
     public var dailyNoteTitle: String { dailyNoteTitleForDate(selectedDate, calendar: navigator.calendar) }
     public var isSelectedDateToday: Bool { navigator.calendar.isDateInToday(selectedDate) }
     public var selectedDateLabel: String {
