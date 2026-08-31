@@ -298,6 +298,7 @@ public struct DailyNoteView: View {
                     loroPlainEditor
                     loroRecoveryControls
                 case .loroRichEditable:
+                    planTodayStarter
                     loroRichEditor
                     loroRecoveryControls
                 case .retainedLocalChangeConflict(let message):
@@ -1046,6 +1047,26 @@ public struct DailyNoteView: View {
             }
         }
         .writingSurface(isFocused: editorFocused)
+    }
+
+    @ViewBuilder
+    private var planTodayStarter: some View {
+        if model.isPlanTodayStarterAvailable {
+            Button {
+                guard model.applyPlanTodayStarter() else { return }
+                dismissMentionPicker()
+                richEditorFocusSelection = .init(
+                    location: LoroNativePlanTodayStarter.firstPriorityScalarFocusLocation,
+                    length: 0
+                )
+                richEditorFocusGeneration += 1
+            } label: {
+                Label("Plan today", systemImage: "checklist")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityHint("Adds Focus, three priorities, and Notes to this otherwise empty daily note.")
+        }
     }
 
     @ViewBuilder

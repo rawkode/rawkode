@@ -308,7 +308,34 @@ public final class AthenaeumViewModel: ObservableObject {
     /// presentation and its lane-typed session were established atomically.
     public var loroRichEditorState: LoroNativeRichEditorState? {
         guard case .loroRichEditable = pagePresentation else { return nil }
-        return loroRichSession?.base
+        guard let session = loroRichSession else { return nil }
+        return session.base.replacingDocument(session.draft)
+    }
+
+    /// The optional starter is deliberately limited to today's untouched, first-version native
+    /// Loro note. A later version or any authored structure stays in the ordinary free-writing
+    /// flow, including historical notes.
+    public var isPlanTodayStarterAvailable: Bool {
+        guard !isEditorInputDisabled,
+              isToday(selection: activeSelection),
+              case .loroRichEditable = pagePresentation,
+              let session = loroRichSession,
+              isCurrent(session.selection, generation: session.generation),
+              session.base.route.storageVersion == 1,
+              LoroNativePlanTodayStarter.isCanonicalEmpty(session.base.document),
+              LoroNativePlanTodayStarter.isCanonicalEmpty(session.draft)
+        else { return false }
+        return true
+    }
+
+    /// Seeds ordinary canonical document content through the existing rich draft custody. This
+    /// intentionally does not create a special persistence path: it follows the same debounce,
+    /// ledger commit and recovery behavior as a human rich-text edit.
+    @discardableResult
+    public func applyPlanTodayStarter() -> Bool {
+        guard isPlanTodayStarterAvailable else { return false }
+        handleLoroRichDocumentChange(LoroNativePlanTodayStarter.document)
+        return loroRichDraft == LoroNativePlanTodayStarter.document
     }
     public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight }
     /// An uncertain tag write keeps this route pinned until its immutable semantic request has
@@ -1179,6 +1206,10 @@ public final class AthenaeumViewModel: ObservableObject {
         navigator.isCurrent(selection, activeNodeId: activeSelection.nodeId)
     }
 
+    private func isToday(selection: DailyNoteSelection) -> Bool {
+        navigator.calendar.isDateInToday(selection.date)
+    }
+
     private func isCurrent(_ selection: DailyNoteSelection, generation: Int) -> Bool {
         pageOperationGeneration == generation && isCurrent(selection)
     }
@@ -1228,7 +1259,12 @@ public final class AthenaeumViewModel: ObservableObject {
             guard projection.projection.route == PageRouteWitness(descriptor).coreWitness else { throw DailyNotePageRouteError.routeChanged }
             guard isCurrent(selection, generation: generation) else { return }
             if nativeEditableCandidate && nativeLoroEditingEnabled {
-                try await admitNativeLoroEditorOrProjection(selection: selection, generation: generation, projection: projection)
+                try await admitNativeLoroEditorOrProjection(
+                    descriptor: descriptor,
+                    selection: selection,
+                    generation: generation,
+                    projection: projection
+                )
             } else {
                 publishLoroProjection(projection)
             }
@@ -1253,22 +1289,80 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
-    private func admitNativeLoroEditorOrProjection(selection: DailyNoteSelection, generation: Int, projection: DailyNoteLoroProjectionState) async throws {
+    private func admitNativeLoroEditorOrProjection(
+        descriptor: PageDocumentDescriptor,
+        selection: DailyNoteSelection,
+        generation: Int,
+        projection: DailyNoteLoroProjectionState
+    ) async throws {
+        if prefersPlanTodayRichAdmission(descriptor: descriptor, selection: selection, projection: projection) {
+            switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
+            case .editable(let state):
+                guard state.route == projection.projection.route else { throw DailyNotePageRouteError.routeChanged }
+                if LoroNativePlanTodayStarter.isCanonicalEmpty(state.document) {
+                    publishLoroRichEditable(state, selection: selection, generation: generation)
+                    return
+                }
+                // A projection/rich-admission disagreement is not a reason to replace user
+                // content. Revert to the ordinary plain-first admission policy.
+            case .ineligible:
+                // The rich lane is optional for the starter. Its explicit ineligibility falls
+                // through to the existing plain editor rather than making a new page read-only.
+                break
+            case .checkpointResolutionRequired(let resolution):
+                publishLoroResolution(resolution, selection: selection, generation: generation)
+                return
+            case .unauthenticated:
+                publishLoroClosed("Sign in to recover this page for editing.", action: .continueRecovery, selection: selection, generation: generation)
+                return
+            }
+        }
+
+        try await admitNativeLoroPlainThenRich(
+            selection: selection,
+            generation: generation,
+            expectedRoute: projection.projection.route,
+            projection: projection,
+            allowRichFallback: !prefersPlanTodayRichAdmission(descriptor: descriptor, selection: selection, projection: projection)
+        )
+    }
+
+    private func admitNativeLoroPlainThenRich(
+        selection: DailyNoteSelection,
+        generation: Int,
+        expectedRoute: LoroPageRouteWitness,
+        projection: DailyNoteLoroProjectionState? = nil,
+        allowRichFallback: Bool = true
+    ) async throws {
         switch try await pageOperations.loroNativePlainEditorEligibility(nodeId: selection.nodeId) {
         case .editable(let state):
-            guard state.route == projection.projection.route else { throw DailyNotePageRouteError.routeChanged }
+            guard state.route == expectedRoute else { throw DailyNotePageRouteError.routeChanged }
             publishLoroEditable(state, selection: selection, generation: generation)
         case .ineligible:
             // Plain admission is authoritative for its lane. Only an explicitly ineligible
             // value may enter the separate rich lane; terminal outcomes never fall through.
+            guard allowRichFallback else {
+                if let projection {
+                    publishLoroProjection(projection)
+                    loroRecoveryAction = .recoverSavedRichEditableVersion
+                    loroNotice = "Try to recover a saved editable rich-text version."
+                } else {
+                    publishLoroClosed("Reload this page before editing.", action: .recoverSavedRichEditableVersion, selection: selection, generation: generation)
+                }
+                return
+            }
             switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
             case .editable(let state):
-                guard state.route == projection.projection.route else { throw DailyNotePageRouteError.routeChanged }
+                guard state.route == expectedRoute else { throw DailyNotePageRouteError.routeChanged }
                 publishLoroRichEditable(state, selection: selection, generation: generation)
             case .ineligible:
-                publishLoroProjection(projection)
-                loroRecoveryAction = .recoverSavedRichEditableVersion
-                loroNotice = "Try to recover a saved editable rich-text version."
+                if let projection {
+                    publishLoroProjection(projection)
+                    loroRecoveryAction = .recoverSavedRichEditableVersion
+                    loroNotice = "Try to recover a saved editable rich-text version."
+                } else {
+                    publishLoroClosed("Reload this page before editing.", action: .recoverSavedRichEditableVersion, selection: selection, generation: generation)
+                }
             case .checkpointResolutionRequired(let resolution):
                 publishLoroResolution(resolution, selection: selection, generation: generation)
             case .unauthenticated:
@@ -1281,6 +1375,33 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
+    private func prefersPlanTodayRichAdmission(
+        descriptor: PageDocumentDescriptor,
+        selection: DailyNoteSelection,
+        projection: DailyNoteLoroProjectionState
+    ) -> Bool {
+        guard isToday(selection: selection),
+              !projection.projection.isDirty,
+              case let .nativeLoro(_, storageVersion, _) = descriptor,
+              storageVersion == 1,
+              case let .document(children) = projection.projection.root,
+              children.count == 1,
+              case let .paragraph(children) = children[0],
+              children.isEmpty
+        else { return false }
+        return true
+    }
+
+    private func prefersPlanTodayRichAdmission(
+        selection: DailyNoteSelection,
+        route: LoroPageRouteWitness,
+        document: LoroNativeRichDocumentV1
+    ) -> Bool {
+        isToday(selection: selection) &&
+            route.storageVersion == 1 &&
+            LoroNativePlanTodayStarter.isCanonicalEmpty(document)
+    }
+
     private func admitNativeLoroEditorWithoutSync(
         selection: DailyNoteSelection,
         generation: Int,
@@ -1288,6 +1409,25 @@ public final class AthenaeumViewModel: ObservableObject {
         retainedDraft: String? = nil,
         recoveryAction: LoroRecoveryAction? = nil
     ) async throws {
+        if recoveryAction == nil, isToday(selection: selection), expectedRoute.storageVersion == 1 {
+            switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
+            case .editable(let state):
+                guard state.route == expectedRoute else { throw DailyNotePageRouteError.routeChanged }
+                if prefersPlanTodayRichAdmission(selection: selection, route: state.route, document: state.document) {
+                    publishLoroRichEditable(state, selection: selection, generation: generation)
+                    return
+                }
+            case .ineligible:
+                break
+            case .checkpointResolutionRequired(let resolution):
+                publishLoroResolution(resolution, selection: selection, generation: generation)
+                return
+            case .unauthenticated:
+                publishLoroClosed("Sign in to recover this page for editing.", action: .continueRecovery, selection: selection, generation: generation)
+                return
+            }
+        }
+
         switch try await pageOperations.loroNativePlainEditorEligibility(nodeId: selection.nodeId) {
         case .editable(let state):
             guard state.route == expectedRoute else { throw DailyNotePageRouteError.routeChanged }

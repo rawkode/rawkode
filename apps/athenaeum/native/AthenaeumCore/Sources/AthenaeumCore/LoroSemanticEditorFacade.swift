@@ -75,6 +75,13 @@ public struct LoroNativeRichEditorState: Sendable, Equatable {
     init(document: LoroNativeRichDocumentV1, route: LoroPageRouteWitness, replica: LoroPageReplicaWitness) {
         self.document = document; self.route = route; self.replica = replica
     }
+
+    /// Produces another presentation-only value over the same immutable admission witnesses.
+    /// This lets a native host render its local draft without receiving any Core-private Loro
+    /// state or becoming able to alter the base used for submission.
+    public func replacingDocument(_ document: LoroNativeRichDocumentV1) -> Self {
+        .init(document: document, route: route, replica: replica)
+    }
 }
 
 /// Closed rich-editor admission result. Rich and legacy-plain admission remain separate APIs.

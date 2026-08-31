@@ -1316,6 +1316,68 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(fake.automergeResolveCount, 0)
     }
 
+    func testGenesisTodayPrefersRichStarterAndSubmitsThroughNormalRichCustody() async throws {
+        let date = Date()
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let route = LoroPageRouteWitness(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64))
+        let empty = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([])]))
+        let rich = LoroNativeRichEditorState(
+            document: empty,
+            route: route,
+            replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64))
+        )
+        let fake = FakeOperations(
+            descriptors: [native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false),
+            projectionRoot: .document([.paragraph([])])
+        )
+        fake.eligibilityResult = .ineligible
+        fake.richEligibilityResult = .editable(rich)
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: date, nativeLoroEditingEnabled: true)
+
+        await model.start()
+
+        XCTAssertEqual(model.pagePresentation, .loroRichEditable)
+        XCTAssertTrue(model.isPlanTodayStarterAvailable)
+        XCTAssertEqual(fake.richEligibilityCount, 1)
+        XCTAssertEqual(fake.eligibilityCount, 0)
+        XCTAssertTrue(model.applyPlanTodayStarter())
+        XCTAssertEqual(model.loroRichDraft, LoroNativePlanTodayStarter.document)
+        XCTAssertEqual(model.loroRichEditorState?.document, LoroNativePlanTodayStarter.document)
+        XCTAssertEqual(model.acceptedHumanEditGeneration, 1)
+        XCTAssertFalse(model.isPlanTodayStarterAvailable)
+        try await waitUntil { fake.nativeRichSubmitCount == 1 }
+        XCTAssertEqual(fake.nativeRichSubmitDocuments, [LoroNativePlanTodayStarter.document])
+        XCTAssertEqual(fake.nativeRichSubmitMessages, ["Update daily note content"])
+    }
+
+    func testGenesisTodayFallsBackToPlainWhenRichStarterAdmissionIsIneligible() async throws {
+        let date = Date()
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let route = LoroPageRouteWitness(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64))
+        let plain = LoroNativePlainEditorState(
+            text: "",
+            scalarCount: 0,
+            route: route,
+            replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64))
+        )
+        let fake = FakeOperations(
+            descriptors: [native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false),
+            projectionRoot: .document([.paragraph([])])
+        )
+        fake.richEligibilityResult = .ineligible
+        fake.eligibilityResult = .editable(plain)
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: date, nativeLoroEditingEnabled: true)
+
+        await model.start()
+
+        XCTAssertEqual(model.pagePresentation, .loroPlainEditable)
+        XCTAssertEqual(fake.richEligibilityCount, 1)
+        XCTAssertEqual(fake.eligibilityCount, 1)
+        XCTAssertFalse(model.isPlanTodayStarterAvailable)
+    }
+
     func testPlainEditableWinsWithoutRichEligibility() async throws {
         let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
         let route = LoroPageRouteWitness(nodeId: node, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64))
@@ -2268,6 +2330,7 @@ private final class FakeOperations: DailyNotePageOperations {
     var resolveDelayNanoseconds: UInt64
     var blocksAutomergeSync: Bool
     var projectionRouteOverride: LoroPageRouteWitness?
+    var projectionRoot: LoroPageProjectionNode
     var recoveryResult: LoroSemanticCheckpointResolution = .none
     var recoveryError: Error?
     var blocksRecovery = false
@@ -2318,8 +2381,8 @@ private final class FakeOperations: DailyNotePageOperations {
     private var nativeSubmitContinuation: CheckedContinuation<Void, Never>?
     private var recoveryContinuation: CheckedContinuation<Void, Never>?
 
-    init(descriptors: [PageDocumentDescriptor] = [], descriptorError: Error? = nil, durableHeads: String? = nil, loadedHeads: String? = nil, dirtyAutomerge: Bool = false, hasLocalLoro: Bool = false, loroResult: DailyNoteLoroReadOnlyState? = nil, legacyProjection: DailyNoteLegacyReadOnlyState? = nil, legacyProjectionIsRichText: Bool = false, dynamicLegacy: Bool = false, resolveDelayNanoseconds: UInt64 = 0, blocksAutomergeSync: Bool = false, projectionRouteOverride: LoroPageRouteWitness? = nil) {
-        self.descriptors = descriptors; self.descriptorError = descriptorError; self.durableHeads = durableHeads; self.loadedHeads = loadedHeads; self.dirtyAutomerge = dirtyAutomerge; self.hasLocalLoro = hasLocalLoro; self.loroResult = loroResult; self.legacyProjectionOverride = legacyProjection; self.legacyProjectionIsRichText = legacyProjectionIsRichText; self.dynamicLegacy = dynamicLegacy; self.resolveDelayNanoseconds = resolveDelayNanoseconds; self.blocksAutomergeSync = blocksAutomergeSync; self.projectionRouteOverride = projectionRouteOverride
+    init(descriptors: [PageDocumentDescriptor] = [], descriptorError: Error? = nil, durableHeads: String? = nil, loadedHeads: String? = nil, dirtyAutomerge: Bool = false, hasLocalLoro: Bool = false, loroResult: DailyNoteLoroReadOnlyState? = nil, legacyProjection: DailyNoteLegacyReadOnlyState? = nil, legacyProjectionIsRichText: Bool = false, dynamicLegacy: Bool = false, resolveDelayNanoseconds: UInt64 = 0, blocksAutomergeSync: Bool = false, projectionRouteOverride: LoroPageRouteWitness? = nil, projectionRoot: LoroPageProjectionNode = .document([.paragraph([.text("fixture", marks: [])])])) {
+        self.descriptors = descriptors; self.descriptorError = descriptorError; self.durableHeads = durableHeads; self.loadedHeads = loadedHeads; self.dirtyAutomerge = dirtyAutomerge; self.hasLocalLoro = hasLocalLoro; self.loroResult = loroResult; self.legacyProjectionOverride = legacyProjection; self.legacyProjectionIsRichText = legacyProjectionIsRichText; self.dynamicLegacy = dynamicLegacy; self.resolveDelayNanoseconds = resolveDelayNanoseconds; self.blocksAutomergeSync = blocksAutomergeSync; self.projectionRouteOverride = projectionRouteOverride; self.projectionRoot = projectionRoot
     }
     func resolveNode(id: EntityId, title: String) async throws { resolveNodeCount += 1; if resolveDelayNanoseconds > 0 { try await Task.sleep(nanoseconds: resolveDelayNanoseconds) } }
     func descriptor(nodeId: EntityId) async throws -> PageDocumentDescriptor {
@@ -2388,7 +2451,7 @@ private final class FakeOperations: DailyNotePageOperations {
         case .legacy:
             route = .init(nodeId: nodeId, format: .loroV1, storageVersion: 1, schemaVersion: 1, snapshotSHA256: String(repeating: "b", count: 64))
         }
-        return .init(.init(root: .document([.paragraph([.text("fixture", marks: [])])]), route: projectionRouteOverride ?? route, replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64)), schemaVersion: result.schemaVersion, isDirty: result.isDirty))
+        return .init(.init(root: projectionRoot, route: projectionRouteOverride ?? route, replica: .init(snapshotSHA256: String(repeating: "c", count: 64), versionVectorSHA256: String(repeating: "d", count: 64)), schemaVersion: result.schemaVersion, isDirty: result.isDirty))
     }
     func recoverInFlightLoroSemanticCheckpoint(nodeId: EntityId) async throws -> LoroSemanticCheckpointResolution {
         recoveryCount += 1
