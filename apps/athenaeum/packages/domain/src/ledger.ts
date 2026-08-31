@@ -42,12 +42,47 @@ export const ACTIVATE_LORO_PAGE_MESSAGE_DERIVATION_VERSION = "activate-loro-page
 export const MIGRATE_LEGACY_PAGE_MESSAGE_DERIVATION_VERSION = "migrate-legacy-page.v1" as const
 export const LEGACY_PAGE_MIGRATION_ENGINE_VERSION = "automerge-flat-text-to-loro-v1" as const
 export const MUTATION_ATTRIBUTION_VERSION = "athenaeum.mutation-attribution.v1" as const
+/** A command whose persisted message is the canonical human/job rationale, not an operation label. */
+export const COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION = "commit-message-mirror.v1" as const
 
 const boundedId = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))
 export const MutationRequestId = boundedId
 export const MutationCommitMessage = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))
 export type MutationRequestId = typeof MutationRequestId.Type
 export type MutationCommitMessage = typeof MutationCommitMessage.Type
+
+const utf8ByteLength = (value: string): number => {
+  let length = 0
+  for (const character of value) {
+    const point = character.codePointAt(0)!
+    length += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+  }
+  return length
+}
+
+const isWellFormedUnicode = (value: string): boolean => {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(index + 1)
+      if (low < 0xdc00 || low > 0xdfff) return false
+      index++
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false
+  }
+  return true
+}
+
+/**
+ * The one canonical spelling used when an edit is auditable as an employee's explanation.
+ * Trim only: changing Unicode, punctuation, or internal whitespace would make an authored reason
+ * say something different.  The byte bound keeps the public standup projection bounded too.
+ */
+export const canonicalMutationCommitMessage = (value: unknown): MutationCommitMessage => {
+  if (typeof value !== "string") throw new TypeError("commit message must be a string")
+  const canonical = value.trim()
+  if (!isWellFormedUnicode(canonical) || Array.from(canonical).length > 500 || utf8ByteLength(canonical) > 2_000) throw new TypeError("commit message exceeds public bounds")
+  return Schema.decodeUnknownSync(MutationCommitMessage)(canonical)
+}
 
 /** Asserted author evidence. Principal, capability, and policy remain server-derived authority. */
 export class HumanUiMutationAttribution extends Schema.Class<HumanUiMutationAttribution>(
@@ -434,7 +469,7 @@ export class CreateNodeWithIntentLedgerCommand extends Schema.Class<CreateNodeWi
   fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("createNodeWithIntent"),
   workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
   policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION),
+  messageDerivationVersion: Schema.Literal(CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION),
   message: MutationCommitMessage, payload: CreateNodeWithIntentLedgerPayload,
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
@@ -518,8 +553,8 @@ export class AddFactLedgerCommand extends Schema.Class<AddFactLedgerCommand>("Ad
   principal: Schema.String.pipe(Schema.minLength(1)),
   capability: Schema.Literal("build"),
   policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(ADD_FACT_MESSAGE_DERIVATION_VERSION),
-  message: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(ADD_FACT_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION),
+  message: MutationCommitMessage,
   payload: AddFactLedgerPayload,
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
@@ -558,7 +593,7 @@ export class UpdateTagLedgerCommand extends Schema.Class<UpdateTagLedgerCommand>
   version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
   fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("updateTag"), workspaceId: EntityId,
   principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"), policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(UPDATE_TAG_MESSAGE_DERIVATION_VERSION), message: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(UPDATE_TAG_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION), message: MutationCommitMessage,
   payload: UpdateTagLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
@@ -567,8 +602,8 @@ export class EnsureLoroPageLedgerCommand extends Schema.Class<EnsureLoroPageLedg
   fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("ensureLoroPage"),
   workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
   policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION),
-  message: Schema.String.pipe(Schema.minLength(1)), payload: EnsureLoroPageLedgerPayload,
+  messageDerivationVersion: Schema.Literal(ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION),
+  message: MutationCommitMessage, payload: EnsureLoroPageLedgerPayload,
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
@@ -576,13 +611,13 @@ export class CommitLoroPageContentLedgerCommand extends Schema.Class<CommitLoroP
   version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
   fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("commitLoroPageContent"), workspaceId: EntityId,
   principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"), policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION), message: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION), message: MutationCommitMessage,
   payload: CommitLoroPageContentLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 export class PrepareMeetingInDailyNoteLedgerCommand extends Schema.Class<PrepareMeetingInDailyNoteLedgerCommand>("PrepareMeetingInDailyNoteLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId, fingerprint: Schema.String.pipe(Schema.minLength(1)),
   type: Schema.Literal("prepareMeetingInDailyNote"), workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"), policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION), message: Schema.String.pipe(Schema.minLength(1)), payload: PrepareMeetingInDailyNoteLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+  messageDerivationVersion: Schema.Literal(PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION), message: MutationCommitMessage, payload: PrepareMeetingInDailyNoteLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 export class ActivateLoroPageLedgerCommand extends Schema.Class<ActivateLoroPageLedgerCommand>("ActivateLoroPageLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId, fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("activateLoroPage"),
@@ -621,8 +656,8 @@ export class AssignTagLedgerCommand extends Schema.Class<AssignTagLedgerCommand>
   principal: Schema.String.pipe(Schema.minLength(1)),
   capability: Schema.Literal("build"),
   policy: Schema.String.pipe(Schema.minLength(1)),
-  messageDerivationVersion: Schema.Literal(ASSIGN_TAG_MESSAGE_DERIVATION_VERSION),
-  message: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(ASSIGN_TAG_MESSAGE_DERIVATION_VERSION, COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION),
+  message: MutationCommitMessage,
   payload: AssignTagLedgerPayload,
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}

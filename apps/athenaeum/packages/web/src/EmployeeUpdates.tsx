@@ -1,5 +1,10 @@
 import { Link } from "react-router"
-import type { StandupPublication, StandupPublicationResultKindType } from "@athenaeum/domain"
+import type {
+  StandupPublication,
+  StandupPublicationResultKindType,
+  StandupRecordedWork,
+  StandupRecordedWorkOperation,
+} from "@athenaeum/domain"
 
 export type EmployeeUpdateResultKind = StandupPublicationResultKindType
 export type EmployeeUpdatePublication = StandupPublication & {
@@ -51,6 +56,50 @@ const resultKindPresentation: Record<EmployeeUpdateResultKind, { readonly label:
   blocked: { label: "Blocked", icon: "!" },
   failed: { label: "Failed", icon: "×" },
   skipped: { label: "Skipped", icon: "–" },
+}
+
+const recordedWorkOperationLabel: Record<StandupRecordedWorkOperation, string> = {
+  createdNode: "Created note",
+  recordedFact: "Recorded fact",
+  assignedSupertag: "Assigned Supertag",
+  updatedSupertag: "Updated Supertag",
+  createdDocument: "Created document",
+  updatedDocument: "Updated document",
+  preparedMeeting: "Prepared meeting",
+}
+
+const recordedWorkDisclosure = (recordedWork: StandupRecordedWork | undefined) => {
+  if (recordedWork === undefined) return null
+  if (recordedWork.state === "unavailable") {
+    return (
+      <details className="employee-update-recorded-work">
+        <summary>Recorded changes unavailable</summary>
+        <p className="employee-update-recorded-work-empty">The ledger receipt for this run is not available.</p>
+      </details>
+    )
+  }
+  const itemCount = recordedWork.items.length + recordedWork.remainingCount
+  return (
+    <details className="employee-update-recorded-work">
+      <summary>Recorded changes ({itemCount})</summary>
+      {recordedWork.items.length === 0 ? (
+        <p className="employee-update-recorded-work-empty">No second-brain changes were recorded by this run.</p>
+      ) : (
+        <ol className="employee-update-recorded-work-list">
+          {recordedWork.items.map((item, index) => (
+            <li key={`${item.operation}-${index}`}>
+              <span className="employee-update-recorded-work-operation">{recordedWorkOperationLabel[item.operation]}</span>
+              {item.target !== undefined && <span className="employee-update-recorded-work-target"> · {item.target.label}</span>}
+              <span className="employee-update-recorded-work-message">{item.commitMessage}</span>
+            </li>
+          ))}
+          {recordedWork.remainingCount > 0 && (
+            <li className="employee-update-recorded-work-more">+ {recordedWork.remainingCount} more recorded change{recordedWork.remainingCount === 1 ? "" : "s"}</li>
+          )}
+        </ol>
+      )}
+    </details>
+  )
 }
 
 export const canOpenCompanion = (publication: EmployeeUpdatePublication): boolean =>
@@ -122,6 +171,7 @@ export function EmployeeUpdates({ state, onRetry }: {
           <span>Schedule: {publication.scheduleLabel}</span>
         </div>
         <p className="employee-update-text">{publication.originalText}</p>
+        {recordedWorkDisclosure(publication.recordedWork)}
         <div className="employee-update-status">
           {result !== undefined && (
             <span className={`employee-update-outcome employee-update-outcome-${publication.resultKind}`}>

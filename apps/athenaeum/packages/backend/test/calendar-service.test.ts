@@ -818,6 +818,11 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
         microEmployeeLabel: string
         jobLabel: string
         originalText: string
+        recordedWork?: {
+          state: "available" | "unavailable"
+          items?: ReadonlyArray<{ operation: string; commitMessage: string; target?: { kind: string; label: string } }>
+          remainingCount?: number
+        }
       }>
     }
     // The sync transaction enqueues one run per first-seen attendee observation and rearms the
@@ -865,6 +870,14 @@ describe("CalendarService — sync + attendee import (realistic fixtures)", () =
     expect(summaries.some((summary) => summary.includes("Alice"))).toBe(true)
     expect(summaries.some((summary) => summary.includes("Bob"))).toBe(true)
     expect(summaries.every((summary) => validSummaries.has(summary))).toBe(true)
+    expect(result.publications.every((publication) => publication.recordedWork?.state === "available")).toBe(true)
+    const recordedItems = result.publications.flatMap((publication) => publication.recordedWork?.items ?? [])
+    expect(recordedItems.length).toBeGreaterThan(0)
+    expect(recordedItems.every((item) => ["createdNode", "recordedFact", "assignedSupertag"].includes(item.operation))).toBe(true)
+    expect(recordedItems.every((item) => item.commitMessage.length > 0 && item.commitMessage.length <= 500)).toBe(true)
+    const publicRecordedWork = JSON.stringify(result.publications.map((publication) => publication.recordedWork))
+    expect(publicRecordedWork).not.toContain("calendar-concierge")
+    expect(publicRecordedWork).not.toContain("grantId")
   })
 
   it("rejects an out-of-order provider snapshot after a newer event revision is committed", async () => {

@@ -143,4 +143,42 @@ describe("EmployeeUpdates presentation", () => {
     expect(host.querySelector(".employee-updates-group-updates")?.textContent).toContain("The companion update is no longer available.")
     expect(host.querySelector(".employee-updates-group-updates a")).toBeNull()
   })
+
+  it("keeps recorded second-brain changes behind a collapsed, privacy-safe disclosure", async () => {
+    const host = await mount({
+      status: "success",
+      publications: [{
+        ...publication,
+        recordedWork: {
+          version: "athenaeum.standup-recorded-work.v1",
+          state: "available",
+          items: [{
+            operation: "createdNode",
+            commitMessage: "Create a person note from the newly observed attendee.",
+            target: { kind: "note", label: "Alice" },
+          }],
+          remainingCount: 1,
+        },
+      }],
+    })
+    const disclosure = host.querySelector(".employee-update-recorded-work") as HTMLDetailsElement | null
+    expect(disclosure).not.toBeNull()
+    expect(disclosure?.open).toBe(false)
+    expect(disclosure?.querySelector("summary")?.textContent).toBe("Recorded changes (2)")
+    expect(disclosure?.textContent).toContain("Created note")
+    expect(disclosure?.textContent).toContain("Alice")
+    expect(disclosure?.textContent).toContain("Create a person note")
+    expect(disclosure?.textContent).toContain("1 more recorded change")
+    expect(disclosure?.textContent).not.toContain(childNodeId)
+
+    await act(async () => { disclosure?.querySelector("summary")?.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
+    expect(disclosure?.open).toBe(true)
+
+    const unavailable = await mount({
+      status: "success",
+      publications: [{ ...publication, recordedWork: { version: "athenaeum.standup-recorded-work.v1", state: "unavailable" } }],
+    })
+    expect(unavailable.querySelector("summary")?.textContent).toBe("Recorded changes unavailable")
+    expect(unavailable.textContent).toContain("ledger receipt")
+  })
 })

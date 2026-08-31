@@ -181,6 +181,10 @@ import {
   ListStandupPublicationsInput,
   ListStandupPublicationsOutput,
   StandupPublication,
+  StandupRecordedWorkAvailable,
+  StandupRecordedWorkItem,
+  StandupRecordedWorkTarget,
+  StandupRecordedWorkUnavailable,
   canonicalStandupPublicationText,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
@@ -457,6 +461,10 @@ import {
   type LedgerCustodyInput,
   LedgerConflict,
   LedgerService,
+  type LedgerRecordedWorkProjection,
+  type LedgerRecordedWorkItem,
+  MAX_EVIDENCE_RUNS_PER_STANDUP,
+  ledgerRecordedWorkKey,
   ledgerFingerprint,
   createNodeWithIntentLedgerFingerprint,
   calendarProjectionLedgerFingerprint
@@ -739,11 +747,35 @@ const currentStandupCompanionStatus = (
     ),
   )
 
+type ResolvedRecordedWorkTarget = Readonly<{
+  readonly kind: "note" | "supertag"
+  readonly label: string
+}>
+
+const boundedRecordedWorkTarget = (
+  kind: ResolvedRecordedWorkTarget["kind"],
+  label: string,
+): StandupRecordedWorkTarget | undefined => {
+  if (label.length === 0) return undefined
+  const scalars = Array.from(label).slice(0, 200)
+  while (scalars.length > 0) {
+    const candidate = scalars.join("")
+    try {
+      return Schema.decodeUnknownSync(StandupRecordedWorkTarget)({ kind, label: candidate })
+    } catch {
+      scalars.pop()
+    }
+  }
+  return undefined
+}
+
 const projectStandupPublication = (
   nodes: Context.Tag.Service<typeof NodesRepository>,
   loro: Context.Tag.Service<typeof LoroPageService>,
   row: StandupPublicationAuthorityRead,
   workforceReceipt: WorkforceRunReceiptV1 | undefined,
+  recordedWork: LedgerRecordedWorkProjection | undefined,
+  resolvedTargets: ReadonlyMap<string, ResolvedRecordedWorkTarget> | undefined,
 ): Effect.Effect<StandupPublication, UnexpectedError> =>
   Effect.gen(function* () {
     const resultKind = yield* Effect.try({
@@ -777,6 +809,30 @@ const projectStandupPublication = (
       row,
       childNodeId,
     )
+    const recordedWorkValue = workforceReceipt === undefined || recordedWork === undefined
+      ? undefined
+      : recordedWork.state === "unavailable"
+        ? new StandupRecordedWorkUnavailable({ version: "athenaeum.standup-recorded-work.v1", state: "unavailable" })
+        : (() => {
+            if (resolvedTargets === undefined && recordedWork.items.length > 0) {
+              return new StandupRecordedWorkUnavailable({ version: "athenaeum.standup-recorded-work.v1", state: "unavailable" })
+            }
+            const items: StandupRecordedWorkItem[] = []
+            for (const item of recordedWork.items) {
+              const target = resolvedTargets?.get(item.targetId)
+              const targetValue = target === undefined ? undefined : boundedRecordedWorkTarget(target.kind, target.label)
+              if (target !== undefined && targetValue === undefined) {
+                return new StandupRecordedWorkUnavailable({ version: "athenaeum.standup-recorded-work.v1", state: "unavailable" })
+              }
+              items.push(new StandupRecordedWorkItem({ operation: item.operation, commitMessage: item.commitMessage, ...(targetValue === undefined ? {} : { target: targetValue }) }))
+            }
+            return new StandupRecordedWorkAvailable({
+              version: "athenaeum.standup-recorded-work.v1", state: "available",
+              remainingCount: recordedWork.remainingCount,
+              items
+            })
+          })()
+    const recordedWorkFields = recordedWorkValue === undefined ? {} : { recordedWork: recordedWorkValue }
     return yield* Effect.try({
       try: () =>
         Schema.decodeUnknownSync(StandupPublication)({
@@ -796,6 +852,7 @@ const projectStandupPublication = (
           childNodeId,
           companionStatus,
           ...(resultKind === undefined ? {} : { resultKind }),
+          ...recordedWorkFields,
         }),
       catch: (error) =>
         new UnexpectedError({
@@ -3577,6 +3634,7 @@ class WorkspaceRpcApi extends RpcTarget {
     const currentUser = this.#currentUser
     const store = this.#standupPublicationStore
     const workforceRunStore = this.#workforceRunStore
+    const ledger = this.#ledger
     const program = decodeRpcInput(ListStandupPublicationsInput, input).pipe(
       Effect.tap((decoded) =>
         requireOwnWorkspace(this.#workspaceId, decoded.workspaceId),
@@ -3585,6 +3643,7 @@ class WorkspaceRpcApi extends RpcTarget {
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
           const nodes = yield* NodesRepository
+          const tags = yield* TagsRepository
           const loro = yield* LoroPageService
           const rows = yield* Effect.try({
             try: () =>
@@ -3597,16 +3656,63 @@ class WorkspaceRpcApi extends RpcTarget {
                 message: `standup publication storage failure: ${error instanceof Error ? error.message : String(error)}`,
               }),
           })
-          const publications: StandupPublication[] = []
+          const receipts: Array<WorkforceRunReceiptV1 | undefined> = []
           for (const row of rows) {
+            receipts.push(yield* Effect.try({
+              try: () => workforceRunStore.getByPublicationId(row.publication.publicationId),
+              catch: () => new UnexpectedError({ message: "standup publication workforce receipt failure" }),
+            }))
+          }
+          const eligible = rows.slice(0, MAX_EVIDENCE_RUNS_PER_STANDUP).flatMap((row, index) => {
+            const receipt = receipts[index]
+            return receipt === undefined ? [] : [{
+              workspaceId: receipt.workspaceId,
+              microEmployeeId: receipt.grant.microEmployee.id,
+              jobId: receipt.grant.job.id,
+              runId: receipt.runId,
+              grantId: receipt.grant.grantId,
+              requestIdentity: receipt.requestIdentity,
+              childNodeId: receipt.childNodeId,
+              committedAt: receipt.committedAt
+            }]
+          })
+          let workByRun: ReadonlyMap<string, LedgerRecordedWorkProjection>
+          try {
+            workByRun = ledger.projectRecordedWorkByRun(eligible)
+          } catch {
+            workByRun = new Map(eligible.map((input) => [ledgerRecordedWorkKey(input), { state: "unavailable" as const }]))
+          }
+          const recordedItems = [...workByRun.values()].flatMap((projection) => projection.state === "available" ? projection.items : [])
+          let resolvedTargets: ReadonlyMap<string, ResolvedRecordedWorkTarget> | undefined = new Map()
+          if (recordedItems.length > 0) {
+            try {
+              const nodeIds = new Set(recordedItems.filter((item) => item.targetKind === "node").map((item) => item.targetId))
+              const tagIds = new Set(recordedItems.filter((item) => item.targetKind === "tag").map((item) => item.targetId))
+              const [workspaceNodes, workspaceTags] = yield* Effect.all([
+                nodeIds.size === 0 ? Effect.succeed([] as const) : nodes.list(decoded.workspaceId),
+                tagIds.size === 0 ? Effect.succeed([] as const) : tags.list(decoded.workspaceId)
+              ], { concurrency: "unbounded" })
+              const targets = new Map<string, ResolvedRecordedWorkTarget>()
+              for (const node of workspaceNodes) if (nodeIds.has(node.id) && node.workspaceId === decoded.workspaceId) targets.set(node.id, { kind: "note", label: node.title })
+              for (const tag of workspaceTags) if (tagIds.has(tag.id)) targets.set(tag.id, { kind: "supertag", label: tag.name })
+              resolvedTargets = targets
+            } catch {
+              resolvedTargets = undefined
+            }
+          }
+          const publications: StandupPublication[] = []
+          for (const [index, row] of rows.entries()) {
             // The receipt table is joined solely through the immutable public publication id.
             // `getByPublicationId` rebinds its denormalized SQL row before projection; the
             // projection below then proves the complete public counterpart identity.
-            const receipt = yield* Effect.try({
-              try: () => workforceRunStore.getByPublicationId(row.publication.publicationId),
-              catch: () => new UnexpectedError({ message: "standup publication workforce receipt failure" }),
-            })
-            publications.push(yield* projectStandupPublication(nodes, loro, row, receipt))
+            const receipt = receipts[index]
+            publications.push(yield* projectStandupPublication(
+              nodes, loro, row, receipt,
+              index < MAX_EVIDENCE_RUNS_PER_STANDUP && receipt !== undefined
+                ? workByRun.get(ledgerRecordedWorkKey({ workspaceId: receipt.workspaceId, runId: receipt.runId }))
+                : receipt === undefined ? undefined : { state: "unavailable" as const },
+              resolvedTargets
+            ))
           }
           return new ListStandupPublicationsOutput({ publications })
         }),
@@ -5481,7 +5587,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
             workspaceId: this.#workspaceId,
             bundle,
             reportText: input.reportText,
-            claim: { runId: run.id, claimToken: run.claimToken!, claimFence: run.attempts }
+            claim: { runId: run.id, claimToken: run.claimToken!, claimFence: run.attempts, grantId: grant.grantId }
           })
           if (receipt.resultKind !== input.result || receipt.runId !== run.id) throw new Error("calendar concierge admission receipt does not match the claimed run")
           if (!this.#calendarConciergeGrants.consume(grant.grantId, issued.token)) throw new Error("calendar concierge grant was already consumed")
@@ -6344,7 +6450,7 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
             const grant = existing?.grant ?? grantForWorkforceAdmission(
               admission,
               now,
-              `workforce-run-grant:${admission.requestIdentity}`
+              claim?.grantId ?? `workforce-run-grant:${admission.requestIdentity}`
             )
             const intent = resolvePrivatePublicationIntent(grant, request)
             const childNodeId = Schema.decodeUnknownSync(EntityId)(intent.childNodeId)

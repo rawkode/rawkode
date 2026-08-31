@@ -31,6 +31,51 @@ final class StandupPublicationTests: XCTestCase {
         }
     }
 
+    func testRecordedWorkDecodesAsCollapsedSafeProjection() throws {
+        var fields = try XCTUnwrap(basePublication().objectValue)
+        fields["recordedWork"] = .object([
+            "version": .string("athenaeum.standup-recorded-work.v1"),
+            "state": .string("available"),
+            "items": .array([
+                .object([
+                    "operation": .string("createdNode"),
+                    "commitMessage": .string("Create a person note."),
+                    "target": .object(["kind": .string("note"), "label": .string("Alice")])
+                ])
+            ]),
+            "remainingCount": .number(1)
+        ])
+        let publication = try decodeStandupPublication(.object(fields))
+        guard case .available(let items, let remainingCount)? = publication.recordedWork else {
+            return XCTFail("expected available recorded work")
+        }
+        XCTAssertEqual(items.first?.operation, .createdNode)
+        XCTAssertEqual(items.first?.target?.label, "Alice")
+        XCTAssertEqual(remainingCount, 1)
+    }
+
+    func testRecordedWorkRejectsUnknownOperationAndPrivateKeys() throws {
+        var unknownOperation = try XCTUnwrap(basePublication().objectValue)
+        unknownOperation["recordedWork"] = .object([
+            "version": .string("athenaeum.standup-recorded-work.v1"), "state": .string("available"),
+            "items": .array([.object(["operation": .string("futureOperation"), "commitMessage": .string("future")])]),
+            "remainingCount": .number(0)
+        ])
+        XCTAssertThrowsError(try decodeStandupPublication(.object(unknownOperation))) { error in
+            XCTAssertEqual(error as? StandupPublicationRPCError, .malformedResponse)
+        }
+
+        var privateKey = try XCTUnwrap(basePublication().objectValue)
+        privateKey["recordedWork"] = .object([
+            "version": .string("athenaeum.standup-recorded-work.v1"), "state": .string("unavailable"),
+            "grantId": .string("should-never-cross")
+        ])
+        XCTAssertThrowsError(try decodeStandupPublication(.object(privateKey))) { error in
+            XCTAssertEqual(error as? StandupPublicationRPCError, .malformedResponse)
+            XCTAssertFalse(error.localizedDescription.contains("should-never-cross"))
+        }
+    }
+
     private func basePublication(resultKind: CapnWebValue? = nil) -> CapnWebValue {
         var fields: [String: CapnWebValue] = [
             "id": .string("00000000-0000-4000-8000-000000000001"),

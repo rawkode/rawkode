@@ -37,6 +37,64 @@ private func decodeStandupPublicationResultKind(_ value: CapnWebValue) throws ->
     }
 }
 
+private func decodeStandupRecordedWorkTarget(_ value: CapnWebValue) throws -> StandupRecordedWorkTarget {
+    guard let object = value.objectValue, Set(object.keys) == Set(["kind", "label"]),
+          let rawKind = object["kind"]?.stringValue,
+          let kind = StandupRecordedWorkTarget.Kind(rawValue: rawKind),
+          let label = object["label"]?.stringValue else {
+        throw StandupPublicationRPCError.malformedResponse
+    }
+    do { return try StandupRecordedWorkTarget(kind: kind, label: label) }
+    catch { throw StandupPublicationRPCError.malformedResponse }
+}
+
+private func decodeStandupRecordedWorkItem(_ value: CapnWebValue) throws -> StandupRecordedWorkItem {
+    guard let object = value.objectValue,
+          Set(object.keys).isSubset(of: Set(["operation", "commitMessage", "target"])),
+          Set(object.keys).contains("operation"), Set(object.keys).contains("commitMessage"),
+          let rawOperation = object["operation"]?.stringValue,
+          let operation = StandupRecordedWorkOperation(rawValue: rawOperation),
+          let commitMessage = object["commitMessage"]?.stringValue else {
+        throw StandupPublicationRPCError.malformedResponse
+    }
+    let target: StandupRecordedWorkTarget?
+    if let rawTarget = object["target"] {
+        guard !rawTarget.isNull else { throw StandupPublicationRPCError.malformedResponse }
+        target = try decodeStandupRecordedWorkTarget(rawTarget)
+    } else {
+        target = nil
+    }
+    do { return try StandupRecordedWorkItem(operation: operation, commitMessage: commitMessage, target: target) }
+    catch { throw StandupPublicationRPCError.malformedResponse }
+}
+
+private func decodeStandupRecordedWork(_ value: CapnWebValue) throws -> StandupRecordedWork? {
+    if value.isNull || value == .undefined { return nil }
+    guard let object = value.objectValue,
+          let version = object["version"]?.stringValue,
+          version == StandupRecordedWork.version,
+          let state = object["state"]?.stringValue else {
+        throw StandupPublicationRPCError.malformedResponse
+    }
+    switch state {
+    case "unavailable":
+        guard Set(object.keys) == Set(["version", "state"]) else { throw StandupPublicationRPCError.malformedResponse }
+        return .unavailable
+    case "available":
+        guard Set(object.keys) == Set(["version", "state", "items", "remainingCount"]),
+              let rawItems = object["items"]?.arrayValue, rawItems.count <= 8,
+              let rawRemaining = object["remainingCount"]?.doubleValue,
+              rawRemaining.isFinite, rawRemaining.rounded() == rawRemaining,
+              rawRemaining >= 0, rawRemaining <= 9_999 else {
+            throw StandupPublicationRPCError.malformedResponse
+        }
+        let items = try rawItems.map(decodeStandupRecordedWorkItem)
+        return .available(items: items, remainingCount: Int(rawRemaining))
+    default:
+        throw StandupPublicationRPCError.malformedResponse
+    }
+}
+
 func decodeStandupPublication(_ value: CapnWebValue) throws -> StandupPublication {
     do {
         guard let id = try value.field("id").stringValue,
@@ -75,7 +133,8 @@ func decodeStandupPublication(_ value: CapnWebValue) throws -> StandupPublicatio
             publishedAt: try IsoDateTimeString(validating: publishedAt),
             childNodeId: try EntityId(validating: childNodeId),
             companionStatus: status,
-            resultKind: try decodeStandupPublicationResultKind(value.field("resultKind"))
+            resultKind: try decodeStandupPublicationResultKind(value.field("resultKind")),
+            recordedWork: try decodeStandupRecordedWork(value.field("recordedWork"))
         )
     } catch is StandupPublicationRPCError {
         throw StandupPublicationRPCError.malformedResponse

@@ -36,6 +36,8 @@ import {
   LedgerCommand,
   MutationAttribution,
   MutationCommitMessage,
+  canonicalMutationCommitMessage,
+  COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION,
   applySupertagCommitMessage,
   addFactCommitMessage,
   assignTagCommitMessage,
@@ -90,7 +92,9 @@ import {
   StartMeetingLedgerCommand,
   StartMeetingLedgerPayload,
   startMeetingCommitMessage,
-  EntityId
+  EntityId,
+  IsoDateTimeString,
+  type StandupRecordedWorkOperation
 } from "@athenaeum/domain"
 import * as Schema from "effect/Schema"
 import { issueLedgerMutationCapability, type LedgerMutationCapability } from "./ledger-mutation-capability.js"
@@ -430,6 +434,129 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   }
 }
 
+const reportableRecordedWork = {
+  createNodeWithIntent: { operation: "createdNode", targetKind: "node", payloadTarget: "nodeId" },
+  addFact: { operation: "recordedFact", targetKind: "node", payloadTarget: "nodeId" },
+  assignTag: { operation: "assignedSupertag", targetKind: "node", payloadTarget: "nodeId" },
+  updateTag: { operation: "updatedSupertag", targetKind: "tag", payloadTarget: "tagId" },
+  ensureLoroPage: { operation: "createdDocument", targetKind: "node", payloadTarget: "nodeId" },
+  commitLoroPageContent: { operation: "updatedDocument", targetKind: "node", payloadTarget: "nodeId" },
+  prepareMeetingInDailyNote: { operation: "preparedMeeting", targetKind: "node", payloadTarget: "nodeId" }
+} as const satisfies Record<string, { readonly operation: StandupRecordedWorkOperation; readonly targetKind: "node" | "tag"; readonly payloadTarget: "nodeId" | "tagId" }>
+
+type ReportableRecordedWorkType = keyof typeof reportableRecordedWork
+const isReportableRecordedWorkType = (value: unknown): value is ReportableRecordedWorkType =>
+  typeof value === "string" && value in reportableRecordedWork
+
+const mirrorsCommitMessageForAttribution = (attribution: MutationAttribution): boolean =>
+  attribution.kind === "agentJob"
+
+const messageDerivationForAttribution = (
+  attribution: MutationAttribution,
+  legacyVersion: string,
+): string => mirrorsCommitMessageForAttribution(attribution)
+  ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION
+  : legacyVersion
+
+export type LedgerRecordedWorkRunInput = Readonly<{
+  readonly workspaceId: string
+  readonly microEmployeeId: string
+  readonly jobId: string
+  readonly runId: string
+  readonly grantId: string
+  readonly requestIdentity: string
+  readonly childNodeId: string
+  readonly committedAt: string
+}>
+export type LedgerRecordedWorkItem = Readonly<{
+  readonly operation: StandupRecordedWorkOperation
+  readonly commitMessage: string
+  readonly targetKind: "node" | "tag"
+  readonly targetId: string
+}>
+export type LedgerRecordedWorkProjection =
+  | Readonly<{ readonly state: "available"; readonly items: readonly LedgerRecordedWorkItem[]; readonly remainingCount: number }>
+  | Readonly<{ readonly state: "unavailable" }>
+
+export const ledgerRecordedWorkKey = (input: Pick<LedgerRecordedWorkRunInput, "workspaceId" | "runId">): string =>
+  `${input.workspaceId}:${input.runId}`
+
+export const MAX_EVIDENCE_RUNS_PER_STANDUP = 50
+export const MAX_EVIDENCE_ITEMS_PER_RUN = 8
+export const MAX_EVIDENCE_REMAINDER = 9_999
+const MAX_EVIDENCE_CANDIDATES = MAX_EVIDENCE_ITEMS_PER_RUN + MAX_EVIDENCE_REMAINDER
+const EVIDENCE_CANDIDATE_SENTINEL = MAX_EVIDENCE_CANDIDATES + 1
+
+type RecordedWorkRow = Readonly<{
+  readonly custodyRequestIdentity: string
+  readonly custodyFingerprint: string
+  readonly custodyType: string
+  readonly custodyWorkspaceId: string
+  readonly actorKind: string
+  readonly actorLabel: string
+  readonly employeeId: string | null
+  readonly jobId: string | null
+  readonly runId: string | null
+  readonly grantId: string | null
+  readonly targetKind: string | null
+  readonly targetId: string | null
+  readonly commandRequestIdentity: string | null
+  readonly commandFingerprint: string | null
+  readonly commandType: string | null
+  readonly commandWorkspaceId: string | null
+  readonly messageDerivationVersion: string | null
+  readonly message: string | null
+  readonly payload: string | null
+  readonly createdAt: string | null
+  readonly candidatePosition: number
+  readonly candidateCount: number
+}>
+
+const decodeRecordedWorkPayload = (type: ReportableRecordedWorkType, raw: unknown): { readonly targetId: string; readonly commitMessage: string; readonly attribution: MutationAttribution } | undefined => {
+  const extract = <T extends { readonly commitMessage: string; readonly attribution: MutationAttribution }>(decoded: unknown, target: (value: T) => string) => {
+    if (typeof decoded !== "object" || decoded === null || (decoded as { readonly _tag?: unknown })._tag !== "Some") return undefined
+    const value = (decoded as { readonly value: T }).value
+    return { targetId: target(value), commitMessage: value.commitMessage, attribution: value.attribution }
+  }
+  try {
+    switch (type) {
+      case "createNodeWithIntent": return extract(Schema.decodeUnknownOption(CreateNodeWithIntentLedgerPayload, { onExcessProperty: "error" })(raw), (value: CreateNodeWithIntentLedgerPayload) => value.nodeId)
+      case "addFact": return extract(Schema.decodeUnknownOption(AddFactLedgerPayload, { onExcessProperty: "error" })(raw), (value: AddFactLedgerPayload) => value.nodeId)
+      case "assignTag": return extract(Schema.decodeUnknownOption(AssignTagLedgerPayload, { onExcessProperty: "error" })(raw), (value: AssignTagLedgerPayload) => value.nodeId)
+      case "updateTag": return extract(Schema.decodeUnknownOption(UpdateTagLedgerPayload, { onExcessProperty: "error" })(raw), (value: UpdateTagLedgerPayload) => value.tagId)
+      case "ensureLoroPage": return extract(Schema.decodeUnknownOption(EnsureLoroPageLedgerPayload, { onExcessProperty: "error" })(raw), (value: EnsureLoroPageLedgerPayload) => value.nodeId)
+      case "commitLoroPageContent": return extract(Schema.decodeUnknownOption(CommitLoroPageContentLedgerPayload, { onExcessProperty: "error" })(raw), (value: CommitLoroPageContentLedgerPayload) => value.nodeId)
+      case "prepareMeetingInDailyNote": return extract(Schema.decodeUnknownOption(PrepareMeetingInDailyNoteLedgerPayload, { onExcessProperty: "error" })(raw), (value: PrepareMeetingInDailyNoteLedgerPayload) => value.nodeId)
+    }
+  } catch {
+    return undefined
+  }
+}
+
+const decodeRecordedWorkRow = (row: RecordedWorkRow, input: LedgerRecordedWorkRunInput): LedgerRecordedWorkItem | undefined => {
+  if (
+    !isNonBlankString(row.actorLabel) || row.actorLabel.length > 200 ||
+    !isReportableRecordedWorkType(row.custodyType) || row.commandRequestIdentity !== row.custodyRequestIdentity ||
+    row.commandFingerprint !== row.custodyFingerprint || row.commandType !== row.custodyType ||
+    row.commandWorkspaceId !== row.custodyWorkspaceId || row.custodyWorkspaceId !== input.workspaceId ||
+    row.actorKind !== "employee" || row.employeeId !== input.microEmployeeId || row.jobId !== input.jobId ||
+    row.runId !== input.runId || row.grantId !== input.grantId || row.targetKind !== reportableRecordedWork[row.custodyType].targetKind ||
+    row.payload === null || row.message === null || row.createdAt === null ||
+    Schema.decodeUnknownOption(IsoDateTimeString)(row.createdAt)._tag === "None" ||
+    !Number.isFinite(Date.parse(row.createdAt)) || !Number.isFinite(Date.parse(input.committedAt)) ||
+    Date.parse(row.createdAt) > Date.parse(input.committedAt) ||
+    row.messageDerivationVersion !== COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION) return undefined
+  let raw: unknown
+  try { raw = JSON.parse(row.payload) } catch { return undefined }
+  const payload = decodeRecordedWorkPayload(row.custodyType, raw)
+  if (payload === undefined || payload.targetId !== row.targetId || payload.attribution.kind !== "agentJob" ||
+    payload.attribution.jobId !== input.jobId || payload.attribution.runId !== input.runId) return undefined
+  let commitMessage: string
+  try { commitMessage = canonicalMutationCommitMessage(payload.commitMessage) } catch { return undefined }
+  if (commitMessage !== payload.commitMessage || commitMessage !== row.message) return undefined
+  return { operation: reportableRecordedWork[row.custodyType].operation, commitMessage, targetKind: row.targetKind, targetId: row.targetId }
+}
+
 export class LedgerConflict extends Error {}
 
 export const ledgerFingerprint = (command: Omit<CreateNodeLedgerCommand, "fingerprint" | "requestId" | "requestIdentity" | "createdAt">): string => {
@@ -462,9 +589,9 @@ export const createNodeWithIntentLedgerFingerprint = (command: Omit<CreateNodeWi
     policy: command.policy,
     requestedNodeId: command.requestedNodeId ?? null,
     title: command.title,
-    commitMessage: command.commitMessage,
+    commitMessage: canonicalMutationCommitMessage(command.commitMessage),
     attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
-    messageDerivationVersion: CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION
+    messageDerivationVersion: messageDerivationForAttribution(command.attribution, CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION)
   }))
 
 export const agentChangeDecisionLedgerFingerprint = (
@@ -505,8 +632,8 @@ export const applySupertagLedgerFingerprint = (command: Omit<ApplySupertagLedger
 export const addFactLedgerFingerprint = (command: Omit<AddFactLedgerCommandInput, "fingerprint" | "createdAt" | "requestIdentity">): string =>
   sha256HexSync(canonicalJsonBytes({ version: LEDGER_COMMAND_VERSION, type: "addFact", requestId: command.requestId,
     workspaceId: command.workspaceId, principal: command.principal, policy: command.policy, nodeId: command.nodeId,
-    predicateId: command.predicateId, value: command.value, factId: command.factId ?? null, commitMessage: command.commitMessage,
-    attribution: Schema.encodeSync(MutationAttribution)(command.attribution), messageDerivationVersion: ADD_FACT_MESSAGE_DERIVATION_VERSION }))
+    predicateId: command.predicateId, value: command.value, factId: command.factId ?? null, commitMessage: canonicalMutationCommitMessage(command.commitMessage),
+    attribution: Schema.encodeSync(MutationAttribution)(command.attribution), messageDerivationVersion: messageDerivationForAttribution(command.attribution, ADD_FACT_MESSAGE_DERIVATION_VERSION) }))
 
 /** Canonical identity for a public relationship mutation. Generated edge ids and timestamps are
  * deliberately excluded so an uncertain retry can replay the original result. */
@@ -551,8 +678,8 @@ export const updateTagLedgerFingerprint = (command: Omit<UpdateTagLedgerCommandI
     version: LEDGER_COMMAND_VERSION, type: "updateTag", requestId: command.requestId,
     workspaceId: command.workspaceId, principal: command.principal, policy: command.policy,
     tagId: command.tagId, expectedRevision: command.expectedRevision, name: command.name, parentIds: command.parentIds,
-    commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
-    messageDerivationVersion: UPDATE_TAG_MESSAGE_DERIVATION_VERSION
+    commitMessage: canonicalMutationCommitMessage(command.commitMessage), attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+    messageDerivationVersion: messageDerivationForAttribution(command.attribution, UPDATE_TAG_MESSAGE_DERIVATION_VERSION)
   }))
 
 /** The fingerprint is built from normalized intent and the authoritative principal/policy. The
@@ -562,8 +689,8 @@ export const ensureLoroPageLedgerFingerprint = (
 ): string => sha256HexSync(canonicalJsonBytes({
   version: LEDGER_COMMAND_VERSION, type: "ensureLoroPage", requestId: command.requestId,
   workspaceId: command.workspaceId, principal: command.principal, policy: command.policy, nodeId: command.nodeId,
-  commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
-  messageDerivationVersion: ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION
+  commitMessage: canonicalMutationCommitMessage(command.commitMessage), attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+  messageDerivationVersion: messageDerivationForAttribution(command.attribution, ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION)
 }))
 
 export const commitLoroPageContentLedgerFingerprint = (
@@ -573,8 +700,8 @@ export const commitLoroPageContentLedgerFingerprint = (
   workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy, nodeId: command.nodeId,
   expectedStorageVersion: command.expectedStorageVersion, expectedSnapshotSha256: command.expectedSnapshotSha256,
   baseVersionVectorSha256: command.baseVersionVectorSha256, updateSha256: command.updateSha256, updateLength: command.updateLength,
-  commitMessage: command.commitMessage, attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
-  messageDerivationVersion: COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION
+  commitMessage: canonicalMutationCommitMessage(command.commitMessage), attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+  messageDerivationVersion: messageDerivationForAttribution(command.attribution, COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION)
 }))
 
 /** Stable identity for the private, user-directed agent-chat adapter. Its semantic splice is
@@ -798,9 +925,11 @@ const membershipLedgerFingerprint = (
   policy: command.policy,
   nodeId: command.nodeId,
   tagId: command.tagId,
-  commitMessage: command.commitMessage,
+  commitMessage: type === "assignTag" ? canonicalMutationCommitMessage(command.commitMessage) : command.commitMessage,
   attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
-  messageDerivationVersion: derivationVersion
+  messageDerivationVersion: type === "assignTag"
+    ? messageDerivationForAttribution(command.attribution, derivationVersion)
+    : derivationVersion
 }))
 
 export const assignTagLedgerFingerprint = (
@@ -1056,6 +1185,96 @@ export class LedgerService {
     })
   }
 
+  /**
+   * Server-only evidence projection for a standup publication.  The input comes from an already
+   * verified publication receipt; no RPC caller can ask for an arbitrary workforce run.  A single
+   * corrupt reportable candidate poisons its whole run so a UI can never mistake a partial audit
+   * trail for complete work.
+   */
+  projectRecordedWorkByRun(inputs: readonly LedgerRecordedWorkRunInput[]): ReadonlyMap<string, LedgerRecordedWorkProjection> {
+    const expected = new Map<string, LedgerRecordedWorkRunInput>()
+    const expectedByRun = new Map<string, LedgerRecordedWorkRunInput>()
+    const invalidKeys = new Set<string>()
+    const invalidRunIds = new Set<string>()
+    for (const input of inputs.slice(0, MAX_EVIDENCE_RUNS_PER_STANDUP)) {
+      const key = ledgerRecordedWorkKey(input)
+      const valid = isNonBlankString(input.workspaceId) && isNonBlankString(input.microEmployeeId) &&
+        isNonBlankString(input.jobId) && isNonBlankString(input.runId) && isNonBlankString(input.grantId) &&
+        isNonBlankString(input.requestIdentity) && isNonBlankString(input.childNodeId) &&
+        Schema.decodeUnknownOption(IsoDateTimeString)(input.committedAt)._tag === "Some"
+      const previous = expectedByRun.get(input.runId)
+      if (!valid || expected.has(key) || previous !== undefined || invalidRunIds.has(input.runId)) {
+        invalidKeys.add(key)
+        if (isNonBlankString(input.runId)) invalidRunIds.add(input.runId)
+        if (previous !== undefined) invalidKeys.add(ledgerRecordedWorkKey(previous))
+        continue
+      }
+      expected.set(key, input)
+      expectedByRun.set(input.runId, input)
+    }
+    const result = new Map<string, { invalid: boolean; items: LedgerRecordedWorkItem[] }>()
+    for (const [key] of expected) result.set(key, { invalid: invalidKeys.has(key), items: [] })
+    for (const key of invalidKeys) if (!result.has(key)) result.set(key, { invalid: true, items: [] })
+    if (expectedByRun.size === 0) return new Map([...result].map(([key, state]) => [key, { state: "unavailable" as const }]))
+
+    const runPlaceholders = [...expectedByRun.keys()].map(() => "?").join(", ")
+    const typePlaceholders = Object.keys(reportableRecordedWork).map(() => "?").join(", ")
+    const companionIdentities = [...expected.values()].flatMap((input) => [
+      `workforce-node:${input.requestIdentity}`,
+      `workforce-loro:${input.requestIdentity}`
+    ])
+    const excludedPlaceholders = companionIdentities.map(() => "?").join(", ")
+    const rows = this.sql.exec<RecordedWorkRow>(
+      `WITH candidates AS (
+         SELECT custody.requestIdentity AS custodyRequestIdentity, custody.fingerprint AS custodyFingerprint,
+                custody.type AS custodyType, custody.workspaceId AS custodyWorkspaceId, custody.actorKind,
+                custody.actorLabel, custody.employeeId, custody.jobId, custody.runId, custody.grantId, custody.targetKind, custody.targetId,
+                command.requestIdentity AS commandRequestIdentity, command.fingerprint AS commandFingerprint,
+                command.type AS commandType, command.workspaceId AS commandWorkspaceId,
+                command.messageDerivationVersion, command.message, command.payload, command.createdAt,
+                ROW_NUMBER() OVER (
+                  PARTITION BY custody.runId
+                  ORDER BY command.createdAt ASC, custody.requestIdentity ASC
+                ) AS candidatePosition,
+                COUNT(*) OVER (PARTITION BY custody.runId) AS candidateCount
+         FROM ledger_custody custody
+         LEFT JOIN ledger_commands command ON command.requestIdentity = custody.requestIdentity
+         WHERE custody.runId IN (${runPlaceholders})
+           AND custody.type IN (${typePlaceholders})
+           AND custody.requestIdentity NOT IN (${excludedPlaceholders})
+       )
+       SELECT * FROM candidates
+       WHERE candidatePosition <= ?
+       ORDER BY runId ASC, candidatePosition ASC`,
+      ...expectedByRun.keys(),
+      ...Object.keys(reportableRecordedWork),
+      ...companionIdentities,
+      EVIDENCE_CANDIDATE_SENTINEL
+    ).toArray()
+    for (const row of rows) {
+      const input = row.runId === null ? undefined : expectedByRun.get(row.runId)
+      if (input === undefined) continue
+      const key = ledgerRecordedWorkKey(input)
+      const state = result.get(key)
+      if (state === undefined) continue
+      if (row.candidateCount > MAX_EVIDENCE_CANDIDATES) state.invalid = true
+      const item = decodeRecordedWorkRow(row, input)
+      if (item === undefined) state.invalid = true
+      else if (row.candidatePosition <= MAX_EVIDENCE_CANDIDATES) state.items.push(item)
+    }
+    const projected = new Map<string, LedgerRecordedWorkProjection>()
+    for (const [key, state] of result) {
+      projected.set(key, state.invalid
+        ? { state: "unavailable" }
+        : {
+            state: "available",
+            items: state.items.slice(0, MAX_EVIDENCE_ITEMS_PER_RUN),
+            remainingCount: Math.min(MAX_EVIDENCE_REMAINDER, Math.max(0, state.items.length - MAX_EVIDENCE_ITEMS_PER_RUN))
+          })
+    }
+    return projected
+  }
+
   append(command: CreateNodeLedgerCommand): void {
     // Decode the exact persisted shape before INSERT. The schema is the compatibility contract
     // for immutable records, not merely a read-side assertion in tests.
@@ -1083,16 +1302,18 @@ export class LedgerService {
   }
 
   appendCreateNodeWithIntent(command: CreateNodeWithIntentLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
     const payload = Schema.decodeUnknownSync(CreateNodeWithIntentLedgerPayload)({
       nodeId: command.nodeId, title: command.title,
-      commitMessage: command.commitMessage, attribution: command.attribution
+      commitMessage, attribution: command.attribution
     })
     const persisted = Schema.decodeUnknownSync(CreateNodeWithIntentLedgerCommand)({
       version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint,
       type: "createNodeWithIntent", workspaceId: command.workspaceId, principal: command.principal,
       capability: "build", policy: command.policy,
-      messageDerivationVersion: CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION,
-      message: command.commitMessage, payload, createdAt: command.createdAt
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION,
+      message: commitMessage, payload, createdAt: command.createdAt
     })
     this.sql.exec(
       `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
@@ -1140,12 +1361,15 @@ export class LedgerService {
   }
 
   appendAddFact(command: AddFactLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
     const payload = Schema.decodeUnknownSync(AddFactLedgerPayload)({ nodeId: command.nodeId, predicateId: command.predicateId,
-      value: command.value, ...(command.factId === undefined ? {} : { factId: command.factId }), commitMessage: command.commitMessage, attribution: command.attribution })
+      value: command.value, ...(command.factId === undefined ? {} : { factId: command.factId }), commitMessage, attribution: command.attribution })
     const persisted = Schema.decodeUnknownSync(AddFactLedgerCommand)({ version: LEDGER_COMMAND_VERSION, requestId: command.requestId,
       fingerprint: command.fingerprint, type: "addFact", workspaceId: command.workspaceId, principal: command.principal,
-      capability: "build", policy: command.policy, messageDerivationVersion: ADD_FACT_MESSAGE_DERIVATION_VERSION,
-      message: addFactCommitMessage(), payload, createdAt: command.createdAt })
+      capability: "build", policy: command.policy,
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : ADD_FACT_MESSAGE_DERIVATION_VERSION,
+      message: mirrorsCommitMessage ? commitMessage : addFactCommitMessage(), payload, createdAt: command.createdAt })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
       persisted.version, persisted.type, persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
@@ -1208,14 +1432,17 @@ export class LedgerService {
   }
 
   appendUpdateTag(command: UpdateTagLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
     const payload = Schema.decodeUnknownSync(UpdateTagLedgerPayload)({
       tagId: command.tagId, expectedRevision: command.expectedRevision, name: command.name, parentIds: command.parentIds,
-      commitMessage: command.commitMessage, attribution: command.attribution
+      commitMessage, attribution: command.attribution
     })
     const persisted = Schema.decodeUnknownSync(UpdateTagLedgerCommand)({
       version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint, type: "updateTag",
       workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy,
-      messageDerivationVersion: UPDATE_TAG_MESSAGE_DERIVATION_VERSION, message: updateTagCommitMessage(), payload, createdAt: command.createdAt
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : UPDATE_TAG_MESSAGE_DERIVATION_VERSION,
+      message: mirrorsCommitMessage ? commitMessage : updateTagCommitMessage(), payload, createdAt: command.createdAt
     })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
@@ -1224,17 +1451,19 @@ export class LedgerService {
   }
 
   appendEnsureLoroPage(command: EnsureLoroPageLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
     const payload = Schema.decodeUnknownSync(EnsureLoroPageLedgerPayload)({
       nodeId: command.nodeId, outcome: command.outcome, format: "loro-v1",
       storageVersion: command.storageVersion, schemaVersion: command.schemaVersion,
-      commitMessage: command.commitMessage, attribution: command.attribution
+      commitMessage, attribution: command.attribution
     })
     const persisted = Schema.decodeUnknownSync(EnsureLoroPageLedgerCommand)({
       version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint,
       type: "ensureLoroPage", workspaceId: command.workspaceId, principal: command.principal,
       capability: "build", policy: command.policy,
-      messageDerivationVersion: ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
-      message: command.commitMessage, payload, createdAt: command.createdAt
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
+      message: commitMessage, payload, createdAt: command.createdAt
     })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
@@ -1243,16 +1472,19 @@ export class LedgerService {
   }
 
   appendCommitLoroPageContent(command: CommitLoroPageContentLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
     const payload = Schema.decodeUnknownSync(CommitLoroPageContentLedgerPayload)({
       nodeId: command.nodeId, expectedStorageVersion: command.expectedStorageVersion, expectedSnapshotSha256: command.expectedSnapshotSha256,
       baseVersionVectorSha256: command.baseVersionVectorSha256, resultVersionVectorSha256: command.resultVersionVectorSha256,
       resultSnapshotSha256: command.resultSnapshotSha256, updateSha256: command.updateSha256, updateLength: command.updateLength,
-      commitMessage: command.commitMessage, attribution: command.attribution
+      commitMessage, attribution: command.attribution
     })
     const persisted = Schema.decodeUnknownSync(CommitLoroPageContentLedgerCommand)({
       version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint, type: "commitLoroPageContent",
       workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy,
-      messageDerivationVersion: COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION, message: command.commitMessage, payload, createdAt: command.createdAt
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION,
+      message: commitMessage, payload, createdAt: command.createdAt
     })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint,
@@ -1260,8 +1492,10 @@ export class LedgerService {
       persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt)
   }
   appendPrepareMeetingInDailyNote(command: PrepareMeetingInDailyNoteLedgerCommandInput): void {
-    const payload = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteLedgerPayload)({ nodeId: command.nodeId, localDate: command.localDate, timeZone: command.timeZone, occurrenceKey: command.occurrenceKey, status: command.status, resultSnapshotSha256: command.resultSnapshotSha256, commitMessage: command.commitMessage, attribution: command.attribution })
-    const persisted = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteLedgerCommand)({ version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint, type: "prepareMeetingInDailyNote", workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy, messageDerivationVersion: PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION, message: command.commitMessage, payload, createdAt: command.createdAt })
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = command.attribution.kind === "agentJob"
+    const payload = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteLedgerPayload)({ nodeId: command.nodeId, localDate: command.localDate, timeZone: command.timeZone, occurrenceKey: command.occurrenceKey, status: command.status, resultSnapshotSha256: command.resultSnapshotSha256, commitMessage, attribution: command.attribution })
+    const persisted = Schema.decodeUnknownSync(PrepareMeetingInDailyNoteLedgerCommand)({ version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint, type: "prepareMeetingInDailyNote", workspaceId: command.workspaceId, principal: command.principal, capability: "build", policy: command.policy, messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION, message: commitMessage, payload, createdAt: command.createdAt })
     this.sql.exec(`INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, command.requestIdentity, persisted.requestId, persisted.fingerprint, persisted.version, persisted.type, persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy, persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt)
   }
   appendActivateLoroPage(command: ActivateLoroPageLedgerCommandInput): void {
@@ -1532,10 +1766,12 @@ export class LedgerService {
   }
 
   appendAssignTag(command: AssignTagLedgerCommandInput): void {
+    const commitMessage = canonicalMutationCommitMessage(command.commitMessage)
+    const mirrorsCommitMessage = mirrorsCommitMessageForAttribution(command.attribution)
     const payload = Schema.decodeUnknownSync(AssignTagLedgerPayload)({
       nodeId: command.nodeId,
       tagId: command.tagId,
-      commitMessage: command.commitMessage,
+      commitMessage,
       attribution: command.attribution
     })
     const persisted = Schema.decodeUnknownSync(AssignTagLedgerCommand)({
@@ -1547,8 +1783,8 @@ export class LedgerService {
       principal: command.principal,
       capability: "build",
       policy: command.policy,
-      messageDerivationVersion: ASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
-      message: assignTagCommitMessage(),
+      messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : ASSIGN_TAG_MESSAGE_DERIVATION_VERSION,
+      message: mirrorsCommitMessage ? commitMessage : assignTagCommitMessage(),
       payload,
       createdAt: command.createdAt
     })

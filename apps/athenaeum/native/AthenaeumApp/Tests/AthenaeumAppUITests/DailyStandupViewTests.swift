@@ -77,6 +77,22 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityFocused(isHeadingFocused)"))
     }
 
+    func testEmployeeRowsKeepRecordedWorkCollapsedAndTitleOnly() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/DailyStandupView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("DisclosureGroup(isExpanded: $recordedWorkExpanded)"))
+        XCTAssertTrue(source.contains("Recorded changes (\\(total))"))
+        XCTAssertTrue(source.contains("item.commitMessage"))
+        XCTAssertTrue(source.contains("target.label"))
+        XCTAssertFalse(source.contains("grantId"))
+    }
+
     func testEmployeeUpdatesPartitionOutcomesWithoutReorderingOrLabelingLegacyRows() throws {
         let publications = try [
             makePublication(id: "00000000-0000-4000-8000-000000000201", resultKind: .completed),

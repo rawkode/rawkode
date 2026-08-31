@@ -31,7 +31,10 @@ export const WorkforceRunClaim = Schema.Struct({
   /** Runtime row id, claim token, and monotonic attempt fence are all issuer-owned values. */
   runId: Schema.String.pipe(Schema.minLength(1)),
   claimToken: Schema.String.pipe(Schema.minLength(1)),
-  claimFence: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))
+  claimFence: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+  /** Optional internal grant identity. Calendar/workforce adapters use the grant they already
+   * issued for the run so ledger custody and the terminal receipt share one exact witness. */
+  grantId: Schema.optional(Schema.String.pipe(Schema.minLength(1)))
 })
 
 export const AdmitWorkforceRunInput = Schema.Struct({

@@ -122,13 +122,69 @@ export type StandupPublicationCompanionStatus = typeof StandupPublicationCompani
  * must not be made unreadable merely because they have no companion receipt row. */
 export const StandupPublicationResultKind = Schema.Literal("completed", "blocked", "failed", "skipped")
 export type StandupPublicationResultKind = typeof StandupPublicationResultKind.Type
+export const STANDUP_RECORDED_WORK_VERSION = "athenaeum.standup-recorded-work.v1" as const
+const isWellFormedPublicUnicode = (value: string): boolean => {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(index + 1)
+      if (low < 0xdc00 || low > 0xdfff) return false
+      index++
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false
+  }
+  return true
+}
+const utf8Bytes = (value: string): number => {
+  let length = 0
+  for (const character of value) {
+    const point = character.codePointAt(0)!
+    length += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+  }
+  return length
+}
+const boundedPublicRecordedWorkText = (maximumScalars: number, maximumBytes: number) =>
+  Schema.String.pipe(
+    Schema.minLength(1),
+    Schema.filter((value) =>
+      isWellFormedPublicUnicode(value) &&
+      Array.from(value).length <= maximumScalars &&
+      utf8Bytes(value) <= maximumBytes,
+      { message: () => `text exceeds ${maximumScalars} Unicode scalars or ${maximumBytes} UTF-8 bytes` }
+    )
+  )
+const publicRecordedWorkText = boundedPublicRecordedWorkText(500, 2_000)
+const publicRecordedWorkTargetText = boundedPublicRecordedWorkText(200, 800)
+export const StandupRecordedWorkOperation = Schema.Literal(
+  "createdNode", "recordedFact", "assignedSupertag", "updatedSupertag",
+  "createdDocument", "updatedDocument", "preparedMeeting"
+)
+export type StandupRecordedWorkOperation = typeof StandupRecordedWorkOperation.Type
+export class StandupRecordedWorkTarget extends Schema.Class<StandupRecordedWorkTarget>("StandupRecordedWorkTarget")({
+  kind: Schema.Literal("note", "supertag"), label: publicRecordedWorkTargetText
+}) {}
+export class StandupRecordedWorkItem extends Schema.Class<StandupRecordedWorkItem>("StandupRecordedWorkItem")({
+  operation: StandupRecordedWorkOperation, commitMessage: publicRecordedWorkText,
+  target: Schema.optional(StandupRecordedWorkTarget)
+}) {}
+export class StandupRecordedWorkAvailable extends Schema.Class<StandupRecordedWorkAvailable>("StandupRecordedWorkAvailable")({
+  version: Schema.Literal(STANDUP_RECORDED_WORK_VERSION), state: Schema.Literal("available"),
+  items: Schema.Array(StandupRecordedWorkItem).pipe(Schema.maxItems(8)),
+  remainingCount: Schema.Number.pipe(Schema.int(), Schema.between(0, 9_999))
+}) {}
+export class StandupRecordedWorkUnavailable extends Schema.Class<StandupRecordedWorkUnavailable>("StandupRecordedWorkUnavailable")({
+  version: Schema.Literal(STANDUP_RECORDED_WORK_VERSION), state: Schema.Literal("unavailable")
+}) {}
+export const StandupRecordedWork = Schema.Union(StandupRecordedWorkAvailable, StandupRecordedWorkUnavailable)
+export type StandupRecordedWork = typeof StandupRecordedWork.Type
 /** Workspace-readable publication projection. It intentionally excludes provenance, authority, commands, receipts, and diagnostics. */
 export class StandupPublication extends Schema.Class<StandupPublication>("StandupPublication")({
   id: EntityId, civilDate: Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/)),
   microEmployeeLabel: Schema.String.pipe(Schema.minLength(1)), jobLabel: Schema.String.pipe(Schema.minLength(1)), workflowLabel: Schema.String.pipe(Schema.minLength(1)), scheduleLabel: Schema.String.pipe(Schema.minLength(1)),
   microEmployee: StandupPublicationReference, job: StandupPublicationReference, workflow: StandupPublicationReference, schedule: StandupPublicationReference, councilRefs: Schema.Array(StandupPublicationReference),
   originalText: Schema.String.pipe(Schema.minLength(1)), publishedAt: IsoDateTimeString, childNodeId: EntityId, companionStatus: StandupPublicationCompanionStatus,
-  resultKind: Schema.optional(StandupPublicationResultKind)
+  resultKind: Schema.optional(StandupPublicationResultKind),
+  /** Omitted for legacy server projections. V1 never exposes raw provenance identifiers. */
+  recordedWork: Schema.optional(StandupRecordedWork)
 }) {}
 export class ListStandupPublicationsInput extends Schema.Class<ListStandupPublicationsInput>("ListStandupPublicationsInput")({ workspaceId: EntityId, dailyNoteId: EntityId }) {}
 export class ListStandupPublicationsOutput extends Schema.Class<ListStandupPublicationsOutput>("ListStandupPublicationsOutput")({ publications: Schema.Array(StandupPublication) }) {}

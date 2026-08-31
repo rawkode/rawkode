@@ -95,6 +95,8 @@ export {
   LedgerReceipt,
   MutationAttribution,
   MutationCommitMessage,
+  canonicalMutationCommitMessage,
+  COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION,
   MutationRequestId,
   SystemMutationAttribution,
   acceptChatForkCommitMessage,
@@ -380,8 +382,10 @@ export { CANONICAL_SNAPSHOT_VERSION, canonicalJson, canonicalJsonBytes, canonica
 export {
   STANDUP_PUBLICATION_PROTOCOL_VERSION, STANDUP_PUBLICATION_SLOT_IDENTITY_VERSION, STANDUP_PUBLICATION_REQUEST_ID_VERSION, STANDUP_PUBLICATION_CHILD_NODE_ID_VERSION, STANDUP_PUBLICATION_FINGERPRINT_VERSION, STANDUP_PUBLICATION_MAX_TEXT_BYTES,
   canonicalStandupPublicationSlot, canonicalStandupPublicationText, standupPublicationSlotDigest, standupPublicationRequestIdentity, standupPublicationChildNodeId, standupPublicationFingerprint,
-  StandupPublicationReference, StandupPublicationCompanionStatus, StandupPublicationResultKind, StandupPublication, ListStandupPublicationsInput, ListStandupPublicationsOutput,
-  type StandupPublicationDefinitionKind, type StandupPublicationDefinitionRef, type StandupPublicationSlotIdentity, type CanonicalStandupPublicationSlot, type CanonicalStandupPublicationText, type StandupPublicationFingerprintInput, type StandupPublicationCompanionStatus as StandupPublicationCompanionStatusType, type StandupPublicationResultKind as StandupPublicationResultKindType
+  StandupPublicationReference, StandupPublicationCompanionStatus, StandupPublicationResultKind, StandupPublication,
+  STANDUP_RECORDED_WORK_VERSION, StandupRecordedWorkOperation, StandupRecordedWorkTarget, StandupRecordedWorkItem, StandupRecordedWorkAvailable, StandupRecordedWorkUnavailable, StandupRecordedWork,
+  ListStandupPublicationsInput, ListStandupPublicationsOutput,
+  type StandupPublicationDefinitionKind, type StandupPublicationDefinitionRef, type StandupPublicationSlotIdentity, type CanonicalStandupPublicationSlot, type CanonicalStandupPublicationText, type StandupPublicationFingerprintInput, type StandupPublicationCompanionStatus as StandupPublicationCompanionStatusType, type StandupPublicationResultKind as StandupPublicationResultKindType, type StandupRecordedWorkOperation as StandupRecordedWorkOperationType
 } from "./standup-publication.js"
 export { LORO_PAGE_META_CONTAINER, LORO_PROSEMIRROR_CONTAINER, LORO_PAGE_SCHEMA_VERSION } from "./loro-page-contract.js"
 export {

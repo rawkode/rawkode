@@ -646,6 +646,7 @@ enum EmployeeUpdatePresentation {
 private struct EmployeeUpdateRow: View {
     let publication: StandupPublication
     let onOpen: ((EntityId) -> Void)?
+    @State private var recordedWorkExpanded = false
 
     private var statusLabel: String {
         switch publication.companionStatus {
@@ -653,6 +654,77 @@ private struct EmployeeUpdateRow: View {
         case .modified: return "This update may have changed since publication."
         case .missing: return "The companion update is no longer available."
         case .unavailable: return "The companion update is currently unavailable."
+        }
+    }
+
+    private func operationLabel(_ operation: StandupRecordedWorkOperation) -> String {
+        switch operation {
+        case .createdNode: return "Created note"
+        case .recordedFact: return "Recorded fact"
+        case .assignedSupertag: return "Assigned Supertag"
+        case .updatedSupertag: return "Updated Supertag"
+        case .createdDocument: return "Created document"
+        case .updatedDocument: return "Updated document"
+        case .preparedMeeting: return "Prepared meeting"
+        }
+    }
+
+    @ViewBuilder
+    private var recordedWorkDisclosure: some View {
+        if let recordedWork = publication.recordedWork {
+            switch recordedWork {
+            case .unavailable:
+                DisclosureGroup(isExpanded: $recordedWorkExpanded) {
+                    Text("The ledger receipt for this run is not available.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                } label: {
+                    Text("Recorded changes unavailable")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            case .available(let items, let remainingCount):
+                let total = items.count + remainingCount
+                DisclosureGroup(isExpanded: $recordedWorkExpanded) {
+                    if items.isEmpty {
+                        Text("No second-brain changes were recorded by this run.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                    } else {
+                        VStack(alignment: .leading, spacing: 7) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                        Text(operationLabel(item.operation))
+                                            .font(.caption.weight(.semibold))
+                                        if let target = item.target {
+                                            Text("· \(target.label)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Text(item.commitMessage)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            if remainingCount > 0 {
+                                Text("+ \(remainingCount) more recorded change\(remainingCount == 1 ? "" : "s")")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                } label: {
+                    Text("Recorded changes (\(total))")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -678,6 +750,8 @@ private struct EmployeeUpdateRow: View {
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
+
+            recordedWorkDisclosure
 
             if EmployeeUpdatePresentation.canOpenCompanion(
                 status: publication.companionStatus,
