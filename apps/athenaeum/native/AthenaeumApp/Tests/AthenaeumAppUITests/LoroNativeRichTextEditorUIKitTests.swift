@@ -58,6 +58,66 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), next)
     }
 
+    func testChecklistInsertionAdoptsExactAcknowledgementAndMovesFocusIntoEmptyItem() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "after")])
+        ]))
+        var commands: [LoroNativeRichTaskListInsertionCommand] = []
+        var published: [LoroNativeRichDocumentV1] = []
+        var rejected: [LoroNativeRichTextEditorRejection] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) },
+            onTaskListInsertion: { commands.append($0) },
+            onRejectedInput: { rejected.append($0) }
+        )
+
+        controller.testingSelect(NSRange(location: 2, length: 0))
+        let command = try XCTUnwrap(controller.testingTaskListInsertion())
+        let acknowledged = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before", marks: [.strong])]),
+            .taskList([.init(checked: false, runs: [])]),
+            .heading(level: 2, runs: [.init(text: "after")])
+        ]))
+        let acknowledgement = try XCTUnwrap(
+            LoroNativeRichTaskListInsertionAcknowledgement(command: command, document: acknowledged)
+        )
+
+        controller.applyTaskListInsertionAcknowledgement(acknowledgement)
+
+        XCTAssertEqual(commands, [command])
+        XCTAssertEqual(controller.testingDocument(), acknowledged)
+        XCTAssertEqual(controller.testingSelection(), .init(location: 7, length: 0))
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertTrue(rejected.isEmpty)
+    }
+
+    func testChecklistInsertionCancellationIsKeyedToThePendingCommand() throws {
+        let controller = LoroNativeRichTextEditorUIKitController(document: paragraph("before"), isEditable: true)
+        controller.testingSelect(NSRange(location: 2, length: 0))
+        let command = try XCTUnwrap(controller.testingTaskListInsertion())
+
+        XCTAssertFalse(
+            controller.applyTaskListInsertionCancellation(
+                .init(commandID: UUID(), reason: .stale)
+            ),
+            "a cancellation for another command must not consume the pending request"
+        )
+        XCTAssertTrue(
+            controller.applyTaskListInsertionCancellation(
+                .init(commandID: command.commandID, reason: .rejected)
+            )
+        )
+        XCTAssertFalse(
+            controller.applyTaskListInsertionCancellation(
+                .init(commandID: command.commandID, reason: .rejected)
+            ),
+            "the same cancellation must be idempotent"
+        )
+    }
+
     func testAcknowledgedParentDocumentRetainsThePublishedSemanticValueWithoutASecondWrite() throws {
         let source = heading("title", marks: [.code, .strong])
         var published: [LoroNativeRichDocumentV1] = []

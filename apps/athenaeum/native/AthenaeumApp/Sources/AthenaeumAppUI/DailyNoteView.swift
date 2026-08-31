@@ -254,6 +254,7 @@ public struct DailyNoteView: View {
     @State private var supertagFocusPresentation: AthenaeumViewModel.PagePresentation?
     @State private var supertagFocusSelection: LoroNativeRichTextSelection?
     @State private var richEditorFocusSelection: LoroNativeRichTextSelection?
+    @State private var richEditorTaskListInsertionRequestGeneration = 0
     @StateObject private var mentionSearchModel: DailyNoteMentionSearchModel
     @State private var mentionContext: LoroNativeRichTextMentionContext?
     @State private var mentionInsertion: LoroNativeRichTextMentionInsertion?
@@ -355,7 +356,18 @@ public struct DailyNoteView: View {
                     loroPlainEditor
                     loroRecoveryControls
                 case .loroRichEditable:
-                    planTodayStarter
+                    HStack(spacing: 8) {
+                        planTodayStarter
+                        Button {
+                            richEditorTaskListInsertionRequestGeneration &+= 1
+                        } label: {
+                            Label("Add checklist", systemImage: "checklist")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityHint("Adds an unchecked checklist after the current paragraph or heading.")
+                        .disabled(model.isEditorInputDisabled)
+                    }
                     loroRichEditor
                     loroRecoveryControls
                 case .retainedLocalChangeConflict(let message):
@@ -1271,8 +1283,12 @@ public struct DailyNoteView: View {
                     mentionInsertion: mentionInsertion,
                     supertagInsertion: supertagInsertion,
                     taskToggleAcknowledgement: model.loroRichTaskToggleAcknowledgement,
+                    taskListInsertionRequestGeneration: richEditorTaskListInsertionRequestGeneration,
+                    taskListInsertionAcknowledgement: model.loroRichTaskListInsertionAcknowledgement,
+                    taskListInsertionCancellation: model.loroRichTaskListInsertionCancellation,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onTaskToggle: { model.handleLoroRichTaskToggle($0) },
+                    onTaskListInsertion: { model.handleLoroRichTaskListInsertion($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
                         model.handleLoroRichSelectionChange($0)
@@ -1293,8 +1309,12 @@ public struct DailyNoteView: View {
                     mentionInsertion: mentionInsertion,
                     supertagInsertion: supertagInsertion,
                     taskToggleAcknowledgement: model.loroRichTaskToggleAcknowledgement,
+                    taskListInsertionRequestGeneration: richEditorTaskListInsertionRequestGeneration,
+                    taskListInsertionAcknowledgement: model.loroRichTaskListInsertionAcknowledgement,
+                    taskListInsertionCancellation: model.loroRichTaskListInsertionCancellation,
                     onDocumentChange: { model.handleLoroRichDocumentChange($0) },
                     onTaskToggle: { model.handleLoroRichTaskToggle($0) },
+                    onTaskListInsertion: { model.handleLoroRichTaskListInsertion($0) },
                     onSelectionChange: {
                         richEditorSelection = $0
                         model.handleLoroRichSelectionChange($0)

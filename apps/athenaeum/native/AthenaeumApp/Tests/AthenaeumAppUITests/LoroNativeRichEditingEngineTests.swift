@@ -71,6 +71,33 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         XCTAssertEqual(command.expectedItem.runs, [])
     }
 
+    func testTaskListInsertionCommandUsesAbsoluteScalarWitnessForParagraphAndHeading() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "one")]),
+            .heading(level: 2, runs: [.init(text: "two")]),
+            .paragraph([.init(text: "three")])
+        ]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+
+        let paragraphCommand = try XCTUnwrap(engine.makeTaskListInsertionCommand(atScalarOffset: 1))
+        XCTAssertEqual(paragraphCommand.topLevelBlockIndex, 0)
+        XCTAssertEqual(paragraphCommand.collapsedScalarOffset, 1)
+        XCTAssertTrue(engine.isValidTaskListInsertionWitness(paragraphCommand))
+
+        // The heading starts after the paragraph's three scalars and its separator.
+        let headingCommand = try XCTUnwrap(engine.makeTaskListInsertionCommand(atScalarOffset: 4))
+        XCTAssertEqual(headingCommand.topLevelBlockIndex, 1)
+        XCTAssertEqual(headingCommand.expectedBlock, .heading(level: 2, runs: [.init(text: "two")]))
+        XCTAssertTrue(engine.isValidTaskListInsertionWitness(headingCommand))
+        XCTAssertFalse(engine.isValidTaskListInsertionWitness(.init(
+            commandID: headingCommand.commandID,
+            editorGeneration: headingCommand.editorGeneration,
+            topLevelBlockIndex: headingCommand.topLevelBlockIndex,
+            expectedBlock: headingCommand.expectedBlock,
+            collapsedScalarOffset: 3
+        )))
+    }
+
     func testPendingParentAcknowledgementIsExactAndDifferentParentIsDeferred() {
         var engine = LoroNativeRichEditingEngine(document: paragraph("base"))
         let local = paragraph("base local")

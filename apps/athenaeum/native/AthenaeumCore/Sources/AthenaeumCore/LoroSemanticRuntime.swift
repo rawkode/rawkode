@@ -204,6 +204,25 @@ actor LoroSemanticRuntime {
         return try await machine.submit(candidate)
     }
 
+    func insertRichTaskListAssumingLease(
+        nodeId: EntityId,
+        command: LoroNativeRichTaskListInsertionCommand
+    ) async throws -> LoroSemanticCheckpointOutcome {
+        guard custody.permits(workspaceId: workspaceId, intent: custody.intent, now: now()) else { return .deniedAuthorizationOrSession }
+        guard let node = try await local.node(id: nodeId), node.workspaceId == workspaceId else { throw LocalWorkspaceStoreError.invalidLoroCheckpoint }
+        guard let state = try await local.loroPage(nodeId: nodeId), state.nodeId == nodeId, !state.dirty,
+              state.pageSchemaVersion == 1, state.observedDescriptorStorageVersion > 0,
+              state.localSnapshotSHA256 == state.observedDescriptorSnapshotSHA256 else { throw LoroPageDocumentStoreError.nativePlainTextDirty }
+        let vector = try await documents.prepare(nodeId: nodeId, snapshot: state.snapshotBytes).versionBytes
+        let replica = LoroPageReplicaWitness(snapshotSHA256: state.localSnapshotSHA256, versionVectorSHA256: try VersionVectorIdentity.digest(encodedVersionVector: vector))
+        let route = LoroPageRouteWitness(nodeId: nodeId, format: .loroV1, storageVersion: state.observedDescriptorStorageVersion, schemaVersion: state.pageSchemaVersion, snapshotSHA256: state.observedDescriptorSnapshotSHA256)
+        let candidate = try await documents.prepareNativeRichTaskListInsertionCandidateV1(
+            nodeId: nodeId, route: route, persistedReplica: replica, publishedReplica: replica,
+            isDirty: state.dirty, workspaceId: workspaceId, intent: custody.intent, command: command
+        )
+        return try await machine.submit(candidate)
+    }
+
     public func recoverInFlight(nodeId: EntityId) async throws -> LoroSemanticCheckpointOutcome? {
         guard custody.permits(workspaceId: workspaceId, intent: custody.intent, now: now()) else { return .deniedAuthorizationOrSession }
         return try await gate.withLease(key(nodeId)) { [local, machine, workspaceId, custody, now] in

@@ -80,6 +80,64 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(commands.count, 1)
     }
 
+    func testChecklistInsertionUsesAcknowledgedAdoptionLaneAndPreservesExistingParagraphs() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "after")])
+        ]))
+        var commands: [LoroNativeRichTaskListInsertionCommand] = []
+        var ordinaryPublishes: [LoroNativeRichDocumentV1] = []
+        var rejections: [LoroNativeRichTextEditorController.Rejection] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { ordinaryPublishes.append($0) },
+            onTaskListInsertion: { commands.append($0) },
+            onRejectedInput: { rejections.append($0) }
+        )
+
+        editor.testingSelect(NSRange(location: 2, length: 0))
+        let command = try XCTUnwrap(editor.testingTaskListInsertion())
+        XCTAssertEqual(commands, [command])
+        XCTAssertEqual(command.topLevelBlockIndex, 0)
+        XCTAssertEqual(editor.testingDocument(), source)
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+
+        let acknowledged = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before", marks: [.strong])]),
+            .taskList([.init(checked: false, runs: [])]),
+            .heading(level: 2, runs: [.init(text: "after")])
+        ]))
+        let acknowledgement = try XCTUnwrap(LoroNativeRichTaskListInsertionAcknowledgement(command: command, document: acknowledged))
+        editor.applyTaskListInsertionAcknowledgement(acknowledgement)
+        XCTAssertEqual(editor.testingDocument(), acknowledged)
+        XCTAssertEqual(editor.testingSelection(), .init(location: 7, length: 0), "focus should move into the new empty item")
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+        XCTAssertTrue(rejections.isEmpty)
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), acknowledged)
+
+        // The same receipt cannot cause a second adoption or ordinary draft publication.
+        editor.applyTaskListInsertionAcknowledgement(acknowledgement)
+        XCTAssertTrue(ordinaryPublishes.isEmpty)
+    }
+
+    func testChecklistInsertionCancellationIsKeyedAndAllowsAReplacementRequest() throws {
+        let editor = LoroNativeRichTextEditorController(document: paragraph("before"), isEditable: true)
+        editor.testingSelect(NSRange(location: 2, length: 0))
+        let command = try XCTUnwrap(editor.testingTaskListInsertion())
+
+        XCTAssertFalse(
+            editor.applyTaskListInsertionCancellation(.init(commandID: UUID(), reason: .stale))
+        )
+        XCTAssertTrue(
+            editor.applyTaskListInsertionCancellation(.init(commandID: command.commandID, reason: .rejected))
+        )
+        XCTAssertFalse(
+            editor.applyTaskListInsertionCancellation(.init(commandID: command.commandID, reason: .rejected))
+        )
+        XCTAssertNotNil(editor.testingTaskListInsertion(), "a keyed cancellation must release the editor-side pending request")
+    }
+
     func testFormattingCommandChangesOnlyMarkerAndCanonicallyRoundTrips() throws {
         var published: [LoroNativeRichDocumentV1] = []
         let editor = LoroNativeRichTextEditorController(document: paragraph("hello"), isEditable: true, onDocumentChange: { published.append($0) })

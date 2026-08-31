@@ -318,6 +318,8 @@ public final class AthenaeumViewModel: ObservableObject {
     /// separate from `loroRichDraft` prevents a checkbox receipt from arming the generic rich
     /// document debounce a second time.
     @Published public private(set) var loroRichTaskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?
+    @Published public private(set) var loroRichTaskListInsertionAcknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?
+    @Published public private(set) var loroRichTaskListInsertionCancellation: LoroNativeRichTaskListInsertionCancellation?
     /// `true` when the explicitly selected route is not editable in the native plain-text editor.
     /// Legacy projections and unsupported rich structure remain read-only rather than inviting a
     /// cross-format or structurally unsafe local mutation.
@@ -419,7 +421,7 @@ public final class AthenaeumViewModel: ObservableObject {
         handleLoroRichDocumentChange(LoroNativePlanTodayStarter.document)
         return loroRichDraft == LoroNativePlanTodayStarter.document
     }
-    public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight || pendingLoroRichTaskToggle != nil }
+    public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight || pendingLoroRichTaskToggle != nil || pendingLoroRichTaskListInsertion != nil }
     /// An uncertain tag write keeps this route pinned until its immutable semantic request has
     /// been reconciled or retried; another daily note must never inherit that operation.
     public var isDailyNoteSupertagRetryAvailable: Bool {
@@ -478,6 +480,7 @@ public final class AthenaeumViewModel: ObservableObject {
     private var loroRichDraftRevision = 0
     private var loroRichDebounceTask: Task<Void, Never>?
     private var pendingLoroRichTaskToggle: (command: LoroNativeRichTaskItemToggleCommand, selection: DailyNoteSelection, generation: Int)?
+    private var pendingLoroRichTaskListInsertion: (command: LoroNativeRichTaskListInsertionCommand, selection: DailyNoteSelection, generation: Int)?
     private var loroDraftRevision = 0
     private var loroDebounceTask: Task<Void, Never>?
     private var loroSubmitEntered = false
@@ -1958,7 +1961,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         loroDebounceTask?.cancel()
         loroDebounceTask = nil
         loroRichDebounceTask?.cancel()
@@ -2003,7 +2009,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         self.text = text
         isRichTextReadOnly = richText
         pagePresentation = richText ? .automergeRichTextReadOnly : .automergeEditable
@@ -2019,7 +2028,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         loroRecoveryAction = nil
         loroNotice = nil
         pagePresentation = .legacyMigrationRequired(content)
@@ -2031,7 +2043,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         text = ""
         isRichTextReadOnly = false
         pagePresentation = .loroReadOnly(projection)
@@ -2043,7 +2058,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         text = ""
         isRichTextReadOnly = false
         pagePresentation = .loroProjectedReadOnly(projection)
@@ -2058,7 +2076,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = nil
         loroRichDraft = nil
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         isRichTextReadOnly = false
         loroEditorBase = state
         loroRecoveryAction = nil
@@ -2077,7 +2098,10 @@ public final class AthenaeumViewModel: ObservableObject {
         loroRichSession = session
         loroRichDraft = session.draft
         loroRichTaskToggleAcknowledgement = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = nil
         pendingLoroRichTaskToggle = nil
+        pendingLoroRichTaskListInsertion = nil
         loroEditorBase = nil
         loroPlainDraft = ""
         isRichTextReadOnly = false
@@ -2158,7 +2182,9 @@ public final class AthenaeumViewModel: ObservableObject {
                 case .continueRecovery:
                     let resolution = try await self.pageOperations.recoverInFlightLoroSemanticCheckpoint(nodeId: selection.nodeId)
                     guard self.isCurrent(selection, generation: generation) else { return }
-                    if resolution == .committed, let retainedRichSession {
+                    if self.pendingLoroRichTaskListInsertion != nil {
+                        try await self.handleRecoveredLoroRichTaskListInsertion(resolution, selection: selection, generation: generation)
+                    } else if resolution == .committed, let retainedRichSession {
                         self.preserveLoroRichDraftFailure(retainedRichSession, message: "Recovery completed. Discard this rich draft explicitly to reload authority.", action: .discardRichDraftAndReload, selection: selection, generation: generation)
                     } else if let retainedRichSession {
                         self.preserveLoroRichDraftFailure(retainedRichSession, message: "Recovery did not establish editable rich-text authority.", action: self.richRecoveryAction(for: resolution), selection: selection, generation: generation)
@@ -2170,7 +2196,9 @@ public final class AthenaeumViewModel: ObservableObject {
                 case .retrySavedChange:
                     let resolution = try await self.pageOperations.retryRetainedLoroSemanticCheckpoint(nodeId: selection.nodeId)
                     guard self.isCurrent(selection, generation: generation) else { return }
-                    if resolution == .committed, let retainedRichSession {
+                    if self.pendingLoroRichTaskListInsertion != nil {
+                        try await self.handleRecoveredLoroRichTaskListInsertion(resolution, selection: selection, generation: generation)
+                    } else if resolution == .committed, let retainedRichSession {
                         self.preserveLoroRichDraftFailure(retainedRichSession, message: "Recovery completed. Discard this rich draft explicitly to reload authority.", action: .discardRichDraftAndReload, selection: selection, generation: generation)
                     } else if let retainedRichSession {
                         self.preserveLoroRichDraftFailure(retainedRichSession, message: "Recovery did not establish editable rich-text authority.", action: self.richRecoveryAction(for: resolution), selection: selection, generation: generation)
@@ -2267,6 +2295,49 @@ public final class AthenaeumViewModel: ObservableObject {
             nil
         case .none, .committed:
             .discardRichDraftAndReload
+        }
+    }
+
+    private func handleRecoveredLoroRichTaskListInsertion(
+        _ resolution: LoroSemanticCheckpointResolution,
+        selection: DailyNoteSelection,
+        generation: Int
+    ) async throws {
+        guard let pending = pendingLoroRichTaskListInsertion,
+              isCurrent(selection, generation: generation) else { return }
+        switch resolution {
+        case .committed:
+            try await completeRecoveredLoroRichTaskListInsertion(
+                command: pending.command,
+                selection: selection,
+                generation: generation
+            )
+        case .none:
+            cancelPendingLoroRichTaskListInsertion(
+                pending.command,
+                reason: .conflict,
+                message: "Recovery found no saved checklist insertion. Reload the note and try again."
+            )
+        case .inFlight, .deniedAuthorizationOrSession:
+            preservePendingLoroRichTaskListInsertion(
+                pending.command,
+                resolution: resolution,
+                selection: selection,
+                generation: generation
+            )
+        case .retainedRetry:
+            preservePendingLoroRichTaskListInsertion(
+                pending.command,
+                resolution: .retainedRetry,
+                selection: selection,
+                generation: generation
+            )
+        case .retainedConflict, .retainedRequestIdentity:
+            cancelPendingLoroRichTaskListInsertion(
+                pending.command,
+                reason: .conflict,
+                message: "The saved checklist insertion needs resolution before this note can continue."
+            )
         }
     }
 
@@ -2480,6 +2551,213 @@ public final class AthenaeumViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             await self.submitLoroRichTaskToggle(command, selection: selection, generation: generation, base: session.base)
+        }
+    }
+
+    /// Requests one editor-local checklist insertion. It is kept separate from both the generic
+    /// rich draft and checkbox acknowledgement lanes so the insertion is one ledger command.
+    func handleLoroRichTaskListInsertion(_ command: LoroNativeRichTaskListInsertionCommand) {
+        guard !isNavigating, !loroSubmitEntered, !loroDraftBlocked,
+              pendingLoroRichTaskToggle == nil, pendingLoroRichTaskListInsertion == nil,
+              case .loroRichEditable = pagePresentation,
+              let session = loroRichSession,
+              session.selection.nodeId == activeSelection.nodeId,
+              session.generation == pageOperationGeneration,
+              session.draft == session.base.document,
+              command.editorGeneration > 0,
+              command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex < session.base.document.semantic.blocks.count,
+              session.base.document.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock,
+              isCurrent(session.selection, generation: session.generation) else { return }
+        preparationCompletion = nil
+        loroRichDebounceTask?.cancel(); loroRichDebounceTask = nil
+        loroRichDraftRevision &+= 1
+        let selection = session.selection
+        let generation = session.generation
+        pendingLoroRichTaskListInsertion = (command, selection, generation)
+        loroSubmitEntered = true
+        status = .syncing
+        Task { [weak self] in
+            guard let self else { return }
+            await self.submitLoroRichTaskListInsertion(command, selection: selection, generation: generation, base: session.base)
+        }
+    }
+
+    private func submitLoroRichTaskListInsertion(
+        _ command: LoroNativeRichTaskListInsertionCommand,
+        selection: DailyNoteSelection,
+        generation: Int,
+        base: LoroNativeRichEditorState
+    ) async {
+        guard pendingLoroRichTaskListInsertion?.command == command,
+              isCurrent(selection, generation: generation),
+              case .loroRichEditable = pagePresentation else { loroSubmitEntered = false; return }
+        do {
+            let result = try await pageOperations.submitNativeRichTaskListInsertion(
+                nodeId: selection.nodeId, base: base, command: command,
+                commitMessage: "Add checklist to daily note", surface: .current
+            )
+            guard isCurrent(selection, generation: generation),
+                  pendingLoroRichTaskListInsertion?.command == command,
+                  case .loroRichEditable = pagePresentation else { loroSubmitEntered = false; return }
+            switch result {
+            case .submitted:
+                switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
+                case .editable(let fresh):
+                    let descriptor = try await pageOperations.descriptor(nodeId: selection.nodeId)
+                    guard descriptor.nodeId == selection.nodeId, case .nativeLoro = descriptor,
+                          fresh.route == PageRouteWitness(descriptor).coreWitness else { throw DailyNotePageRouteError.routeChanged }
+                    guard let acknowledgement = LoroNativeRichTaskListInsertionAcknowledgement(command: command, document: fresh.document) else {
+                        cancelPendingLoroRichTaskListInsertion(command, reason: .rejected, message: "The saved checklist did not match the requested insertion.")
+                        return
+                    }
+                    pendingLoroRichTaskListInsertion = nil
+                    publishLoroRichEditable(fresh, selection: selection, generation: generation)
+                    loroRichTaskListInsertionAcknowledgement = acknowledgement
+                    loroSubmitEntered = false; status = .synced
+                case .checkpointResolutionRequired(let resolution):
+                    preservePendingLoroRichTaskListInsertion(command, resolution: resolution, selection: selection, generation: generation)
+                case .ineligible:
+                    cancelPendingLoroRichTaskListInsertion(command, reason: .rejected, message: "Your checklist was saved. Reload the note before editing again.", action: .recoverSavedRichEditableVersion)
+                case .unauthenticated:
+                    cancelPendingLoroRichTaskListInsertion(command, reason: .unauthorized, message: "Your checklist was saved. Sign in to continue editing.", action: .continueRecovery)
+                }
+            case .submittedNeedsReload:
+                cancelPendingLoroRichTaskListInsertion(command, reason: .rejected, message: "Your checklist was saved. Reload the note before editing again.", action: .recoverSavedRichEditableVersion)
+            case .noChange:
+                cancelPendingLoroRichTaskListInsertion(
+                    command,
+                    reason: .rejected,
+                    message: "The checklist could not be inserted. Reload the note and try again.",
+                    restoreEditing: true,
+                    action: nil
+                )
+            case .unauthenticated:
+                cancelPendingLoroRichTaskListInsertion(command, reason: .unauthorized, message: "Sign in before adding a checklist.", action: .continueRecovery)
+            case .checkpointResolutionRequired(let resolution):
+                preservePendingLoroRichTaskListInsertion(command, resolution: resolution, selection: selection, generation: generation)
+            case .invalidProposedDocument, .invalidCommitMessage:
+                cancelPendingLoroRichTaskListInsertion(
+                    command,
+                    reason: .rejected,
+                    message: "The checklist request was rejected without changing the note. Try again.",
+                    restoreEditing: true,
+                    action: nil
+                )
+            case .ineligible, .staleEditorState:
+                cancelPendingLoroRichTaskListInsertion(
+                    command,
+                    reason: .stale,
+                    message: "The note changed before the checklist could be added.",
+                    restoreEditing: false
+                )
+            }
+        } catch {
+            guard isCurrent(selection, generation: generation), pendingLoroRichTaskListInsertion?.command == command else { loroSubmitEntered = false; return }
+            preservePendingLoroRichTaskListInsertion(command, resolution: .retainedRetry, selection: selection, generation: generation, message: "Checklist insertion failed. Retry the saved change from this note.")
+        }
+    }
+
+    /// A failed response does not release custody of the command. The editor remains mounted but
+    /// disabled, so a keyed recovery/cancellation receipt can still reach the adapter.
+    private func preservePendingLoroRichTaskListInsertion(
+        _ command: LoroNativeRichTaskListInsertionCommand,
+        resolution: LoroSemanticCheckpointResolution,
+        selection: DailyNoteSelection,
+        generation: Int,
+        message: String? = nil
+    ) {
+        guard pendingLoroRichTaskListInsertion?.command == command,
+              isCurrent(selection, generation: generation) else { return }
+        guard let action = richRecoveryAction(for: resolution) else {
+            cancelPendingLoroRichTaskListInsertion(
+                command,
+                reason: .conflict,
+                message: "The saved checklist insertion needs resolution before this note can continue.",
+                action: nil
+            )
+            return
+        }
+        loroSubmitEntered = false
+        loroDraftBlocked = true
+        loroRecoveryAction = action
+        loroNotice = message ?? "This checklist insertion is waiting for recovery (\(resolution))."
+        status = .pending(loroNotice ?? "Checklist insertion waiting for recovery")
+        pagePresentation = .loroRichEditable
+        isNavigating = false
+    }
+
+    private func cancelPendingLoroRichTaskListInsertion(
+        _ command: LoroNativeRichTaskListInsertionCommand,
+        reason: LoroNativeRichTaskListInsertionCancellationReason,
+        message: String,
+        restoreEditing: Bool = false,
+        action: LoroRecoveryAction? = .recoverSavedRichEditableVersion
+    ) {
+        guard pendingLoroRichTaskListInsertion?.command == command else { return }
+        pendingLoroRichTaskListInsertion = nil
+        loroRichTaskListInsertionAcknowledgement = nil
+        loroRichTaskListInsertionCancellation = .init(commandID: command.commandID, reason: reason)
+        loroSubmitEntered = false
+        // A terminal rejection that made no durable or authority change must return the editor to
+        // the unchanged admitted session. Stale/conflict/unauthorized outcomes retain the block so
+        // the keyed cancellation is followed by an explicit reload or recovery action.
+        loroDraftBlocked = !restoreEditing
+        loroRecoveryAction = restoreEditing ? nil : action
+        loroNotice = message
+        status = .error(message)
+        pagePresentation = .loroRichEditable
+        isNavigating = false
+    }
+
+    /// Re-admits the authoritative post-recovery document and sends the exact same command UUID
+    /// through the adapter's acknowledgement lane. No new command is minted after recovery.
+    private func completeRecoveredLoroRichTaskListInsertion(
+        command: LoroNativeRichTaskListInsertionCommand,
+        selection: DailyNoteSelection,
+        generation: Int
+    ) async throws {
+        guard pendingLoroRichTaskListInsertion?.command == command,
+              isCurrent(selection, generation: generation) else { return }
+        switch try await pageOperations.loroNativeRichEditorEligibility(nodeId: selection.nodeId) {
+        case .editable(let fresh):
+            let descriptor = try await pageOperations.descriptor(nodeId: selection.nodeId)
+            guard descriptor.nodeId == selection.nodeId,
+                  case .nativeLoro = descriptor,
+                  fresh.route == PageRouteWitness(descriptor).coreWitness else {
+                throw DailyNotePageRouteError.routeChanged
+            }
+            guard let acknowledgement = LoroNativeRichTaskListInsertionAcknowledgement(command: command, document: fresh.document) else {
+                cancelPendingLoroRichTaskListInsertion(command, reason: .conflict, message: "Recovery completed, but the saved checklist did not match the requested insertion.")
+                return
+            }
+            // Publish without using the normal helper until the exact receipt has been built; the
+            // adapter still owns the presentation-side pending UUID and consumes this receipt on
+            // its next update.
+            let session = LoroRichSession(base: fresh, draft: fresh.document, selection: selection, generation: generation)
+            loroRichSession = session
+            loroRichDraft = session.draft
+            loroRichTaskToggleAcknowledgement = nil
+            loroRichTaskListInsertionAcknowledgement = acknowledgement
+            loroRichTaskListInsertionCancellation = nil
+            pendingLoroRichTaskListInsertion = nil
+            loroEditorBase = nil
+            loroPlainDraft = ""
+            isRichTextReadOnly = false
+            loroRecoveryAction = nil
+            loroNotice = nil
+            loroDraftBlocked = false
+            pagePresentation = .loroRichEditable
+            presentedPageRouteWitness = PageRouteWitness(fresh.route)
+            status = .synced
+            isNavigating = false
+            loroSubmitEntered = false
+        case .checkpointResolutionRequired(let resolution):
+            preservePendingLoroRichTaskListInsertion(command, resolution: resolution, selection: selection, generation: generation)
+        case .ineligible:
+            cancelPendingLoroRichTaskListInsertion(command, reason: .conflict, message: "Recovery completed, but the note is not editable.")
+        case .unauthenticated:
+            preservePendingLoroRichTaskListInsertion(command, resolution: .deniedAuthorizationOrSession, selection: selection, generation: generation)
         }
     }
 

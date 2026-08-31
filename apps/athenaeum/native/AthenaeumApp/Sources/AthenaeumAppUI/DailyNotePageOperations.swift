@@ -90,6 +90,7 @@ protocol DailyNotePageOperations: AnyObject {
     func recoverAcceptedLoroRichLiteralForEditing(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility
     func submitNativeRichDocumentV1(nodeId: EntityId, base: LoroNativeRichEditorState, proposed: LoroNativeRichDocumentV1, commitMessage: String) async throws -> LoroNativeRichDocumentSubmissionDisposition
     func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition
+    func submitNativeRichTaskListInsertion(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskListInsertionCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition
     func prepareMeetingInDailyNote(_ input: PrepareMeetingInDailyNoteInput) async throws -> PrepareMeetingInDailyNoteOutput
 }
 
@@ -118,6 +119,9 @@ extension DailyNotePageOperations {
     /// Deterministic fakes that do not model the server-owned checklist mutation remain
     /// fail-closed. The live adapter below is the only production implementation.
     func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition {
+        throw DailyNotePageOperationError.externalMutationUnavailable(nodeId)
+    }
+    func submitNativeRichTaskListInsertion(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskListInsertionCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition {
         throw DailyNotePageOperationError.externalMutationUnavailable(nodeId)
     }
 }
@@ -222,6 +226,7 @@ final class LiveDailyNotePageOperations: DailyNotePageOperations {
     func recoverAcceptedLoroRichLiteralForEditing(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility { try await syncClient.recoverAcceptedLoroRichLiteralForEditing(nodeId: nodeId) }
     func submitNativeRichDocumentV1(nodeId: EntityId, base: LoroNativeRichEditorState, proposed: LoroNativeRichDocumentV1, commitMessage: String) async throws -> LoroNativeRichDocumentSubmissionDisposition { try await syncClient.submitNativeRichDocumentV1(nodeId: nodeId, base: base, proposed: proposed, commitMessage: commitMessage) }
     func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition { try await syncClient.submitNativeRichTaskItemToggle(nodeId: nodeId, base: base, command: command, commitMessage: commitMessage, surface: surface) }
+    func submitNativeRichTaskListInsertion(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskListInsertionCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition { try await syncClient.submitNativeRichTaskListInsertion(nodeId: nodeId, base: base, command: command, commitMessage: commitMessage, surface: surface) }
     func prepareMeetingInDailyNote(_ input: PrepareMeetingInDailyNoteInput) async throws -> PrepareMeetingInDailyNoteOutput {
         try await readClient.prepareMeetingInDailyNote(input)
     }

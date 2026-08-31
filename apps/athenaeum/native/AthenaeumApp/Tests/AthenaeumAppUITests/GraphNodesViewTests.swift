@@ -133,6 +133,7 @@ private final class UnusedGraphPageOperations: DailyNotePageOperations {
     func recoverAcceptedLoroRichLiteralForEditing(nodeId: EntityId) async throws -> LoroNativeRichEditorEligibility { fatalError("unused") }
     func submitNativeRichDocumentV1(nodeId: EntityId, base: LoroNativeRichEditorState, proposed: LoroNativeRichDocumentV1, commitMessage: String) async throws -> LoroNativeRichDocumentSubmissionDisposition { fatalError("unused") }
     func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition { fatalError("unused") }
+    func submitNativeRichTaskListInsertion(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskListInsertionCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition { fatalError("unused") }
     func prepareMeetingInDailyNote(_ input: PrepareMeetingInDailyNoteInput) async throws -> PrepareMeetingInDailyNoteOutput { fatalError("unused") }
 }
 

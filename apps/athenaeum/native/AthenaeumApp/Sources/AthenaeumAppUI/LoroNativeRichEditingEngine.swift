@@ -92,6 +92,71 @@ struct LoroNativeRichEditingEngine {
         )
     }
 
+    /// Captures a collapsed caret in one top-level paragraph for a store-owned checklist
+    /// insertion. The absolute scalar offset is retained so the adapter can restore the caret
+    /// after the paragraph is wrapped without inventing a new selection.
+    mutating func makeTaskListInsertionCommand(
+        atScalarOffset offset: Int,
+        commandID: UUID = UUID()
+    ) -> LoroNativeRichTaskListInsertionCommand? {
+        guard offset >= 0 else { return nil }
+        var cursor = 0
+        for index in admittedDocument.semantic.blocks.indices {
+            let block = admittedDocument.semantic.blocks[index]
+            let blockStart = cursor
+            let length: Int
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs):
+                length = runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+            case let .taskList(items):
+                length = items.reduce(0) { total, item in total + item.runs.reduce(0) { $0 + $1.text.unicodeScalars.count } } + max(0, items.count - 1)
+            }
+            guard offset <= cursor + length else {
+                cursor += length + (index == admittedDocument.semantic.blocks.index(before: admittedDocument.semantic.blocks.endIndex) ? 0 : 1)
+                continue
+            }
+            switch block {
+            case .paragraph, .heading: break
+            case .taskList: return nil
+            }
+            guard offset >= blockStart, offset <= blockStart + length else { return nil }
+            return .init(
+                commandID: commandID,
+                editorGeneration: documentGeneration,
+                topLevelBlockIndex: index,
+                expectedBlock: block,
+                collapsedScalarOffset: offset
+            )
+        }
+        return nil
+    }
+
+    /// Revalidates the flattened Unicode-scalar witness before an acknowledgement can adopt a
+    /// document. This keeps a forged or stale command from moving focus to a different block.
+    func isValidTaskListInsertionWitness(_ command: LoroNativeRichTaskListInsertionCommand) -> Bool {
+        guard command.editorGeneration == documentGeneration,
+              command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex < admittedDocument.semantic.blocks.count,
+              admittedDocument.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock else { return false }
+        let blockStart = admittedDocument.semantic.blocks.prefix(command.topLevelBlockIndex).reduce(0) { total, block in
+            let length: Int
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs):
+                length = runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+            case let .taskList(items):
+                length = items.reduce(0) { $0 + $1.runs.reduce(0) { $0 + $1.text.unicodeScalars.count } } + max(0, items.count - 1)
+            }
+            return total + length + 1
+        }
+        let blockLength: Int
+        switch command.expectedBlock {
+        case let .paragraph(runs), let .heading(_, runs):
+            blockLength = runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+        case .taskList: return false
+        }
+        return command.collapsedScalarOffset >= blockStart && command.collapsedScalarOffset <= blockStart + blockLength
+    }
+
     mutating func replace(utf16Range: NSRange, withPlainText replacement: String) -> LoroNativeRichEditingEffect {
         replace(in: admittedDocument, utf16Range: utf16Range, withPlainText: replacement)
     }

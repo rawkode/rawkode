@@ -111,6 +111,33 @@ public struct LoroNativeRichTaskItemToggleCommand: Sendable, Equatable, Identifi
     }
 }
 
+/// A typed, idempotent request to add one empty checklist item after a top-level paragraph or
+/// heading. `expectedBlock` and the collapsed scalar offset fence the request to the editor
+/// snapshot that captured it; `commandID` is retained as the durable mutation identity.
+public struct LoroNativeRichTaskListInsertionCommand: Sendable, Equatable, Identifiable {
+    public let commandID: UUID
+    public let editorGeneration: Int
+    public let topLevelBlockIndex: Int
+    public let expectedBlock: LoroCanonicalSemanticValueV1.Block
+    public let collapsedScalarOffset: Int
+
+    public var id: UUID { commandID }
+
+    public init(
+        commandID: UUID = UUID(),
+        editorGeneration: Int,
+        topLevelBlockIndex: Int,
+        expectedBlock: LoroCanonicalSemanticValueV1.Block,
+        collapsedScalarOffset: Int
+    ) {
+        self.commandID = commandID
+        self.editorGeneration = editorGeneration
+        self.topLevelBlockIndex = topLevelBlockIndex
+        self.expectedBlock = expectedBlock
+        self.collapsedScalarOffset = collapsedScalarOffset
+    }
+}
+
 /// Closed rich-editor admission result. Rich and legacy-plain admission remain separate APIs.
 public enum LoroNativeRichEditorEligibility: Sendable, Equatable {
     case editable(LoroNativeRichEditorState)
@@ -130,6 +157,94 @@ public enum LoroNativeRichDocumentSubmissionDisposition: Sendable, Equatable {
     case staleEditorState
     case invalidProposedDocument
     case invalidCommitMessage
+}
+
+public struct LoroNativeRichTaskListInsertionAcknowledgement: Sendable, Equatable {
+    public let commandID: UUID
+    public let document: LoroNativeRichDocumentV1
+    /// The acknowledged structural target is explicit so adapters do not infer focus from a
+    /// flattened string after a response race.
+    public let taskListIndex: Int
+    public let itemIndex: Int
+    /// Absolute Unicode-scalar caret location in the acknowledged document, inside the new item.
+    public let postInsertionScalarOffset: Int
+
+    public init(
+        commandID: UUID,
+        document: LoroNativeRichDocumentV1,
+        taskListIndex: Int = -1,
+        itemIndex: Int = -1,
+        postInsertionScalarOffset: Int = -1
+    ) {
+        self.commandID = commandID
+        self.document = document
+        self.taskListIndex = taskListIndex
+        self.itemIndex = itemIndex
+        self.postInsertionScalarOffset = postInsertionScalarOffset
+    }
+
+    /// Builds an acknowledgement only for the exact empty item produced by the insertion
+    /// command. Source runs are a witness, never content to copy into the new task.
+    public init?(command: LoroNativeRichTaskListInsertionCommand, document: LoroNativeRichDocumentV1) {
+        guard command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex + 1 < document.semantic.blocks.count,
+              document.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock,
+              case let .taskList(items) = document.semantic.blocks[command.topLevelBlockIndex + 1],
+              items.count == 1,
+              items[0].checked == false,
+              items[0].runs.isEmpty
+        else { return nil }
+
+        switch command.expectedBlock {
+        case .paragraph, .heading:
+            break
+        case .taskList:
+            return nil
+        }
+
+        func flattenedLength(of block: LoroCanonicalSemanticValueV1.Block) -> Int {
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs):
+                return runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+            case let .taskList(items):
+                return items.reduce(0) { total, item in
+                    total + item.runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+                } + max(0, items.count - 1)
+            }
+        }
+
+        let blockStart = document.semantic.blocks
+            .prefix(command.topLevelBlockIndex)
+            .reduce(0) { $0 + flattenedLength(of: $1) + 1 }
+        let sourceLength = flattenedLength(of: command.expectedBlock)
+        self.init(
+            commandID: command.commandID,
+            document: document,
+            taskListIndex: command.topLevelBlockIndex + 1,
+            itemIndex: 0,
+            postInsertionScalarOffset: blockStart + sourceLength + 1
+        )
+    }
+}
+
+/// A terminal, command-ID-keyed outcome for a checklist insertion that cannot be adopted by the
+/// native adapter. Stale cancellations are ignored; a different job must receive a new UUID.
+public enum LoroNativeRichTaskListInsertionCancellationReason: String, Sendable, Equatable {
+    case rejected
+    case stale
+    case unauthorized
+    case conflict
+    case transportFailure
+}
+
+public struct LoroNativeRichTaskListInsertionCancellation: Sendable, Equatable {
+    public let commandID: UUID
+    public let reason: LoroNativeRichTaskListInsertionCancellationReason
+
+    public init(commandID: UUID, reason: LoroNativeRichTaskListInsertionCancellationReason) {
+        self.commandID = commandID
+        self.reason = reason
+    }
 }
 
 extension LoroSemanticCheckpointResolution {

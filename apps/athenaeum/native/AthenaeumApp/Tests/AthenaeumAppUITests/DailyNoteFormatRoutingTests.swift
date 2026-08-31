@@ -1756,6 +1756,128 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertEqual(fake.nativeRichSubmitCount, 0)
     }
 
+    func testTaskListInsertionUsesOneCommandAndPublishesAnExactAcknowledgement() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let base = richState(node, text: "before")
+        let inserted = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before")]),
+            .taskList([.init(checked: false, runs: [])])
+        ]))
+        let fresh = base.replacingDocument(inserted)
+        let fake = FakeOperations(
+            descriptors: [native(node), native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.eligibilityResult = .ineligible
+        fake.richEligibilityResults = [.editable(base), .editable(fresh)]
+        fake.richSubmitResult = .submitted
+        let model = try AthenaeumViewModel(
+            workspaceId: workspace,
+            pageOperations: fake,
+            date: date,
+            nativeLoroEditingEnabled: true
+        )
+        await model.start()
+
+        let command = LoroNativeRichTaskListInsertionCommand(
+            editorGeneration: 1,
+            topLevelBlockIndex: 0,
+            expectedBlock: base.document.semantic.blocks[0],
+            collapsedScalarOffset: 6
+        )
+        model.handleLoroRichTaskListInsertion(command)
+        try await waitUntil { fake.nativeRichSubmitCount == 1 && model.loroRichTaskListInsertionAcknowledgement != nil }
+
+        let acknowledgement = try XCTUnwrap(model.loroRichTaskListInsertionAcknowledgement)
+        XCTAssertEqual(acknowledgement.commandID, command.commandID)
+        XCTAssertEqual(acknowledgement.taskListIndex, 1)
+        XCTAssertEqual(acknowledgement.itemIndex, 0)
+        XCTAssertEqual(acknowledgement.postInsertionScalarOffset, 7)
+        XCTAssertEqual(fake.nativeRichSubmitMessages, ["Add checklist to daily note"])
+        XCTAssertFalse(model.isEditorInputDisabled)
+        XCTAssertNil(model.loroRecoveryAction)
+    }
+
+    func testTaskListInsertionNoChangeCancelsByUUIDAndRestoresEditing() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let base = richState(node, text: "before")
+        let fake = FakeOperations(
+            descriptors: [native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.eligibilityResult = .ineligible
+        fake.richEligibilityResult = .editable(base)
+        fake.richSubmitResult = .noChange
+        let model = try AthenaeumViewModel(
+            workspaceId: workspace,
+            pageOperations: fake,
+            date: date,
+            nativeLoroEditingEnabled: true
+        )
+        await model.start()
+
+        let command = LoroNativeRichTaskListInsertionCommand(
+            editorGeneration: 1,
+            topLevelBlockIndex: 0,
+            expectedBlock: base.document.semantic.blocks[0],
+            collapsedScalarOffset: 6
+        )
+        model.handleLoroRichTaskListInsertion(command)
+        try await waitUntil { model.loroRichTaskListInsertionCancellation?.commandID == command.commandID }
+
+        XCTAssertEqual(
+            model.loroRichTaskListInsertionCancellation?.reason,
+            .rejected
+        )
+        XCTAssertFalse(model.isEditorInputDisabled, "a no-change cancellation must release the unchanged editor")
+        XCTAssertNil(model.loroRecoveryAction)
+        XCTAssertEqual(model.loroRichDraft, base.document)
+    }
+
+    func testTaskListInsertionResponseLossRecoversTheSameCommandAndAcknowledgesIt() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let base = richState(node, text: "before")
+        let inserted = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before")]),
+            .taskList([.init(checked: false, runs: [])])
+        ]))
+        let fresh = base.replacingDocument(inserted)
+        let fake = FakeOperations(
+            descriptors: [native(node), native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.eligibilityResult = .ineligible
+        fake.richEligibilityResults = [.editable(base), .editable(fresh)]
+        fake.richSubmitResult = .checkpointResolutionRequired(.inFlight)
+        fake.recoveryResult = .committed
+        let model = try AthenaeumViewModel(
+            workspaceId: workspace,
+            pageOperations: fake,
+            date: date,
+            nativeLoroEditingEnabled: true
+        )
+        await model.start()
+
+        let command = LoroNativeRichTaskListInsertionCommand(
+            editorGeneration: 1,
+            topLevelBlockIndex: 0,
+            expectedBlock: base.document.semantic.blocks[0],
+            collapsedScalarOffset: 6
+        )
+        model.handleLoroRichTaskListInsertion(command)
+        try await waitUntil { model.loroRecoveryAction == .continueRecovery }
+        model.performLoroRecoveryAction()
+        try await waitUntil { model.loroRichTaskListInsertionAcknowledgement != nil && !model.isLoroRecoveryInProgress }
+
+        XCTAssertEqual(fake.nativeRichSubmitCount, 1, "recovery must not mint a second transport submission")
+        XCTAssertEqual(model.loroRichTaskListInsertionAcknowledgement?.commandID, command.commandID)
+        XCTAssertFalse(model.isEditorInputDisabled)
+        XCTAssertNil(model.loroRecoveryAction)
+    }
+
     func testDefaultNativePolicyAdmitsRichEditingForEveryNativeClient() async throws {
         let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
         let rich = richState(node, text: "iOS admission")
@@ -2793,6 +2915,12 @@ private final class FakeOperations: DailyNotePageOperations {
         return richSubmitResults.isEmpty ? richSubmitResult : richSubmitResults.removeFirst()
     }
     func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition {
+        nativeRichSubmitCount += 1
+        nativeRichSubmitMessages.append(commitMessage)
+        nativeRichSubmitSurfaces.append(surface)
+        return richSubmitResults.isEmpty ? richSubmitResult : richSubmitResults.removeFirst()
+    }
+    func submitNativeRichTaskListInsertion(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskListInsertionCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition {
         nativeRichSubmitCount += 1
         nativeRichSubmitMessages.append(commitMessage)
         nativeRichSubmitSurfaces.append(surface)

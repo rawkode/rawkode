@@ -743,6 +743,122 @@ public actor LoroPageDocumentStore {
         )
     }
 
+    /// Inserts one unchecked task list after a witnessed top-level paragraph or heading. Only the
+    /// root children list is changed; all non-target containers retain their imported identities.
+    func prepareNativeRichTaskListInsertionCandidateV1(
+        nodeId: EntityId,
+        route: LoroPageRouteWitness,
+        persistedReplica: LoroPageReplicaWitness,
+        publishedReplica: LoroPageReplicaWitness,
+        isDirty: Bool,
+        workspaceId: EntityId,
+        intent: LoroMutationIntentV1,
+        command: LoroNativeRichTaskListInsertionCommand
+    ) throws -> LoroFrozenLiteralCandidate {
+        guard !isDirty,
+              let cached = literal[nodeId.rawValue],
+              cached.state.workspaceId == workspaceId else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let actual = LoroPageReplicaWitness(snapshotSHA256: cached.state.localSnapshotSHA256, versionVectorSHA256: cached.state.versionVectorSHA256)
+        guard cached.state.route == route, route.snapshotSHA256 == actual.snapshotSHA256,
+              persistedReplica == actual, publishedReplica == actual else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let baseSnapshot = cached.state.snapshotBytes
+        let base = try importedLiteralDocument(snapshot: baseSnapshot)
+        let baseVersion = base.oplogVv().encode()
+        let baseSemantic = try inspectNativeSemantic(in: base)
+        guard command.editorGeneration > 0,
+              command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex < baseSemantic.blocks.count,
+              baseSemantic.blocks[command.topLevelBlockIndex] == command.expectedBlock else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        switch command.expectedBlock {
+        case .paragraph, .heading:
+            break
+        case .taskList: throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let scalarLength: Int
+        switch command.expectedBlock {
+        case let .paragraph(runs), let .heading(_, runs):
+            scalarLength = runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+        case .taskList:
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+        let blockStart = baseSemantic.blocks.prefix(command.topLevelBlockIndex).reduce(0) { total, block in
+            let length: Int
+            switch block {
+            case let .paragraph(blockRuns), let .heading(_, blockRuns):
+                length = blockRuns.reduce(0) { $0 + $1.text.unicodeScalars.count }
+            case let .taskList(items):
+                length = items.reduce(0) { $0 + $1.runs.reduce(0) { $0 + $1.text.unicodeScalars.count } } + max(0, items.count - 1)
+            }
+            return total + length + 1
+        }
+        guard command.collapsedScalarOffset >= blockStart,
+              command.collapsedScalarOffset <= blockStart + scalarLength else {
+            throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+        }
+
+        let clone = LoroDoc()
+        do {
+            try clone.setPeerId(peer: freshNativeRichPeer())
+            configureNativeRichStyles(clone)
+            _ = try clone.import(bytes: baseSnapshot)
+            let root = clone.getMap(id: "athenaeum-prosemirror-v1")
+            guard let rootChildren = root.get(key: "children")?.asLoroList(),
+                  let original = rootChildren.get(index: UInt32(command.topLevelBlockIndex))?.asLoroMap(),
+                  case let .string(originalName)? = original.get(key: "nodeName")?.asValue(),
+                  originalName == "paragraph" || originalName == "heading" else {
+                throw LoroPageDocumentStoreError.nativePlainTextWitnessMismatch
+            }
+            let insertedIndex = UInt32(command.topLevelBlockIndex + 1)
+            let taskList = try rootChildren.insertMapContainer(pos: insertedIndex, child: LoroMap())
+            try taskList.insert(key: "nodeName", v: "task_list")
+            let taskAttributes = try taskList.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+            try taskAttributes.insert(key: "isAmgBlock", v: false)
+            let taskChildren = try taskList.getOrCreateListContainer(key: "children", child: LoroList())
+            let taskItem = try taskChildren.insertMapContainer(pos: 0, child: LoroMap())
+            try taskItem.insert(key: "nodeName", v: "task_item")
+            let itemAttributes = try taskItem.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+            try itemAttributes.insert(key: "isAmgBlock", v: false)
+            try itemAttributes.insert(key: "checked", v: false)
+            let itemChildren = try taskItem.getOrCreateListContainer(key: "children", child: LoroList())
+            let paragraph = try itemChildren.insertMapContainer(pos: 0, child: LoroMap())
+            try paragraph.insert(key: "nodeName", v: "paragraph")
+            let paragraphAttributes = try paragraph.getOrCreateMapContainer(key: "attributes", child: LoroMap())
+            try paragraphAttributes.insert(key: "isAmgBlock", v: false)
+            let paragraphChildren = try paragraph.getOrCreateListContainer(key: "children", child: LoroList())
+            // The source block is only a stale-context witness. A new checklist starts empty;
+            // copying its prose would duplicate user content while still leaving the source in
+            // place.
+            _ = paragraphChildren
+            clone.commit()
+        } catch let error as LoroPageDocumentStoreError {
+            throw error
+        } catch {
+            throw LoroPageDocumentStoreError.nativePlainTextMutationFailed
+        }
+        let update: Data
+        do { update = try clone.export(mode: .updates(from: try VersionVector.decode(bytes: baseVersion))) }
+        catch { throw LoroPageDocumentStoreError.nativePlainTextMutationFailed }
+        guard !update.isEmpty else { throw LoroPageDocumentStoreError.nativePlainTextNoOp }
+        let candidateSemantic = try inspectNativeSemantic(in: clone)
+        var expectedBlocks = baseSemantic.blocks
+        expectedBlocks.insert(.taskList([.init(checked: false, runs: [])]), at: command.topLevelBlockIndex + 1)
+        let expectedSemantic = expectedBlocks
+        guard candidateSemantic == .init(blocks: expectedSemantic) else {
+            throw LoroPageDocumentStoreError.nativePlainTextMutationFailed
+        }
+        let prepared = try prepared(nodeId: nodeId, from: clone)
+        let expectedRoute = LoroPageRouteWitness(nodeId: nodeId, format: .loroV1, storageVersion: try incrementStorageVersion(route.storageVersion), schemaVersion: route.schemaVersion, snapshotSHA256: prepared.localSnapshotSHA256)
+        let checkpoint = try LoroSemanticCheckpoint(workspaceId: workspaceId, nodeId: nodeId, state: .inFlight, intent: intent, route: route, update: update, baseVersionVector: baseVersion)
+        let literal = try literalState(workspaceId: workspaceId, nodeId: nodeId, route: expectedRoute, snapshot: prepared.snapshotBytes, expectedVersionVector: prepared.versionBytes, allowRich: true)
+        return .minted(workspaceId: workspaceId, checkpoint: checkpoint, baseSnapshot: baseSnapshot, baseSnapshotSHA256: digest(baseSnapshot), literal: literal, nativePlainText: appliedText(from: candidateSemantic), semantic: candidateSemantic)
+    }
+
 
     /// Loro version-vector wire encodings are not the equality contract. Decode both values and
     /// compare the semantic vectors, so a peer's equivalent encoding cannot keep a replica dirty.

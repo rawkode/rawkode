@@ -21,8 +21,12 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
     /// Checklist toggles are a separate acknowledged-adoption lane; they never enter the
     /// ordinary rich draft callback.
     let taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?
+    let taskListInsertionRequestGeneration: Int
+    let taskListInsertionAcknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?
+    let taskListInsertionCancellation: LoroNativeRichTaskListInsertionCancellation?
     let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
+    let onTaskListInsertion: (LoroNativeRichTaskListInsertionCommand) -> Void
     let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
     /// Presentation-only responder state. Durable editing semantics stay in the engine.
@@ -44,8 +48,12 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
         mentionInsertion: LoroNativeRichTextMentionInsertion? = nil,
         supertagInsertion: LoroNativeRichTextSupertagInsertion? = nil,
         taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement? = nil,
+        taskListInsertionRequestGeneration: Int = 0,
+        taskListInsertionAcknowledgement: LoroNativeRichTaskListInsertionAcknowledgement? = nil,
+        taskListInsertionCancellation: LoroNativeRichTaskListInsertionCancellation? = nil,
         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void,
         onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
+        onTaskListInsertion: @escaping (LoroNativeRichTaskListInsertionCommand) -> Void = { _ in },
         onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void,
         onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
@@ -61,8 +69,12 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
         self.mentionInsertion = mentionInsertion
         self.supertagInsertion = supertagInsertion
         self.taskToggleAcknowledgement = taskToggleAcknowledgement
+        self.taskListInsertionRequestGeneration = taskListInsertionRequestGeneration
+        self.taskListInsertionAcknowledgement = taskListInsertionAcknowledgement
+        self.taskListInsertionCancellation = taskListInsertionCancellation
         self.onDocumentChange = onDocumentChange
         self.onTaskToggle = onTaskToggle
+        self.onTaskListInsertion = onTaskListInsertion
         self.onSelectionChange = onSelectionChange
         self.onRejectedInput = onRejectedInput
         self.onFocusChange = onFocusChange
@@ -76,6 +88,7 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
         LoroNativeRichTextEditorController(document: state.document, isEditable: isEditable,
                                            onDocumentChange: onDocumentChange,
                                            onTaskToggle: onTaskToggle,
+                                           onTaskListInsertion: onTaskListInsertion,
                                            onSelectionChange: onSelectionChange,
                                            onRejectedInput: onRejectedInput,
                                            onFocusChange: onFocusChange,
@@ -89,6 +102,9 @@ struct LoroNativeRichTextEditor: NSViewRepresentable {
 
     func updateNSView(_ view: NSScrollView, context: Context) {
         context.coordinator.applyTaskToggleAcknowledgement(taskToggleAcknowledgement)
+        context.coordinator.applyTaskListInsertionCancellation(taskListInsertionCancellation)
+        context.coordinator.applyTaskListInsertionAcknowledgement(taskListInsertionAcknowledgement)
+        context.coordinator.requestTaskListInsertion(generation: taskListInsertionRequestGeneration)
         context.coordinator.update(document: state.document, isEditable: isEditable)
         context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
         context.coordinator.applyMentionInsertion(mentionInsertion)
@@ -128,12 +144,18 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private var pendingFocusSelection: LoroNativeRichTextSelection?
     private var pendingTaskToggle: LoroNativeRichTaskItemToggleCommand?
     private var lastAppliedTaskToggleID: UUID?
+    private var nextTaskListInsertionRequestToken = 0
+    private var lastTaskListInsertionRequestGeneration = 0
+    private var pendingTaskListInsertion: (token: Int, command: LoroNativeRichTaskListInsertionCommand)?
+    private var lastAppliedTaskListInsertionID: UUID?
+    private var lastAppliedTaskListInsertionCancellationID: UUID?
     #if DEBUG
     /// Test-only responder result seam. Production always asks this controller's own window.
     private var testingFocusAttempt: (() -> Bool)?
     #endif
     private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
     private let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
+    private let onTaskListInsertion: (LoroNativeRichTaskListInsertionCommand) -> Void
     private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
     private let onRejectedInput: (Rejection) -> Void
     private let onFocusChange: (Bool) -> Void
@@ -148,6 +170,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     init(document: LoroNativeRichDocumentV1, isEditable: Bool,
          onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
          onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
+         onTaskListInsertion: @escaping (LoroNativeRichTaskListInsertionCommand) -> Void = { _ in },
          onSelectionChange: @escaping (LoroNativeRichTextCodec.ScalarSelection) -> Void = { _ in },
          onRejectedInput: @escaping (Rejection) -> Void = { _ in },
          onFocusChange: @escaping (Bool) -> Void = { _ in },
@@ -158,6 +181,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         engine = .init(document: document); isEditableInput = isEditable
         self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput; self.onFocusChange = onFocusChange; self.onOpenReference = onOpenReference; self.onMentionQueryChange = onMentionQueryChange; self.onSupertagQueryChange = onSupertagQueryChange; self.onInlineReferenceInserted = onInlineReferenceInserted
         self.onTaskToggle = onTaskToggle
+        self.onTaskListInsertion = onTaskListInsertion
         textView = GuardedRichTextView(frame: .zero)
         super.init()
         textView.controller = self
@@ -172,7 +196,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         textView.setAccessibilityLabel("Rich text editor. Command-click a linked label to open it.")
         textView.setAccessibilityCustomActions([
             .init(name: "Open linked reference") { [weak self] in self?.openReferenceAtCurrentSelection() ?? false },
-            .init(name: "Toggle checklist item") { [weak self] in self?.requestTaskToggleAtCurrentSelection() ?? false }
+            .init(name: "Toggle checklist item") { [weak self] in self?.requestTaskToggleAtCurrentSelection() ?? false },
+            .init(name: "Add checklist") { [weak self] in self?.requestTaskListInsertion() ?? false }
         ])
         render(document, preserving: nil)
         textView.isEditable = isEditable
@@ -223,6 +248,71 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         pendingFocusGeneration = max(pendingFocusGeneration ?? 0, generation)
         pendingFocusSelection = selection
         fulfillFocusRequestIfPossible()
+    }
+
+    @discardableResult
+    func requestTaskListInsertion() -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, let selection = scalarSelection(), selection.length == 0,
+              let command = engine.makeTaskListInsertionCommand(atScalarOffset: selection.location) else { return false }
+        nextTaskListInsertionRequestToken &+= 1
+        pendingTaskListInsertion = (nextTaskListInsertionRequestToken, command)
+        onTaskListInsertion(command)
+        return true
+    }
+
+    func requestTaskListInsertion(generation: Int) {
+        guard generation > lastTaskListInsertionRequestGeneration else { return }
+        lastTaskListInsertionRequestGeneration = generation
+        _ = requestTaskListInsertion()
+    }
+
+    func applyTaskListInsertionAcknowledgement(_ acknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?) {
+        guard let acknowledgement, acknowledgement.commandID != lastAppliedTaskListInsertionID else { return }
+        guard let pending = pendingTaskListInsertion,
+              pending.command.commandID == acknowledgement.commandID,
+              engine.isValidTaskListInsertionWitness(pending.command),
+              let expected = insertedTaskListDocument(for: pending.command, in: engine.admittedDocument),
+              expected == acknowledgement.document,
+              let expectedAcknowledgement = LoroNativeRichTaskListInsertionAcknowledgement(command: pending.command, document: acknowledgement.document),
+              expectedAcknowledgement == acknowledgement else {
+            if pendingTaskListInsertion != nil { pendingTaskListInsertion = nil; onRejectedInput(.invalidEdit) }
+            return
+        }
+        pendingTaskListInsertion = nil
+        lastAppliedTaskListInsertionID = acknowledgement.commandID
+        let selection = LoroNativeRichTextSelection(location: acknowledgement.postInsertionScalarOffset, length: 0)
+        switch engine.receiveParentDocument(acknowledgement.document) {
+        case let .adopted(document, _), let .acknowledged(document, _):
+            engine.setSelection(selection)
+            render(document, preserving: selection)
+        case .unchanged, .deferredForComposition, .deferredForLocalProposal: onRejectedInput(.invalidEdit)
+        }
+    }
+
+    @discardableResult
+    func applyTaskListInsertionCancellation(_ cancellation: LoroNativeRichTaskListInsertionCancellation?) -> Bool {
+        guard let cancellation,
+              cancellation.commandID != lastAppliedTaskListInsertionCancellationID,
+              let pending = pendingTaskListInsertion,
+              pending.command.commandID == cancellation.commandID else { return false }
+        pendingTaskListInsertion = nil
+        lastAppliedTaskListInsertionCancellationID = cancellation.commandID
+        onRejectedInput(.disabled)
+        return true
+    }
+
+    private func insertedTaskListDocument(for command: LoroNativeRichTaskListInsertionCommand, in document: LoroNativeRichDocumentV1) -> LoroNativeRichDocumentV1? {
+        guard command.topLevelBlockIndex >= 0, command.topLevelBlockIndex < document.semantic.blocks.count,
+              document.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock else { return nil }
+        switch command.expectedBlock {
+        case .paragraph, .heading: break
+        case .taskList: return nil
+        }
+        var blocks = document.semantic.blocks
+        blocks.insert(.taskList([.init(checked: false, runs: [])]), at: command.topLevelBlockIndex + 1)
+        return .init(semantic: .init(blocks: blocks))
     }
 
     fileprivate func didMoveToWindow() { fulfillFocusRequestIfPossible() }
@@ -347,6 +437,10 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         guard requestTaskToggle(atUTF16Offset: offset) else { return nil }
         return pendingTaskToggle
     }
+    func testingTaskListInsertion() -> LoroNativeRichTaskListInsertionCommand? {
+        guard requestTaskListInsertion() else { return nil }
+        return pendingTaskListInsertion?.command
+    }
 
     private func toggledDocument(
         for command: LoroNativeRichTaskItemToggleCommand,
@@ -392,6 +486,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 
     // Internal inspection points keep the AppKit contract directly testable without a live window.
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
+    func testingSelection() -> LoroNativeRichTextSelection { engine.admittedSelection }
     func testingStorage() -> NSAttributedString { semanticStorage.copy() as! NSAttributedString }
     func testingReplace(_ range: NSRange, with string: String) { replace(range: range, withPlainText: string) }
     func testingInsert(reference: LoroCanonicalSemanticValueV1.InlineReference, replacingUTF16Range range: NSRange) {

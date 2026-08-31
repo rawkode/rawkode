@@ -234,6 +234,76 @@ final class LoroNativeRichEditorFacadeTests: XCTestCase {
         }
     }
 
+    func testTaskListInsertionCandidateAddsAfterWitnessedBlockAndRejectsWrongScalarWitness() async throws {
+        let fixture = try await LoroSemanticCheckpointStateMachineTests.Fixture.make()
+        let semantic = LoroCanonicalSemanticValueV1(blocks: [
+            .paragraph([.init(text: "one", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "two")]),
+            .paragraph([.init(text: "three")])
+        ])
+        let base = try await mintRichCandidate(fixture, requestId: "task-insert-base", semantic: semantic)
+        try await fixture.local.persistFrozenLiteralCandidate(actorIssued: base)
+        try await fixture.local.acceptFrozenLiteralCandidate(actorIssued: base, dispatched: base.checkpoint)
+        let maybeEvidence = try await fixture.local.acceptedLoroPageEvidence(workspaceId: fixture.workspace, nodeId: fixture.node)
+        let evidence = try XCTUnwrap(maybeEvidence)
+        try await fixture.documents.installAcceptedRichLiteral(evidence)
+        let replica = LoroPageReplicaWitness(
+            snapshotSHA256: base.literal.route.snapshotSHA256,
+            versionVectorSHA256: base.literal.versionVectorSHA256
+        )
+        let command = LoroNativeRichTaskListInsertionCommand(
+            commandID: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
+            editorGeneration: 1,
+            topLevelBlockIndex: 0,
+            expectedBlock: semantic.blocks[0],
+            collapsedScalarOffset: 1
+        )
+        let inserted = try await fixture.documents.prepareNativeRichTaskListInsertionCandidateV1(
+            nodeId: fixture.node,
+            route: base.literal.route,
+            persistedReplica: replica,
+            publishedReplica: replica,
+            isDirty: false,
+            workspaceId: fixture.workspace,
+            intent: try .init(requestId: command.commandID.uuidString, commitMessage: "add checklist", attribution: .humanUi(surface: "macos")),
+            command: command
+        )
+        XCTAssertEqual(inserted.semantic, .init(blocks: [
+            .paragraph([.init(text: "one", marks: [.strong])]),
+            .taskList([.init(checked: false, runs: [])]),
+            .heading(level: 2, runs: [.init(text: "two")]),
+            .paragraph([.init(text: "three")])
+        ]))
+
+        let document = LoroDoc()
+        _ = try document.import(bytes: inserted.literal.snapshotBytes)
+        let children = try XCTUnwrap(document.getMap(id: "athenaeum-prosemirror-v1").get(key: "children")?.asLoroList())
+        XCTAssertEqual(children.len(), 4)
+        XCTAssertEqual(children.get(index: 0)?.asLoroMap()?.get(key: "nodeName")?.asValue(), .string(value: "paragraph"))
+        XCTAssertEqual(children.get(index: 1)?.asLoroMap()?.get(key: "nodeName")?.asValue(), .string(value: "task_list"))
+        XCTAssertEqual(children.get(index: 2)?.asLoroMap()?.get(key: "nodeName")?.asValue(), .string(value: "heading"))
+        let acknowledgement = try XCTUnwrap(LoroNativeRichTaskListInsertionAcknowledgement(command: command, document: .init(semantic: inserted.semantic)))
+        XCTAssertEqual(acknowledgement.taskListIndex, 1)
+        XCTAssertEqual(acknowledgement.itemIndex, 0)
+        XCTAssertEqual(acknowledgement.postInsertionScalarOffset, 4)
+
+        let wrongWitness = LoroNativeRichTaskListInsertionCommand(
+            commandID: UUID(), editorGeneration: 1, topLevelBlockIndex: 1,
+            expectedBlock: semantic.blocks[1], collapsedScalarOffset: 1
+        )
+        do {
+            _ = try await fixture.documents.prepareNativeRichTaskListInsertionCandidateV1(
+                nodeId: fixture.node, route: base.literal.route, persistedReplica: replica, publishedReplica: replica,
+                isDirty: false, workspaceId: fixture.workspace,
+                intent: try .init(requestId: "wrong-task-insert", commitMessage: "add checklist", attribution: .humanUi(surface: "macos")),
+                command: wrongWitness
+            )
+            XCTFail("a scalar offset from another block must be rejected")
+        } catch {
+            XCTAssertEqual(error as? LoroPageDocumentStoreError, .nativePlainTextWitnessMismatch)
+        }
+    }
+
     func testSameFlattenedTextWithDifferentRichStructureIsNotEqual() throws {
         let paragraph = LoroCanonicalSemanticValueV1(blocks: [.paragraph([.init(text: "same", marks: [.strong])])])
         let heading = LoroCanonicalSemanticValueV1(blocks: [.heading(level: 1, runs: [.init(text: "same", marks: [.code])])])
