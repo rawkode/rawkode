@@ -16,6 +16,8 @@ final class AppsViewTests: XCTestCase {
         XCTAssertFalse(document.html.contains("Bearer"))
         XCTAssertFalse(document.html.contains("token="))
         XCTAssertFalse(document.html.contains("127.0.0.1"))
+        XCTAssertTrue(document.html.contains("script-src athenaeum-app-run: 'nonce-"))
+        XCTAssertTrue(document.html.contains("<script nonce=\""))
     }
 
     func testAppRunDocumentUsesAUniqueLaunchOrigin() {
@@ -104,6 +106,59 @@ final class AppsViewTests: XCTestCase {
             createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z"
         )
         XCTAssertFalse(NativeAppRunPresentation.canLaunch(workspaceId: "workspace-1", app: codeMissing))
+    }
+
+    func testAppRunRequiresExactCurrentListedIdentityAndStableClientSnapshot() {
+        let app = RPCApp(
+            id: "app-1", workspaceId: "workspace-1", title: "Inbox", icon: "·",
+            clientCodeVersion: 3, serverCodeVersion: 4,
+            createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z"
+        )
+        let detail = AppsViewModel.AppDetail(
+            app: app,
+            clientCode: RPCAppCodeVersion(
+                id: "code-3", appId: "app-1", kind: .client, version: 3,
+                code: "export {}", createdAt: "2024-01-02T00:00:00Z"
+            ),
+            serverCode: nil
+        )
+        XCTAssertTrue(
+            AppsViewModel.canRun(
+                detail: detail, listedApp: app,
+                workspaceId: "workspace-1", isLibraryRefreshInFlight: false
+            )
+        )
+        let newer = RPCApp(
+            id: "app-1", workspaceId: "workspace-1", title: "Inbox", icon: "·",
+            clientCodeVersion: 4, serverCodeVersion: 4,
+            createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-03T00:00:00Z"
+        )
+        XCTAssertFalse(
+            AppsViewModel.canRun(
+                detail: detail, listedApp: newer,
+                workspaceId: "workspace-1", isLibraryRefreshInFlight: false
+            )
+        )
+        XCTAssertFalse(
+            AppsViewModel.canRun(
+                detail: detail, listedApp: app,
+                workspaceId: "workspace-1", isLibraryRefreshInFlight: true
+            )
+        )
+        let wrongSnapshot = AppsViewModel.AppDetail(
+            app: app,
+            clientCode: RPCAppCodeVersion(
+                id: "code-2", appId: "app-1", kind: .client, version: 2,
+                code: "export {}", createdAt: "2024-01-02T00:00:00Z"
+            ),
+            serverCode: nil
+        )
+        XCTAssertFalse(
+            AppsViewModel.canRun(
+                detail: wrongSnapshot, listedApp: app,
+                workspaceId: "workspace-1", isLibraryRefreshInFlight: false
+            )
+        )
     }
 
     private struct PrivateTransportError: Error, CustomStringConvertible {

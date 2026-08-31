@@ -122,19 +122,24 @@ public struct NativeAppRunDocument: Sendable, Equatable {
         self.clientCodeVersion = clientCodeVersion
         self.clientJavaScriptURL = client
         self.runBaseURL = run
-        self.html = Self.makeHTML(clientJavaScriptURL: client, runBaseURL: run)
+        self.html = Self.makeHTML(
+            clientJavaScriptURL: client,
+            runBaseURL: run,
+            cspNonce: Self.cspNonce(for: launchID)
+        )
     }
 
-    static func makeHTML(clientJavaScriptURL: URL, runBaseURL: URL) -> String {
+    static func makeHTML(clientJavaScriptURL: URL, runBaseURL: URL, cspNonce: String) -> String {
         let clientURL = htmlEscape(clientJavaScriptURL.absoluteString)
         let runURL = jsonStringLiteral(runBaseURL.absoluteString)
+        let nonce = htmlEscape(cspNonce)
         return """
             <!doctype html>
             <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src athenaeum-app-run:; connect-src athenaeum-app-run:; style-src 'unsafe-inline'; img-src athenaeum-app-run: data:">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src athenaeum-app-run: 'nonce-\(nonce)'; connect-src athenaeum-app-run:; style-src 'unsafe-inline'; img-src athenaeum-app-run: data:">
             <style>html,body,#app{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transparent;color:#222}#app{padding:16px;box-sizing:border-box}</style>
             </head><body><main id="app" aria-label="App"></main>
-            <script>
+            <script nonce="\(nonce)">
             (() => {
               const runBaseURL = \(runURL);
               const originalFetch = window.fetch.bind(window);
@@ -151,6 +156,11 @@ public struct NativeAppRunDocument: Sendable, Equatable {
             <script src="\(clientURL)" defer></script>
             </body></html>
             """
+    }
+
+    private static func cspNonce(for launchID: String) -> String {
+        let bytes = Data((launchID.isEmpty ? "athenaeum-app-run" : launchID).utf8)
+        return bytes.base64EncodedString()
     }
 
     private static func syntheticHost(workspaceId: String, appId: String, launchID: String) -> String {

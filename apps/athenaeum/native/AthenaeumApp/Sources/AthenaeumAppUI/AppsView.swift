@@ -23,6 +23,7 @@ final class AppsViewModel: ObservableObject {
     @Published var detailErrorMessage: String?
 
     private let client: WorkspaceRPCClient
+    private var libraryGeneration = 0
 
     init(backendURL: URL, workspaceId: EntityId, bearerCredential: String?) {
         let workspaceURL = backendURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
@@ -34,18 +35,37 @@ final class AppsViewModel: ObservableObject {
     }
 
     func refresh() async {
+        libraryGeneration += 1
+        let refreshGeneration = libraryGeneration
         isLoading = true
         defer { isLoading = false }
         do {
-            apps = try await client.listApps().sorted { $0.updatedAt > $1.updatedAt }
+            let refreshedApps = try await client.listApps().sorted { $0.updatedAt > $1.updatedAt }
+            guard refreshGeneration == libraryGeneration else { return }
+            if let selectedDetail,
+                let listedApp = refreshedApps.first(where: { $0.id == selectedDetail.app.id }),
+                NativeAppRunPresentation.identity(workspaceId: selectedDetail.app.workspaceId, app: listedApp)
+                    != NativeAppRunPresentation.identity(workspaceId: selectedDetail.app.workspaceId, app: selectedDetail.app)
+            {
+                self.selectedDetail = nil
+                detailErrorMessage = nil
+            } else if selectedDetail != nil,
+                !refreshedApps.contains(where: { $0.id == selectedDetail?.app.id })
+            {
+                self.selectedDetail = nil
+                detailErrorMessage = nil
+            }
+            apps = refreshedApps
             hasLoadedApps = true
             errorMessage = nil
         } catch {
+            guard refreshGeneration == libraryGeneration else { return }
             errorMessage = Self.libraryLoadFailureMessage(for: error)
         }
     }
 
     func select(_ appId: String) async {
+        let selectionGeneration = libraryGeneration
         isLoadingDetail = true
         detailErrorMessage = nil
         defer { isLoadingDetail = false }
@@ -53,12 +73,15 @@ final class AppsViewModel: ObservableObject {
             let app = try await client.getApp(appId: appId)
             async let clientCode = loadCodeIfPresent(app: app, kind: .client)
             async let serverCode = loadCodeIfPresent(app: app, kind: .server)
-            selectedDetail = AppDetail(
+            let detail = AppDetail(
                 app: app,
                 clientCode: try await clientCode,
                 serverCode: try await serverCode
             )
+            guard selectionGeneration == libraryGeneration else { return }
+            selectedDetail = detail
         } catch {
+            guard selectionGeneration == libraryGeneration else { return }
             selectedDetail = nil
             detailErrorMessage = Self.detailLoadFailureMessage(for: error)
         }
@@ -78,6 +101,26 @@ final class AppsViewModel: ObservableObject {
     /// its current immutable-detail read.
     static func canRetryDetail(appId: String?, isLoadingDetail: Bool) -> Bool {
         appId != nil && !isLoadingDetail
+    }
+
+    static func canRun(
+        detail: AppDetail,
+        listedApp: RPCApp?,
+        workspaceId: String,
+        isLibraryRefreshInFlight: Bool
+    ) -> Bool {
+        guard !isLibraryRefreshInFlight,
+            let listedApp,
+            NativeAppRunPresentation.identity(workspaceId: workspaceId, app: detail.app)
+                == NativeAppRunPresentation.identity(workspaceId: workspaceId, app: listedApp),
+            NativeAppRunPresentation.canLaunch(workspaceId: workspaceId, app: detail.app),
+            let clientCode = detail.clientCode,
+            clientCode.appId == detail.app.id,
+            clientCode.version == detail.app.clientCodeVersion
+        else {
+            return false
+        }
+        return true
     }
 
     /// The library is empty only after a confirmed, idle, successful read. A failed request
@@ -434,8 +477,12 @@ public struct AppsView: View {
 
     private func runSelected(_ detail: AppsViewModel.AppDetail) {
         guard selectedAppId == detail.app.id,
-            NativeAppRunPresentation.canLaunch(workspaceId: workspaceId.rawValue, app: detail.app),
-            detail.clientCode != nil
+            AppsViewModel.canRun(
+                detail: detail,
+                listedApp: model.apps.first(where: { $0.id == detail.app.id }),
+                workspaceId: workspaceId.rawValue,
+                isLibraryRefreshInFlight: isLibraryRefreshInFlight
+            )
         else { return }
         runModel.launch(app: detail.app, hasClientCode: true)
         presentedRunIdentity = runModel.acceptedIdentity

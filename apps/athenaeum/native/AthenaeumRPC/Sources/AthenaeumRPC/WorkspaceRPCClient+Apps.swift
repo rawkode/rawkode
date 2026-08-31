@@ -106,6 +106,22 @@ public struct RPCAppCodeVersion: Sendable, Equatable {
     public let code: String
     public let createdAt: String
 
+    public init(
+        id: String,
+        appId: String,
+        kind: RPCAppCodeKind,
+        version: Int,
+        code: String,
+        createdAt: String
+    ) {
+        self.id = id
+        self.appId = appId
+        self.kind = kind
+        self.version = version
+        self.code = code
+        self.createdAt = createdAt
+    }
+
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
             let appId = try value.field("appId").stringValue,
