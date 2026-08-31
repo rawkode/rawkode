@@ -106,7 +106,13 @@ const emptyStandup: DailyStandupController = {
   employeeUpdates: { status: "idle" }, ledger: { status: "idle" }, isRefreshing: false, refresh: () => undefined
 }
 
-export function DailyStandup({ standup = emptyStandup }: { readonly standup?: DailyStandupController } = {}) {
+export function DailyStandup({
+  standup = emptyStandup,
+  focusedPublicationId
+}: {
+  readonly standup?: DailyStandupController
+  readonly focusedPublicationId?: EntityId
+} = {}) {
   const [showAllEntries, setShowAllEntries] = useState(false)
   const hasEmployeeUpdates = standup.employeeUpdates.status !== "idle"
   const hasRecordedWork = standup.snapshot.isToday
@@ -129,7 +135,13 @@ export function DailyStandup({ standup = emptyStandup }: { readonly standup?: Da
           <p>Employee updates and recorded changes for this day.</p>
         </header>
         <div className="daily-standup-subdocument-content">
-          {hasEmployeeUpdates && <EmployeeUpdates state={standup.employeeUpdates} onRetry={standup.refresh} />}
+          {hasEmployeeUpdates && (
+            <EmployeeUpdates
+              state={standup.employeeUpdates}
+              onRetry={standup.refresh}
+              focusedPublicationId={focusedPublicationId}
+            />
+          )}
           {hasRecordedWork && (
             <section className="daily-note-standup" aria-labelledby="daily-standup-recorded-title">
           <div className="ledger-activity-heading">

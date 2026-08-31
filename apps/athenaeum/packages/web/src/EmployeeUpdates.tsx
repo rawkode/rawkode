@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import type {
+  EntityId,
   StandupPublication,
   StandupPublicationResultKindType,
   StandupRecordedWork,
@@ -109,8 +110,11 @@ export type WorkforceAttentionDisclosure = {
   readonly outcome: "Blocked" | "Failed"
   readonly employee: string
   readonly job: string
-  /** Deliberately optional: missing/unavailable companion documents must remain inert. */
-  readonly destination?: string
+  /**
+   * Durable publication identity for an in-document review target. Unlike a companion-node
+   * destination, this remains available when the companion is missing or unavailable.
+   */
+  readonly publicationId: EntityId
 }
 
 export type WorkforceAttentionPresentation =
@@ -123,6 +127,25 @@ export type WorkforceAttentionPresentation =
       readonly disclosures: readonly WorkforceAttentionDisclosure[]
       readonly remainderCount: number
     }
+
+/** Keep the in-document target namespaced away from route and user-authored fragment ids. */
+export const workforceAttentionAnchorId = (publicationId: EntityId): string =>
+  `athenaeum-workforce-attention-${publicationId}`
+
+/**
+ * Performs the browser-only half of reviewing a compact workforce cue. The caller has already
+ * fenced route/state ownership; this helper intentionally cannot navigate or mutate data.
+ */
+export const focusWorkforceAttentionItem = (publicationId: EntityId): boolean => {
+  if (typeof document === "undefined") return false
+  const target = document.getElementById(workforceAttentionAnchorId(publicationId))
+  if (!(target instanceof HTMLElement)) return false
+  if (typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+  target.focus({ preventScroll: true })
+  return true
+}
 
 /**
  * Small, deliberately redacted above-editor projection. Keep the detailed report in the lower
@@ -143,7 +166,7 @@ export const workforceAttentionPresentation = (
     outcome: publication.resultKind === "failed" ? "Failed" : "Blocked",
     employee: publication.microEmployeeLabel,
     job: publication.jobLabel,
-    ...(canOpenCompanion(publication) ? { destination: `/node/${publication.childNodeId}` } : {})
+    publicationId: publication.id
   }))
   return {
     kind: "attention",
@@ -154,16 +177,24 @@ export const workforceAttentionPresentation = (
 }
 
 /** A read-only, privacy-safe projection of workforce updates attached to a daily note. */
-export function EmployeeUpdates({ state, onRetry }: {
+export function EmployeeUpdates({ state, onRetry, focusedPublicationId }: {
   readonly state: EmployeeUpdatesState
   readonly onRetry?: () => void
+  /** Presentation-only selection set by the current DailyNote owner after a safe review action. */
+  readonly focusedPublicationId?: EntityId
 }) {
   const partitions = state.status === "success" ? partitionEmployeeUpdates(state.publications) : undefined
 
   const renderPublication = (publication: EmployeeUpdatePublication) => {
     const result = publication.resultKind === undefined ? undefined : resultKindPresentation[publication.resultKind]
     return (
-      <li key={publication.id} className="employee-update">
+      <li
+        key={publication.id}
+        id={workforceAttentionAnchorId(publication.id)}
+        className={`employee-update${focusedPublicationId === publication.id ? " employee-update-focused" : ""}`}
+        tabIndex={-1}
+        aria-current={focusedPublicationId === publication.id ? "true" : undefined}
+      >
         <div className="employee-update-labels">
           <span>Employee: {publication.microEmployeeLabel}</span>
           <span>Job: {publication.jobLabel}</span>

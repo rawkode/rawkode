@@ -1,4 +1,4 @@
-import { Link } from "react-router"
+import type { EntityId } from "@athenaeum/domain"
 import {
   workforceAttentionPresentation,
   type EmployeeUpdatesState
@@ -8,10 +8,13 @@ import { DAILY_STANDUP_ANCHOR_ID } from "./LedgerActivityPanel.js"
 /** A compact Today-only cue. The full workforce report remains below the writing canvas. */
 export function WorkforceAttentionStrip({
   state,
-  onRetry
+  onRetry,
+  onReviewItem
 }: {
   readonly state: EmployeeUpdatesState | { readonly status: "idle" }
   readonly onRetry: () => void
+  /** The DailyNote owns the current-route check and in-document focus side effect. */
+  readonly onReviewItem?: (publicationId: EntityId) => void
 }) {
   const presentation = workforceAttentionPresentation(state)
   if (presentation.kind === "hidden") return null
@@ -42,7 +45,15 @@ export function WorkforceAttentionStrip({
           <li key={`${item.outcome}:${item.employee}:${item.job}:${index}`}>
             <span className="workforce-attention-outcome">{item.outcome}</span>
             <span>{item.employee} · {item.job}</span>
-            {item.destination !== undefined && <Link to={item.destination}>Open update</Link>}
+            {onReviewItem !== undefined && (
+              <button
+                type="button"
+                onClick={() => onReviewItem(item.publicationId)}
+                aria-label={`Review ${item.outcome} update from ${item.employee} for ${item.job}`}
+              >
+                Review
+              </button>
+            )}
           </li>
         ))}
       </ul>

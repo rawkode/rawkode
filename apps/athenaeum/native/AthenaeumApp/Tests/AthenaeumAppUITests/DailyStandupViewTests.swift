@@ -202,7 +202,7 @@ final class DailyStandupViewTests: XCTestCase {
         XCTAssertTrue(dailyNoteSource.contains("onRetry: refreshStandup"), "DailyNoteView must retain refresh ownership")
     }
 
-    func testAttentionStripOnlyExposesReviewForVerifiedOrModifiedCompanions() throws {
+    func testAttentionStripReviewUsesPublicationIdentityEvenWithoutCompanion() throws {
         let verified = try makePublication(id: "00000000-0000-4000-8000-000000000320", resultKind: .blocked)
         let missing = try makePublication(id: "00000000-0000-4000-8000-000000000321", resultKind: .blocked, companionStatus: .missing)
         let unavailable = try makePublication(id: "00000000-0000-4000-8000-000000000322", resultKind: .blocked, companionStatus: .unavailable)
@@ -210,9 +210,56 @@ final class DailyStandupViewTests: XCTestCase {
         let snapshot = WorkforceAttentionPresentation.snapshot([verified, missing, unavailable])
 
         XCTAssertEqual(snapshot.displayed.map(\.outcome), [.blocked, .blocked, .blocked])
-        XCTAssertEqual(snapshot.displayed.map(\.isReviewAvailable), [true, false, false])
+        XCTAssertEqual(snapshot.displayed.map(\.isReviewAvailable), [true, true, true])
+        XCTAssertEqual(snapshot.displayed.map(\.publicationId), [verified.id, missing.id, unavailable.id])
         XCTAssertEqual(snapshot.displayed.map(\.employee), ["Executive", "Executive", "Executive"])
         XCTAssertEqual(snapshot.displayed.map(\.job), ["Daily standup", "Daily standup", "Daily standup"])
+    }
+
+    func testWorkforceSnapshotIdentityRequiresLoadedSelectedNote() async throws {
+        let noteId = try EntityId(validating: "00000000-0000-4000-8000-000000000340")
+        let publication = try makePublication(id: "00000000-0000-4000-8000-000000000341")
+        let model = DailyStandupViewModel(
+            ledgerLoader: nil,
+            employeeLoaderFactory: { _ in [publication] },
+            dailyNoteId: noteId
+        )
+
+        XCTAssertNil(model.workforceSnapshotIdentity)
+        await model.refresh()
+        XCTAssertEqual(
+            model.workforceSnapshotIdentity,
+            WorkforceSnapshotIdentity(dailyNoteId: noteId, employeeLoadGeneration: 1)
+        )
+    }
+
+    func testWorkforceReviewGateRejectsStaleGenerationAndMissingTarget() throws {
+        let noteId = try EntityId(validating: "00000000-0000-4000-8000-000000000342")
+        let publicationId = try EntityId(validating: "00000000-0000-4000-8000-000000000343")
+        let snapshot = WorkforceSnapshotIdentity(dailyNoteId: noteId, employeeLoadGeneration: 2)
+        let request = WorkforceReviewRequest(snapshot: snapshot, target: .publication(publicationId))
+
+        XCTAssertTrue(WorkforceReviewPresentation.mayApply(
+            request,
+            currentSnapshot: snapshot,
+            isToday: true,
+            hasResolvedDailyNote: true,
+            hasTarget: true
+        ))
+        XCTAssertFalse(WorkforceReviewPresentation.mayApply(
+            request,
+            currentSnapshot: WorkforceSnapshotIdentity(dailyNoteId: noteId, employeeLoadGeneration: 3),
+            isToday: true,
+            hasResolvedDailyNote: true,
+            hasTarget: true
+        ))
+        XCTAssertFalse(WorkforceReviewPresentation.mayApply(
+            request,
+            currentSnapshot: snapshot,
+            isToday: true,
+            hasResolvedDailyNote: true,
+            hasTarget: false
+        ))
     }
 
     func testAttentionStripUsesStackedLayoutForAccessibilityTypeAndKeepsReviewSpokenLabelSafe() throws {

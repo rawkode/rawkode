@@ -37,6 +37,7 @@ import { NoteTags } from "./NoteTags.js"
 import { SupertagFieldPopover, type SupertagFieldPopoverTarget } from "./SupertagFieldPopover.js"
 import { DAILY_STANDUP_ANCHOR_ID, DailyStandup } from "./LedgerActivityPanel.js"
 import { useDailyStandup } from "./use-daily-standup.js"
+import { focusWorkforceAttentionItem } from "./EmployeeUpdates.js"
 import { WorkforceAttentionStrip } from "./WorkforceAttentionStrip.js"
 
 // `resolveDailyNote` is the "resolve or create" half
@@ -444,6 +445,24 @@ export function DailyNote({
     dailyNoteId: state.status === "success" ? state.value.nodeId : undefined,
     isToday
   })
+  const currentDailyNoteId = state.status === "success" ? state.value.nodeId : undefined
+  const [focusedWorkforcePublicationId, setFocusedWorkforcePublicationId] = useState<EntityId | undefined>(undefined)
+  // A refresh, date transition, or resolve change invalidates this presentation-only witness
+  // before a later DOM focus attempt could land in another daily note's standup.
+  useEffect(() => {
+    setFocusedWorkforcePublicationId(undefined)
+  }, [dateStamp, currentDailyNoteId, standup.snapshot.generation, standup.employeeUpdates.status])
+  const reviewWorkforceItem = useCallback((publicationId: EntityId) => {
+    if (
+      !isToday ||
+      currentDailyNoteId === undefined ||
+      standup.snapshot.dailyNoteId !== currentDailyNoteId ||
+      standup.employeeUpdates.status !== "success" ||
+      !standup.employeeUpdates.publications.some((publication) => publication.id === publicationId)
+    ) return
+    setFocusedWorkforcePublicationId(publicationId)
+    focusWorkforceAttentionItem(publicationId)
+  }, [currentDailyNoteId, isToday, standup.employeeUpdates, standup.snapshot.dailyNoteId])
   const pageFormat = state.status === "success"
     ? dailyNotePageFormatPresentation(state.value.format)
     : undefined
@@ -526,7 +545,11 @@ export function DailyNote({
         </header>
 
         {isToday && state.status === "success" && (
-          <WorkforceAttentionStrip state={standup.employeeUpdates} onRetry={standup.refresh} />
+          <WorkforceAttentionStrip
+            state={standup.employeeUpdates}
+            onRetry={standup.refresh}
+            onReviewItem={reviewWorkforceItem}
+          />
         )}
 
         <div
@@ -655,7 +678,7 @@ export function DailyNote({
       </div>
 
       {state.status === "success" && (
-        <DailyStandup standup={standup} />
+        <DailyStandup standup={standup} focusedPublicationId={focusedWorkforcePublicationId} />
       )}
 
       {state.status === "success" && <Backlinks nodeId={state.value.nodeId} />}

@@ -2,9 +2,18 @@ import AthenaeumDomain
 import AthenaeumRPC
 import SwiftUI
 
+/// Stable, value-only anchors shared by the compact Today cue, the lower standup rows, and the
+/// command-center scroll containers. Wrapping the durable publication id prevents it from being
+/// confused with a route id or a user-authored fragment.
+public enum WorkforceAttentionAnchor: Hashable, Sendable {
+    case standup
+    case publication(EntityId)
+}
+
 /// A deliberately small, value-only Today summary. It never retains source publication text,
-/// workflow/schedule data, reference IDs, or diagnostics. The optional destination is only used
-/// to enable the already-authorized Review action; it is never rendered or exposed to VoiceOver.
+/// workflow/schedule data, reference IDs, or diagnostics. The publication id is the durable,
+/// privacy-safe identity needed to review the exact lower row; it is never rendered or exposed to
+/// VoiceOver.
 enum WorkforceAttentionPresentation {
     static let maximumVisible = 3
     static let failureMessage = "Employee updates couldn’t be loaded."
@@ -20,9 +29,11 @@ enum WorkforceAttentionPresentation {
         let outcome: Outcome
         let employee: String
         let job: String
-        fileprivate let destination: EntityId?
+        let publicationId: EntityId
 
-        var isReviewAvailable: Bool { destination != nil }
+        /// Review targets the publication row itself, so it remains available when the companion
+        /// page is missing or temporarily unavailable.
+        var isReviewAvailable: Bool { true }
     }
 
     struct Snapshot: Equatable, Sendable {
@@ -76,16 +87,11 @@ enum WorkforceAttentionPresentation {
         case .failed: outcome = .failed
         default: return nil
         }
-        let destination: EntityId?
-        switch publication.companionStatus {
-        case .verifiedOriginal, .modified: destination = publication.childNodeId
-        case .missing, .unavailable: destination = nil
-        }
         return .init(
             outcome: outcome,
             employee: publication.microEmployeeLabel,
             job: publication.jobLabel,
-            destination: destination
+            publicationId: publication.id
         )
     }
 }
@@ -118,20 +124,20 @@ enum WorkforceAttentionLayout {
 
 struct WorkforceAttentionStrip: View {
     @ObservedObject var model: DailyStandupViewModel
-    let onOpen: ((EntityId) -> Void)?
     let onReviewStandup: (() -> Void)?
+    let onReviewPublication: ((EntityId, WorkforceSnapshotIdentity) -> Void)?
     let onRetry: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         model: DailyStandupViewModel,
-        onOpen: ((EntityId) -> Void)? = nil,
         onReviewStandup: (() -> Void)? = nil,
+        onReviewPublication: ((EntityId, WorkforceSnapshotIdentity) -> Void)? = nil,
         onRetry: (() -> Void)? = nil
     ) {
         self.model = model
-        self.onOpen = onOpen
         self.onReviewStandup = onReviewStandup
+        self.onReviewPublication = onReviewPublication
         self.onRetry = onRetry
     }
 
@@ -259,11 +265,15 @@ struct WorkforceAttentionStrip: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: compact, vertical: false)
             if !compact { Spacer(minLength: 0) }
-            if disclosure.isReviewAvailable, let destination = disclosure.destination, let onOpen {
-                Button(compact ? "Review \(index + 1)" : "Review") { onOpen(destination) }
+            if disclosure.isReviewAvailable,
+               let onReviewPublication,
+               let snapshotIdentity = model.workforceSnapshotIdentity {
+                Button(compact ? "Review \(index + 1)" : "Review") {
+                    onReviewPublication(disclosure.publicationId, snapshotIdentity)
+                }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(WorkforceAttentionLayout.reviewAccessibilityLabel(for: disclosure))
-                    .accessibilityHint("Opens this employee update's companion page.")
+                    .accessibilityHint("Scrolls to this employee update in the current daily note.")
             }
         }
     }

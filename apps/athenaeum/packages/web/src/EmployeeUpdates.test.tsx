@@ -63,8 +63,8 @@ describe("EmployeeUpdates presentation", () => {
       kind: "attention",
       totalAttentionCount: 4,
       disclosures: [
-        { outcome: "Blocked", employee: "Calendar concierge", job: "Resolve attendee", destination: `/node/${makePublication("041", "blocked").childNodeId}` },
-        { outcome: "Failed", employee: "Researcher", job: "Enrich profile" }
+        { outcome: "Blocked", employee: "Calendar concierge", job: "Resolve attendee", publicationId: makePublication("041", "blocked").id },
+        { outcome: "Failed", employee: "Researcher", job: "Enrich profile", publicationId: makePublication("042", "failed", "missing").id }
       ],
       remainderCount: 2
     })

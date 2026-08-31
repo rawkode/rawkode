@@ -90,6 +90,7 @@ final class WorkspaceRouteTests: XCTestCase {
         // The iOS routing helper forwards the same callback once before both concrete
         // DailyNoteView construction sites receive it.
         XCTAssertGreaterThanOrEqual(source.components(separatedBy: "onReviewStandup: onReviewStandup").count - 1, 2)
+        XCTAssertGreaterThanOrEqual(source.components(separatedBy: "onReviewWorkforcePublication: onReviewWorkforcePublication").count - 1, 2)
         XCTAssertEqual(source.components(separatedBy: "onOpenReference: { reference in openReference(reference) }").count - 1, 2)
     }
 
@@ -103,7 +104,11 @@ final class WorkspaceRouteTests: XCTestCase {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertEqual(
-            source.components(separatedBy: "proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top)").count - 1,
+            source.components(separatedBy: "proxy.scrollTo(WorkforceAttentionAnchor.standup, anchor: .top)").count - 1,
+            4
+        )
+        XCTAssertEqual(
+            source.components(separatedBy: "proxy.scrollTo(anchor, anchor: .center)").count - 1,
             4
         )
         XCTAssertTrue(source.contains("WorkspaceIOSHomePresentation.homeSection"))

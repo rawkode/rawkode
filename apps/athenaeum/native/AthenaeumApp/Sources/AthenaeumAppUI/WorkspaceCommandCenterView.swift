@@ -556,7 +556,10 @@ public struct WorkspaceCommandCenterView: View {
                             WorkspaceIOSHomePresentation.homeSection,
                             model: model,
                             onReviewStandup: {
-                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                withAnimation { proxy.scrollTo(WorkforceAttentionAnchor.standup, anchor: .top) }
+                            },
+                            onReviewWorkforcePublication: { anchor in
+                                withAnimation { proxy.scrollTo(anchor, anchor: .center) }
                             },
                             onFocusMeetingPreparation: { identity in
                                 withAnimation { proxy.scrollTo(identity, anchor: .center) }
@@ -661,7 +664,10 @@ public struct WorkspaceCommandCenterView: View {
                                 section,
                                 model: model,
                                 onReviewStandup: {
-                                    withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                    withAnimation { proxy.scrollTo(WorkforceAttentionAnchor.standup, anchor: .top) }
+                                },
+                                onReviewWorkforcePublication: { anchor in
+                                    withAnimation { proxy.scrollTo(anchor, anchor: .center) }
                                 },
                                 onFocusMeetingPreparation: { identity in
                                     withAnimation { proxy.scrollTo(identity, anchor: .center) }
@@ -690,7 +696,10 @@ public struct WorkspaceCommandCenterView: View {
                                 .today,
                                 model: model,
                                 onReviewStandup: {
-                                    withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                    withAnimation { proxy.scrollTo(WorkforceAttentionAnchor.standup, anchor: .top) }
+                                },
+                                onReviewWorkforcePublication: { anchor in
+                                    withAnimation { proxy.scrollTo(anchor, anchor: .center) }
                                 },
                                 onFocusMeetingPreparation: { identity in
                                     withAnimation { proxy.scrollTo(identity, anchor: .center) }
@@ -745,6 +754,7 @@ public struct WorkspaceCommandCenterView: View {
         _ section: WorkspaceSection,
         model: AthenaeumViewModel,
         onReviewStandup: (() -> Void)? = nil,
+        onReviewWorkforcePublication: ((WorkforceAttentionAnchor) -> Void)? = nil,
         onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil
     ) -> some View {
         switch section {
@@ -787,6 +797,7 @@ public struct WorkspaceCommandCenterView: View {
             model: model,
             section: section,
             onReviewStandup: onReviewStandup,
+            onReviewWorkforcePublication: onReviewWorkforcePublication,
             onFocusMeetingPreparation: onFocusMeetingPreparation
         )
         }
@@ -825,7 +836,10 @@ public struct WorkspaceCommandCenterView: View {
                         selectedContent(
                             model: model,
                             onReviewStandup: {
-                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                withAnimation { proxy.scrollTo(WorkforceAttentionAnchor.standup, anchor: .top) }
+                            },
+                            onReviewWorkforcePublication: { anchor in
+                                withAnimation { proxy.scrollTo(anchor, anchor: .center) }
                             },
                             onFocusMeetingPreparation: { identity in
                                 withAnimation { proxy.scrollTo(identity, anchor: .center) }
@@ -887,6 +901,7 @@ public struct WorkspaceCommandCenterView: View {
         model: AthenaeumViewModel,
         section: WorkspaceSection? = nil,
         onReviewStandup: (() -> Void)? = nil,
+        onReviewWorkforcePublication: ((WorkforceAttentionAnchor) -> Void)? = nil,
         onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil
     ) -> some View {
         switch section ?? selection {
@@ -900,6 +915,7 @@ public struct WorkspaceCommandCenterView: View {
                     standupBearerCredential: session.credential,
                     onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                     onReviewStandup: onReviewStandup,
+                    onReviewWorkforcePublication: onReviewWorkforcePublication,
                     onFocusMeetingPreparation: onFocusMeetingPreparation,
                     onOpenReference: { reference in openReference(reference) },
                     mentionSearchClient: host.readClient
@@ -917,6 +933,7 @@ public struct WorkspaceCommandCenterView: View {
                 contextualView: AnyView(dailyBrief(model: model)),
                 onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                 onReviewStandup: onReviewStandup,
+                onReviewWorkforcePublication: onReviewWorkforcePublication,
                 onFocusMeetingPreparation: onFocusMeetingPreparation,
                 onOpenReference: { reference in openReference(reference) },
                 mentionSearchClient: host.readClient

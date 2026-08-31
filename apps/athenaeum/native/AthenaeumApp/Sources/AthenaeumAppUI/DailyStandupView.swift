@@ -6,6 +6,14 @@ import SwiftUI
 typealias DailyStandupLoader = @Sendable (DailyStandupDayWindow) async throws -> [RPCLedgerActivityEntry]
 typealias EmployeeUpdatesLoader = @Sendable () async throws -> [StandupPublication]
 
+/// Value-only witness for the employee lane currently rendered inside one selected Daily Note.
+/// It deliberately has no publication payload or route information, and is absent until that
+/// note's employee request has completed successfully.
+struct WorkforceSnapshotIdentity: Equatable, Hashable, Sendable {
+    let dailyNoteId: EntityId
+    let employeeLoadGeneration: Int
+}
+
 /// The local calendar-day window sent to the ledger projection. Keeping this calculation in the
 /// client means a standup follows the user's day even when the backend stores UTC instants.
 struct DailyStandupDayWindow: Equatable, Sendable {
@@ -77,6 +85,15 @@ final class DailyStandupViewModel: ObservableObject {
     private var ledgerEnabled = true
     private var dayWindowIdentity = "historical"
     private var generation = 0
+    @Published private(set) var employeeLoadGeneration = 0
+
+    var workforceSnapshotIdentity: WorkforceSnapshotIdentity? {
+        guard case .loaded = employeeState, let dailyNoteId = selectedDailyNoteId else { return nil }
+        return WorkforceSnapshotIdentity(
+            dailyNoteId: dailyNoteId,
+            employeeLoadGeneration: employeeLoadGeneration
+        )
+    }
 
     var employeeLoaderAvailable: Bool {
         employeeLoader != nil || (employeeLoaderFactory != nil && selectedDailyNoteId != nil)
@@ -151,6 +168,7 @@ final class DailyStandupViewModel: ObservableObject {
         let normalizedDayWindow = includeLedger ? Self.dayWindowKey(dayWindow) : "historical"
         guard selectedDailyNoteId != dailyNoteId || ledgerEnabled != includeLedger || dayWindowIdentity != normalizedDayWindow else { return }
         generation &+= 1
+        employeeLoadGeneration &+= 1
         selectedDailyNoteId = dailyNoteId
         ledgerEnabled = includeLedger
         dayWindowIdentity = normalizedDayWindow
@@ -172,6 +190,9 @@ final class DailyStandupViewModel: ObservableObject {
     /// must never silently recalculate it after a rollover.
     func refresh(window: DailyStandupDayWindow = DailyStandupDayWindow()) async {
         generation &+= 1
+        // Invalidate the previous employee snapshot synchronously, before either async lane can
+        // complete. This also makes a same-note refresh a new review generation.
+        employeeLoadGeneration &+= 1
         let refreshGeneration = generation
         let noteIdentity = selectedDailyNoteId
         let shouldLoadLedger = ledgerEnabled && loader != nil
@@ -307,6 +328,7 @@ public struct DailyStandupView: View {
     private let dailyNoteId: EntityId?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     private let isHeadingFocused: AccessibilityFocusState<Bool>.Binding?
+    private let focusedWorkforceAnchor: AccessibilityFocusState<WorkforceAttentionAnchor?>.Binding?
     private let onRefresh: () -> Void
 
     init(
@@ -315,6 +337,7 @@ public struct DailyStandupView: View {
         includeLedger: Bool = true,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
         isHeadingFocused: AccessibilityFocusState<Bool>.Binding? = nil,
+        focusedWorkforceAnchor: AccessibilityFocusState<WorkforceAttentionAnchor?>.Binding? = nil,
         onRefresh: @escaping () -> Void = {}
     ) {
         self.model = model
@@ -322,6 +345,7 @@ public struct DailyStandupView: View {
         self.includeLedger = includeLedger
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
         self.isHeadingFocused = isHeadingFocused
+        self.focusedWorkforceAnchor = focusedWorkforceAnchor
         self.onRefresh = onRefresh
     }
 
@@ -438,7 +462,8 @@ public struct DailyStandupView: View {
             ForEach(publications, id: \.id) { publication in
                 EmployeeUpdateRow(
                     publication: publication,
-                    onOpen: onOpenEmployeeUpdate
+                    onOpen: onOpenEmployeeUpdate,
+                    focusedWorkforceAnchor: focusedWorkforceAnchor
                 )
             }
         }
@@ -646,6 +671,7 @@ enum EmployeeUpdatePresentation {
 private struct EmployeeUpdateRow: View {
     let publication: StandupPublication
     let onOpen: ((EntityId) -> Void)?
+    let focusedWorkforceAnchor: AccessibilityFocusState<WorkforceAttentionAnchor?>.Binding?
     @State private var recordedWorkExpanded = false
 
     private var statusLabel: String {
@@ -728,7 +754,7 @@ private struct EmployeeUpdateRow: View {
         }
     }
 
-    var body: some View {
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 5) {
             VStack(alignment: .leading, spacing: 5) {
                 if let outcome = EmployeeUpdatePresentation.outcome(for: publication.resultKind) {
@@ -763,6 +789,16 @@ private struct EmployeeUpdateRow: View {
                 .buttonStyle(.borderless)
                 .accessibilityHint("Opens this employee update's companion page.")
             }
+        }
+        .id(WorkforceAttentionAnchor.publication(publication.id))
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let focusedWorkforceAnchor {
+            rowContent.accessibilityFocused(focusedWorkforceAnchor, equals: .publication(publication.id))
+        } else {
+            rowContent
         }
     }
 }

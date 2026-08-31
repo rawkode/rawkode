@@ -90,6 +90,25 @@ enum DailyNoteStandupFocusPresentation {
     }
 }
 
+/// A deferred workforce reveal is accepted only when both the selected note and employee lane
+/// generation still match. The target is checked again against live rows before focus is assigned.
+struct WorkforceReviewRequest: Equatable, Sendable {
+    let snapshot: WorkforceSnapshotIdentity
+    let target: WorkforceAttentionAnchor
+}
+
+enum WorkforceReviewPresentation {
+    static func mayApply(
+        _ request: WorkforceReviewRequest,
+        currentSnapshot: WorkforceSnapshotIdentity?,
+        isToday: Bool,
+        hasResolvedDailyNote: Bool,
+        hasTarget: Bool
+    ) -> Bool {
+        isToday && hasResolvedDailyNote && hasTarget && currentSnapshot == request.snapshot
+    }
+}
+
 /// Navigation already waits at the view-model's durable-before-navigation boundary. This is only
 /// a contextual presentation of that existing state, so disabled date controls never feel inert.
 enum DailyNoteNavigationProgressPresentation {
@@ -185,6 +204,7 @@ public struct DailyNoteView: View {
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     private let onReviewStandup: (() -> Void)?
+    private let onReviewWorkforcePublication: ((WorkforceAttentionAnchor) -> Void)?
     private let onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
     private let mentionSearchClient: WorkspaceRPCClient?
@@ -196,6 +216,8 @@ public struct DailyNoteView: View {
     @State private var preparationFocusGeneration = 0
     @State private var standupFocusGeneration = 0
     @AccessibilityFocusState private var isStandupHeadingFocused: Bool
+    @AccessibilityFocusState private var focusedWorkforceAnchor: WorkforceAttentionAnchor?
+    @State private var pendingWorkforceReview: WorkforceReviewRequest?
     @State private var hasAutofocused = false
     /// TextKit rich editing crosses the SwiftUI/AppKit boundary. A generation lets the
     /// representable honor one request after its NSTextView has actually joined a window.
@@ -220,6 +242,7 @@ public struct DailyNoteView: View {
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
         self.onReviewStandup = nil
+        self.onReviewWorkforcePublication = nil
         self.onFocusMeetingPreparation = nil
         self.onOpenReference = nil
         self.mentionSearchClient = nil
@@ -238,6 +261,7 @@ public struct DailyNoteView: View {
         contextualView: AnyView? = nil,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
         onReviewStandup: (() -> Void)? = nil,
+        onReviewWorkforcePublication: ((WorkforceAttentionAnchor) -> Void)? = nil,
         onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil,
         onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil,
         mentionSearchClient: WorkspaceRPCClient? = nil,
@@ -252,6 +276,7 @@ public struct DailyNoteView: View {
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
         self.onReviewStandup = onReviewStandup
+        self.onReviewWorkforcePublication = onReviewWorkforcePublication
         self.onFocusMeetingPreparation = onFocusMeetingPreparation
         self.onOpenReference = onOpenReference
         self.mentionSearchClient = mentionSearchClient
@@ -275,8 +300,8 @@ public struct DailyNoteView: View {
             if isToday, standupConfiguration != nil {
                 WorkforceAttentionStrip(
                     model: dailyStandupModel,
-                    onOpen: onOpenEmployeeUpdate,
                     onReviewStandup: hasResolvedDailyNote ? reviewStandup : nil,
+                    onReviewPublication: reviewWorkforcePublication,
                     onRetry: refreshStandup
                 )
             }
@@ -348,9 +373,11 @@ public struct DailyNoteView: View {
                         includeLedger: isToday,
                         onOpenEmployeeUpdate: onOpenEmployeeUpdate,
                         isHeadingFocused: $isStandupHeadingFocused,
+                        focusedWorkforceAnchor: $focusedWorkforceAnchor,
                         onRefresh: refreshStandup
                     )
                     .id(DailyNoteStandupPresentation.anchorID)
+                    .id(WorkforceAttentionAnchor.standup)
                 }
                 BacklinksView(model: model)
             }
@@ -361,6 +388,11 @@ public struct DailyNoteView: View {
             consumePreparationCompletion()
         }
         .onChange(of: model.status) { status in
+            if case .synced = status {
+                // Keep a pending row request only while the resolved note remains current.
+            } else {
+                clearWorkforceReview()
+            }
             switch status {
             case .loading, .error(_):
                 // A note transition invalidates any deferred standup focus just as it
@@ -391,6 +423,7 @@ public struct DailyNoteView: View {
         }
         .onChange(of: model.selectedDate) { _ in
             clearEditorFocus()
+            clearWorkforceReview()
             clearSupertagEditorFocusWitness()
             isStandupHeadingFocused = false
             standupFocusGeneration += 1
@@ -398,6 +431,23 @@ public struct DailyNoteView: View {
             hasAutofocused = false
             preparationNotice = nil
             dismissMentionPicker()
+        }
+        .onChange(of: dailyStandupModel.employeeLoadGeneration) { _ in
+            // Refreshing the same note is still a new snapshot; never let an old row focus after
+            // the employee lane has been invalidated.
+            clearWorkforceReview()
+        }
+        .onChange(of: dailyStandupModel.employeeState) { state in
+            switch state {
+            case .loading, .failed, .idle:
+                clearWorkforceReview()
+            case .loaded(let publications):
+                if let pendingWorkforceReview,
+                   case .publication(let publicationId) = pendingWorkforceReview.target,
+                   !publications.contains(where: { $0.id == publicationId }) {
+                    clearWorkforceReview()
+                }
+            }
         }
         .onChange(of: model.isDailyNoteSupertagMutationInFlight) { inFlight in
             if inFlight {
@@ -512,6 +562,56 @@ public struct DailyNoteView: View {
             ) else { return }
             isStandupHeadingFocused = true
         }
+    }
+
+    private func reviewWorkforcePublication(
+        publicationId: EntityId,
+        snapshot: WorkforceSnapshotIdentity
+    ) {
+        guard let onReviewWorkforcePublication,
+              let currentSnapshot = dailyStandupModel.workforceSnapshotIdentity,
+              currentSnapshot == snapshot,
+              isToday,
+              hasResolvedDailyNote,
+              case .loaded(let publications) = dailyStandupModel.employeeState,
+              publications.contains(where: { $0.id == publicationId }) else {
+            clearWorkforceReview()
+            return
+        }
+
+        let request = WorkforceReviewRequest(
+            snapshot: snapshot,
+            target: .publication(publicationId)
+        )
+        pendingWorkforceReview = request
+        onReviewWorkforcePublication(request.target)
+        Task { @MainActor in
+            // Let the outer ScrollViewReader perform its typed scroll before asking VoiceOver to
+            // move to the exact lower row.
+            await Task.yield()
+            guard WorkforceReviewPresentation.mayApply(
+                request,
+                currentSnapshot: dailyStandupModel.workforceSnapshotIdentity,
+                isToday: isToday,
+                hasResolvedDailyNote: hasResolvedDailyNote,
+                hasTarget: workforcePublicationIsPresent(publicationId)
+            ) else {
+                clearWorkforceReview()
+                return
+            }
+            pendingWorkforceReview = nil
+            focusedWorkforceAnchor = request.target
+        }
+    }
+
+    private func workforcePublicationIsPresent(_ publicationId: EntityId) -> Bool {
+        guard case .loaded(let publications) = dailyStandupModel.employeeState else { return false }
+        return publications.contains(where: { $0.id == publicationId })
+    }
+
+    private func clearWorkforceReview() {
+        pendingWorkforceReview = nil
+        focusedWorkforceAnchor = nil
     }
 
     private func dailyNoteFailureCard(_ rawMessage: String) -> some View {

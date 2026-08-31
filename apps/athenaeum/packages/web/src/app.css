@@ -4356,6 +4356,20 @@
   margin: var(--space-1) 0;
 }
 
+/* A Review action returns to this exact in-note item. Keep the cue quiet, but make its focus
+   discoverable without relying on the danger color already used for blocked/failed status. */
+.employee-update-focused {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.employee-update:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
 .employee-update-recorded-work {
   margin: var(--space-2) 0;
   border-left: 2px solid var(--color-border-subtle, var(--color-border));
