@@ -152,6 +152,38 @@ final class DailyStandupViewTests: XCTestCase {
         )
     }
 
+    func testAttentionStripFailureUsesSafeCopyAndRetryContract() throws {
+        XCTAssertEqual(
+            WorkforceAttentionPresentation.failureMessage,
+            "Employee updates couldn’t be loaded."
+        )
+        XCTAssertEqual(WorkforceAttentionPresentation.failureRetryLabel, "Retry")
+        XCTAssertEqual(
+            WorkforceAttentionPresentation.failureRetryHint,
+            "Retries the employee update feed."
+        )
+
+        let privateTransportDetail = "Authorization: Bearer secret"
+        XCTAssertFalse(WorkforceAttentionPresentation.failureMessage.contains(privateTransportDetail))
+
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/WorkforceAttentionStrip.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("case .failed:"))
+        XCTAssertTrue(source.contains("onRetry: (() -> Void)?"))
+        XCTAssertFalse(source.contains(privateTransportDetail))
+
+        let dailyNoteSourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/DailyNoteView.swift")
+        let dailyNoteSource = try String(contentsOf: dailyNoteSourceURL, encoding: .utf8)
+        XCTAssertTrue(dailyNoteSource.contains("onRetry: refreshStandup"), "DailyNoteView must retain refresh ownership")
+    }
+
     func testAttentionStripOnlyExposesReviewForVerifiedOrModifiedCompanions() throws {
         let verified = try makePublication(id: "00000000-0000-4000-8000-000000000320", resultKind: .blocked)
         let missing = try makePublication(id: "00000000-0000-4000-8000-000000000321", resultKind: .blocked, companionStatus: .missing)

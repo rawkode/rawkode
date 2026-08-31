@@ -234,7 +234,8 @@ public struct DailyNoteView: View {
                 WorkforceAttentionStrip(
                     model: dailyStandupModel,
                     onOpen: onOpenEmployeeUpdate,
-                    onReviewStandup: hasResolvedDailyNote ? reviewStandup : nil
+                    onReviewStandup: hasResolvedDailyNote ? reviewStandup : nil,
+                    onRetry: refreshStandup
                 )
             }
 

@@ -7,6 +7,9 @@ import SwiftUI
 /// to enable the already-authorized Review action; it is never rendered or exposed to VoiceOver.
 enum WorkforceAttentionPresentation {
     static let maximumVisible = 3
+    static let failureMessage = "Employee updates couldn’t be loaded."
+    static let failureRetryLabel = "Retry"
+    static let failureRetryHint = "Retries the employee update feed."
 
     enum Outcome: String, Equatable, Sendable {
         case blocked = "Blocked"
@@ -105,18 +108,58 @@ struct WorkforceAttentionStrip: View {
     @ObservedObject var model: DailyStandupViewModel
     let onOpen: ((EntityId) -> Void)?
     let onReviewStandup: (() -> Void)?
+    let onRetry: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    init(
+        model: DailyStandupViewModel,
+        onOpen: ((EntityId) -> Void)? = nil,
+        onReviewStandup: (() -> Void)? = nil,
+        onRetry: (() -> Void)? = nil
+    ) {
+        self.model = model
+        self.onOpen = onOpen
+        self.onReviewStandup = onReviewStandup
+        self.onRetry = onRetry
+    }
+
     var body: some View {
-        if case .loaded(let publications) = model.employeeState, !publications.isEmpty {
+        switch model.employeeState {
+        case .failed:
+            failureContent
+        case .loaded(let publications) where !publications.isEmpty:
             let snapshot = WorkforceAttentionPresentation.snapshot(publications)
             attentionContent(snapshot)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(.orange.opacity(0.08), in: Capsule())
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(.orange.opacity(0.08), in: Capsule())
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(WorkforceAttentionPresentation.summary(totalAttention: snapshot.totalAttention, routineCount: snapshot.routineCount))
+        default:
+            EmptyView()
         }
+    }
+
+    private var failureContent: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label(WorkforceAttentionPresentation.failureMessage, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if let onRetry {
+                Button(WorkforceAttentionPresentation.failureRetryLabel, action: onRetry)
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHint(WorkforceAttentionPresentation.failureRetryHint)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(WorkforceAttentionPresentation.failureMessage)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     @ViewBuilder
