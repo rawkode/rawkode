@@ -59,6 +59,60 @@ type DailyNoteResolved =
 
 export type DailyNotePageFormat = DailyNoteResolved["format"]
 
+type LegacyProjectionContent = import("@athenaeum/domain").GetLegacyPageProjectionOutput["content"]
+
+export const legacyMigrationAvailability = (content: LegacyProjectionContent):
+  | { readonly available: true }
+  | { readonly available: false; readonly message: string } => content.kind === "plainText"
+  ? { available: true }
+  : {
+      available: false,
+      message: content.kind === "tooLarge"
+        ? "Migration is unavailable because this legacy note is too large to convert safely."
+        : "Migration is unavailable because this legacy rich-text note cannot be converted losslessly."
+    }
+
+const legacyWitnessKey = (projection: import("@athenaeum/domain").GetLegacyPageProjectionOutput): string =>
+  [
+    projection.descriptor.nodeId,
+    projection.descriptor.storageVersion,
+    projection.descriptor.automerge.docId,
+    projection.descriptor.automerge.headsHash,
+    projection.descriptor.automerge.bytesSha256
+  ].join(":")
+
+export const legacyMigrationReconciliation = (
+  attemptedWitness: string,
+  resolved: DailyNoteResolved
+): "adopted-loro" | "retry-same-witness" | "review-new-witness" => resolved.format === "loro-v1"
+  ? "adopted-loro"
+  : legacyWitnessKey(resolved.projection) === attemptedWitness
+    ? "retry-same-witness"
+    : "review-new-witness"
+
+export type LegacyMigrationIntentState = {
+  readonly witness: string
+  readonly intent: LoroMutationIntentV1
+}
+
+export const legacyMigrationIntentForWitness = (
+  current: LegacyMigrationIntentState | null,
+  witness: string,
+  create: () => LoroMutationIntentV1
+): LegacyMigrationIntentState => current?.witness === witness
+  ? current
+  : { witness, intent: create() }
+
+export type LegacyMigrationRouteClaim = {
+  readonly stamp: string
+  readonly generation: number
+}
+
+export const legacyMigrationRouteIsCurrent = (
+  claim: LegacyMigrationRouteClaim,
+  current: LegacyMigrationRouteClaim
+): boolean => claim.stamp === current.stamp && claim.generation === current.generation
+
 export type DailyNotePageFormatPresentation = {
   readonly label: string
   readonly description: string
@@ -215,19 +269,22 @@ export function DailyNote({
     })
   }
   const nodeCreationIntent = nodeCreationIntentRef.current
-  const migrationIntentRef = useRef<LoroMutationIntentV1 | null>(null)
-  if (migrationIntentRef.current === null) {
-    migrationIntentRef.current = new LoroMutationIntentV1({
-      requestId: crypto.randomUUID(),
-      commitMessage: "Migrate this legacy daily note to Loro.",
-      attribution: new HumanUiMutationAttribution({
-        version: "athenaeum.mutation-attribution.v1",
-        kind: "humanUi",
-        surface: "rich-text-editor"
+  const migrationIntentRef = useRef<LegacyMigrationIntentState | null>(null)
+  const intentForLegacyWitness = useCallback((witness: string): LoroMutationIntentV1 => {
+    const state = legacyMigrationIntentForWitness(migrationIntentRef.current, witness, () =>
+      new LoroMutationIntentV1({
+        requestId: crypto.randomUUID(),
+        commitMessage: "Migrate this legacy daily note to Loro.",
+        attribution: new HumanUiMutationAttribution({
+          version: "athenaeum.mutation-attribution.v1",
+          kind: "humanUi",
+          surface: "rich-text-editor"
+        })
       })
-    })
-  }
-  const migrationIntent = migrationIntentRef.current
+    )
+    migrationIntentRef.current = state
+    return state.intent
+  }, [])
 
   const dateStamp = localDateStamp(date)
   // A resolver retry deliberately retains the two intent refs above, so an uncertain create
@@ -264,10 +321,18 @@ export function DailyNote({
     setResolveRetryKey((key) => key + 1)
   }, [state.status])
   const isRetryingResolution = resolveRetryClaimed || state.status === "loading"
-  const [migrationState, setMigrationState] = useState<"idle" | "migrating" | "failed">("idle")
+  const [migrationState, setMigrationState] = useState<"idle" | "migrating" | "reconciling" | "failed">("idle")
+  const migrationAttemptRef = useRef<{ readonly witness: string; readonly route: LegacyMigrationRouteClaim; sawLoading: boolean } | null>(null)
+  const routeRef = useRef({ stamp: dateStamp, generation: 0 })
+  if (routeRef.current.stamp !== dateStamp) routeRef.current = { stamp: dateStamp, generation: routeRef.current.generation + 1 }
   const migrateLegacyPage = useCallback(() => {
     if (state.status !== "success" || state.value.format !== "automerge-v1" || migrationState === "migrating") return
     const projection = state.value.projection
+    if (!legacyMigrationAvailability(projection.content).available) return
+    const witness = legacyWitnessKey(projection)
+    const route = { ...routeRef.current }
+    const migrationIntent = intentForLegacyWitness(witness)
+    migrationAttemptRef.current = { witness, route, sawLoading: false }
     setMigrationState("migrating")
     runtime.runPromise(WorkspaceRpcClient.pipe(
       Effect.flatMap((client) => client.migrateLegacyPage(new MigrateLegacyPageInput({
@@ -279,12 +344,39 @@ export function DailyNote({
       })))
     )).then(
       () => {
+        if (!legacyMigrationRouteIsCurrent(route, routeRef.current)) return
         setMigrationState("idle")
         setResolveRetryKey((key) => key + 1)
       },
-      () => setMigrationState("failed")
+      () => {
+        if (!legacyMigrationRouteIsCurrent(route, routeRef.current)) return
+        // A rejected response is ambiguous: the server may have committed, or another client may
+        // have migrated/changed the witness. Re-resolve authority before offering any retry.
+        setMigrationState("reconciling")
+        setResolveRetryKey((key) => key + 1)
+      }
     )
-  }, [migrationIntent, migrationState, state])
+  }, [dateStamp, intentForLegacyWitness, migrationState, state])
+  useEffect(() => {
+    const attempt = migrationAttemptRef.current
+    if (migrationState !== "reconciling" || attempt === null) return
+    if (!legacyMigrationRouteIsCurrent(attempt.route, routeRef.current)) return
+    if (state.status === "loading") {
+      attempt.sawLoading = true
+      return
+    }
+    if (!attempt.sawLoading || state.status !== "success") return
+    const reconciliation = legacyMigrationReconciliation(attempt.witness, state.value)
+    migrationAttemptRef.current = null
+    if (reconciliation === "retry-same-witness") {
+      setMigrationState("failed")
+    } else {
+      if (reconciliation === "review-new-witness" && state.value.format === "automerge-v1") {
+        intentForLegacyWitness(legacyWitnessKey(state.value.projection))
+      }
+      setMigrationState("idle")
+    }
+  }, [intentForLegacyWitness, migrationState, state])
   // Sync status now originates inside `RichNoteEditor` (its own debounced `syncPageWithServer`
   // calls). A calm editor intentionally has no status row: notices are reserved for active work
   // or an action a person may need to take.
@@ -483,22 +575,30 @@ export function DailyNote({
                 <section className="legacy-daily-note-projection" aria-labelledby="legacy-daily-note-title">
                   <div>
                     <span className="section-kicker">Read-only legacy note</span>
-                    <h2 id="legacy-daily-note-title">Migrate to continue writing</h2>
-                    <p>This Automerge-era note is frozen in the web client. Review its safe projection, then migrate it to the authoritative Loro format.</p>
+                    <h2 id="legacy-daily-note-title">
+                      {legacyMigrationAvailability(state.value.projection.content).available ? "Migrate to continue writing" : "Legacy note preview"}
+                    </h2>
+                    <p>
+                      {legacyMigrationAvailability(state.value.projection.content).available
+                        ? "This Automerge-era note is frozen in the web client. Review its safe projection, then migrate it to the authoritative Loro format."
+                        : "This Automerge-era note is frozen in the web client. The projection is available for reference while a lossless migration path is unavailable."}
+                    </p>
                   </div>
                   {state.value.projection.content.kind === "plainText" ? (
                     <pre className="legacy-daily-note-text">{state.value.projection.content.text}</pre>
                   ) : (
                     <p className="legacy-daily-note-unavailable">
                       {state.value.projection.content.kind === "tooLarge"
-                        ? "This legacy note is too large to preview safely."
-                        : "This legacy rich-text note cannot be previewed safely in the web client."}
+                        ? "Migration is unavailable because this legacy note is too large to convert safely."
+                        : "Migration is unavailable because this legacy rich-text note cannot be converted losslessly."}
                     </p>
                   )}
                   <div className="legacy-daily-note-actions">
-                    <button type="button" onClick={migrateLegacyPage} disabled={migrationState === "migrating"}>
-                      {migrationState === "migrating" ? "Migrating…" : migrationState === "failed" ? "Retry migration" : "Migrate to Loro"}
-                    </button>
+                    {legacyMigrationAvailability(state.value.projection.content).available && (
+                      <button type="button" onClick={migrateLegacyPage} disabled={migrationState === "migrating" || migrationState === "reconciling"}>
+                        {migrationState === "migrating" ? "Migrating…" : migrationState === "reconciling" ? "Checking latest version…" : migrationState === "failed" ? "Retry migration" : "Migrate to Loro"}
+                      </button>
+                    )}
                     {migrationState === "failed" && <p role="alert">Migration couldn&rsquo;t be completed. The legacy note remains unchanged.</p>}
                   </div>
                 </section>

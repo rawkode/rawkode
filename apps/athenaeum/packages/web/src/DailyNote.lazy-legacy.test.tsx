@@ -4,7 +4,13 @@ import * as Effect from "effect/Effect"
 import { describe, expect, it, vi } from "vitest"
 import { CreationIntent, HumanUiMutationAttribution, PageNotFound, type EntityId, type PageDocumentDescriptor } from "@athenaeum/domain"
 import { createLoroPage } from "./loro-page.js"
-import { resolveDailyNote } from "./DailyNote.js"
+import {
+  legacyMigrationAvailability,
+  legacyMigrationIntentForWitness,
+  legacyMigrationReconciliation,
+  legacyMigrationRouteIsCurrent,
+  resolveDailyNote
+} from "./DailyNote.js"
 import type { WorkspaceRpcClientService } from "./rpc-client.js"
 
 const nodeId = "00000000-0000-4000-8000-000000000002" as EntityId
@@ -39,6 +45,41 @@ const makeClient = (descriptor: PageDocumentDescriptor | undefined) => {
 }
 
 describe("DailyNote web Automerge freeze", () => {
+  it("offers migration only for losslessly projected plain text", () => {
+    expect(legacyMigrationAvailability({ kind: "plainText", text: "safe" })).toEqual({ available: true })
+    expect(legacyMigrationAvailability({ kind: "richTextUnsupported" })).toMatchObject({ available: false, message: expect.stringContaining("unavailable") })
+    expect(legacyMigrationAvailability({ kind: "tooLarge" })).toMatchObject({ available: false, message: expect.stringContaining("unavailable") })
+  })
+
+  it("adopts concurrent Loro migration, retains the same witness retry, and detects a changed witness", () => {
+    const projection = { descriptor: legacy(), content: { kind: "plainText" as const, text: "Legacy note" }, readOnly: true as const, migrationRequired: true as const }
+    const resolved = { nodeId, format: "automerge-v1" as const, projection }
+    expect(legacyMigrationReconciliation("different", { nodeId, format: "loro-v1", page: {} as never, descriptor: loro() })).toBe("adopted-loro")
+    const witness = [nodeId, 1, "legacy-doc", "legacy-heads", "legacy-bytes"].join(":")
+    expect(legacyMigrationReconciliation(witness, resolved)).toBe("retry-same-witness")
+    expect(legacyMigrationReconciliation(witness, { ...resolved, projection: { ...projection, descriptor: { ...legacy(), storageVersion: 2 } } })).toBe("review-new-witness")
+  })
+
+  it("reuses the exact migration request for one witness and rotates it for changed authority", () => {
+    const makeIntent = vi.fn(() => new (class extends Object {
+      readonly requestId = crypto.randomUUID()
+    })() as unknown as import("@athenaeum/domain").LoroMutationIntentV1)
+    const first = legacyMigrationIntentForWitness(null, "witness-a", makeIntent)
+    const retry = legacyMigrationIntentForWitness(first, "witness-a", makeIntent)
+    const changed = legacyMigrationIntentForWitness(retry, "witness-b", makeIntent)
+    expect(retry).toBe(first)
+    expect(retry.intent.requestId).toBe(first.intent.requestId)
+    expect(changed.intent.requestId).not.toBe(first.intent.requestId)
+    expect(makeIntent).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects stale route completions, including an A to B to A remount", () => {
+    const claim = { stamp: "2026-08-27", generation: 4 }
+    expect(legacyMigrationRouteIsCurrent(claim, claim)).toBe(true)
+    expect(legacyMigrationRouteIsCurrent(claim, { stamp: "2026-08-28", generation: 5 })).toBe(false)
+    expect(legacyMigrationRouteIsCurrent(claim, { stamp: "2026-08-27", generation: 6 })).toBe(false)
+  })
+
   it("resolves Loro without legacy projection or write transports", async () => {
     const { client, legacyWrite, projection } = makeClient(loro())
     expect((await Effect.runPromise(resolveDailyNote(client, creationIntent, date))).format).toBe("loro-v1")
