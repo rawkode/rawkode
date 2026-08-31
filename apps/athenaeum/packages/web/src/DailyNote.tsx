@@ -567,6 +567,7 @@ export function DailyNote({
                     setTagsRefreshKey((k) => k + 1)
                   }}
                   onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
+                  offerPlanToday={isToday && state.value.descriptor.storageVersion === 1}
                   onPrepareMeetingReady={onPrepareMeetingReady}
                   onPreparationCompleted={() => setPreparationNotice("Meeting prepared in this daily note.")}
                   onAcceptedHumanEdit={() => setPreparationNotice(undefined)}

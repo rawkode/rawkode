@@ -10,6 +10,70 @@
   cursor: text;
 }
 
+/* A quiet first action for a truly new Today note. It stays outside the writing surface so
+   choosing it is optional and ordinary free writing remains the most direct path. */
+.daily-note-starter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent-tint) 42%, transparent);
+}
+
+.daily-note-starter-copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.daily-note-starter-copy strong {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.daily-note-starter-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.daily-note-starter-action {
+  flex: none;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast, white);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.daily-note-starter-action:hover {
+  filter: brightness(1.08);
+}
+
+.daily-note-starter-action:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .daily-note-starter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .daily-note-starter-action {
+    width: 100%;
+  }
+}
+
 .rich-note-editor .ProseMirror {
   outline: none;
   /* A few empty lines of click-to-focus room under a short note — not the old 14rem void. */

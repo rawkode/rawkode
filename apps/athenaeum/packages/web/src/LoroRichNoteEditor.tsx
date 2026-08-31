@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { LoroSyncPlugin, LoroUndoPlugin, loroSyncPluginKey, redo, undo, type LoroDocType } from "loro-prosemirror"
 import * as Effect from "effect/Effect"
 import { EditorState, TextSelection, type Transaction } from "prosemirror-state"
+import { Fragment } from "prosemirror-model"
 import { EditorView } from "prosemirror-view"
 import { CommitLoroPageContentInput, GetPageDocumentDescriptorInput, HumanUiMutationAttribution, IanaTimeZone, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, type EntityId, type LocalDate, type PageDocumentDescriptor, type PrepareMeetingInDailyNoteOutput } from "@athenaeum/domain"
 import { runtime, runtimeConnectionIdentity } from "./runtime.js"
@@ -27,6 +28,11 @@ import { makeNoteEditorSupport } from "./rich-text/editor-support.js"
 import type { SupertagCandidate } from "./rich-text/supertag-plugin.js"
 import type { FloatingAnchorRect, FloatingAnchorRectSource } from "./floating-popover-position.js"
 import { TaskItemView } from "./rich-text/task-item-node-view.js"
+import {
+  createPlanTodayStarterNodes,
+  firstPlanTodayPriorityPosition,
+  isCanonicalEmptyPlanTodayDocument
+} from "./plan-today-starter.js"
 import "./rich-text/rich-text.css"
 
 const SYNC_DEBOUNCE_MS = DAILY_NOTE_SEMANTIC_DEBOUNCE_MS
@@ -284,6 +290,8 @@ export interface LoroRichNoteEditorProps {
   /** Called only after a matching receipt has been reconciled through current authority. */
   readonly onPreparationCompleted?: (receipt: PrepareMeetingInDailyNoteOutput) => void
   readonly onAcceptedHumanEdit?: () => void
+  /** Offer the first-action morning plan only for a fresh, current Today note. */
+  readonly offerPlanToday?: boolean
 }
 
 export type PrepareMeetingRequest = {
@@ -425,6 +433,8 @@ export const createLoroEditorBinding = (options: {
   readonly getWorkingDraft?: () => import("loro-crdt/bundler").LoroDoc
   /** Called only after the official-plugin ownership gate accepted a local PM transaction. */
   readonly onHumanEdit?: () => void
+  /** Called after any PM state change so hosts can update presentation-only affordances. */
+  readonly onDocumentStateChange?: (state: EditorState) => void
   /** A stale attachment/runtime makes an old live view noneditable before React remounts it. */
   readonly isAttachmentActive?: () => boolean
   readonly workspaceId: EntityId
@@ -517,6 +527,7 @@ export const createLoroEditorBinding = (options: {
         currentView.updateState(currentView.state.apply(transaction))
         syncDailyNoteRecallMarker(currentView)
         updateEditorEmptyState(currentView)
+        options.onDocumentStateChange?.(currentView.state)
         if (!isHumanLoroDocumentTransaction(transaction)) return
         support!.scheduleReferenceSync(currentView)
         support!.scheduleSupertagSync(currentView)
@@ -584,6 +595,23 @@ export const createLoroEditorBinding = (options: {
       target: { readonly localDate: string; readonly occurrenceKey: string },
       isCurrent: () => boolean = () => true
     ): boolean => view !== undefined && focusMeetingPreparation(view, target, isCurrent),
+    /**
+     * Insert the shared Plan Today manifest through the live ProseMirror/Loro binding. The
+     * resulting transaction deliberately carries no sync-plugin ownership metadata, so the
+     * existing human-edit custody gate records exactly one ordinary semantic checkpoint.
+     */
+    applyPlanTodayStarter: (): boolean => {
+      if (view === undefined || semanticReadOnly || options.isAttachmentActive?.() === false) return false
+      if (!isCanonicalEmptyPlanTodayDocument(view.state.doc)) return false
+      const nodes = createPlanTodayStarterNodes(view.state.schema)
+      const transaction = view.state.tr.replaceWith(0, view.state.doc.content.size, Fragment.fromArray(nodes))
+      const nextDocument = transaction.doc
+      transaction.setSelection(TextSelection.create(nextDocument, firstPlanTodayPriorityPosition(nextDocument)))
+      transaction.scrollIntoView()
+      view.dispatch(transaction)
+      view.focus()
+      return true
+    },
     get view(): EditorView | undefined { return view }
   }
 }
@@ -606,7 +634,8 @@ export function LoroRichNoteEditor({
   onBindingReady,
   onPrepareMeetingReady,
   onPreparationCompleted,
-  onAcceptedHumanEdit
+  onAcceptedHumanEdit,
+  offerPlanToday = false
 }: LoroRichNoteEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const latestStatusCallback = useRef(onSyncStatusChange)
@@ -618,6 +647,8 @@ export function LoroRichNoteEditor({
   const reloadExternalCommitRef = useRef<(() => void) | undefined>(undefined)
   const attachmentGenerationRef = useRef(0)
   const [conflictState, setConflictState] = useState<"none" | "conflict" | "requestIdentity" | "resolving" | "externalCommitFailed">("none")
+  const [planTodayAvailable, setPlanTodayAvailable] = useState(false)
+  const planTodayApplyRef = useRef<(() => boolean) | undefined>(undefined)
   latestStatusCallback.current = onSyncStatusChange
   latestRetryRegistration.current = onSyncRetryReady
   latestSupertagAppliedCallback.current = onSupertagApplied
@@ -654,6 +685,8 @@ export function LoroRichNoteEditor({
         retryRegistration?.(undefined)
         preparationReady?.(undefined)
         setConflictState("none")
+        setPlanTodayAvailable(false)
+        planTodayApplyRef.current = undefined
         bindingReady?.(undefined)
       }
     }
@@ -713,6 +746,22 @@ export function LoroRichNoteEditor({
       snapshot.token === attachment.token
     const isAttachmentUiLive = (): boolean =>
       isCurrentUiScope() && attachment.active
+
+    const refreshPlanTodayAvailability = (editorState?: EditorState): void => {
+      const snapshot = attachment.snapshot()
+      const acceptedDescriptor = snapshot.acceptedBase?.descriptor
+      const available = offerPlanToday &&
+        initialDescriptor.storageVersion === 1 &&
+        snapshot.bindable &&
+        snapshot.state === "clean" &&
+        snapshot.frozenA === undefined &&
+        !snapshot.hasPostFreezeDraft &&
+        acceptedDescriptor?.storageVersion === 1 &&
+        (editorState === undefined
+          ? binding?.view !== undefined && isCanonicalEmptyPlanTodayDocument(binding.view.state.doc)
+          : isCanonicalEmptyPlanTodayDocument(editorState.doc))
+      if (isCurrentUiScope()) setPlanTodayAvailable(available)
+    }
 
     const prepareMeeting: PrepareMeetingHandler = async ({ localDate, timeZone, occurrenceKey, commitMessage }) => {
       const before = attachment.snapshot()
@@ -856,6 +905,7 @@ export function LoroRichNoteEditor({
           latestStatusCallback.current("syncing")
           break
       }
+      refreshPlanTodayAvailability()
     }
 
     const initialSnapshot = attachment.snapshot()
@@ -876,6 +926,8 @@ export function LoroRichNoteEditor({
         if (resolveConflictRef.current === resolveConflict) resolveConflictRef.current = undefined
         if (reloadExternalCommitRef.current === retryExternalCommit) reloadExternalCommitRef.current = undefined
         setConflictState("none")
+        setPlanTodayAvailable(false)
+        planTodayApplyRef.current = undefined
         attachment.detach()
         bindingReady?.(undefined)
       }
@@ -898,6 +950,7 @@ export function LoroRichNoteEditor({
           acceptedHumanEdit?.()
         }
       },
+      onDocumentStateChange: (editorState) => refreshPlanTodayAvailability(editorState),
       isAttachmentActive: isAttachmentUiLive,
       workspaceId,
       nodeId,
@@ -910,6 +963,16 @@ export function LoroRichNoteEditor({
       bindingReady?.(binding)
       preparationReady?.(prepareMeeting)
       reloadExternalCommitRef.current = retryExternalCommit
+    }
+    planTodayApplyRef.current = () => {
+      const snapshot = attachment.snapshot()
+      const acceptedDescriptor = snapshot.acceptedBase?.descriptor
+      if (!offerPlanToday || initialDescriptor.storageVersion !== 1 ||
+          !snapshot.bindable || snapshot.state !== "clean" || snapshot.frozenA !== undefined ||
+          snapshot.hasPostFreezeDraft || acceptedDescriptor?.storageVersion !== 1) return false
+      const applied = binding?.applyPlanTodayStarter() === true
+      if (applied) setPlanTodayAvailable(false)
+      return applied
     }
     presentSnapshot(initialSnapshot)
     resolveConflictRef.current = resolveConflict
@@ -943,6 +1006,8 @@ export function LoroRichNoteEditor({
       if (resolveConflictRef.current === resolveConflict) resolveConflictRef.current = undefined
       if (reloadExternalCommitRef.current === retryExternalCommit) reloadExternalCommitRef.current = undefined
       setConflictState("none")
+      setPlanTodayAvailable(false)
+      planTodayApplyRef.current = undefined
       attachment.detach()
       binding?.dispose()
       bindingReady?.(undefined)
@@ -953,6 +1018,25 @@ export function LoroRichNoteEditor({
 
   return (
     <>
+      {planTodayAvailable && (
+        <div className="daily-note-starter" role="region" aria-label="Today starter">
+          <div className="daily-note-starter-copy">
+            <strong>Start with a small plan</strong>
+            <span>Capture the three things that would move today forward.</span>
+          </div>
+          <button
+            type="button"
+            className="daily-note-starter-action"
+            onClick={() => {
+              // The binding re-checks the exact PM shape and attachment callback synchronously;
+              // a stale click therefore cannot move focus or overwrite a newer note.
+              if (planTodayApplyRef.current?.() === true) setPlanTodayAvailable(false)
+            }}
+          >
+            Plan today
+          </button>
+        </div>
+      )}
       <div
         ref={containerRef}
         className="daily-note-body rich-note-editor"
