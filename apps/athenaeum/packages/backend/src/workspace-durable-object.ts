@@ -470,6 +470,8 @@ import {
   MAX_EVIDENCE_RUNS_PER_STANDUP,
   ledgerRecordedWorkKey,
   ledgerFingerprint,
+  appLedgerFingerprint,
+  type AppLedgerCommandInput,
   createNodeWithIntentLedgerFingerprint,
   calendarProjectionLedgerFingerprint
 } from "./ledger-service.js"
@@ -3884,14 +3886,79 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async createApp(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(CreateAppInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
+          if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required for App lifecycle writes." }))
+          const appId = decoded.id
+          if (appId === undefined || decoded.requestId === undefined || decoded.commitMessage === undefined || decoded.attribution === undefined) {
+            return yield* Effect.fail(new ValidationError({ message: "createApp now requires id, requestId, commitMessage, and human UI attribution; migrate this client to the ledger intent contract." }))
+          }
+          if (decoded.attribution.kind !== "humanUi") return yield* Effect.fail(new ValidationError({ message: "Direct App lifecycle writes require human UI attribution." }))
           const apps = yield* AppsService
-          const app = yield* apps.createApp(decoded.workspaceId, decoded.title, decoded.icon, decoded.id)
-          return new CreateAppOutput({ app })
+          const requestId = canonicalMutationRequestId(decoded.requestId)
+          const commitMessage = canonicalMutationCommitMessage(decoded.commitMessage)
+          if (requestId.length === 0) return yield* Effect.fail(new ValidationError({ message: "A non-blank request id is required." }))
+          const requestIdentity = `create-app:${requestId}`
+          const commandBase = {
+            requestIdentity, requestId, workspaceId: decoded.workspaceId, principal: currentUser.email,
+            policy: "authenticated-app-lifecycle-v1", appId, commitMessage, attribution: decoded.attribution,
+            type: "createApp" as const,
+            payload: { appId, title: decoded.title, icon: decoded.icon, commitMessage, attribution: decoded.attribution }
+          }
+          const fingerprint = appLedgerFingerprint(commandBase)
+          let created: import("@athenaeum/domain").App | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "createApp", mutationScope: { workspaceId: decoded.workspaceId, targetKind: "app", targetId: appId },
+              mutate: () => {
+                const existing = Effect.runSyncExit(apps.getApp(decoded.workspaceId, appId))
+                if (Exit.isSuccess(existing)) throw new ValidationError({ message: "An App with this stable id already exists; use its original request receipt or choose a new id." })
+                const existingError = domainErrorFromCause(existing.cause)
+                if (existingError._tag !== "AppNotFound") throw existingError
+                const written = Effect.runSyncExit(apps.createApp(decoded.workspaceId, decoded.title, decoded.icon, appId))
+                if (Exit.isFailure(written)) throw domainErrorFromCause(written.cause)
+                created = written.value
+                return new CreateAppOutput({ app: written.value })
+              },
+              encodeOutput: (output) => ({
+                schema: "athenaeum.app-create-receipt.v1", appId: output.app.id,
+                updatedAt: output.app.updatedAt,
+                clientCodeVersion: output.app.clientCodeVersion,
+                serverCodeVersion: output.app.serverCodeVersion,
+                revision: output.app.revision,
+                acceptedRevision: output.app.acceptedRevision
+              }),
+              decodeOutput: (encoded) => {
+                if (typeof encoded !== "object" || encoded === null ||
+                  (encoded as { schema?: unknown }).schema !== "athenaeum.app-create-receipt.v1" ||
+                  (encoded as { appId?: unknown }).appId !== appId) {
+                  throw new LedgerConflict("App create receipt does not match the requested App.")
+                }
+                const existing = Effect.runSyncExit(apps.getApp(decoded.workspaceId, appId))
+                if (Exit.isFailure(existing)) throw domainErrorFromCause(existing.cause)
+                const receipt = encoded as { updatedAt?: unknown; clientCodeVersion?: unknown; serverCodeVersion?: unknown; revision?: unknown; acceptedRevision?: unknown }
+                if (existing.value.updatedAt !== receipt.updatedAt || existing.value.clientCodeVersion !== receipt.clientCodeVersion || existing.value.serverCodeVersion !== receipt.serverCodeVersion || existing.value.revision !== receipt.revision || existing.value.acceptedRevision !== receipt.acceptedRevision) {
+                  throw new LedgerConflict("App changed after the original create; replay cannot be reconstructed safely.")
+                }
+                return new CreateAppOutput({ app: existing.value })
+              },
+              appendCommand: () => ledger.appendAppLifecycle({ ...commandBase, fingerprint, createdAt: new Date().toISOString() }),
+              appendCustody: () => ledger.appendCustody({ requestIdentity, fingerprint, type: "createApp", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: appId }),
+              validateReplayCustody: () => ledger.validateCustody({ requestIdentity, fingerprint, type: "createApp", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: appId }),
+              appendSideEffects: () => {
+                if (created === undefined) throw new LedgerConflict("App create completed without an App")
+                const safe = { schema: "athenaeum.app-lifecycle-event.v1", operation: "createdApp", appId }
+                ledger.appendEvent(requestIdentity, "app-lifecycle", safe); ledger.appendOutbox(requestIdentity, "app-lifecycle", safe)
+              }
+            })),
+            catch: (error): import("@athenaeum/domain").DomainError => error instanceof LedgerConflict || error instanceof ValidationError
+              ? new ValidationError({ message: error.message }) : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered createApp failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
       )
     )
@@ -3900,19 +3967,88 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async updateAppCode(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(UpdateAppCodeInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
+          if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required for App lifecycle writes." }))
+          if (decoded.expectedCurrentVersion === undefined || decoded.expectedUpdatedAt === undefined || decoded.expectedRevision === undefined || decoded.requestId === undefined || decoded.commitMessage === undefined || decoded.attribution === undefined) {
+            return yield* Effect.fail(new ValidationError({ message: "updateAppCode now requires expectedCurrentVersion, expectedRevision, expectedUpdatedAt, requestId, commitMessage, and human UI attribution; reload this App before saving." }))
+          }
+          if (decoded.attribution.kind !== "humanUi") return yield* Effect.fail(new ValidationError({ message: "Direct App lifecycle writes require human UI attribution." }))
           const apps = yield* AppsService
-          const { app, codeVersion } = yield* apps.updateAppCode(
-            decoded.workspaceId,
-            decoded.appId,
-            decoded.kind,
-            decoded.code
-          )
-          return new UpdateAppCodeOutput({ app, codeVersion })
+          const expectedPointer = decoded.expectedCurrentVersion
+          const bytes = new TextEncoder().encode(decoded.code)
+          const byteLength = bytes.length
+          const codeSha256 = sha256HexSync(bytes)
+          const requestId = canonicalMutationRequestId(decoded.requestId); const commitMessage = canonicalMutationCommitMessage(decoded.commitMessage)
+          if (requestId.length === 0) return yield* Effect.fail(new ValidationError({ message: "A non-blank request id is required." }))
+          const requestIdentity = `update-app-code:${requestId}`
+          const version = expectedPointer + 1
+          const payload = { appId: decoded.appId, kind: decoded.kind, expectedCurrentVersion: expectedPointer, expectedRevision: decoded.expectedRevision, expectedUpdatedAt: decoded.expectedUpdatedAt, version, codeSha256, byteLength, commitMessage, attribution: decoded.attribution }
+          const commandBase = { requestIdentity, requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy: "authenticated-app-lifecycle-v1", appId: decoded.appId, commitMessage, attribution: decoded.attribution, type: "updateAppCode" as const, payload }
+          const fingerprint = appLedgerFingerprint(commandBase)
+          let result: { app: import("@athenaeum/domain").App; codeVersion: import("@athenaeum/domain").AppCodeVersion } | undefined
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "updateAppCode", mutationScope: { workspaceId: decoded.workspaceId, targetKind: "app", targetId: decoded.appId },
+              mutate: () => {
+                const current = Effect.runSyncExit(apps.getApp(decoded.workspaceId, decoded.appId))
+                if (Exit.isFailure(current)) throw domainErrorFromCause(current.cause)
+                const currentPointer = decoded.kind === "client" ? current.value.clientCodeVersion : current.value.serverCodeVersion
+                if (current.value.pending !== undefined || currentPointer !== expectedPointer || current.value.revision !== decoded.expectedRevision || current.value.updatedAt !== decoded.expectedUpdatedAt) throw new ValidationError({ message: "This App changed since it was loaded; reload before saving." })
+                const written = Effect.runSyncExit(apps.updateAppCode(decoded.workspaceId, decoded.appId, decoded.kind, decoded.code))
+                if (Exit.isFailure(written)) throw domainErrorFromCause(written.cause)
+                result = written.value; return new UpdateAppCodeOutput(written.value)
+              },
+              encodeOutput: (output) => ({
+                schema: "athenaeum.app-code-receipt.v1", appId: output.app.id, kind: output.codeVersion.kind,
+                version: output.codeVersion.version, codeVersionId: output.codeVersion.id, codeVersionCreatedAt: output.codeVersion.createdAt,
+                codeSha256, byteLength, updatedAt: output.app.updatedAt,
+                clientCodeVersion: output.app.clientCodeVersion, serverCodeVersion: output.app.serverCodeVersion,
+                revision: output.app.revision, acceptedRevision: output.app.acceptedRevision
+              }),
+              decodeOutput: (encoded) => {
+                if (typeof encoded !== "object" || encoded === null ||
+                  (encoded as { schema?: unknown }).schema !== "athenaeum.app-code-receipt.v1" ||
+                  (encoded as { appId?: unknown }).appId !== decoded.appId ||
+                  (encoded as { kind?: unknown }).kind !== decoded.kind ||
+                  (encoded as { version?: unknown }).version !== version ||
+                  (encoded as { codeSha256?: unknown }).codeSha256 !== codeSha256 ||
+                  (encoded as { byteLength?: unknown }).byteLength !== byteLength) {
+                  throw new LedgerConflict("App code receipt does not match the requested intent.")
+                }
+                const receipt = encoded as {
+                  codeVersionId?: unknown; codeVersionCreatedAt?: unknown; updatedAt?: unknown
+                  clientCodeVersion?: unknown; serverCodeVersion?: unknown; revision?: unknown; acceptedRevision?: unknown
+                }
+                const appExit = Effect.runSyncExit(apps.getApp(decoded.workspaceId, decoded.appId))
+                if (Exit.isFailure(appExit)) throw domainErrorFromCause(appExit.cause)
+                const app = appExit.value
+                if (app.updatedAt !== receipt.updatedAt || app.clientCodeVersion !== receipt.clientCodeVersion || app.serverCodeVersion !== receipt.serverCodeVersion || app.revision !== receipt.revision || app.acceptedRevision !== receipt.acceptedRevision) {
+                  throw new LedgerConflict("App changed after the original code write; replay cannot be reconstructed safely.")
+                }
+                const codeExit = Effect.runSyncExit(apps.getAppCode(decoded.workspaceId, decoded.appId, decoded.kind, version))
+                if (Exit.isFailure(codeExit)) throw domainErrorFromCause(codeExit.cause)
+                const codeVersion = codeExit.value
+                const replayBytes = new TextEncoder().encode(codeVersion.code)
+                if (codeVersion.id !== receipt.codeVersionId || codeVersion.createdAt !== receipt.codeVersionCreatedAt ||
+                  (decoded.kind === "client" ? app.clientCodeVersion : app.serverCodeVersion) !== version ||
+                  replayBytes.length !== byteLength || sha256HexSync(replayBytes) !== codeSha256) {
+                  throw new LedgerConflict("Stored App code does not match the original ledgered intent.")
+                }
+                return new UpdateAppCodeOutput({ app, codeVersion })
+              },
+              appendCommand: () => ledger.appendAppLifecycle({ ...commandBase, fingerprint, createdAt: new Date().toISOString() }),
+              appendCustody: () => ledger.appendCustody({ requestIdentity, fingerprint, type: "updateAppCode", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: decoded.appId }),
+              validateReplayCustody: () => ledger.validateCustody({ requestIdentity, fingerprint, type: "updateAppCode", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: decoded.appId }),
+              appendSideEffects: () => { if (result === undefined) throw new LedgerConflict("App code update completed without result"); const safe = { schema: "athenaeum.app-lifecycle-event.v1", operation: "updatedAppCode", appId: decoded.appId, kind: decoded.kind, version: result.codeVersion.version }; ledger.appendEvent(requestIdentity, "app-lifecycle", safe); ledger.appendOutbox(requestIdentity, "app-lifecycle", safe) }
+            })),
+            catch: (error): import("@athenaeum/domain").DomainError => error instanceof LedgerConflict || error instanceof ValidationError ? new ValidationError({ message: error.message }) : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered updateAppCode failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
       )
     )
@@ -4019,14 +4155,65 @@ class WorkspaceRpcApi extends RpcTarget {
 
   async deleteApp(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
+    const storage = this.#storage
+    const ledger = this.#ledger
     const program = decodeRpcInput(DeleteAppInput, input).pipe(
       Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
       Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
       Effect.flatMap((decoded) =>
         Effect.gen(function* () {
+          if (currentUser === undefined) return yield* Effect.fail(new Unauthorized({ message: "An authenticated user is required for App lifecycle writes." }))
+          if (decoded.expectedUpdatedAt === undefined || decoded.expectedRevision === undefined || decoded.expectedClientCodeVersion === undefined || decoded.expectedServerCodeVersion === undefined || decoded.requestId === undefined || decoded.commitMessage === undefined || decoded.attribution === undefined) {
+            return yield* Effect.fail(new ValidationError({ message: "deleteApp now requires the loaded App revision, code pointers, requestId, commitMessage, and human UI attribution." }))
+          }
+          if (decoded.attribution.kind !== "humanUi") return yield* Effect.fail(new ValidationError({ message: "Direct App lifecycle writes require human UI attribution." }))
           const apps = yield* AppsService
-          const deleted = yield* apps.deleteApp(decoded.workspaceId, decoded.appId)
-          return new DeleteAppOutput({ deleted })
+          const requestId = canonicalMutationRequestId(decoded.requestId); const commitMessage = canonicalMutationCommitMessage(decoded.commitMessage)
+          if (requestId.length === 0) return yield* Effect.fail(new ValidationError({ message: "A non-blank request id is required." }))
+          const requestIdentity = `delete-app:${requestId}`
+          const payload = { appId: decoded.appId, expectedRevision: decoded.expectedRevision, expectedUpdatedAt: decoded.expectedUpdatedAt, expectedClientCodeVersion: decoded.expectedClientCodeVersion, expectedServerCodeVersion: decoded.expectedServerCodeVersion, commitMessage, attribution: decoded.attribution }
+          const commandBase = { requestIdentity, requestId, workspaceId: decoded.workspaceId, principal: currentUser.email, policy: "authenticated-app-lifecycle-v1", appId: decoded.appId, commitMessage, attribution: decoded.attribution, type: "deleteApp" as const, payload }
+          const fingerprint = appLedgerFingerprint(commandBase)
+          return yield* Effect.try({
+            try: () => storage.transactionSync(() => ledger.executeV2({
+              requestIdentity, fingerprint, type: "deleteApp", mutationScope: { workspaceId: decoded.workspaceId, targetKind: "app", targetId: decoded.appId },
+              mutate: () => {
+                const current = Effect.runSyncExit(apps.getApp(decoded.workspaceId, decoded.appId))
+                if (Exit.isFailure(current)) throw domainErrorFromCause(current.cause)
+                if (current.value.pending !== undefined || current.value.revision !== decoded.expectedRevision || current.value.updatedAt !== decoded.expectedUpdatedAt || current.value.clientCodeVersion !== decoded.expectedClientCodeVersion || current.value.serverCodeVersion !== decoded.expectedServerCodeVersion) throw new ValidationError({ message: "This App changed since it was loaded; reload before deleting." })
+                const deleted = Effect.runSyncExit(apps.deleteApp(decoded.workspaceId, decoded.appId)); if (Exit.isFailure(deleted)) throw domainErrorFromCause(deleted.cause)
+                return new DeleteAppOutput({ deleted: deleted.value })
+              },
+              encodeOutput: () => ({
+                schema: "athenaeum.app-delete-receipt.v1", appId: decoded.appId, deleted: true,
+                expectedUpdatedAt: decoded.expectedUpdatedAt,
+                expectedRevision: decoded.expectedRevision,
+                expectedClientCodeVersion: decoded.expectedClientCodeVersion,
+                expectedServerCodeVersion: decoded.expectedServerCodeVersion
+              }),
+              decodeOutput: (encoded) => {
+                if (typeof encoded !== "object" || encoded === null ||
+                  (encoded as { schema?: unknown }).schema !== "athenaeum.app-delete-receipt.v1" ||
+                  (encoded as { appId?: unknown }).appId !== decoded.appId ||
+                  (encoded as { deleted?: unknown }).deleted !== true ||
+                  (encoded as { expectedUpdatedAt?: unknown }).expectedUpdatedAt !== decoded.expectedUpdatedAt ||
+                  (encoded as { expectedRevision?: unknown }).expectedRevision !== decoded.expectedRevision ||
+                  (encoded as { expectedClientCodeVersion?: unknown }).expectedClientCodeVersion !== decoded.expectedClientCodeVersion ||
+                  (encoded as { expectedServerCodeVersion?: unknown }).expectedServerCodeVersion !== decoded.expectedServerCodeVersion) {
+                  throw new LedgerConflict("App delete receipt does not match the requested intent.")
+                }
+                const existing = Effect.runSyncExit(apps.getApp(decoded.workspaceId, decoded.appId))
+                if (Exit.isSuccess(existing)) throw new LedgerConflict("App delete replay target was recreated; the original delete cannot be replayed safely.")
+                const existingError = domainErrorFromCause(existing.cause)
+                if (existingError._tag !== "AppNotFound") throw existingError
+                return new DeleteAppOutput({ deleted: true })
+              },
+              appendCommand: () => ledger.appendAppLifecycle({ ...commandBase, fingerprint, createdAt: new Date().toISOString() }),
+              appendCustody: () => ledger.appendCustody({ requestIdentity, fingerprint, type: "deleteApp", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: decoded.appId }),
+              validateReplayCustody: () => ledger.validateCustody({ requestIdentity, fingerprint, type: "deleteApp", workspaceId: decoded.workspaceId, actorKind: "user", actorLabel: currentUser.email, targetKind: "app", targetId: decoded.appId }),
+              appendSideEffects: () => { const safe = { schema: "athenaeum.app-lifecycle-event.v1", operation: "deletedApp", appId: decoded.appId }; ledger.appendEvent(requestIdentity, "app-lifecycle", safe); ledger.appendOutbox(requestIdentity, "app-lifecycle", safe) }
+            })), catch: (error): import("@athenaeum/domain").DomainError => error instanceof LedgerConflict || error instanceof ValidationError ? new ValidationError({ message: error.message }) : isDomainError(error) ? error : new UnexpectedError({ message: `ledgered deleteApp failed: ${error instanceof Error ? error.message : String(error)}` })
+          })
         })
       )
     )

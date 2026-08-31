@@ -40,7 +40,10 @@ const app = {
   title: "Counter",
   icon: "✦",
   serverCodeVersion: 2,
-  clientCodeVersion: 7
+  clientCodeVersion: 7,
+  revision: 4,
+  acceptedRevision: 4,
+  updatedAt: "2026-08-28T12:00:00.000Z"
 } as App
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }

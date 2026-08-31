@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import {
   AppIcon,
+  type App,
   CreateAppInput,
   CreateAppOutput,
   CreateChatInput,
@@ -27,6 +28,7 @@ import {
   GetAppCodeOutput,
   GetAppInput,
   GetAppOutput,
+  HumanUiMutationAttribution,
   ListAppsInput,
   ListAppsOutput,
   ListChatChangesInput,
@@ -45,7 +47,7 @@ import {
 import { agentEditTestHooks } from "../src/agent-edit-service-live.js"
 import { agentEditModelClientTestHook } from "../src/workspace-durable-object.js"
 import { makeModelClientScripted } from "../src/model-client-scripted.js"
-import { connectToWorkspaceAsTestUser, freshWorkspaceId, rejectionToDomainError } from "./support.js"
+import { connectToWorkspaceAsTestUser, freshNodeId, freshWorkspaceId, rejectionToDomainError } from "./support.js"
 
 const installScriptedModel = (script: ReadonlyArray<ModelTurnToolCalls | ModelTurnFinalText>) => {
   const scripted = makeModelClientScripted(script)
@@ -53,6 +55,37 @@ const installScriptedModel = (script: ReadonlyArray<ModelTurnToolCalls | ModelTu
   agentEditModelClientTestHook.converse = service.converse
   return scripted
 }
+
+const appAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-app-library"
+})
+
+const createAppInput = (workspaceId: ReturnType<typeof freshWorkspaceId>, title: string, icon: AppIcon) =>
+  new CreateAppInput({
+    workspaceId,
+    title,
+    icon,
+    id: freshNodeId(),
+    requestId: `app-create-${crypto.randomUUID()}`,
+    commitMessage: `Create ${title}.`,
+    attribution: appAttribution()
+  })
+
+const updateAppCodeInput = (workspaceId: ReturnType<typeof freshWorkspaceId>, app: Pick<App, "id" | "clientCodeVersion" | "serverCodeVersion" | "revision" | "updatedAt">, kind: "client" | "server", code: string, requestId: string) =>
+  new UpdateAppCodeInput({
+    workspaceId,
+    appId: app.id,
+    kind,
+    code,
+    expectedCurrentVersion: kind === "client" ? app.clientCodeVersion : app.serverCodeVersion,
+    expectedRevision: app.revision,
+    expectedUpdatedAt: app.updatedAt,
+    requestId,
+    commitMessage: `Update ${kind} code.`,
+    attribution: appAttribution()
+  })
 
 // Drives the real plain-HTTP `.../apps/:appId/run` route through the real Worker `fetch` entry
 // point (`exports.default.fetch`) — the same route `app-runtime.test.ts` proves the sandboxed
@@ -113,7 +146,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
         Schema.encodeSync(CreateAppInput)(
-          new CreateAppInput({ workspaceId, title: "Counter", icon: AppIcon.make("🧮") })
+          createAppInput(workspaceId, "Counter", AppIcon.make("🧮"))
         )
       )
     ).app
@@ -131,7 +164,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     const afterServer = Schema.decodeUnknownSync(UpdateAppCodeOutput)(
       await workspaceStub.updateAppCode(
         Schema.encodeSync(UpdateAppCodeInput)(
-          new UpdateAppCodeInput({ workspaceId, appId: created.id, kind: "server", code: COUNTER_SERVER_CODE })
+          updateAppCodeInput(workspaceId, created, "server", COUNTER_SERVER_CODE, "server-1")
         )
       )
     )
@@ -144,7 +177,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     const afterClient = Schema.decodeUnknownSync(UpdateAppCodeOutput)(
       await workspaceStub.updateAppCode(
         Schema.encodeSync(UpdateAppCodeInput)(
-          new UpdateAppCodeInput({ workspaceId, appId: created.id, kind: "client", code: COUNTER_CLIENT_CODE })
+          updateAppCodeInput(workspaceId, afterServer.app, "client", COUNTER_CLIENT_CODE, "client-1")
         )
       )
     )
@@ -156,12 +189,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     const secondServerWrite = Schema.decodeUnknownSync(UpdateAppCodeOutput)(
       await workspaceStub.updateAppCode(
         Schema.encodeSync(UpdateAppCodeInput)(
-          new UpdateAppCodeInput({
-            workspaceId,
-            appId: created.id,
-            kind: "server",
-            code: COUNTER_SERVER_CODE.replace("count++", "count += 1")
-          })
+          updateAppCodeInput(workspaceId, afterClient.app, "server", COUNTER_SERVER_CODE.replace("count++", "count += 1"), "server-2")
         )
       )
     )
@@ -197,7 +225,17 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
 
     // deleteApp removes it — both listApps and getApp/getAppCode now fail/omit it.
     const deleted = Schema.decodeUnknownSync(DeleteAppOutput)(
-      await workspaceStub.deleteApp(Schema.encodeSync(DeleteAppInput)(new DeleteAppInput({ workspaceId, appId: created.id })))
+      await workspaceStub.deleteApp(Schema.encodeSync(DeleteAppInput)(new DeleteAppInput({
+        workspaceId,
+        appId: created.id,
+        expectedUpdatedAt: refetched.updatedAt,
+        expectedClientCodeVersion: refetched.clientCodeVersion,
+        expectedServerCodeVersion: refetched.serverCodeVersion,
+        expectedRevision: refetched.revision,
+        requestId: "delete-counter",
+        commitMessage: "Delete the counter test app.",
+        attribution: appAttribution()
+      })))
     )
     expect(deleted.deleted).toBe(true)
 
@@ -217,7 +255,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
-        Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title: "Blank", icon: AppIcon.make("✨") }))
+        Schema.encodeSync(CreateAppInput)(createAppInput(workspaceId, "Blank", AppIcon.make("✨")))
       )
     ).app
 
@@ -234,7 +272,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     workspaceStub = await connectToWorkspaceAsTestUser(workspaceId)
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.createApp(
-        Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title: "Huge", icon: AppIcon.make("🧮") }))
+        Schema.encodeSync(CreateAppInput)(createAppInput(workspaceId, "Huge", AppIcon.make("🧮")))
       )
     ).app
 
@@ -242,7 +280,7 @@ describe("AppsService: mainline CRUD (createApp/updateAppCode/listApps/getApp/ge
     const error = await rejectionToDomainError(
       workspaceStub.updateAppCode(
         Schema.encodeSync(UpdateAppCodeInput)(
-          new UpdateAppCodeInput({ workspaceId, appId: created.id, kind: "server", code: tooLargeCode })
+          updateAppCodeInput(workspaceId, created, "server", tooLargeCode, "huge-code")
         )
       )
     )

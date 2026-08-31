@@ -45,6 +45,9 @@ import {
   CreateAppOutput,
   CreateWorkspaceInput,
   CreateWorkspaceOutput,
+  GetAppInput,
+  GetAppOutput,
+  HumanUiMutationAttribution,
   MintAppRunCredentialInput,
   MintAppRunCredentialOutput,
   UpdateAppCodeInput,
@@ -55,6 +58,7 @@ import {
   connectToUserAs,
   connectToWorkspaceWithSocketAs,
   devSignIn,
+  freshNodeId,
   freshWorkspaceId,
   rejectionToDomainError,
   type WorkspaceApi
@@ -62,6 +66,12 @@ import {
 import type { RpcStub } from "capnweb"
 
 const freshEmail = (label: string): string => `app-runtime-${label}-${crypto.randomUUID()}@rawkode.academy`
+
+const appAttribution = () => new HumanUiMutationAttribution({
+  version: "athenaeum.mutation-attribution.v1",
+  kind: "humanUi",
+  surface: "web-app-library"
+})
 
 /** Same local helper `phase4-exit-criteria.test.ts` defines for itself — registers a real,
  *  governed workspace (via `UserDurableObject#createWorkspace`) owned by `credential`'s identity,
@@ -112,12 +122,58 @@ const createAppWithServerCode = async (
   serverCode: string
 ): Promise<EntityId> => {
   const created = Schema.decodeUnknownSync(CreateAppOutput)(
-    await stub.createApp(Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title, icon: AppIcon.make("🧮") })))
+    await stub.createApp(Schema.encodeSync(CreateAppInput)(new CreateAppInput({
+      workspaceId,
+      title,
+      icon: AppIcon.make("🧮"),
+      id: freshNodeId(),
+      requestId: `create-${crypto.randomUUID()}`,
+      commitMessage: `Create ${title}.`,
+      attribution: appAttribution()
+    })))
   ).app
   await stub.updateAppCode(
-    Schema.encodeSync(UpdateAppCodeInput)(new UpdateAppCodeInput({ workspaceId, appId: created.id, kind: "server", code: serverCode }))
+    Schema.encodeSync(UpdateAppCodeInput)(new UpdateAppCodeInput({
+      workspaceId,
+      appId: created.id,
+      kind: "server",
+      code: serverCode,
+      expectedCurrentVersion: created.serverCodeVersion,
+      expectedRevision: created.revision,
+      expectedUpdatedAt: created.updatedAt,
+      requestId: `server-${crypto.randomUUID()}`,
+      commitMessage: "Install the server test fixture.",
+      attribution: appAttribution()
+    }))
   )
   return created.id
+}
+
+const updateCurrentAppCode = async (
+  stub: RpcStub<WorkspaceApi>,
+  workspaceId: EntityId,
+  appId: EntityId,
+  kind: "client" | "server",
+  code: string,
+  requestId: string
+): Promise<void> => {
+  const app = Schema.decodeUnknownSync(GetAppOutput)(
+    await stub.getApp(Schema.encodeSync(GetAppInput)(new GetAppInput({ workspaceId, appId })))
+  ).app
+  await stub.updateAppCode(
+    Schema.encodeSync(UpdateAppCodeInput)(new UpdateAppCodeInput({
+      workspaceId,
+      appId,
+      kind,
+      code,
+      expectedCurrentVersion: kind === "client" ? app.clientCodeVersion : app.serverCodeVersion,
+      expectedRevision: app.revision,
+      expectedUpdatedAt: app.updatedAt,
+      requestId,
+      commitMessage: `Update ${kind} runtime fixture.`,
+      attribution: appAttribution()
+    }))
+  )
 }
 
 // A real, hand-written per-isolate counter Worker: module-scope `count` persists only for as long
@@ -206,9 +262,7 @@ describe("AppRuntimeService: real sandboxed execution over a real Worker Loader"
     workspaceStub = await connectToWorkspaceWithSocketAs(workspaceId, credential)
 
     const appId = await createAppWithServerCode(workspaceStub.stub, workspaceId, "Echo", ECHO_SERVER_CODE)
-    await workspaceStub.stub.updateAppCode(
-      Schema.encodeSync(UpdateAppCodeInput)(new UpdateAppCodeInput({ workspaceId, appId, kind: "client", code: CLIENT_CODE }))
-    )
+    await updateCurrentAppCode(workspaceStub.stub, workspaceId, appId, "client", CLIENT_CODE, `client-${crypto.randomUUID()}`)
 
     // A real request reaches the real loaded Worker and gets a correct response back.
     const response = await runAppHttp(workspaceId, appId, "?echo=hello-app-library", { credential })
@@ -244,11 +298,7 @@ describe("AppRuntimeService: real sandboxed execution over a real Worker Loader"
 
     // Editing the server code advances the version, which changes the loader key — a FRESH
     // isolate loads, with its own fresh module-scope state, never the previous version's counter.
-    await workspaceStub.stub.updateAppCode(
-      Schema.encodeSync(UpdateAppCodeInput)(
-        new UpdateAppCodeInput({ workspaceId, appId, kind: "server", code: COUNTER_SERVER_CODE.replace("count++", "count += 1") })
-      )
-    )
+    await updateCurrentAppCode(workspaceStub.stub, workspaceId, appId, "server", COUNTER_SERVER_CODE.replace("count++", "count += 1"), `server-${crypto.randomUUID()}`)
     const afterCodeEdit = await runAppHttp(workspaceId, appId, "", { credential })
     expect(await afterCodeEdit.json()).toEqual({ count: 0 })
   })
@@ -338,9 +388,7 @@ describe("AppRuntimeService: real sandboxed execution over a real Worker Loader"
     const workspaceId = await createWorkspace(credential, "Mint workspace")
     workspaceStub = await connectToWorkspaceWithSocketAs(workspaceId, credential)
     const appId = await createAppWithServerCode(workspaceStub.stub, workspaceId, "Echo", ECHO_SERVER_CODE)
-    await workspaceStub.stub.updateAppCode(
-      Schema.encodeSync(UpdateAppCodeInput)(new UpdateAppCodeInput({ workspaceId, appId, kind: "client", code: CLIENT_CODE }))
-    )
+    await updateCurrentAppCode(workspaceStub.stub, workspaceId, appId, "client", CLIENT_CODE, `client-${crypto.randomUUID()}`)
 
     const minted = Schema.decodeUnknownSync(MintAppRunCredentialOutput)(
       await workspaceStub.stub.mintAppRunCredential(
@@ -439,7 +487,15 @@ describe("AppRuntimeService: real sandboxed execution over a real Worker Loader"
 
     const created = Schema.decodeUnknownSync(CreateAppOutput)(
       await workspaceStub.stub.createApp(
-        Schema.encodeSync(CreateAppInput)(new CreateAppInput({ workspaceId, title: "No code yet", icon: AppIcon.make("📭") }))
+        Schema.encodeSync(CreateAppInput)(new CreateAppInput({
+          workspaceId,
+          title: "No code yet",
+          icon: AppIcon.make("📭"),
+          id: freshNodeId(),
+          requestId: `create-${crypto.randomUUID()}`,
+          commitMessage: "Create a codeless runtime fixture.",
+          attribution: appAttribution()
+        }))
       )
     ).app
 

@@ -25,7 +25,10 @@ const app = {
   title: "Counter",
   icon: "✦",
   serverCodeVersion: 2,
-  clientCodeVersion: 4
+  clientCodeVersion: 4,
+  revision: 3,
+  acceptedRevision: 3,
+  updatedAt: "2026-08-28T12:00:00.000Z"
 } as App
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -51,6 +54,13 @@ const setInput = (input: HTMLTextAreaElement, value: string): void => {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
   setter?.call(input, value)
   input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+const setReason = (host: HTMLDivElement, value: string): void => {
+  const input = host.querySelector<HTMLInputElement>("[aria-label='Save client code commit message']")
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  setter?.call(input, value)
+  input?.dispatchEvent(new Event("input", { bubbles: true }))
 }
 
 const saveButton = (host: HTMLDivElement): HTMLButtonElement | undefined =>
@@ -88,6 +98,7 @@ describe("AppDetail code-save custody", () => {
 
     await act(async () => {
       setInput(editor!, draft)
+      setReason(host, "Save the local client draft.")
       saveButton(host)?.click()
       saveButton(host)?.click()
       await flush()
@@ -131,6 +142,7 @@ describe("AppDetail code-save custody", () => {
 
     await act(async () => {
       setInput(editor!, "const localDraft = true")
+      setReason(host, "Persist the client fixture.")
       saveButton(host)?.click()
       await flush()
       observe?.(Exit.succeed(undefined))

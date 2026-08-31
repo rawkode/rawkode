@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { CreateAppInput, ListAppsInput, UpdateAppCodeInput, type App, type AppIcon, type EntityId } from "@athenaeum/domain"
+import { CreateAppInput, GetAppInput, HumanUiMutationAttribution, ListAppsInput, UpdateAppCodeInput, type App, type AppIcon, type EntityId } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
 import { useEffectQuery } from "./use-effect-query.js"
@@ -68,8 +68,17 @@ button.addEventListener("click", function () {
 });
 `.trim()
 
+type DevSeedIntent = Readonly<{
+  appId: EntityId
+  createRequestId: string
+  serverRequestId: string
+  clientRequestId: string
+}>
+
 const appCreationFailureMessage =
   "We couldn’t confirm that this app was created. Its title and icon are still here. Review your apps before taking another action."
+const appAttribution = () => new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-app-library" })
+type CreateAppIntent = Readonly<{ id: EntityId; requestId: string; title: string; icon: string; commitMessage: string }>
 
 function CreateAppForm({
   openRequest,
@@ -82,9 +91,14 @@ function CreateAppForm({
   const handledOpenRequest = useRef(openRequest)
   const [title, setTitle] = useState("")
   const [icon, setIcon] = useState("🧩")
+  const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isCreatingRef = useRef(false)
+  // A network response can be lost after the DO commits. Keep the exact intent identity across a
+  // retry so the ledger replays that commit instead of creating a second App. Editing any intent
+  // field below deliberately retires the claim and starts a new request identity on submit.
+  const intentRef = useRef<CreateAppIntent | undefined>(undefined)
 
   useEffect(() => {
     if (openRequest === handledOpenRequest.current) return
@@ -96,15 +110,21 @@ function CreateAppForm({
     event.preventDefault()
     const trimmedTitle = title.trim()
     const trimmedIcon = icon.trim()
-    if (trimmedTitle.length === 0 || trimmedIcon.length === 0) return
+    const commitMessage = reason.trim()
+    if (trimmedTitle.length === 0 || trimmedIcon.length === 0 || commitMessage.length === 0) return
     if (isCreatingRef.current) return
+    const previous = intentRef.current
+    const intent = previous !== undefined && previous.title === trimmedTitle && previous.icon === trimmedIcon && previous.commitMessage === commitMessage
+      ? previous
+      : { id: crypto.randomUUID() as EntityId, requestId: crypto.randomUUID(), title: trimmedTitle, icon: trimmedIcon, commitMessage }
+    intentRef.current = intent
     isCreatingRef.current = true
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) =>
-          client.createApp(new CreateAppInput({ workspaceId, title: trimmedTitle, icon: trimmedIcon as AppIcon }))
+          client.createApp(new CreateAppInput({ workspaceId, title: intent.title, icon: intent.icon as AppIcon, id: intent.id, requestId: intent.requestId, commitMessage: intent.commitMessage, attribution: appAttribution() }))
         )
       )
     )
@@ -112,9 +132,11 @@ function CreateAppForm({
       isCreatingRef.current = false
       setBusy(false)
       if (Exit.isSuccess(exit)) {
+        intentRef.current = undefined
         setOpen(false)
         setTitle("")
         setIcon("🧩")
+        setReason("")
         onCreated(exit.value.app.id)
       } else if (!Exit.isInterrupted(exit)) {
         setError(appCreationFailureMessage)
@@ -138,25 +160,26 @@ function CreateAppForm({
     <form className="app-create-form" onSubmit={handleSubmit}>
       <input
         value={icon}
-        onChange={(event) => setIcon(event.target.value)}
+        onChange={(event) => { intentRef.current = undefined; setIcon(event.target.value) }}
         placeholder="🧩"
         aria-label="App icon"
         maxLength={32}
         disabled={busy}
         autoFocus
       />
+      <input value={reason} onChange={(event) => { intentRef.current = undefined; setReason(event.target.value) }} placeholder="Why create this app?" aria-label="Create commit message" disabled={busy} />
       <input
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        onChange={(event) => { intentRef.current = undefined; setTitle(event.target.value) }}
         placeholder="App title"
         aria-label="App title"
         disabled={busy}
       />
       <div className="app-create-form-actions">
-        <button type="submit" disabled={busy || title.trim().length === 0 || icon.trim().length === 0}>
+        <button type="submit" disabled={busy || title.trim().length === 0 || icon.trim().length === 0 || reason.trim().length === 0}>
           {busy ? "Creating…" : "Create"}
         </button>
-        <button type="button" className="app-create-form-cancel" onClick={() => setOpen(false)} disabled={busy}>
+        <button type="button" className="app-create-form-cancel" onClick={() => { intentRef.current = undefined; setOpen(false) }} disabled={busy}>
           Cancel
         </button>
       </div>
@@ -181,24 +204,42 @@ function CreateAppForm({
 function DevSeedTestAppButton({ onSeeded }: { readonly onSeeded: (appId: EntityId) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The seed performs three ledgered writes. If a response is lost between any two, retain all
+  // request identities and resume from the verified App row instead of replaying an earlier
+  // receipt after later lifecycle revisions have advanced it.
+  const intentRef = useRef<DevSeedIntent | undefined>(undefined)
 
   const handleClick = () => {
+    const intent = intentRef.current ?? {
+      appId: crypto.randomUUID() as EntityId,
+      createRequestId: crypto.randomUUID(),
+      serverRequestId: crypto.randomUUID(),
+      clientRequestId: crypto.randomUUID()
+    }
+    intentRef.current = intent
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
         Effect.flatMap((client) =>
           Effect.gen(function* () {
-            const created = yield* client.createApp(
-              new CreateAppInput({ workspaceId, title: "Counter (dev seed)", icon: "🔢" as AppIcon })
+            const existing = yield* client.getApp(new GetAppInput({ workspaceId, appId: intent.appId })).pipe(
+              Effect.catchTag("AppNotFound", () => Effect.succeed(undefined))
             )
-            yield* client.updateAppCode(
-              new UpdateAppCodeInput({ workspaceId, appId: created.app.id, kind: "server", code: DEV_COUNTER_SERVER_CODE })
-            )
-            yield* client.updateAppCode(
-              new UpdateAppCodeInput({ workspaceId, appId: created.app.id, kind: "client", code: DEV_COUNTER_CLIENT_CODE })
-            )
-            return created.app.id
+            const created = existing ?? (yield* client.createApp(
+              new CreateAppInput({ workspaceId, title: "Counter (dev seed)", icon: "🔢" as AppIcon, id: intent.appId, requestId: intent.createRequestId, commitMessage: "Seed the verified counter app.", attribution: appAttribution() })
+            ))
+            const server = created.app.serverCodeVersion > 0
+              ? created
+              : yield* client.updateAppCode(
+                new UpdateAppCodeInput({ workspaceId, appId: created.app.id, kind: "server", code: DEV_COUNTER_SERVER_CODE, expectedCurrentVersion: created.app.serverCodeVersion, expectedRevision: created.app.revision, expectedUpdatedAt: created.app.updatedAt, requestId: intent.serverRequestId, commitMessage: "Add the counter server implementation.", attribution: appAttribution() })
+              )
+            if (server.app.clientCodeVersion === 0) {
+              yield* client.updateAppCode(
+                new UpdateAppCodeInput({ workspaceId, appId: server.app.id, kind: "client", code: DEV_COUNTER_CLIENT_CODE, expectedCurrentVersion: server.app.clientCodeVersion, expectedRevision: server.app.revision, expectedUpdatedAt: server.app.updatedAt, requestId: intent.clientRequestId, commitMessage: "Add the counter client implementation.", attribution: appAttribution() })
+              )
+            }
+            return server.app.id
           })
         )
       )
@@ -206,6 +247,7 @@ function DevSeedTestAppButton({ onSeeded }: { readonly onSeeded: (appId: EntityI
     fiber.addObserver((exit) => {
       setBusy(false)
       if (Exit.isSuccess(exit)) {
+        intentRef.current = undefined
         onSeeded(exit.value)
       } else if (!Exit.isInterrupted(exit)) {
         setError("Failed to seed test app")

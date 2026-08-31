@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { AppIcon } from "./app.js"
 import { BookmarkUrl } from "./bookmark.js"
 import { JsonValue } from "./json-value.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
@@ -34,6 +35,12 @@ export const LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION = "link-cale
 export const APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION = "append-transcript-segment.v1" as const
 export const START_MEETING_MESSAGE_DERIVATION_VERSION = "start-meeting.v1" as const
 export const CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION = "calendar-projection.v1" as const
+/** App lifecycle commands retain the caller rationale in their private payload while exposing a
+ * deterministic operation label to public activity feeds. */
+export const APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION = "app-lifecycle.v1" as const
+export const createAppCommitMessage = (): string => "Created an App."
+export const updateAppCodeCommitMessage = (): string => "Updated App code."
+export const deleteAppCommitMessage = (): string => "Deleted an App."
 export const ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION = "ensure-loro-page.v1" as const
 export const COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION = "commit-loro-page-content.v1" as const
 export const PREPARE_MEETING_IN_DAILY_NOTE_MESSAGE_DERIVATION_VERSION = "prepare-meeting-in-daily-note.v1" as const
@@ -112,7 +119,7 @@ export class HumanUiMutationAttribution extends Schema.Class<HumanUiMutationAttr
 )({
   version: Schema.Literal(MUTATION_ATTRIBUTION_VERSION),
   kind: Schema.Literal("humanUi"),
-  surface: Schema.Literal("rich-text-editor", "agent-chat", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "web-calendar", "ios-supertags", "macos", "watch-quick-capture")
+  surface: Schema.Literal("rich-text-editor", "agent-chat", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "web-calendar", "web-app-library", "ios-supertags", "macos", "watch-quick-capture")
 }) {}
 
 export class AgentJobMutationAttribution extends Schema.Class<AgentJobMutationAttribution>(
@@ -151,6 +158,39 @@ export class ApplySupertagLedgerFieldValue extends Schema.Class<ApplySupertagLed
 export class CreateNodeWithIntentLedgerPayload extends Schema.Class<CreateNodeWithIntentLedgerPayload>("CreateNodeWithIntentLedgerPayload")({
   nodeId: EntityId,
   title: Schema.String.pipe(Schema.minLength(1)),
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+/** Private App lifecycle evidence. Source code is intentionally represented only by its exact
+ * UTF-8 identity; neither commands nor receipts ever persist editor source. */
+export class CreateAppLedgerPayload extends Schema.Class<CreateAppLedgerPayload>("CreateAppLedgerPayload")({
+  appId: EntityId,
+  title: Schema.String.pipe(Schema.minLength(1)),
+  icon: AppIcon,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+export class UpdateAppCodeLedgerPayload extends Schema.Class<UpdateAppCodeLedgerPayload>("UpdateAppCodeLedgerPayload")({
+  appId: EntityId,
+  kind: Schema.Literal("client", "server"),
+  expectedCurrentVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  expectedRevision: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  expectedUpdatedAt: Schema.String.pipe(Schema.minLength(1)),
+  version: Schema.Number.pipe(Schema.int(), Schema.positive()),
+  codeSha256: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  byteLength: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+export class DeleteAppLedgerPayload extends Schema.Class<DeleteAppLedgerPayload>("DeleteAppLedgerPayload")({
+  appId: EntityId,
+  expectedRevision: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  expectedUpdatedAt: Schema.String.pipe(Schema.minLength(1)),
+  expectedClientCodeVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  expectedServerCodeVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   commitMessage: MutationCommitMessage,
   attribution: MutationAttribution
 }) {}
@@ -496,6 +536,30 @@ export class CreateNodeWithIntentLedgerCommand extends Schema.Class<CreateNodeWi
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
+export class CreateAppLedgerCommand extends Schema.Class<CreateAppLedgerCommand>("CreateAppLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("createApp"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)), messageDerivationVersion: Schema.Literal(APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION),
+  message: Schema.String.pipe(Schema.minLength(1)), payload: CreateAppLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+export class UpdateAppCodeLedgerCommand extends Schema.Class<UpdateAppCodeLedgerCommand>("UpdateAppCodeLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("updateAppCode"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)), messageDerivationVersion: Schema.Literal(APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION),
+  message: Schema.String.pipe(Schema.minLength(1)), payload: UpdateAppCodeLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+export class DeleteAppLedgerCommand extends Schema.Class<DeleteAppLedgerCommand>("DeleteAppLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("deleteApp"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)), messageDerivationVersion: Schema.Literal(APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION),
+  message: Schema.String.pipe(Schema.minLength(1)), payload: DeleteAppLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
 export class AcceptChatForkLedgerCommand extends Schema.Class<AcceptChatForkLedgerCommand>("AcceptChatForkLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),
   requestId: Schema.String.pipe(Schema.minLength(1)),
@@ -814,6 +878,9 @@ export class StartMeetingLedgerCommand extends Schema.Class<StartMeetingLedgerCo
 export const LedgerCommand = Schema.Union(
   CreateNodeLedgerCommand,
   CreateNodeWithIntentLedgerCommand,
+  CreateAppLedgerCommand,
+  UpdateAppCodeLedgerCommand,
+  DeleteAppLedgerCommand,
   AcceptChatForkLedgerCommand,
   AcceptPageProposalLedgerCommand,
   AgentChangeDecisionLedgerCommand,

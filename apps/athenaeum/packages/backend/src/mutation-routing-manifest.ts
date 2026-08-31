@@ -19,7 +19,7 @@ export const WORKSPACE_MUTATION_ROUTING = {
   addFact: "ledger", createRelationDefinition: "ledger", createEdge: "ledger", createTag: "ledger", updateTag: "ledger",
   syncNoteReferences: "ledger", assignTag: "ledger", unassignTag: "ledger", defineTagField: "ledger", applySupertag: "ledger",
   rotateEpoch: "direct", createChat: "direct", sendChatMessage: "direct", mergeChanges: "ledger", revertChanges: "ledger", decideAgentChangeProposal: "ledger", decideChatReview: "ledger",
-  createApp: "direct", updateAppCode: "direct", deleteApp: "direct",
+  createApp: "ledger", updateAppCode: "ledger", deleteApp: "ledger",
   mintAppRunCredential: "direct",
   migrateLegacyPage: "ledger", commitLoroPageContent: "ledger", prepareMeetingInDailyNote: "ledger", startLoroPageSync: "direct", loroPageSyncMessage: "direct",
   addCollaborator: "direct", removeCollaborator: "direct", createShareLink: "direct", redeemShareLink: "direct", revokeShareLink: "direct",

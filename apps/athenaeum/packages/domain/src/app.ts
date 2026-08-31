@@ -90,8 +90,9 @@ export const MAX_APP_CODE_BYTES = 256 * 1024
 
 /**
  * One App — the workspace-scoped, agent-authored sandboxed application this task's own field
- * list defines verbatim: `{id, workspaceId, title, icon, clientCodeVersion, serverCodeVersion,
- * createdAt, updatedAt, pending?: PendingMarker}`.
+ * list defines verbatim, extended with explicit lifecycle custody: `{id, workspaceId, title, icon,
+ * clientCodeVersion, serverCodeVersion, revision, acceptedRevision, createdAt, updatedAt,
+ * pending?: PendingMarker}`.
  *
  * `clientCodeVersion`/`serverCodeVersion` are **version-number pointers**, not embedded code —
  * mirrors cloudflare-os's own `storage.codeVersion` counter (`overseer.ts`'s `loadGadgetWorker`:
@@ -111,6 +112,13 @@ export const MAX_APP_CODE_BYTES = 256 * 1024
  * an already-mainline App with a proposed code update in flight (there is deliberately no second,
  * separate "pending code change" flag — see `AppCodeVersion`'s doc comment for why one `pending`
  * marker per `App` row is sufficient and what it implies about concurrent edits).
+ *
+ * `revision` is a monotonic row revision, incremented for every persisted App-row transition,
+ * including pending-marker transitions. `acceptedRevision` is the last revision that became
+ * mainline: `0` means this App has never been accepted (an agent-created pending App), while a
+ * positive value identifies the accepted lineage even when a later pending proposal is open. The
+ * pair is deliberately separate from wall-clock timestamps, which are presentation metadata and
+ * are not safe optimistic-concurrency fences.
  */
 export class App extends Schema.Class<App>("App")({
   id: EntityId,
@@ -119,6 +127,8 @@ export class App extends Schema.Class<App>("App")({
   icon: AppIcon,
   clientCodeVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   serverCodeVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  revision: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  acceptedRevision: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   createdAt: IsoDateTimeString,
   updatedAt: IsoDateTimeString,
   pending: Schema.optional(PendingMarker)

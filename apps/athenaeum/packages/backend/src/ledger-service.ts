@@ -8,6 +8,12 @@ import {
   AddFactLedgerPayload,
   CreateNodeWithIntentLedgerCommand,
   CreateNodeWithIntentLedgerPayload,
+  CreateAppLedgerCommand,
+  CreateAppLedgerPayload,
+  UpdateAppCodeLedgerCommand,
+  UpdateAppCodeLedgerPayload,
+  DeleteAppLedgerCommand,
+  DeleteAppLedgerPayload,
   AssignTagLedgerCommand,
   AssignTagLedgerPayload,
   CreateEdgeLedgerCommand,
@@ -88,11 +94,15 @@ import {
   appendTranscriptSegmentCommitMessage,
   START_MEETING_MESSAGE_DERIVATION_VERSION,
   CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION,
+  APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION,
   CalendarProjectionLedgerCommand,
   CalendarProjectionLedgerPayload,
   StartMeetingLedgerCommand,
   StartMeetingLedgerPayload,
   startMeetingCommitMessage,
+  createAppCommitMessage,
+  updateAppCodeCommitMessage,
+  deleteAppCommitMessage,
   EntityId,
   IsoDateTimeString,
   type StandupRecordedWorkOperation
@@ -376,6 +386,9 @@ export type LedgerCustodyType =
   | "assignTag"
   | "updateTag"
   | "agentChangeDecision"
+  | "createApp"
+  | "updateAppCode"
+  | "deleteApp"
   | "calendarProjection"
 
 interface BaseLedgerCustodyInput {
@@ -401,6 +414,7 @@ export type LedgerCustodyInput =
     })
   | (BaseLedgerCustodyInput & { readonly type: "updateTag"; readonly targetKind: "tag" })
   | (BaseLedgerCustodyInput & { readonly type: "agentChangeDecision"; readonly targetKind: "chat"; readonly actorKind: "user" })
+  | (BaseLedgerCustodyInput & { readonly type: "createApp" | "updateAppCode" | "deleteApp"; readonly targetKind: "app"; readonly actorKind: "user" })
   | (BaseLedgerCustodyInput & {
       readonly type: "calendarProjection"
       readonly targetKind: "calendarEvent"
@@ -413,9 +427,9 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (!isNonBlankString(input.requestIdentity) || !isNonBlankString(input.fingerprint) ||
     !isNonBlankString(input.workspaceId) || !isNonBlankString(input.actorLabel) ||
     input.actorLabel.length > 200 || !isNonBlankString(input.targetId) ||
-    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "agentChangeDecision", "calendarProjection"].includes(input.type) ||
+    !["commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote", "createNodeWithIntent", "addFact", "assignTag", "updateTag", "agentChangeDecision", "createApp", "updateAppCode", "deleteApp", "calendarProjection"].includes(input.type) ||
     !["user", "employee", "system"].includes(input.actorKind) ||
-    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.type === "agentChangeDecision" ? input.targetKind !== "chat" : input.targetKind !== "node") ||
+    (input.type === "calendarProjection" ? input.targetKind !== "calendarEvent" : input.type === "updateTag" ? input.targetKind !== "tag" : input.type === "agentChangeDecision" ? input.targetKind !== "chat" : ["createApp", "updateAppCode", "deleteApp"].includes(input.type) ? input.targetKind !== "app" : input.targetKind !== "node") ||
     Schema.decodeUnknownOption(EntityId)(input.targetId)._tag === "None") {
     throw new LedgerConflict("invalid ledger custody shape")
   }
@@ -432,6 +446,10 @@ const assertLedgerCustodyShape = (input: LedgerCustodyInput): void => {
   if (input.type === "agentChangeDecision" && (input.actorKind !== "user" || input.chatId !== undefined || input.toolCallId !== undefined ||
     input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
     throw new LedgerConflict("reviewed chat decisions require authenticated user custody without employee or chat-tool references")
+  }
+  if (["createApp", "updateAppCode", "deleteApp"].includes(input.type) &&
+    (input.actorKind !== "user" || input.chatId !== undefined || input.toolCallId !== undefined || input.employeeId !== undefined || input.jobId !== undefined || input.runId !== undefined || input.grantId !== undefined)) {
+    throw new LedgerConflict("App lifecycle writes require authenticated user custody without employee or chat-tool references")
   }
   if (input.actorKind === "user" && (input.chatId === undefined) !== (input.toolCallId === undefined)) {
     throw new LedgerConflict("chat ledger custody requires both chat and tool references")
@@ -599,6 +617,24 @@ export const createNodeWithIntentLedgerFingerprint = (command: Omit<CreateNodeWi
     commitMessage: canonicalMutationCommitMessage(command.commitMessage),
     attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
     messageDerivationVersion: messageDerivationForAttribution(command.attribution, CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION)
+  }))
+
+export type AppLedgerCommandInput = Readonly<{
+  requestIdentity: string; requestId: string; workspaceId: string; principal: string; policy: string
+  appId: string; commitMessage: string; attribution: MutationAttribution; fingerprint: string; createdAt: string
+  type: "createApp" | "updateAppCode" | "deleteApp"; payload: Record<string, unknown>
+}>
+
+/** Fingerprints bind every caller-controlled, destructive baseline. They deliberately use a
+ * digest/byte length for source instead of source itself. */
+export const appLedgerFingerprint = (command: Omit<AppLedgerCommandInput, "fingerprint" | "requestIdentity" | "createdAt">): string =>
+  sha256HexSync(canonicalJsonBytes({
+    version: LEDGER_COMMAND_VERSION, type: command.type, requestId: command.requestId,
+    workspaceId: command.workspaceId, principal: command.principal, policy: command.policy,
+    appId: command.appId, commitMessage: canonicalMutationCommitMessage(command.commitMessage),
+    attribution: Schema.encodeSync(MutationAttribution)(command.attribution),
+    messageDerivationVersion: APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION,
+    payload: command.payload
   }))
 
 export const agentChangeDecisionLedgerFingerprint = (
@@ -1079,11 +1115,18 @@ export class LedgerService {
       requestIdentity: string; fingerprint: string; type: LedgerCustodyType; workspaceId: string
       actorKind: "user" | "employee" | "system"; actorLabel: string
       employeeId: string | null; jobId: string | null; runId: string | null; grantId: string | null
-      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag" | "chat"; targetId: string
+      chatId: string | null; toolCallId: string | null; targetKind: "node" | "calendarEvent" | "tag" | "chat" | "app"; targetId: string
     }>(`SELECT requestIdentity, fingerprint, type, workspaceId, actorKind, actorLabel,
       employeeId, jobId, runId, grantId, chatId, toolCallId, targetKind, targetId
       FROM ledger_custody WHERE requestIdentity = ?`, input.requestIdentity).toArray()[0]
     if (row === undefined) {
+      // App lifecycle commands were introduced with authenticated custody and have no historical
+      // pre-custody form. Never let the generic legacy watermark exception turn a missing App
+      // custody row into a successful replay; doing so would manufacture provenance after a
+      // partial write or tamper.
+      if (input.type === "createApp" || input.type === "updateAppCode" || input.type === "deleteApp") {
+        throw new LedgerConflict("App lifecycle replay requires an authenticated custody row")
+      }
       // A receipt written before custody was introduced can still be replayed without inventing
       // provenance. The immutable command watermark is the only authority for that historical
       // exception; a newer Loro receipt missing custody is a failed write and must stay blocked.
@@ -1106,6 +1149,8 @@ export class LedgerService {
         ? { ...normalizedBase, type: "updateTag", targetKind: "tag" }
       : row.type === "agentChangeDecision" && row.targetKind === "chat" && row.actorKind === "user"
         ? { ...normalizedBase, actorKind: "user", type: "agentChangeDecision", targetKind: "chat" }
+      : ["createApp", "updateAppCode", "deleteApp"].includes(row.type) && row.targetKind === "app" && row.actorKind === "user"
+        ? { ...normalizedBase, actorKind: "user", type: row.type as "createApp" | "updateAppCode" | "deleteApp", targetKind: "app" }
       : row.type !== "calendarProjection" && row.type !== "updateTag" && row.type !== "agentChangeDecision" && row.targetKind === "node"
         ? { ...normalizedBase, type: row.type, targetKind: "node" }
         : (() => { throw new LedgerConflict("request identity has missing or mismatched custody") })()
@@ -1160,7 +1205,7 @@ export class LedgerService {
       grantId: string | null
       chatId: string | null
       toolCallId: string | null
-      targetKind: "node" | "tag" | "chat" | null
+      targetKind: "node" | "tag" | "chat" | "app" | null
       targetId: string | null
       commandRowId: number
       commandHighWater: number
@@ -1199,6 +1244,17 @@ export class LedgerService {
         // while the command payload remains private evidence for the authenticated review route.
         return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
           actorKind: row.actorKind, actorLabel: row.actorLabel }]
+      }
+      if (["createApp", "updateAppCode", "deleteApp"].includes(row.custodyType) && row.targetKind === "app") {
+        if (row.actorKind !== "user") return []
+        const custody: LedgerCustodyInput = {
+          requestIdentity: "activity-row", fingerprint: "activity-row", type: row.custodyType as "createApp" | "updateAppCode" | "deleteApp", workspaceId: "activity-row",
+          actorKind: "user", actorLabel: row.actorLabel, targetKind: "app", targetId: row.targetId
+        }
+        try { assertLedgerCustodyShape(custody) } catch { return [] }
+        // Public activity deliberately keeps App IDs and code identities private.
+        return [{ type: row.type, principal: row.principal, message: row.message, createdAt: row.createdAt,
+          actorKind: "user", actorLabel: row.actorLabel }]
       }
       const nodeCustodyTypes = [
         "commitLoroPageContent", "ensureLoroPage", "migrateLegacyPage", "prepareMeetingInDailyNote",
@@ -1360,6 +1416,36 @@ export class LedgerService {
       messageDerivationVersion: mirrorsCommitMessage ? COMMIT_MESSAGE_MIRROR_DERIVATION_VERSION : CREATE_NODE_WITH_INTENT_MESSAGE_DERIVATION_VERSION,
       message: commitMessage, payload, createdAt: command.createdAt
     })
+    this.sql.exec(
+      `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      command.requestIdentity, persisted.requestId, persisted.fingerprint, persisted.version, persisted.type,
+      persisted.workspaceId, persisted.principal, persisted.capability, persisted.policy,
+      persisted.messageDerivationVersion, persisted.message, JSON.stringify(persisted.payload), persisted.createdAt
+    )
+  }
+
+  /** App lifecycle records are private command evidence. In particular `payload` is schema-
+   * decoded before persistence so a caller can never smuggle raw source into the ledger. */
+  appendAppLifecycle(command: AppLedgerCommandInput): void {
+    const payload = command.type === "createApp"
+      ? Schema.decodeUnknownSync(CreateAppLedgerPayload)(command.payload)
+      : command.type === "updateAppCode"
+        ? Schema.decodeUnknownSync(UpdateAppCodeLedgerPayload)(command.payload)
+        : Schema.decodeUnknownSync(DeleteAppLedgerPayload)(command.payload)
+    const raw = {
+      version: LEDGER_COMMAND_VERSION, requestId: command.requestId, fingerprint: command.fingerprint,
+      type: command.type, workspaceId: command.workspaceId, principal: command.principal,
+      capability: "build", policy: command.policy, messageDerivationVersion: APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION,
+      message: command.type === "createApp" ? createAppCommitMessage()
+        : command.type === "updateAppCode" ? updateAppCodeCommitMessage() : deleteAppCommitMessage(),
+      payload, createdAt: command.createdAt
+    }
+    const persisted = command.type === "createApp"
+      ? Schema.decodeUnknownSync(CreateAppLedgerCommand)(raw)
+      : command.type === "updateAppCode"
+        ? Schema.decodeUnknownSync(UpdateAppCodeLedgerCommand)(raw)
+        : Schema.decodeUnknownSync(DeleteAppLedgerCommand)(raw)
     this.sql.exec(
       `INSERT INTO ledger_commands (requestIdentity, requestId, fingerprint, version, type, workspaceId, principal, capability, policy, messageDerivationVersion, message, payload, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

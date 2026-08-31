@@ -25,7 +25,10 @@ const app = {
   title: "Counter",
   icon: "✦",
   serverCodeVersion: 2,
-  clientCodeVersion: 4
+  clientCodeVersion: 4,
+  revision: 3,
+  acceptedRevision: 3,
+  updatedAt: "2026-08-28T12:00:00.000Z"
 } as App
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -50,6 +53,13 @@ const mount = async (onChanged: () => void): Promise<HTMLDivElement> => {
 
 const deleteButton = (host: HTMLDivElement): HTMLButtonElement | undefined =>
   host.querySelector<HTMLButtonElement>(".app-library-delete-button") ?? undefined
+
+const setDeleteReason = (host: HTMLDivElement, value: string): void => {
+  const input = host.querySelector<HTMLInputElement>("[aria-label='Delete App commit message']")
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  setter?.call(input, value)
+  input?.dispatchEvent(new Event("input", { bubbles: true }))
+}
 
 const stubConfirm = () => {
   const confirm = vi.fn(() => true)
@@ -88,6 +98,7 @@ describe("AppDetail deletion custody", () => {
     const host = await mount(onChanged)
 
     await act(async () => {
+      setDeleteReason(host, "Remove the obsolete counter app.")
       deleteButton(host)?.click()
       deleteButton(host)?.click()
       await flush()
@@ -131,6 +142,7 @@ describe("AppDetail deletion custody", () => {
     const host = await mount(onChanged)
 
     await act(async () => {
+      setDeleteReason(host, "Remove the obsolete counter app.")
       deleteButton(host)?.click()
       await flush()
       observe?.(Exit.succeed(undefined))

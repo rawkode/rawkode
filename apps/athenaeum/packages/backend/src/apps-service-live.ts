@@ -44,8 +44,8 @@ const pointerForKind = (app: App, kind: AppCodeKind): number =>
 const withPointer = (app: App, kind: AppCodeKind, version: number): App =>
   new App(
     kind === "client"
-      ? { ...app, clientCodeVersion: version, updatedAt: nowIso() }
-      : { ...app, serverCodeVersion: version, updatedAt: nowIso() }
+      ? { ...app, clientCodeVersion: version, revision: app.revision + 1, acceptedRevision: app.revision + 1, updatedAt: nowIso() }
+      : { ...app, serverCodeVersion: version, revision: app.revision + 1, acceptedRevision: app.revision + 1, updatedAt: nowIso() }
   )
 
 /** UTF-8-encoded byte length check against `MAX_APP_CODE_BYTES` (app.ts's own doc comment on why
@@ -122,23 +122,31 @@ export const makeAppsServiceLive = (collections: AppCollections): Layer.Layer<Ap
       return {
         createApp: (workspaceId, title, icon, id) =>
           Effect.gen(function* () {
+            if (id === undefined) {
+              return yield* Effect.fail(new ValidationError({ message: "createApp requires a stable caller-supplied app id; migrate the caller to the intent API." }))
+            }
             const now = nowIso()
             const app = new App({
-              id: id ?? Schema.decodeUnknownSync(EntityId)(crypto.randomUUID()),
+              id,
               workspaceId,
               title,
               icon,
               clientCodeVersion: 0,
               serverCodeVersion: 0,
+              revision: 1,
+              acceptedRevision: 1,
               createdAt: now,
               updatedAt: now
             })
             return yield* appsRepository.put(app)
           }),
 
-        updateAppCode: (_workspaceId, appId, kind, code) =>
+        updateAppCode: (workspaceId, appId, kind, code) =>
           Effect.gen(function* () {
             const app = yield* appsRepository.get(appId)
+            if (app.workspaceId !== workspaceId) {
+              return yield* Effect.fail(new ValidationError({ message: "App does not belong to the requested workspace." }))
+            }
             if (app.pending !== undefined) {
               return yield* Effect.fail(
                 new ValidationError({
@@ -149,7 +157,13 @@ export const makeAppsServiceLive = (collections: AppCollections): Layer.Layer<Ap
             }
             yield* checkAppCodeSize(appId, kind, code)
             const currentMax = yield* maxVersionForKind(appId, kind)
-            const newVersion = Math.max(currentMax, pointerForKind(app, kind)) + 1
+            const currentPointer = pointerForKind(app, kind)
+            if (currentMax !== currentPointer) {
+              return yield* Effect.fail(new ValidationError({
+                message: `App ${appId} has an ahead-of-pointer ${kind} code version; reconcile that pending history before editing mainline code.`
+              }))
+            }
+            const newVersion = currentPointer + 1
             const codeVersion = new AppCodeVersion({
               id: Schema.decodeUnknownSync(EntityId)(crypto.randomUUID()),
               appId,
@@ -165,11 +179,18 @@ export const makeAppsServiceLive = (collections: AppCollections): Layer.Layer<Ap
 
         listApps: (workspaceId) => appsRepository.list(workspaceId),
 
-        getApp: (_workspaceId, appId) => appsRepository.get(appId),
+        getApp: (workspaceId, appId) => appsRepository.get(appId).pipe(
+          Effect.flatMap((app) => app.workspaceId === workspaceId
+            ? Effect.succeed(app)
+            : Effect.fail(new ValidationError({ message: "App does not belong to the requested workspace." })))
+        ),
 
-        getAppCode: (_workspaceId, appId, kind, version) =>
+        getAppCode: (workspaceId, appId, kind, version) =>
           Effect.gen(function* () {
             const app = yield* appsRepository.get(appId)
+            if (app.workspaceId !== workspaceId) {
+              return yield* Effect.fail(new ValidationError({ message: "App does not belong to the requested workspace." }))
+            }
             const resolvedVersion = version ?? pointerForKind(app, kind)
             if (resolvedVersion === 0) {
               return yield* Effect.fail(new AppCodeVersionNotFound({ appId, kind, version: 0 }))
@@ -182,9 +203,15 @@ export const makeAppsServiceLive = (collections: AppCollections): Layer.Layer<Ap
             return yield* reviveAppCodeVersion(raw)
           }),
 
-        deleteApp: (_workspaceId, appId) =>
+        deleteApp: (workspaceId, appId) =>
           Effect.gen(function* () {
-            yield* appsRepository.get(appId)
+            const app = yield* appsRepository.get(appId)
+            if (app.workspaceId !== workspaceId) {
+              return yield* Effect.fail(new ValidationError({ message: "App does not belong to the requested workspace." }))
+            }
+            if (app.pending !== undefined) {
+              return yield* Effect.fail(new ValidationError({ message: "A pending App cannot be deleted from the mainline." }))
+            }
             yield* deleteAllCodeVersions(appId)
             yield* appsRepository.delete(appId)
             return true

@@ -56,6 +56,8 @@ describe("App schema", () => {
       icon: AppIcon.make("🧮"),
       clientCodeVersion: 0,
       serverCodeVersion: 0,
+      revision: 1,
+      acceptedRevision: 1,
       createdAt: IsoDateTimeString.make(validIso),
       updatedAt: IsoDateTimeString.make(validIso)
     })
@@ -72,6 +74,8 @@ describe("App schema", () => {
       icon: AppIcon.make("todo"),
       clientCodeVersion: 3,
       serverCodeVersion: 2,
+      revision: 3,
+      acceptedRevision: 3,
       createdAt: IsoDateTimeString.make(validIso),
       updatedAt: IsoDateTimeString.make(validIso)
     })
@@ -89,6 +93,8 @@ describe("App schema", () => {
       icon: AppIcon.make("✨"),
       clientCodeVersion: 0,
       serverCodeVersion: 0,
+      revision: 1,
+      acceptedRevision: 0,
       createdAt: IsoDateTimeString.make(validIso),
       updatedAt: IsoDateTimeString.make(validIso),
       pending: new PendingMarker({ chatId: EntityId.make(validUuid2) })

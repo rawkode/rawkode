@@ -4,10 +4,12 @@ import * as Exit from "effect/Exit"
 import {
   DeleteAppInput,
   GetAppCodeInput,
+  HumanUiMutationAttribution,
   UpdateAppCodeInput,
   type App,
   type AppCodeKind,
-  type EntityId
+  type EntityId,
+  type IsoDateTimeString
 } from "@athenaeum/domain"
 import { runtime } from "./runtime.js"
 import { WorkspaceRpcClient } from "./rpc-client.js"
@@ -54,12 +56,24 @@ import { AppRunFrame } from "./AppRunFrame.js"
 
 const appCodeSaveFailureMessage =
   "We couldn’t confirm that this code was saved. Your draft is still here. Review the current code before saving again."
+type SaveAppCodeIntent = Readonly<{
+  appId: EntityId
+  kind: AppCodeKind
+  code: string
+  commitMessage: string
+  expectedCurrentVersion: number
+  expectedRevision: number
+  expectedUpdatedAt: IsoDateTimeString
+  requestId: string
+}>
 
 function CodeEditor({
+  app,
   appId,
   kind,
   onSaved
 }: {
+  readonly app: App
   readonly appId: EntityId
   readonly kind: AppCodeKind
   readonly onSaved: () => void
@@ -70,7 +84,11 @@ function CodeEditor({
   const [draft, setDraft] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reason, setReason] = useState("")
   const isSavingRef = useRef(false)
+  // Preserve the exact write identity across an ambiguous network failure. A retry with the same
+  // code/reason/base replays the ledger receipt; any edited intent gets a fresh claim.
+  const intentRef = useRef<SaveAppCodeIntent | undefined>(undefined)
   const retryClaim = useRef<{ appId: EntityId; kind: AppCodeKind; sawLoading: boolean } | undefined>(undefined)
   const codeEffect = useMemo(
     () =>
@@ -109,6 +127,13 @@ function CodeEditor({
 
   const isRetryingCode = retryClaimed || codeState.status === "loading"
 
+  useEffect(() => {
+    const intent = intentRef.current
+    if (intent !== undefined && (intent.appId !== app.id || intent.kind !== kind || intent.expectedRevision !== app.revision || intent.expectedUpdatedAt !== app.updatedAt)) {
+      intentRef.current = undefined
+    }
+  }, [app.id, app.revision, app.updatedAt, kind])
+
   const knownEmpty = codeState.status === "failure" && codeState.error._tag === "AppCodeVersionNotFound"
   const codeUnavailable = codeState.status === "failure" && !knownEmpty
 
@@ -133,19 +158,29 @@ function CodeEditor({
 
   const handleSave = () => {
     if (isSavingRef.current) return
+    const commitMessage = reason.trim()
+    if (commitMessage.length === 0) return
+    const expectedCurrentVersion = kind === "client" ? app.clientCodeVersion : app.serverCodeVersion
+    const previous = intentRef.current
+    const intent = previous !== undefined && previous.appId === appId && previous.kind === kind && previous.code === value && previous.commitMessage === commitMessage && previous.expectedCurrentVersion === expectedCurrentVersion && previous.expectedRevision === app.revision && previous.expectedUpdatedAt === app.updatedAt
+      ? previous
+      : { appId, kind, code: value, commitMessage, expectedCurrentVersion, expectedRevision: app.revision, expectedUpdatedAt: app.updatedAt, requestId: crypto.randomUUID() }
+    intentRef.current = intent
     isSavingRef.current = true
     setBusy(true)
     setError(null)
     const fiber = runtime.runFork(
       WorkspaceRpcClient.pipe(
-        Effect.flatMap((client) => client.updateAppCode(new UpdateAppCodeInput({ workspaceId, appId, kind, code: value })))
+        Effect.flatMap((client) => client.updateAppCode(new UpdateAppCodeInput({ workspaceId, appId: intent.appId, kind: intent.kind, code: intent.code, expectedCurrentVersion: intent.expectedCurrentVersion, expectedRevision: intent.expectedRevision, expectedUpdatedAt: intent.expectedUpdatedAt, requestId: intent.requestId, commitMessage: intent.commitMessage, attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-app-library" }) })))
       )
     )
     fiber.addObserver((exit) => {
       isSavingRef.current = false
       setBusy(false)
       if (Exit.isSuccess(exit)) {
+        intentRef.current = undefined
         setDraft(null)
+        setReason("")
         onSaved()
       } else if (!Exit.isInterrupted(exit)) {
         setError(appCodeSaveFailureMessage)
@@ -178,14 +213,15 @@ function CodeEditor({
             className="app-library-code-textarea"
             spellCheck={false}
             value={value}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => { intentRef.current = undefined; setDraft(event.target.value) }}
             placeholder={`No ${kind} code yet — write some and save.`}
             aria-label={`${kind} code`}
             readOnly={editorReadOnly}
             disabled={busy}
           />
           {error !== null && <p className="error" role="alert">{error}</p>}
-          <button type="button" onClick={handleSave} disabled={busy || editorReadOnly || draft === null}>
+          <input value={reason} onChange={(event) => { intentRef.current = undefined; setReason(event.target.value) }} placeholder="Why make this change?" aria-label={`Save ${kind} code commit message`} disabled={busy || editorReadOnly} />
+          <button type="button" onClick={handleSave} disabled={busy || editorReadOnly || draft === null || reason.trim().length === 0}>
             {busy ? "Saving…" : `Save ${kind} code`}
           </button>
         </>
@@ -200,26 +236,53 @@ function AppPreview({ appId, clientCodeVersion }: { readonly appId: EntityId; re
 
 const appDeleteFailureMessage =
   "We couldn’t confirm that this app was deleted. It may still be available. Review your apps before taking another action."
+type DeleteAppIntent = Readonly<{
+  appId: EntityId
+  commitMessage: string
+  expectedUpdatedAt: IsoDateTimeString
+  expectedRevision: number
+  expectedClientCodeVersion: number
+  expectedServerCodeVersion: number
+  requestId: string
+}>
 
 export function AppDetail({ app, onChanged }: { readonly app: App; readonly onChanged: () => void }) {
   const [tab, setTab] = useState<AppCodeKind>("client")
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteReason, setDeleteReason] = useState("")
   const isDeletingRef = useRef(false)
+  // Keep delete identity stable after an ambiguous response. The confirmation dialog is not a
+  // new intent; changing the rationale or observed App revision is.
+  const deleteIntentRef = useRef<DeleteAppIntent | undefined>(undefined)
+
+  useEffect(() => {
+    const intent = deleteIntentRef.current
+    if (intent !== undefined && (intent.appId !== app.id || intent.expectedRevision !== app.revision || intent.expectedUpdatedAt !== app.updatedAt || intent.expectedClientCodeVersion !== app.clientCodeVersion || intent.expectedServerCodeVersion !== app.serverCodeVersion)) {
+      deleteIntentRef.current = undefined
+    }
+  }, [app.id, app.revision, app.updatedAt, app.clientCodeVersion, app.serverCodeVersion])
 
   const handleDelete = () => {
-    if (isDeletingRef.current) return
+    if (isDeletingRef.current || deleteReason.trim().length === 0) return
     if (!window.confirm(`Delete "${app.title}"? This cannot be undone.`)) return
+    const commitMessage = deleteReason.trim()
+    const previous = deleteIntentRef.current
+    const intent = previous !== undefined && previous.appId === app.id && previous.commitMessage === commitMessage && previous.expectedRevision === app.revision && previous.expectedUpdatedAt === app.updatedAt && previous.expectedClientCodeVersion === app.clientCodeVersion && previous.expectedServerCodeVersion === app.serverCodeVersion
+      ? previous
+      : { appId: app.id, commitMessage, expectedUpdatedAt: app.updatedAt, expectedRevision: app.revision, expectedClientCodeVersion: app.clientCodeVersion, expectedServerCodeVersion: app.serverCodeVersion, requestId: crypto.randomUUID() }
+    deleteIntentRef.current = intent
     isDeletingRef.current = true
     setDeleteBusy(true)
     setDeleteError(null)
     const fiber = runtime.runFork(
-      WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.deleteApp(new DeleteAppInput({ workspaceId, appId: app.id }))))
+      WorkspaceRpcClient.pipe(Effect.flatMap((client) => client.deleteApp(new DeleteAppInput({ workspaceId, appId: intent.appId, expectedUpdatedAt: intent.expectedUpdatedAt, expectedRevision: intent.expectedRevision, expectedClientCodeVersion: intent.expectedClientCodeVersion, expectedServerCodeVersion: intent.expectedServerCodeVersion, requestId: intent.requestId, commitMessage: intent.commitMessage, attribution: new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-app-library" }) }))))
     )
     fiber.addObserver((exit) => {
       isDeletingRef.current = false
       setDeleteBusy(false)
       if (Exit.isSuccess(exit)) {
+        deleteIntentRef.current = undefined
         onChanged()
       } else if (!Exit.isInterrupted(exit)) {
         setDeleteError(appDeleteFailureMessage)
@@ -240,7 +303,8 @@ export function AppDetail({ app, onChanged }: { readonly app: App; readonly onCh
             server v{app.serverCodeVersion} · client v{app.clientCodeVersion}
           </p>
         </div>
-        <button type="button" className="app-library-delete-button" onClick={handleDelete} disabled={deleteBusy}>
+        <input value={deleteReason} onChange={(event) => { deleteIntentRef.current = undefined; setDeleteReason(event.target.value) }} placeholder="Why delete?" aria-label="Delete App commit message" disabled={deleteBusy} />
+        <button type="button" className="app-library-delete-button" onClick={handleDelete} disabled={deleteBusy || deleteReason.trim().length === 0}>
           {deleteBusy ? "Deleting…" : "Delete"}
         </button>
       </header>
@@ -267,7 +331,7 @@ export function AppDetail({ app, onChanged }: { readonly app: App; readonly onCh
         </button>
       </div>
 
-      <CodeEditor key={`${app.id}:${tab}`} appId={app.id} kind={tab} onSaved={onChanged} />
+      <CodeEditor key={`${app.id}:${tab}`} app={app} appId={app.id} kind={tab} onSaved={onChanged} />
 
       {tab === "client" && (
         <>

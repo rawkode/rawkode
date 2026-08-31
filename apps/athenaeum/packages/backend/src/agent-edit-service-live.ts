@@ -130,6 +130,7 @@ import {
 import type { AppCollections } from "./app-collections.js"
 import {
   appCodeVersionKey,
+  migrateLegacyAppRecord,
   reviveApp,
   reviveAppCodeVersion,
   toUnexpectedError as appsToUnexpectedError
@@ -661,7 +662,7 @@ export const makeAgentEditServiceLive = (
               // comment — this is the one place its App row actually becomes pending, for the
               // duration of `marker.chatId`'s outstanding proposal).
               const app = yield* appsRepository.get(ref.id)
-              yield* appsRepository.put(new App({ ...app, pending: marker }))
+              yield* appsRepository.put(new App({ ...app, revision: app.revision + 1, pending: marker }))
               return
             }
           }
@@ -854,6 +855,8 @@ export const makeAgentEditServiceLive = (
             icon: input.icon,
             clientCodeVersion: 0,
             serverCodeVersion: 0,
+            revision: 1,
+            acceptedRevision: 0,
             createdAt: now,
             updatedAt: now,
             pending: new PendingMarker({ chatId })
@@ -964,9 +967,8 @@ export const makeAgentEditServiceLive = (
        * Accepts a pending App (app.ts's `App.pending` doc comment — either a wholly new App or an
        * already-mainline App with a pending code update): for each code `kind`, advances the
        * pointer to the max ahead-of-pointer `AppCodeVersion` row that exists (a no-op for a kind
-       * this pending arc never touched), clears `pending`, and bumps `updatedAt` — the ONLY place
-       * `updatedAt` is bumped outside `createApp`'s own initial construction, which is exactly what
-       * `revertApp`'s `wasNeverAccepted` discriminator below (`updatedAt === createdAt`) relies on.
+       * this pending arc never touched), clears `pending`, and advances the explicit row and
+       * accepted-lineage revisions. Wall-clock timestamps are presentation metadata only.
        * No `SyncFeedService`/SQL-read-model write, unlike `promoteNode`/`promoteFact`/`promoteEdge`
        * — Apps are not part of the graph read-model (`rm_nodes`/etc.) this stage's scope covers;
        * a future App Library UI stage reads Apps through `AppsService` directly, not the sync feed.
@@ -981,6 +983,8 @@ export const makeAgentEditServiceLive = (
             ...app,
             clientCodeVersion: newClientVersion,
             serverCodeVersion: newServerVersion,
+            revision: app.revision + 1,
+            acceptedRevision: app.revision + 1,
             updatedAt: Schema.decodeUnknownSync(IsoDateTimeString)(new Date().toISOString()),
             pending: undefined
           })
@@ -991,7 +995,7 @@ export const makeAgentEditServiceLive = (
        * Reverts a pending App: deletes every ahead-of-pointer `AppCodeVersion` row for both kinds
        * (they never became real — mirrors the "reverted pending version" exception app.ts's
        * `AppCodeVersion` doc comment carves out of its own "append-only, never deleted" rule), then
-       * either deletes the App row entirely (if `updatedAt === createdAt` — this App has never
+       * either deletes the App row entirely (if `acceptedRevision === 0` — this App has never
        * been through `promoteApp`, i.e. it originated as THIS still-open pending arc's own
        * creation, mirroring `promoteNode`/`revertChanges`'s node-deletion precedent) or just clears
        * `pending` (an already-real App that merely had a pending code update reverted).
@@ -1005,11 +1009,11 @@ export const makeAgentEditServiceLive = (
             (row) => appCollections.appCodeVersions.delete(appCodeVersionKey(row)).pipe(Effect.mapError(appsToUnexpectedError)),
             { discard: true }
           )
-          const wasNeverAccepted = app.updatedAt === app.createdAt
+          const wasNeverAccepted = app.acceptedRevision === 0
           if (wasNeverAccepted) {
             yield* appsRepository.delete(app.id)
           } else {
-            yield* appsRepository.put(new App({ ...app, pending: undefined }))
+            yield* appsRepository.put(new App({ ...app, revision: app.revision + 1, pending: undefined }))
           }
         })
 
@@ -1057,6 +1061,8 @@ export const makeAgentEditServiceLive = (
                   icon: app.icon,
                   clientCodeVersion: app.clientCodeVersion,
                   serverCodeVersion: app.serverCodeVersion,
+                  revision: app.revision,
+                  acceptedRevision: app.acceptedRevision,
                   createdAt: app.createdAt,
                   updatedAt: app.updatedAt,
                   pending: app.pending
@@ -1137,7 +1143,7 @@ export const makeAgentEditServiceLive = (
           const expectedDurableVersion = entry.kind === "appCodeVersion"
             ? String((entry.row as AppCodeVersion).version)
             : entry.kind === "app"
-              ? (entry.row as App).updatedAt
+              ? String((entry.row as App).revision)
               : entry.kind === "node"
                 ? (entry.row as NodeEntity).createdAt
                 : sha256
@@ -1202,6 +1208,23 @@ export const makeAgentEditServiceLive = (
 
       const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
         left.length === right.length && left.every((byte, index) => byte === right[index])
+
+      /**
+       * Proposals captured before App lifecycle revisions existed contain the exact legacy row
+       * bytes, while current reads expose the conservative revision-1 compatibility shape.  Keep
+       * those proposals usable at the cutover only when the legacy bytes are intact and their
+       * migrated form is byte-identical to the current row.  Any other drift still conflicts.
+       */
+      const migratedLegacyAppSnapshotBytes = (snapshot: AgentChangeSnapshot): Uint8Array | undefined => {
+        if (snapshot.kind !== "app" || sha256HexSync(snapshot.canonicalRowBytes) !== snapshot.sha256) return undefined
+        try {
+          const raw = JSON.parse(new TextDecoder().decode(snapshot.canonicalRowBytes)) as unknown
+          const migrated = migrateLegacyAppRecord(raw)
+          return migrated.legacy ? canonicalJsonBytes(migrated.value) : undefined
+        } catch {
+          return undefined
+        }
+      }
 
       type SnapshotValue = NodeEntity | Fact | Edge | App | AppCodeVersion
 
@@ -1273,7 +1296,10 @@ export const makeAgentEditServiceLive = (
             continue
           }
           const bytes = canonicalJsonBytes(value)
-          if (!bytesEqual(bytes, snapshot.canonicalRowBytes) || sha256HexSync(bytes) !== snapshot.sha256) fresh = false
+          const exactMatch = bytesEqual(bytes, snapshot.canonicalRowBytes) && sha256HexSync(bytes) === snapshot.sha256
+          const migratedLegacyBytes = !exactMatch ? migratedLegacyAppSnapshotBytes(snapshot) : undefined
+          const legacyMatch = migratedLegacyBytes !== undefined && bytesEqual(bytes, migratedLegacyBytes)
+          if (!exactMatch && !legacyMatch) fresh = false
           current.set(`${snapshot.kind}:${snapshot.id}`, value)
         }
 

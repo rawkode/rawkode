@@ -12,13 +12,16 @@ describe("Workspace mutation routing manifest", () => {
     expect(WORKSPACE_MUTATION_ROUTING.migrateLegacyPage).toBe("ledger")
     expect(WORKSPACE_MUTATION_ROUTING).not.toHaveProperty("activateLoroPage")
     expect(WORKSPACE_MUTATION_ROUTING.commitLoroPageContent).toBe("ledger")
+    expect(WORKSPACE_MUTATION_ROUTING.createApp).toBe("ledger")
+    expect(WORKSPACE_MUTATION_ROUTING.updateAppCode).toBe("ledger")
+    expect(WORKSPACE_MUTATION_ROUTING.deleteApp).toBe("ledger")
     expect(WORKSPACE_LORO_GATEWAY_OPERATIONS).toEqual(["createLoroPage", "commitLoroPageContent", "migrateLegacyPage", "prepareMeetingInDailyNote", "workforce.ensureLoroPage"])
     expect(WORKSPACE_MUTATION_ROUTING.startLoroPageSync).toBe("direct")
     expect(WORKSPACE_MUTATION_ROUTING.loroPageSyncMessage).toBe("direct")
     expect(Object.entries(WORKSPACE_MUTATION_ROUTING).filter(([, route]) => route === "ledger")).toEqual([
       ["createNode", "ledger"], ["createNodeWithIntent", "ledger"], ["createLoroPage", "ledger"], ["acceptChatFork", "ledger"], ["acceptPageProposal", "ledger"],
       ["addFact", "ledger"], ["createRelationDefinition", "ledger"], ["createEdge", "ledger"], ["createTag", "ledger"], ["updateTag", "ledger"], ["syncNoteReferences", "ledger"], ["assignTag", "ledger"], ["unassignTag", "ledger"], ["defineTagField", "ledger"],
-      ["applySupertag", "ledger"], ["mergeChanges", "ledger"], ["revertChanges", "ledger"], ["decideAgentChangeProposal", "ledger"], ["decideChatReview", "ledger"], ["migrateLegacyPage", "ledger"], ["commitLoroPageContent", "ledger"], ["prepareMeetingInDailyNote", "ledger"], ["linkCalendarEventToNode", "ledger"], ["createBookmark", "ledger"], ["startMeeting", "ledger"], ["appendTranscriptSegment", "ledger"]
+      ["applySupertag", "ledger"], ["mergeChanges", "ledger"], ["revertChanges", "ledger"], ["decideAgentChangeProposal", "ledger"], ["decideChatReview", "ledger"], ["createApp", "ledger"], ["updateAppCode", "ledger"], ["deleteApp", "ledger"], ["migrateLegacyPage", "ledger"], ["commitLoroPageContent", "ledger"], ["prepareMeetingInDailyNote", "ledger"], ["linkCalendarEventToNode", "ledger"], ["createBookmark", "ledger"], ["startMeeting", "ledger"], ["appendTranscriptSegment", "ledger"]
     ])
   })
   it("is a fail-closed inventory with no permanent semantic bypass", () => {

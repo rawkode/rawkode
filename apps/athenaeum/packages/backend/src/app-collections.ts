@@ -100,15 +100,45 @@ export const toUnexpectedError = (error: TypedStorageError): UnexpectedError =>
         : `index conflict: ${error.collection}.${error.index} (key ${error.key})`
   })
 
+/**
+ * App lifecycle revisions were added after the first App rows shipped.  A row without either
+ * field is therefore a legacy row, not evidence that the App has never been accepted.  The
+ * compatibility migration is deliberately conservative: it seeds both counters at revision 1.
+ * This preserves an unknown historical App as accepted lineage, so a later revert can never
+ * delete it merely because an old row lacked lifecycle metadata.  Future writes persist the
+ * explicit counters; old in-flight proposals are reconciled by the decision path's equivalent
+ * snapshot migration (see `agent-edit-service-live.ts`).
+ */
+export const migrateLegacyAppRecord = (raw: unknown): {
+  readonly value: unknown
+  readonly legacy: boolean
+} => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { value: raw, legacy: false }
+  const record = raw as Record<string, unknown>
+  const missingRevision = typeof record.revision !== "number"
+  const missingAcceptedRevision = typeof record.acceptedRevision !== "number"
+  if (!missingRevision && !missingAcceptedRevision) return { value: raw, legacy: false }
+  return {
+    value: {
+      ...record,
+      revision: missingRevision ? 1 : record.revision,
+      acceptedRevision: missingAcceptedRevision ? 1 : record.acceptedRevision
+    },
+    legacy: true
+  }
+}
+
 /** Same "revive a schema-validated instance from a structurally-cloned plain object" need as
  *  every other repository's `reviveX` (see `nodes-repository-live.ts`'s `reviveNode` doc
  *  comment). */
-export const reviveApp = (raw: unknown): Effect.Effect<App, UnexpectedError> =>
-  Schema.decodeUnknown(App)(raw).pipe(
+export const reviveApp = (raw: unknown): Effect.Effect<App, UnexpectedError> => {
+  const migrated = migrateLegacyAppRecord(raw).value
+  return Schema.decodeUnknown(App)(migrated).pipe(
     Effect.mapError(
       (parseError) => new UnexpectedError({ message: `corrupt stored app: ${TreeFormatter.formatErrorSync(parseError)}` })
     )
   )
+}
 
 export const reviveAppCodeVersion = (raw: unknown): Effect.Effect<AppCodeVersion, UnexpectedError> =>
   Schema.decodeUnknown(AppCodeVersion)(raw).pipe(

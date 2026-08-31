@@ -36,6 +36,8 @@ const app = new App({
   icon: AppIcon.make("🧮"),
   clientCodeVersion: 1,
   serverCodeVersion: 1,
+  revision: 1,
+  acceptedRevision: 1,
   createdAt,
   updatedAt: createdAt
 })

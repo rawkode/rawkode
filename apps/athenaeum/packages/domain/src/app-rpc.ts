@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema"
 import { App, AppCodeKind, AppCodeVersion, AppIcon } from "./app.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
+import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 
 // App Library domain-extension task, item 3: "RPC schemas: createApp, updateAppCode, listApps,
 // getApp, deleteApp, getAppCode." Same one-`Schema.Class`-input/output-pair-per-method convention
@@ -35,15 +36,21 @@ import { EntityId, IsoDateTimeString } from "./node.js"
 /** Creates a new, codeless App (mirrors cloudflare-os's own `createGadget`: a fresh gadget starts
  *  with an empty file map — `title`/`icon` are set immediately, `clientCodeVersion`/
  *  `serverCodeVersion` start at `0` until a subsequent `updateAppCode` call writes the first
- *  version of either kind). `id` is optional and caller-supplied only for the same deterministic-
- *  id resolution pattern `rpc.ts`'s `CreateNodeInput.id` documents (defaulted server-side via
- *  `crypto.randomUUID()` when absent) — no current Athenaeum caller needs this for Apps, but the
- *  precedent is cheap to keep uniform rather than special-cased away. */
+ *  version of either kind). The ledger gateway requires `id` to be caller-supplied so a retry
+ *  cannot manufacture a second App; it remains optional at schema decode time only to let old
+ *  clients receive a deterministic migration error from the gateway rather than a wire parse
+ *  failure. */
 export class CreateAppInput extends Schema.Class<CreateAppInput>("CreateAppInput")({
   workspaceId: EntityId,
   title: Schema.String.pipe(Schema.minLength(1)),
   icon: AppIcon,
-  id: Schema.optional(EntityId)
+  /** Stable caller-selected identity: retries must never manufacture a second App. */
+  id: Schema.optional(EntityId),
+  /** Required by the ledger boundary. Optional at decode time solely so old clients get a
+   * deterministic migration error rather than a protocol decoding failure. */
+  requestId: Schema.optional(MutationRequestId),
+  commitMessage: Schema.optional(MutationCommitMessage),
+  attribution: Schema.optional(MutationAttribution)
 }) {}
 
 export class CreateAppOutput extends Schema.Class<CreateAppOutput>("CreateAppOutput")({
@@ -59,7 +66,16 @@ export class UpdateAppCodeInput extends Schema.Class<UpdateAppCodeInput>("Update
   workspaceId: EntityId,
   appId: EntityId,
   kind: AppCodeKind,
-  code: Schema.String
+  code: Schema.String,
+  /** Current pointer observed by the editor. Version zero is the first-write fence. */
+  expectedCurrentVersion: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  /** Exact timestamp witness observed by the editor; retained as a secondary consistency check. */
+  expectedUpdatedAt: Schema.optional(IsoDateTimeString),
+  /** Monotonic App row revision observed by the editor. */
+  expectedRevision: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  requestId: Schema.optional(MutationRequestId),
+  commitMessage: Schema.optional(MutationCommitMessage),
+  attribution: Schema.optional(MutationAttribution)
 }) {}
 
 export class UpdateAppCodeOutput extends Schema.Class<UpdateAppCodeOutput>("UpdateAppCodeOutput")({
@@ -89,11 +105,20 @@ export class GetAppOutput extends Schema.Class<GetAppOutput>("GetAppOutput")({
   app: App
 }) {}
 
-/** Deletes an App and (a future `AppService`'s responsibility, not fixed by this schema) every
- *  `AppCodeVersion` row under it. Fails `AppNotFound` if it doesn't exist in the workspace. */
+/** Deletes an App and its `AppCodeVersion` history atomically through the ledger gateway. The
+ *  loaded revision and both code pointers fence the delete against stale editors. Fails
+ *  `AppNotFound` if it doesn't exist in the workspace. */
 export class DeleteAppInput extends Schema.Class<DeleteAppInput>("DeleteAppInput")({
   workspaceId: EntityId,
-  appId: EntityId
+  appId: EntityId,
+  expectedUpdatedAt: Schema.optional(IsoDateTimeString),
+  expectedClientCodeVersion: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  expectedServerCodeVersion: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  /** Monotonic App row revision observed by the deleter. */
+  expectedRevision: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  requestId: Schema.optional(MutationRequestId),
+  commitMessage: Schema.optional(MutationCommitMessage),
+  attribution: Schema.optional(MutationAttribution)
 }) {}
 
 export class DeleteAppOutput extends Schema.Class<DeleteAppOutput>("DeleteAppOutput")({

@@ -35,6 +35,8 @@ const existingApp = new App({
   icon: AppIcon.make("🔢"),
   clientCodeVersion: 1,
   serverCodeVersion: 1,
+  revision: 1,
+  acceptedRevision: 1,
   createdAt: IsoDateTimeString.make("2026-08-28T12:00:00.000Z"),
   updatedAt: IsoDateTimeString.make("2026-08-28T12:00:00.000Z")
 })

@@ -30,7 +30,10 @@ const app = {
   title: "Counter",
   icon: "✦",
   serverCodeVersion: 2,
-  clientCodeVersion: 4
+  clientCodeVersion: 4,
+  revision: 3,
+  acceptedRevision: 3,
+  updatedAt: "2026-08-28T12:00:00.000Z"
 } as App
 const roots: Array<{ readonly root: Root; readonly host: HTMLDivElement }> = []
 const reactActEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -60,6 +63,13 @@ const setInput = (input: HTMLTextAreaElement, value: string): void => {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
   setter?.call(input, value)
   input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+const setReason = (host: HTMLDivElement, value: string): void => {
+  const input = host.querySelector<HTMLInputElement>("[aria-label='Save client code commit message']")
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  setter?.call(input, value)
+  input?.dispatchEvent(new Event("input", { bubbles: true }))
 }
 
 const buttonNamed = (host: HTMLDivElement, label: string): HTMLButtonElement | undefined =>
@@ -149,6 +159,7 @@ describe("AppDetail code-load custody", () => {
     expect(editor?.readOnly).toBe(false)
     await act(async () => {
       if (editor) setInput(editor, "const newClientCode = true")
+      setReason(host, "Create the client code fixture.")
       await flush()
     })
     expect(editor?.value).toBe("const newClientCode = true")
