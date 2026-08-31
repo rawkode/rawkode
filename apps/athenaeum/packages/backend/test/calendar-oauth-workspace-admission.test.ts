@@ -21,6 +21,16 @@ describe("Workspace calendar OAuth admission", () => {
     expect(() => begin(store, "Connect another calendar.")).toThrow(CalendarOAuthWorkspaceAdmissionError)
   })
 
+  it("restores receipt-only admission state and re-derives its stable handle", () => {
+    const store = new CalendarOAuthWorkspaceAdmissions()
+    const first = begin(store)
+    const snapshot = store.snapshot()
+    expect(JSON.stringify(snapshot)).not.toContain(first.attemptHandle)
+    const restored = new CalendarOAuthWorkspaceAdmissions(snapshot)
+    expect(begin(restored)).toEqual(first)
+    expect(restored.resolveHandle({ workspaceId, principal, attemptHandle: first.attemptHandle })).toEqual(first.receipt)
+  })
+
   it("requires the authentic admission witness and exact completion facts for idempotent finalization", () => {
     const store = new CalendarOAuthWorkspaceAdmissions()
     const admission = begin(store)

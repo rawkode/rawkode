@@ -14,6 +14,8 @@ import { agentEditModelClientTestHook, calendarGatekeeperClientTestHook } from "
 import { makeModelClientScripted } from "./model-client-scripted.js"
 import { makeDevScriptedCalendarGatekeeperClient } from "./dev-scripted-calendar-client.js"
 import { extractBearerCredential, signDevCredential, verifyDevCredential } from "./dev-auth.js"
+export { handleGoogleCalendarOAuthBoundary } from "./calendar-oauth-http-boundary.js"
+import { handleGoogleCalendarOAuthBoundary } from "./calendar-oauth-http-boundary.js"
 
 export { WorkspaceDurableObject } from "./workspace-durable-object.js"
 export { UserDurableObject } from "./user-durable-object.js"
@@ -25,6 +27,7 @@ export { FtsSearchProbeDurableObject } from "./fts-probe-durable-object.js"
 // Scratch DO for the Phase 1 Automerge-in-workerd capability probe (see
 // `automerge-probe-durable-object.ts`'s doc comment) — same pattern as the FTS5 probe above.
 export { AutomergeProbeDurableObject } from "./automerge-probe-durable-object.js"
+export { CalendarOAuthCoordinatorDurableObject } from "./calendar-oauth-coordinator-durable-object.js"
 
 export interface Env {
   // ctx.exports reaches WorkspaceDurableObject/UserDurableObject directly; no explicit
@@ -130,6 +133,11 @@ export interface Env {
    *  left unset here since no real deployment URL exists in this environment. */
   readonly CALENDAR_OAUTH_REDIRECT_URI?: string
 
+  /** Shared private admission MAC; missing configuration fails the new Calendar OAuth path closed. */
+  readonly CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string
+  /** Public HTTPS origin used to construct a fixed one-time launch URL. */
+  readonly CALENDAR_OAUTH_PUBLIC_ORIGIN?: string
+
   /** Phase 6 (`MeetingsService`): the real R2 bucket meeting audio blobs are stored in, per the
    *  plan's storage-tier split — see `wrangler.jsonc`'s own `r2_buckets` comment for why this is
    *  real and locally-simulated-in-tests, unlike the optional secrets above. Always defined once
@@ -169,7 +177,6 @@ export interface Env {
 // capture the `workspaceId` segment and forward the whole request through unchanged, exactly as
 // it already did for the bare path.
 const WORKSPACE_PATH = /^\/api\/workspace\/([^/]+)(\/.*)?$/
-
 // Dev-only routes backing `native/AthenaeumCore`'s `phase3-driver` CLI (Phase 3's native
 // exit-criterion verification tool — see `Phase3Driver.swift`'s header comment) and reusing the
 // exact same mechanism `packages/backend/test/agent-edit.test.ts`'s in-process
@@ -394,6 +401,9 @@ export default {
     if (url.pathname === "/api/user") {
       return handleUserRequest(request, env, ctx)
     }
+
+    const oauthBoundary = handleGoogleCalendarOAuthBoundary(request, url)
+    if (oauthBoundary !== undefined) return oauthBoundary
 
     const match = url.pathname.match(WORKSPACE_PATH)
 

@@ -105,6 +105,12 @@ import {
   CommitVoiceAudioOutput,
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,
+  BeginGoogleCalendarConnectionInput,
+  BeginGoogleCalendarConnectionOutput,
+  IssueGoogleCalendarLaunchInput,
+  IssueGoogleCalendarLaunchOutput,
+  GetGoogleCalendarConnectionCompletionInput,
+  GetGoogleCalendarConnectionCompletionOutput,
   CreateBookmarkInput,
   CreateBookmarkOutput,
   CreateShareLinkInput,
@@ -382,6 +388,14 @@ import { makeAppsRepositoryLive } from "./apps-repository-live.js"
 import { AppsService, makeAppsServiceLive } from "./apps-service-live.js"
 import { AppRuntimeService, AppRuntimeServiceUnconfigured, makeAppRuntimeServiceLive } from "./app-runtime-service-live.js"
 import { CalendarService, makeCalendarServiceLive, resolveTodayBriefWindow } from "./calendar-service-live.js"
+import { CalendarOAuthWorkspaceAdmissions, type CalendarOAuthWorkspaceAdmissionsSnapshot } from "./calendar-oauth-workspace-admission.js"
+
+/** Trusted internal surface exposed by the globally named coordinator DO. */
+type CalendarOAuthCoordinatorApi = Readonly<{
+  allocateActivate(input: unknown): Promise<unknown>
+  issueLaunch(input: unknown): Promise<Readonly<{ launchCapability: string; launchGeneration: number }>>
+  completionView(input: unknown): Promise<Readonly<{ status: "pending" | "connected" | "failed" | "expired" }>>
+}>
 import {
   calendarOccurrenceSourceIdentityKey,
   legacyCalendarEventSourceIdentityKey,
@@ -1186,6 +1200,11 @@ class WorkspaceRpcApi extends RpcTarget {
   readonly #storage: DurableObjectStorage
   readonly #standupPublicationStore: DurableStandupPublicationAuthorityStore
   readonly #workforceRunStore: DurableWorkforceRunReceiptStore
+  readonly #calendarOAuthAdmissions: CalendarOAuthWorkspaceAdmissions
+  readonly #calendarOAuthAdmissionsReady: Promise<void>
+  readonly #calendarOAuthAdmissionSecret: string | undefined
+  readonly #calendarOAuthCoordinator: CalendarOAuthCoordinatorApi
+  readonly #calendarOAuthPublicOrigin: string | undefined
 
   constructor(
     runtime: ManagedRuntime.ManagedRuntime<WorkspaceServices, never>,
@@ -1198,7 +1217,12 @@ class WorkspaceRpcApi extends RpcTarget {
     devAuthHmacSecret: string | undefined,
     storage: DurableObjectStorage,
     standupPublicationStore: DurableStandupPublicationAuthorityStore,
-    workforceRunStore: DurableWorkforceRunReceiptStore
+    workforceRunStore: DurableWorkforceRunReceiptStore,
+    calendarOAuthAdmissions: CalendarOAuthWorkspaceAdmissions,
+    calendarOAuthAdmissionsReady: Promise<void>,
+    calendarOAuthAdmissionSecret: string | undefined,
+    calendarOAuthCoordinator: CalendarOAuthCoordinatorApi,
+    calendarOAuthPublicOrigin: string | undefined
   ) {
     super()
     this.#runtime = runtime
@@ -1212,6 +1236,11 @@ class WorkspaceRpcApi extends RpcTarget {
     this.#storage = storage
     this.#standupPublicationStore = standupPublicationStore
     this.#workforceRunStore = workforceRunStore
+    this.#calendarOAuthAdmissions = calendarOAuthAdmissions
+    this.#calendarOAuthAdmissionsReady = calendarOAuthAdmissionsReady
+    this.#calendarOAuthAdmissionSecret = calendarOAuthAdmissionSecret
+    this.#calendarOAuthCoordinator = calendarOAuthCoordinator
+    this.#calendarOAuthPublicOrigin = calendarOAuthPublicOrigin
     this.#ledger = new LedgerService(sql)
   }
 
@@ -4432,6 +4461,97 @@ class WorkspaceRpcApi extends RpcTarget {
   // new mutating/reading RPC method on a governed workspace MUST call the same
   // requireRoleForGovernedWorkspace gate... no exceptions").
 
+  /** New opaque OAuth admission: persist the Workspace receipt before coordinator activation. */
+  async beginGoogleCalendarConnection(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const admissionSecret = this.#calendarOAuthAdmissionSecret
+    const admissions = this.#calendarOAuthAdmissions
+    const admissionsReady = this.#calendarOAuthAdmissionsReady
+    const storage = this.#storage
+    const coordinator = this.#calendarOAuthCoordinator
+    const program = decodeRpcInput(BeginGoogleCalendarConnectionInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const user = yield* requireAuthenticatedUser
+        if (decoded.attribution.kind !== "humanUi") return yield* Effect.fail(new ValidationError({ message: "Calendar connection admission requires HumanUi attribution." }))
+        const secret = admissionSecret
+        if (secret === undefined || secret.length === 0) return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth admission is not configured on this deployment." }))
+        const admission = yield* Effect.tryPromise({
+          try: async () => {
+            await admissionsReady
+            const before = admissions.snapshot()
+            try {
+              return await storage.transaction(async (transaction) => {
+                const created = admissions.begin({ ...decoded, principal: user.email, handleSecret: secret, now: new Date().toISOString() })
+                await transaction.put("calendar-oauth-admissions.private.v1", admissions.snapshot())
+                return created
+              })
+            } catch (error) {
+              admissions.restore(before)
+              throw error
+            }
+          },
+          catch: () => new ValidationError({ message: "Calendar connection admission could not be persisted." })
+        })
+        yield* Effect.tryPromise({ try: () => coordinator.allocateActivate({ admission: admission.receipt, now: new Date().toISOString() }), catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." }) })
+        return Schema.decodeUnknownSync(BeginGoogleCalendarConnectionOutput)({ attemptHandle: admission.attemptHandle })
+      })),
+      Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
+    )
+    return runRpcProgram(this.#runtime, program, BeginGoogleCalendarConnectionOutput)
+  }
+
+  /** Returns only a fixed first-party capability URL, never a provider URL or state token. */
+  async issueGoogleCalendarLaunch(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const publicOrigin = this.#calendarOAuthPublicOrigin
+    const admissions = this.#calendarOAuthAdmissions
+    const admissionsReady = this.#calendarOAuthAdmissionsReady
+    const coordinator = this.#calendarOAuthCoordinator
+    const program = decodeRpcInput(IssueGoogleCalendarLaunchInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "build")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const user = yield* requireAuthenticatedUser
+        yield* Effect.tryPromise({ try: () => admissionsReady, catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." }) })
+        const origin = publicOrigin
+        if (origin === undefined) return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth launch origin is not configured on this deployment." }))
+        let url: URL
+        try { url = new URL(origin) } catch { return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth launch origin is invalid." })) }
+        if (url.protocol !== "https:") return yield* Effect.fail(new ValidationError({ message: "Calendar OAuth launch origin must use HTTPS." }))
+        let receipt
+        try { receipt = admissions.resolveHandle({ workspaceId: decoded.workspaceId, principal: user.email, attemptHandle: decoded.attemptHandle }) } catch { return yield* Effect.fail(new ValidationError({ message: "Calendar connection attempt is unavailable." })) }
+        const launch: Readonly<{ launchCapability: string; launchGeneration: number }> = yield* Effect.tryPromise({ try: () => coordinator.issueLaunch({ authorityAttemptId: receipt.authorityAttemptId, workspaceId: decoded.workspaceId, principal: user.email, now: new Date().toISOString() }), catch: () => new ValidationError({ message: "Calendar connection launch is unavailable." }) })
+        return Schema.decodeUnknownSync(IssueGoogleCalendarLaunchOutput)({ fixedLaunchUrl: new URL(`/oauth/google-calendar/launch/${launch.launchCapability}`, url).toString() })
+      })),
+      Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
+    )
+    return runRpcProgram(this.#runtime, program, IssueGoogleCalendarLaunchOutput)
+  }
+
+  async getGoogleCalendarConnectionCompletion(input: unknown): Promise<unknown> {
+    const currentUser = this.#currentUser
+    const admissions = this.#calendarOAuthAdmissions
+    const admissionsReady = this.#calendarOAuthAdmissionsReady
+    const coordinator = this.#calendarOAuthCoordinator
+    const program = decodeRpcInput(GetGoogleCalendarConnectionCompletionInput, input).pipe(
+      Effect.tap((decoded) => requireOwnWorkspace(this.#workspaceId, decoded.workspaceId)),
+      Effect.tap(() => requireRoleForGovernedWorkspace(currentUser, "use")),
+      Effect.flatMap((decoded) => Effect.gen(function* () {
+        const user = yield* requireAuthenticatedUser
+        yield* Effect.tryPromise({ try: () => admissionsReady, catch: () => new ValidationError({ message: "Calendar connection admission is unavailable." }) })
+        let receipt
+        try { receipt = admissions.resolveHandle({ workspaceId: decoded.workspaceId, principal: user.email, attemptHandle: decoded.attemptHandle }) } catch { return yield* Effect.fail(new ValidationError({ message: "Calendar connection attempt is unavailable." })) }
+        const completion: Readonly<{ status: "pending" | "connected" | "failed" | "expired" }> = yield* Effect.tryPromise({ try: () => coordinator.completionView({ authorityAttemptId: receipt.authorityAttemptId, workspaceId: decoded.workspaceId, principal: user.email, attemptHandle: decoded.attemptHandle, now: new Date().toISOString() }), catch: () => new ValidationError({ message: "Calendar connection status is unavailable." }) })
+        if (completion.status !== "connected") return Schema.decodeUnknownSync(GetGoogleCalendarConnectionCompletionOutput)({ status: completion.status })
+        return yield* Effect.fail(new ValidationError({ message: "Calendar connection binding projection is not mounted yet." }))
+      })),
+      Effect.provideService(CurrentUser, Option.fromNullable(this.#currentUser))
+    )
+    return runRpcProgram(this.#runtime, program, GetGoogleCalendarConnectionCompletionOutput)
+  }
+
   async connectGoogleCalendar(input: unknown): Promise<unknown> {
     const currentUser = this.#currentUser
     const program = decodeRpcInput(ConnectGoogleCalendarInput, input).pipe(
@@ -5283,6 +5403,9 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
   readonly #workforceRuntimeStore: DurableWorkforceRuntimeStore
   readonly #workforceScheduler: WorkforceScheduler
   readonly #calendarConciergeGrants: DurableCalendarConciergeGrantStore
+  /** Receipt-only new OAuth admissions; stable handles are deterministically re-derived. */
+  readonly #calendarOAuthAdmissions: CalendarOAuthWorkspaceAdmissions
+  readonly #calendarOAuthAdmissionsReady: Promise<void>
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -5303,6 +5426,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
     this.#workforceRuntimeStore = new DurableWorkforceRuntimeStore(this.#sql)
     this.#workforceScheduler = new WorkforceScheduler(this.#storage, this.#workforceRuntimeStore)
     this.#calendarConciergeGrants = new DurableCalendarConciergeGrantStore(this.#sql)
+    this.#calendarOAuthAdmissions = new CalendarOAuthWorkspaceAdmissions()
+    this.#calendarOAuthAdmissionsReady = ctx.blockConcurrencyWhile(async () => {
+      this.#calendarOAuthAdmissions.restore(
+        await ctx.storage.get<CalendarOAuthWorkspaceAdmissionsSnapshot>("calendar-oauth-admissions.private.v1")
+      )
+    })
 
     // AI Gateway routing (docs/ai-gateway-decisions.md): resolved once per DO construction, same
     // "read directly off env" pattern every other optional binding in this constructor uses.
@@ -6342,7 +6471,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.env.DEV_AUTH_HMAC_SECRET,
           this.#storage,
           this.#standupPublicationStore,
-          this.#workforceRunStore
+          this.#workforceRunStore,
+          this.#calendarOAuthAdmissions,
+          this.#calendarOAuthAdmissionsReady,
+          this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET,
+          this.ctx.exports.CalendarOAuthCoordinatorDurableObject.getByName("global-calendar-oauth-coordinator"),
+          this.env.CALENDAR_OAUTH_PUBLIC_ORIGIN
         )
       )
       return new Response(null, { status: 101, webSocket: client })
@@ -6362,7 +6496,12 @@ export class WorkspaceDurableObject extends DurableObject<Env> {
           this.env.DEV_AUTH_HMAC_SECRET,
           this.#storage,
           this.#standupPublicationStore,
-          this.#workforceRunStore
+          this.#workforceRunStore,
+          this.#calendarOAuthAdmissions,
+          this.#calendarOAuthAdmissionsReady,
+          this.env.CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET,
+          this.ctx.exports.CalendarOAuthCoordinatorDurableObject.getByName("global-calendar-oauth-coordinator"),
+          this.env.CALENDAR_OAUTH_PUBLIC_ORIGIN
         )
       )
       response.headers.set("Access-Control-Allow-Origin", "*")

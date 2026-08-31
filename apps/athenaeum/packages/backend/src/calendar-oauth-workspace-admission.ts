@@ -36,6 +36,11 @@ export type CalendarOAuthWorkspaceBindingCommit = Readonly<{
   bindingId: EntityId
 }>
 
+export type CalendarOAuthWorkspaceAdmissionsSnapshot = Readonly<{
+  readonly admissions: readonly CalendarOAuthAdmissionReceipt[]
+  readonly commits: readonly CalendarOAuthBindingCommitReceipt[]
+}>
+
 const digest = (value: unknown): string => sha256HexSync(canonicalJsonBytes(value))
 const witnessDigest = (value: string): CalendarOAuthAdmissionReceipt["admissionWitnessDigest"] =>
   Schema.decodeUnknownSync(CalendarOAuthWitnessDigest)(value)
@@ -65,8 +70,35 @@ const admissionWitness = (secret: string, receipt: Omit<CalendarOAuthAdmissionRe
 
 /** Small persistence-neutral state owner; Workspace DO persists these rows in OCM-03. */
 export class CalendarOAuthWorkspaceAdmissions {
-  readonly #byRequestIdentity = new Map<string, CalendarOAuthWorkspaceAdmission>()
+  readonly #byRequestIdentity = new Map<string, CalendarOAuthAdmissionReceipt>()
   readonly #commits = new Map<string, CalendarOAuthWorkspaceBindingCommit>()
+
+  constructor(snapshot?: CalendarOAuthWorkspaceAdmissionsSnapshot) {
+    this.restore(snapshot)
+  }
+
+  /** Rehydrates only private receipts after the owning Workspace DO's readiness barrier. */
+  restore(snapshot?: CalendarOAuthWorkspaceAdmissionsSnapshot): void {
+    this.#byRequestIdentity.clear()
+    this.#commits.clear()
+    for (const receipt of snapshot?.admissions ?? []) this.#byRequestIdentity.set(`${receipt.workspaceId}:${receipt.principal}:${receipt.requestId}`, receipt)
+    for (const receipt of snapshot?.commits ?? []) this.#commits.set(`${receipt.calendarConnectionId}:${receipt.completion.bindingId}`, Object.freeze({ receipt, bindingId: receipt.completion.bindingId }))
+  }
+
+  /** Durable Workspace snapshots contain receipts only; stable handles are re-derived on replay. */
+  snapshot(): CalendarOAuthWorkspaceAdmissionsSnapshot {
+    return Object.freeze({ admissions: [...this.#byRequestIdentity.values()], commits: [...this.#commits.values()].map((commit) => commit.receipt) })
+  }
+
+  /** Owner-fenced lookup without persisting the client-visible stable handle. */
+  resolveHandle(input: { workspaceId: EntityId; principal: Email; attemptHandle: string }): CalendarOAuthAdmissionReceipt {
+    const expectedDigest = witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: input.attemptHandle }))
+    const receipt = [...this.#byRequestIdentity.values()].find((candidate) =>
+      candidate.workspaceId === input.workspaceId && candidate.principal === input.principal && candidate.attemptHandleDigest === expectedDigest
+    )
+    if (receipt === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
+    return receipt
+  }
 
   begin(input: {
     workspaceId: EntityId
@@ -81,8 +113,9 @@ export class CalendarOAuthWorkspaceAdmissions {
     const requestIdentity = `${input.workspaceId}:${input.principal}:${input.requestId}`
     const existing = this.#byRequestIdentity.get(requestIdentity)
     if (existing !== undefined) {
-      if (existing.receipt.requestFingerprint !== requestFingerprint) throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection request conflicts with its original intent.")
-      return existing
+      if (existing.requestFingerprint !== requestFingerprint) throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection request conflicts with its original intent.")
+      const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint: existing.requestFingerprint, version: existing.handleDerivationVersion })
+      return Object.freeze({ receipt: existing, attemptHandle })
     }
     const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint })
     const withoutWitness = {
@@ -96,7 +129,7 @@ export class CalendarOAuthWorkspaceAdmissions {
     }
     const receipt = new CalendarOAuthAdmissionReceipt({ ...withoutWitness, admissionWitnessDigest: witnessDigest(admissionWitness(input.handleSecret, withoutWitness)) })
     const admission = Object.freeze({ receipt, attemptHandle })
-    this.#byRequestIdentity.set(requestIdentity, admission)
+    this.#byRequestIdentity.set(requestIdentity, receipt)
     return admission
   }
 
@@ -109,7 +142,7 @@ export class CalendarOAuthWorkspaceAdmissions {
   }): CalendarOAuthWorkspaceBindingCommit {
     const { admission, completion } = input
     if (completion.admissionWitnessDigest !== admission.admissionWitnessDigest || completion.bindingId === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
-    const key = `${admission.workspaceId}:${completion.bindingId}`
+    const key = `${admission.calendarConnectionId}:${completion.bindingId}`
     const existing = this.#commits.get(key)
     if (existing !== undefined) {
       if (existing.receipt.completion.providerConnectionId !== completion.providerConnectionId || existing.receipt.completion.gatekeeperAttemptId !== completion.gatekeeperAttemptId || existing.receipt.completion.bindingId !== completion.bindingId || existing.receipt.completion.providerReceiptDigest !== completion.providerReceiptDigest || existing.receipt.completion.completionFactDigest !== completion.completionFactDigest || existing.receipt.workspaceCommitWitnessDigest !== input.workspaceCommitWitnessDigest) throw new CalendarOAuthWorkspaceAdmissionError()

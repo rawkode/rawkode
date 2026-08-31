@@ -48,6 +48,11 @@
       // `src/automerge-probe-durable-object.ts`).
       "tag": "v3",
       "new_sqlite_classes": ["AutomergeProbeDurableObject"]
+    },
+    {
+      // One globally named, private OAuth coordinator. HTTP/RPC mounting is separate.
+      "tag": "v4",
+      "new_sqlite_classes": ["CalendarOAuthCoordinatorDurableObject"]
     }
   ],
 

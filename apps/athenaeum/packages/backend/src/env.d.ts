@@ -23,6 +23,7 @@ declare global {
         | "UserDurableObject"
         | "FtsSearchProbeDurableObject"
         | "AutomergeProbeDurableObject"
+        | "CalendarOAuthCoordinatorDurableObject"
     }
   }
 }

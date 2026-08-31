@@ -42,6 +42,7 @@ export type CalendarOAuthCoordinatorRecord = Readonly<{
 const digest = (value: unknown): string => sha256HexSync(canonicalJsonBytes(value))
 const handleDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: value })
 const nonceDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-state-nonce.v1", nonce: value })
+const launchCapabilityDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-secret.v1", value })
 const opaque = (prefix: string): string => `${prefix}${crypto.randomUUID()}`
 
 /** Copy schema-defined fields before persistence so extra transport properties cannot become records. */
@@ -68,6 +69,7 @@ export const calendarOAuthAdmissionWitnessDigest = (secret: string, receipt: Cal
 export class CalendarOAuthCoordinator {
   readonly #byAttempt = new Map<string, CalendarOAuthCoordinatorRecord>()
   readonly #byHandleDigest = new Map<string, string>()
+  readonly #byLaunchCapabilityDigest = new Map<string, string>()
 
   constructor(private readonly admissionWitnessSecret: string, records: readonly CalendarOAuthCoordinatorRecord[] = []) {
     for (const record of records) this.#put(Object.freeze({ admission: privateAdmission(record.admission), attempt: record.attempt, completion: record.completion === undefined ? undefined : privateCompletion(record.completion) }))
@@ -114,6 +116,15 @@ export class CalendarOAuthCoordinator {
       this.#put({ ...record, attempt })
       return { stateNonce, stateGeneration: attempt.stateGeneration }
     } catch { throw new CalendarOAuthCoordinatorError() }
+  }
+
+  /** Fixed launch URLs carry only the one-time capability; the private registry resolves its attempt. */
+  redeemLaunchFromCapability(input: { launchCapability: string; now: string; stateNonce?: string }): Readonly<{ authorityAttemptId: string; stateNonce: string; stateGeneration: number }> {
+    const authorityAttemptId = this.#byLaunchCapabilityDigest.get(launchCapabilityDigest(input.launchCapability))
+    if (authorityAttemptId === undefined) throw new CalendarOAuthCoordinatorError()
+    const record = this.#require(authorityAttemptId)
+    const redeemed = this.redeemLaunch({ authorityAttemptId, launchCapability: input.launchCapability, expectedLaunchGeneration: record.attempt.launchGeneration, stateNonce: input.stateNonce, now: input.now })
+    return { authorityAttemptId, ...redeemed }
   }
 
   claimCallback(input: { authorityAttemptId: string; stateNonce: string; stateGeneration: number; now: string; leaseExpiresAt: string; callbackLease?: string }): Readonly<{ callbackLease: string; callbackFence: number }> {
@@ -175,6 +186,8 @@ export class CalendarOAuthCoordinator {
     if (handleOwner !== undefined && handleOwner !== record.admission.authorityAttemptId) throw new CalendarOAuthCoordinatorError()
     this.#byAttempt.set(record.admission.authorityAttemptId, record)
     this.#byHandleDigest.set(record.admission.attemptHandleDigest, record.admission.authorityAttemptId)
+    for (const [digest, owner] of this.#byLaunchCapabilityDigest) if (owner === record.admission.authorityAttemptId) this.#byLaunchCapabilityDigest.delete(digest)
+    if (record.attempt.launchCapabilityDigest !== undefined) this.#byLaunchCapabilityDigest.set(record.attempt.launchCapabilityDigest, record.admission.authorityAttemptId)
   }
 }
 
@@ -209,6 +222,9 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
   }
   redeemLaunch(input: { authorityAttemptId: string; launchCapability: string; expectedLaunchGeneration: number; now: string; stateNonce?: string }): Promise<Readonly<{ stateNonce: string; stateGeneration: number }>> {
     return this.#mutate((coordinator) => coordinator.redeemLaunch(input))
+  }
+  redeemLaunchFromCapability(input: { launchCapability: string; now: string; stateNonce?: string }): Promise<Readonly<{ authorityAttemptId: string; stateNonce: string; stateGeneration: number }>> {
+    return this.#mutate((coordinator) => coordinator.redeemLaunchFromCapability(input))
   }
   claimCallback(input: { authorityAttemptId: string; stateNonce: string; stateGeneration: number; now: string; leaseExpiresAt: string; callbackLease?: string }): Promise<Readonly<{ callbackLease: string; callbackFence: number }>> {
     return this.#mutate((coordinator) => coordinator.claimCallback(input))
