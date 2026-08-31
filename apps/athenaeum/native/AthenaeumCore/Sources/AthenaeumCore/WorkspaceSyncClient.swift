@@ -2,6 +2,27 @@ import Foundation
 import AthenaeumDomain
 import AthenaeumRPC
 
+/// The only native surfaces permitted to own a checklist toggle. Keeping this as a closed,
+/// value-only type prevents a caller from forwarding an arbitrary attribution string across the
+/// UI/page-operations boundary.
+public enum NativeRichTaskItemToggleSurface: String, Equatable, Hashable, Sendable {
+    case macos
+    case ios
+
+    public static var current: Self {
+        #if os(macOS)
+        return .macos
+        #else
+        return .ios
+        #endif
+    }
+
+    public var mutationAttribution: LoroMutationAttributionV1 {
+        // Keep the serialized value platform-specific while using the closed wire vocabulary.
+        .humanUi(surface: self == .ios ? "ios-rich-text-editor" : rawValue)
+    }
+}
+
 // `WorkspaceSyncClient` is the native Loro and structured-record sync client. Legacy Automerge
 // transport remains a backend/web compatibility lane and is deliberately not linkable from this
 // shipped target: combining its static Rust FFI with `loro-swift` makes the macOS app un-linkable.
@@ -243,7 +264,8 @@ public actor WorkspaceSyncClient {
         nodeId: EntityId,
         base: LoroNativeRichEditorState,
         command: LoroNativeRichTaskItemToggleCommand,
-        commitMessage: String
+        commitMessage: String,
+        surface: NativeRichTaskItemToggleSurface
     ) async throws -> LoroNativeRichDocumentSubmissionDisposition {
         try await withLoroLease(nodeId: nodeId) { [self, nodeId, base, command, commitMessage] in
             let eligibility = try await nativeRichEditorEligibilityAssumingLease(nodeId: nodeId)
@@ -259,7 +281,7 @@ public actor WorkspaceSyncClient {
                 let intent = try LoroMutationIntentV1(
                     requestId: command.commandID.uuidString.lowercased(),
                     commitMessage: message.value,
-                    attribution: .humanUi(surface: "macos")
+                    attribution: surface.mutationAttribution
                 )
                 let custody = LoroSemanticCustody(workspaceId: workspaceId, intent: intent, expiresAt: Date().addingTimeInterval(60))
                 let runtime = semanticTransport.map { LoroSemanticRuntime(local: localStore, documents: loroStore, gate: loroGate, workspaceId: workspaceId, custody: custody, transport: $0) }

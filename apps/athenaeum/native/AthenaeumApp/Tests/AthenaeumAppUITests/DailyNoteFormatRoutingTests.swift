@@ -2666,6 +2666,7 @@ private final class FakeOperations: DailyNotePageOperations {
     var nativeRichSubmitCount = 0
     var nativeRichSubmitMessages: [String] = []
     var nativeRichSubmitDocuments: [LoroNativeRichDocumentV1] = []
+    var nativeRichSubmitSurfaces: [NativeRichTaskItemToggleSurface] = []
     var nativeSubmitResult: LoroNativePlainTextSubmissionDisposition = .noChange
     var blocksNativeSubmit = false
     var nativeSubmitEntered = false
@@ -2789,6 +2790,12 @@ private final class FakeOperations: DailyNotePageOperations {
         nativeRichSubmitCount += 1
         nativeRichSubmitMessages.append(commitMessage)
         nativeRichSubmitDocuments.append(proposed)
+        return richSubmitResults.isEmpty ? richSubmitResult : richSubmitResults.removeFirst()
+    }
+    func submitNativeRichTaskItemToggle(nodeId: EntityId, base: LoroNativeRichEditorState, command: LoroNativeRichTaskItemToggleCommand, commitMessage: String, surface: NativeRichTaskItemToggleSurface) async throws -> LoroNativeRichDocumentSubmissionDisposition {
+        nativeRichSubmitCount += 1
+        nativeRichSubmitMessages.append(commitMessage)
+        nativeRichSubmitSurfaces.append(surface)
         return richSubmitResults.isEmpty ? richSubmitResult : richSubmitResults.removeFirst()
     }
     func releaseNativeSubmit() { nativeSubmitContinuation?.resume(); nativeSubmitContinuation = nil }

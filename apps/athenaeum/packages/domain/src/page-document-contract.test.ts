@@ -131,6 +131,11 @@ describe("Loro page-document contracts", () => {
     for (const surface of ["ios-supertag", "ios-supertags\n", "ios-supertags "]) expect(Either.isLeft(Schema.decodeUnknownEither(CreateLoroPageInput)({ ...encoded, creationIntent: { ...encoded.creationIntent, attribution: { ...encoded.creationIntent.attribution, surface } } }))).toBe(true)
   })
 
+  it("accepts the exact iOS rich-text editor human surface", () => {
+    const encoded = { workspaceId: nodeId, nodeId, creationIntent: { requestId: "ios-rich-text", commitMessage: "Toggle checklist", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "ios-rich-text-editor" } } }
+    expect(Schema.decodeUnknownSync(CreateLoroPageInput)(encoded).creationIntent.attribution).toMatchObject({ surface: "ios-rich-text-editor" })
+  })
+
   it("requires valid format, positive storage/schema versions, and required wire bytes", () => {
     expect(Schema.decodeUnknownSync(PageDocumentFormat)("automerge-v1")).toBe("automerge-v1")
     expect(Schema.decodeUnknownSync(PageDocumentFormat)("loro-v1")).toBe("loro-v1")

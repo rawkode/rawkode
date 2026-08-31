@@ -201,6 +201,7 @@ final class PageDocumentContractTests: XCTestCase {
 
     func testIOSSupertagsSurfaceIsExactAndClosed() {
         XCTAssertNoThrow(try LoroMutationIntentV1(requestId: "ios", commitMessage: "Apply a Supertag", attribution: .humanUi(surface: "ios-supertags")))
+        XCTAssertNoThrow(try LoroMutationIntentV1(requestId: "ios", commitMessage: "Toggle checklist", attribution: .humanUi(surface: "ios-rich-text-editor")))
         for value in ["ios-supertag", "ios-supertags ", " ios-supertags", "IOS-supertags"] {
             XCTAssertThrowsError(try LoroMutationIntentV1(requestId: "ios", commitMessage: "Apply a Supertag", attribution: .humanUi(surface: value)))
         }

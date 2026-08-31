@@ -2501,7 +2501,8 @@ public final class AthenaeumViewModel: ObservableObject {
                 nodeId: selection.nodeId,
                 base: base,
                 command: command,
-                commitMessage: "Toggle daily note checklist item"
+                commitMessage: "Toggle daily note checklist item",
+                surface: .current
             )
             guard isCurrent(selection, generation: generation),
                   pendingLoroRichTaskToggle?.command == command,

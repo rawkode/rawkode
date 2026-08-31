@@ -126,7 +126,7 @@ export class HumanUiMutationAttribution extends Schema.Class<HumanUiMutationAttr
 )({
   version: Schema.Literal(MUTATION_ATTRIBUTION_VERSION),
   kind: Schema.Literal("humanUi"),
-  surface: Schema.Literal("rich-text-editor", "agent-chat", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "web-calendar", "web-app-library", "ios-supertags", "macos", "watch-quick-capture")
+  surface: Schema.Literal("rich-text-editor", "ios-rich-text-editor", "agent-chat", "web-supertag-field-editor", "web-supertags-manager", "web-graph-view", "web-backlinks", "web-bookmarks", "web-calendar", "web-app-library", "ios-supertags", "macos", "watch-quick-capture")
 }) {}
 
 export class AgentJobMutationAttribution extends Schema.Class<AgentJobMutationAttribution>(

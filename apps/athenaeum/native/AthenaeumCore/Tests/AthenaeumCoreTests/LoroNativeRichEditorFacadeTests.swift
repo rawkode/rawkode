@@ -4,6 +4,21 @@ import AthenaeumDomain
 @testable import AthenaeumCore
 
 final class LoroNativeRichEditorFacadeTests: XCTestCase {
+    func testNativeTaskToggleSurfaceBuildsExactPlatformIntentAndPreservesCommandIdentity() throws {
+        let commandID = UUID(uuidString: "00000000-0000-4000-8000-000000000099")!
+        let requestID = commandID.uuidString.lowercased()
+
+        for (surface, expected) in [(NativeRichTaskItemToggleSurface.macos, "macos"), (.ios, "ios-rich-text-editor")] {
+            let intent = try LoroMutationIntentV1(
+                requestId: requestID,
+                commitMessage: "Toggle daily note checklist item",
+                attribution: surface.mutationAttribution
+            )
+            XCTAssertEqual(intent.requestId, requestID)
+            XCTAssertEqual(intent.attribution, .humanUi(surface: expected))
+        }
+    }
+
     func testCanonicalTaskListAcceptsCheckedUncheckedEmptyAndAdjacentMarkedReferences() throws {
         let id = try EntityId(validating: "00000000-0000-4000-8000-000000000001")
         let reference = LoroCanonicalSemanticValueV1.InlineReference(kind: .supertag, id: id, label: "Project")
