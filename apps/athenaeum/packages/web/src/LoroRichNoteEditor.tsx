@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { LoroSyncPlugin, LoroUndoPlugin, loroSyncPluginKey, redo, undo, type LoroDocType } from "loro-prosemirror"
 import * as Effect from "effect/Effect"
 import { EditorState, TextSelection, type Transaction } from "prosemirror-state"
-import { Fragment, type Node as PMNode } from "prosemirror-model"
+import { Fragment } from "prosemirror-model"
 import { EditorView } from "prosemirror-view"
 import { CommitLoroPageContentInput, GetPageDocumentDescriptorInput, HumanUiMutationAttribution, IanaTimeZone, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, type EntityId, type LocalDate, type PageDocumentDescriptor, type PrepareMeetingInDailyNoteOutput } from "@athenaeum/domain"
 import { runtime, runtimeConnectionIdentity } from "./runtime.js"
@@ -326,7 +326,7 @@ export const createPlanTodayEligibility = (args: {
   readonly offerPlanToday: boolean
   readonly nodeId: EntityId
   readonly isCurrentUiAttachment: (snapshot: LoroSemanticCustodySnapshot) => boolean
-}) => (snapshot: LoroSemanticCustodySnapshot, document: PMNode): boolean => {
+}) => (snapshot: LoroSemanticCustodySnapshot, editorState: EditorState): boolean => {
   const acceptedDescriptor = snapshot.acceptedBase?.descriptor
   return args.offerPlanToday &&
     args.isCurrentUiAttachment(snapshot) &&
@@ -338,7 +338,10 @@ export const createPlanTodayEligibility = (args: {
     acceptedDescriptor.nodeId === args.nodeId &&
     acceptedDescriptor.activeFormat === "loro-v1" &&
     acceptedDescriptor.storageVersion === 1 &&
-    isCanonicalEmptyPlanTodayDocument(document)
+    // Before the official plugin reaches its documented `snapshot === null` ready sentinel,
+    // ProseMirror contains a synthetic empty document which must never be treated as authority.
+    loroSyncPluginKey.getState(editorState)?.snapshot === null &&
+    isCanonicalEmptyPlanTodayDocument(editorState.doc)
 }
 
 /** Visible terminal-conflict affordance; dismissal is deliberately an explicit destructive choice. */
@@ -460,7 +463,7 @@ export const createLoroEditorBinding = (options: {
   /** Called after any PM state change so hosts can update presentation-only affordances. */
   readonly onDocumentStateChange?: (state: EditorState) => void
   /** Re-evaluated immediately before Plan Today's unowned human transaction dispatches. */
-  readonly isPlanTodayEligible: (document: PMNode) => boolean
+  readonly isPlanTodayEligible: (state: EditorState) => boolean
   /** A stale attachment/runtime makes an old live view noneditable before React remounts it. */
   readonly isAttachmentActive?: () => boolean
   readonly workspaceId: EntityId
@@ -635,7 +638,7 @@ export const createLoroEditorBinding = (options: {
       transaction.scrollIntoView()
       // React's visible affordance may be stale for one render turn. Re-read the custody
       // snapshot through the component-owned predicate at the final dispatch boundary.
-      if (!options.isPlanTodayEligible(view.state.doc)) return false
+      if (!options.isPlanTodayEligible(view.state)) return false
       view.dispatch(transaction)
       view.focus()
       return true
@@ -783,8 +786,8 @@ export function LoroRichNoteEditor({
 
     const refreshPlanTodayAvailability = (editorState?: EditorState): void => {
       const snapshot = attachment.snapshot()
-      const document = editorState?.doc ?? binding?.view?.state.doc
-      const available = document !== undefined && isPlanTodayEligible(snapshot, document)
+      const state = editorState ?? binding?.view?.state
+      const available = state !== undefined && isPlanTodayEligible(snapshot, state)
       if (isCurrentUiScope()) setPlanTodayAvailable(available)
     }
 
@@ -976,7 +979,7 @@ export function LoroRichNoteEditor({
         }
       },
       onDocumentStateChange: (editorState) => refreshPlanTodayAvailability(editorState),
-      isPlanTodayEligible: (document) => isPlanTodayEligible(attachment.snapshot(), document),
+      isPlanTodayEligible: (state) => isPlanTodayEligible(attachment.snapshot(), state),
       isAttachmentActive: isAttachmentUiLive,
       workspaceId,
       nodeId,
@@ -992,8 +995,8 @@ export function LoroRichNoteEditor({
     }
     planTodayApplyRef.current = () => {
       const snapshot = attachment.snapshot()
-      const document = binding?.view?.state.doc
-      if (document === undefined || !isPlanTodayEligible(snapshot, document)) return false
+      const state = binding?.view?.state
+      if (state === undefined || !isPlanTodayEligible(snapshot, state)) return false
       const applied = binding?.applyPlanTodayStarter() === true
       if (applied) setPlanTodayAvailable(false)
       return applied

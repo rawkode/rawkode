@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from "vitest"
 import { type PageDocumentDescriptor } from "@athenaeum/domain"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
+import { EditorState } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
-import { loroSyncPluginKey } from "loro-prosemirror"
+import { loroSyncPluginKey, updateLoroToPmState, type LoroDocType } from "loro-prosemirror"
 
 const runtimeMock = vi.hoisted(() => ({ runPromise: vi.fn() }))
 const runtimeConnectionIdentityMock = vi.hoisted(() => ({ current: Object.freeze({}) }))
@@ -19,7 +20,7 @@ import {
   createPlanTodayEligibility,
   LoroRichNoteEditor
 } from "./LoroRichNoteEditor.js"
-import { createLoroPage } from "./loro-page.js"
+import { createLoroPage, inspectLoroPage } from "./loro-page.js"
 import { firstPlanTodayPriorityPosition, PLAN_TODAY_STARTER } from "./plan-today-starter.js"
 import { richTextSchemaAdapter } from "./rich-text/schema.js"
 import type { LoroSemanticCustodySnapshot } from "./loro-semantic-custody.js"
@@ -33,18 +34,6 @@ const testDescriptor = (id = nodeId, storageVersion = 1) => ({
   activeFormat: "loro-v1" as const,
   loro: { schemaVersion: 1, snapshotSha256: "a".repeat(64) }
 }) as unknown as Extract<PageDocumentDescriptor, { activeFormat: "loro-v1" }>
-
-const canonicalEmptyDocument = () => {
-  const paragraph = richTextSchemaAdapter.schema.nodes.paragraph
-  if (paragraph === undefined) throw new Error("test schema has no paragraph")
-  return richTextSchemaAdapter.schema.topNodeType.create(null, [paragraph.create()])
-}
-
-const nonemptyDocument = () => {
-  const paragraph = richTextSchemaAdapter.schema.nodes.paragraph
-  if (paragraph === undefined) throw new Error("test schema has no paragraph")
-  return richTextSchemaAdapter.schema.topNodeType.create(null, [paragraph.create(null, richTextSchemaAdapter.schema.text("already writing"))])
-}
 
 const snapshot = (overrides: Partial<LoroSemanticCustodySnapshot> = {}): LoroSemanticCustodySnapshot => ({
   token: "current",
@@ -70,38 +59,104 @@ const flushOfficialLoroPluginInit = async (currentView: () => EditorView): Promi
 }
 
 describe("Plan Today eligibility", () => {
-  it("accepts only the exact clean, current Loro attachment and rejects custody/descriptor drift", () => {
+  it("accepts only a ready, exact clean current Loro attachment and rejects custody/descriptor drift", async () => {
+    vi.useFakeTimers()
+    const page = createLoroPage()
+    const binding = createLoroEditorBinding({
+      container: document.createElement("div"),
+      getWorkingDraft: () => page.doc,
+      isPlanTodayEligible: () => false,
+      workspaceId,
+      nodeId,
+      onSupertagApplied: () => undefined
+    })
     const isPlanTodayEligible = createPlanTodayEligibility({
       offerPlanToday: true,
       nodeId,
       isCurrentUiAttachment: (candidate) => candidate.token === "current"
     })
-    const empty = canonicalEmptyDocument()
+    try {
+      expect(isPlanTodayEligible(snapshot(), binding.view!.state)).toBe(false)
+      await flushOfficialLoroPluginInit(() => binding.view!)
+      const readyState = binding.view!.state
 
-    expect(isPlanTodayEligible(snapshot(), empty)).toBe(true)
-    expect(isPlanTodayEligible(snapshot({
-      acceptedBase: { doc: createLoroPage().doc, descriptor: testDescriptor("00000000-0000-4000-8000-000000000073" as never) }
-    }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ token: "detached" }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ bindable: false }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ state: "retainedConflict" }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ state: "queued" }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ frozenA: {} as never }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({ hasPostFreezeDraft: true }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot(), nonemptyDocument())).toBe(false)
-    expect(isPlanTodayEligible(snapshot({
-      acceptedBase: {
-        doc: createLoroPage().doc,
-        descriptor: { ...testDescriptor(), activeFormat: "plaintext-v1" } as never
-      }
-    }), empty)).toBe(false)
-    expect(isPlanTodayEligible(snapshot({
-      acceptedBase: { doc: createLoroPage().doc, descriptor: testDescriptor(nodeId, 2) }
-    }), empty)).toBe(false)
+      expect(isPlanTodayEligible(snapshot(), readyState)).toBe(true)
+      expect(isPlanTodayEligible(snapshot({
+        acceptedBase: { doc: createLoroPage().doc, descriptor: testDescriptor("00000000-0000-4000-8000-000000000073" as never) }
+      }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ token: "detached" }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ bindable: false }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ state: "retainedConflict" }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ state: "queued" }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ frozenA: {} as never }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({ hasPostFreezeDraft: true }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot(), readyState.apply(readyState.tr.insertText("already writing", 1)))).toBe(false)
+      expect(isPlanTodayEligible(snapshot({
+        acceptedBase: {
+          doc: createLoroPage().doc,
+          descriptor: { ...testDescriptor(), activeFormat: "plaintext-v1" } as never
+        }
+      }), readyState)).toBe(false)
+      expect(isPlanTodayEligible(snapshot({
+        acceptedBase: { doc: createLoroPage().doc, descriptor: testDescriptor(nodeId, 2) }
+      }), readyState)).toBe(false)
+    } finally {
+      binding.dispose()
+      vi.useRealTimers()
+    }
   })
 })
 
 describe("Plan Today live editor binding", () => {
+  it("does not replace authored authority or record a human edit before official Loro initialization", async () => {
+    vi.useFakeTimers()
+    const host = document.createElement("div")
+    const root = createRoot(host)
+    const acceptedHumanEdit = vi.fn()
+    const page = createLoroPage()
+    const authoredDocument = richTextSchemaAdapter.schema.node("doc", undefined, [
+      richTextSchemaAdapter.schema.node("paragraph", undefined, richTextSchemaAdapter.schema.text("authoritative daily content"))
+    ])
+    updateLoroToPmState(
+      page.doc as LoroDocType,
+      new Map(),
+      EditorState.create({ schema: richTextSchemaAdapter.schema, doc: authoredDocument }),
+      inspectLoroPage(page.doc).pmRoot.id
+    )
+    let binding: ReturnType<typeof createLoroEditorBinding> | undefined
+    try {
+      runtimeMock.runPromise.mockReset()
+      await act(async () => {
+        root.render(
+          <LoroRichNoteEditor
+            workspaceId={"00000000-0000-4000-8000-000000000070" as never}
+            nodeId={nodeId}
+            initialPage={page}
+            initialDescriptor={testDescriptor()}
+            onSyncStatusChange={() => undefined}
+            onSupertagApplied={() => undefined}
+            onAcceptedHumanEdit={acceptedHumanEdit}
+            onBindingReady={(next) => { binding = next }}
+            offerPlanToday
+          />
+        )
+      })
+
+      expect(loroSyncPluginKey.getState(binding!.view!.state)?.snapshot).not.toBeNull()
+      expect(host.querySelector(".daily-note-starter-action")).toBeNull()
+      expect(binding!.applyPlanTodayStarter()).toBe(false)
+      expect(acceptedHumanEdit).not.toHaveBeenCalled()
+
+      await act(async () => { await flushOfficialLoroPluginInit(() => binding!.view!) })
+      expect(binding!.view!.state.doc.textContent).toBe("authoritative daily content")
+      expect(binding!.view!.state.doc.textContent).not.toContain(PLAN_TODAY_STARTER.focusHeading)
+      expect(acceptedHumanEdit).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => { root.unmount() })
+      vi.useRealTimers()
+    }
+  })
+
   it("renders and applies the shared manifest once, records one human edit, and selects/focuses the first priority", async () => {
     vi.useFakeTimers()
     const host = document.createElement("div")
