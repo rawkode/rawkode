@@ -391,6 +391,23 @@ describe("AppShell command palette shortcut", () => {
     expect(hints).toEqual(expect.arrayContaining(["⌘K / Ctrl K", "⌘J / Ctrl J"]))
   })
 
+  it("keeps the global agent trigger neutral without a complete activity source", async () => {
+    const host = await mount()
+    const openAgent = host.querySelector<HTMLButtonElement>(".shell-chat-toggle")
+
+    expect(openAgent?.getAttribute("aria-label")).toBe("Open agent chat")
+    expect(openAgent?.getAttribute("aria-describedby")).toBeNull()
+    expect(openAgent?.querySelector(".shell-chat-attention")).toBeNull()
+    expect(host.querySelector("#athenaeum-agent-chat-description")).toBeNull()
+
+    await act(async () => {
+      openAgent?.click()
+      await flush()
+    })
+
+    expect(host.querySelector<HTMLButtonElement>(".shell-chat-toggle")?.getAttribute("aria-label")).toBe("Close agent chat")
+  })
+
   it("keeps the sidebar focused on workspace navigation", async () => {
     const host = await mount()
 

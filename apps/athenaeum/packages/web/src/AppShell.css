@@ -471,17 +471,6 @@ dialog.shell-sidebar:not([open]) {
   font-weight: 400;
 }
 
-.shell-chat-attention {
-  display: none;
-  color: var(--color-warning);
-  font-size: 0.65rem;
-}
-
-.shell:has(.chat-model-unavailable) .shell-chat-attention,
-.shell:has(.chat-pending:not(:has(.chat-pending-empty))) .shell-chat-attention {
-  display: inline;
-}
-
 .shell-sidebar-toggle {
   display: none;
 }

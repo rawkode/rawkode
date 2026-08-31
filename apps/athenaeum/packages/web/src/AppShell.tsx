@@ -391,20 +391,13 @@ export function AppShell({
                 type="button"
                 className="ds-button shell-chat-toggle"
                 onClick={toggleChat}
-                aria-label={chatOpen ? "Close agent chat" : "Open agent chat and review assistant activity"}
-                aria-describedby="athenaeum-agent-chat-description"
+                aria-label={chatOpen ? "Close agent chat" : "Open agent chat"}
                 aria-expanded={chatOpen}
                 aria-controls="athenaeum-agent-chat"
               >
                 <span aria-hidden="true">✦</span>
                 <span className="shell-chat-label">{chatOpen ? "Close agent" : "Open agent"}</span>
                 <kbd>⌘J / Ctrl J</kbd>
-                <span className="shell-chat-attention" aria-hidden="true">
-                  ●
-                </span>
-                <span id="athenaeum-agent-chat-description" className="sr-only">
-                  Review pending assistant changes and errors.
-                </span>
               </button>
             </div>
           </header>
