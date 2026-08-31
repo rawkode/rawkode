@@ -23,8 +23,10 @@ export const CalendarConnectionId = Schema.String.pipe(Schema.pattern(new RegExp
 export type CalendarConnectionId = typeof CalendarConnectionId.Type
 export const CalendarOAuthAuthorityAttemptId = Schema.String.pipe(Schema.pattern(new RegExp(`^coa_${opaqueUuid}$`)), Schema.brand("CalendarOAuthAuthorityAttemptId"))
 export type CalendarOAuthAuthorityAttemptId = typeof CalendarOAuthAuthorityAttemptId.Type
-/** Gatekeeper-side attempt identity is distinct from Athenaeum's coordinator attempt id. */
-export const GoogleCalendarGatekeeperAttemptId = Schema.String.pipe(Schema.pattern(new RegExp(`^gka_${opaqueUuid}$`)), Schema.brand("GoogleCalendarGatekeeperAttemptId"))
+/** Gatekeeper-side attempt identity. The deployed Gatekeeper reuses its opaque `coa_` attempt
+ * namespace; the field remains separately branded so coordinator and provider identities cannot
+ * be substituted accidentally even though their wire shape is compatible. */
+export const GoogleCalendarGatekeeperAttemptId = Schema.String.pipe(Schema.pattern(new RegExp(`^coa_${opaqueUuid}$`)), Schema.brand("GoogleCalendarGatekeeperAttemptId"))
 export type GoogleCalendarGatekeeperAttemptId = typeof GoogleCalendarGatekeeperAttemptId.Type
 export const GoogleCalendarProviderConnectionId = Schema.String.pipe(Schema.pattern(new RegExp(`^gpc_${opaqueUuid}$`)), Schema.brand("GoogleCalendarProviderConnectionId"))
 export type GoogleCalendarProviderConnectionId = typeof GoogleCalendarProviderConnectionId.Type

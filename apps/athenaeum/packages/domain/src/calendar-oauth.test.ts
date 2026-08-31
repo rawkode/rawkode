@@ -57,7 +57,7 @@ describe("opaque calendar OAuth contracts", () => {
     expect(Schema.encodeSync(CalendarOAuthAdmissionReceipt)(receipt).handleDerivationVersion).toBe(CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION)
     expect(Schema.decodeUnknownSync(CalendarConnectionLedgerTarget)({ kind: "calendarConnection", id: receipt.calendarConnectionId })).toBeDefined()
     expect(Schema.decodeUnknownSync(GatekeeperBindingLedgerTarget)({ kind: "gatekeeperBinding", id: bindingId })).toBeDefined()
-    expect(Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ version: "athenaeum.calendar-oauth-provider-completion.v1", providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa3", gatekeeperAttemptId: "gka_3fa85f64-5717-4562-b3fc-2c963f66afa2", bindingId, providerReceiptDigest: digest, completionFactDigest: digest, admissionWitnessDigest: digest })).toBeDefined()
+    expect(Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ version: "athenaeum.calendar-oauth-provider-completion.v1", providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa3", gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa2", bindingId, providerReceiptDigest: digest, completionFactDigest: digest, admissionWitnessDigest: digest })).toBeDefined()
   })
 
   it("projects only bounded opaque account aliases and a deterministic legacy-disable message", () => {

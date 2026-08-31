@@ -21,7 +21,7 @@ const setup = () => {
 const completionFor = (admission: ReturnType<typeof setup>["admission"]) => Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({
   version: "athenaeum.calendar-oauth-provider-completion.v1",
   providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  gatekeeperAttemptId: "gka_3fa85f64-5717-4562-b3fc-2c963f66afa5",
+  gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa5",
   bindingId: EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa4"),
   providerReceiptDigest: digest, completionFactDigest: digest,
   admissionWitnessDigest: admission.receipt.admissionWitnessDigest

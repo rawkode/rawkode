@@ -42,6 +42,43 @@ export type CalendarOAuthWorkspaceAdmissionsSnapshot = Readonly<{
 }>
 
 const digest = (value: unknown): string => sha256HexSync(canonicalJsonBytes(value))
+const encoder = new TextEncoder()
+
+/**
+ * A small synchronous HMAC-SHA-256 implementation for the receipt path.  This is deliberately
+ * expressed in terms of the domain's byte-exact SHA-256 primitive so the same code works in the
+ * Worker and in the storage-neutral tests; it is the standard HMAC construction, not a
+ * `sha256({ secret, payload })` convention.
+ */
+const hmacSha256Hex = (secret: string, bytes: Uint8Array): string => {
+  const secretBytes = encoder.encode(secret)
+  const block = new Uint8Array(64)
+  if (secretBytes.length > block.length) {
+    const compressed = sha256HexSync(secretBytes).match(/../g)!.map((part) => Number.parseInt(part, 16))
+    block.set(compressed)
+  } else block.set(secretBytes)
+  const outer = new Uint8Array(64)
+  const inner = new Uint8Array(64)
+  for (let index = 0; index < block.length; index++) {
+    outer[index] = block[index]! ^ 0x5c
+    inner[index] = block[index]! ^ 0x36
+  }
+  const innerDigest = sha256HexSync(new Uint8Array([...inner, ...bytes])).match(/../g)!.map((part) => Number.parseInt(part, 16))
+  return sha256HexSync(new Uint8Array([...outer, ...innerDigest]))
+}
+
+const base64Url = (hex: string): string =>
+  btoa(String.fromCharCode(...Uint8Array.from(hex.match(/../g)!.map((part) => Number.parseInt(part, 16)))))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+
+/** Parses the active key followed by retained keys. Empty/duplicate values are rejected. */
+export const calendarOAuthKeyring = (activeSecret: string, retainedSecrets: readonly string[] = []): readonly string[] => {
+  const keys = [activeSecret, ...retainedSecrets].map((secret) => secret.trim())
+  if (keys.some((secret) => secret.length === 0) || new Set(keys).size !== keys.length) {
+    throw new CalendarOAuthWorkspaceAdmissionError("Calendar OAuth keyring is unavailable.")
+  }
+  return Object.freeze(keys)
+}
 const witnessDigest = (value: string): CalendarOAuthAdmissionReceipt["admissionWitnessDigest"] =>
   Schema.decodeUnknownSync(CalendarOAuthWitnessDigest)(value)
 const opaqueId = (prefix: string): string => `${prefix}${crypto.randomUUID()}`
@@ -59,14 +96,25 @@ export const deriveCalendarOAuthAttemptHandle = (input: {
 }): string => {
   if (input.handleSecret.length === 0) throw new CalendarOAuthWorkspaceAdmissionError()
   const version = input.version ?? CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION
-  const material = digest({ version, secret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint: input.requestFingerprint })
-  // SHA-256 hex -> URL-safe 43-char base64-like opaque suffix. The secret remains server-only.
-  const suffix = btoa(String.fromCharCode(...Uint8Array.from(material.match(/../g)!.map((part) => Number.parseInt(part, 16))))).replaceAll("+", "-").replaceAll("/", "_").replace(/=$/, "")
+  const material = canonicalJsonBytes({
+    version,
+    domain: "athenaeum.calendar-oauth.client-attempt-handle.v1",
+    workspaceId: input.workspaceId,
+    principal: input.principal,
+    requestFingerprint: input.requestFingerprint
+  })
+  // Handle bytes are an actual HMAC-SHA-256. The secret is never serialized into the material.
+  const suffix = base64Url(hmacSha256Hex(input.handleSecret, material))
   return `oca_v1_${suffix}`
 }
 
-const admissionWitness = (secret: string, receipt: Omit<CalendarOAuthAdmissionReceipt, "admissionWitnessDigest">): string =>
-  digest({ version: "athenaeum.calendar-oauth-admission-witness.v1", secret, receipt })
+export const calendarOAuthAdmissionWitnessDigest = (
+  secret: string,
+  receipt: Omit<CalendarOAuthAdmissionReceipt, "admissionWitnessDigest">
+): string => hmacSha256Hex(secret, canonicalJsonBytes({
+  version: "athenaeum.calendar-oauth-admission-witness.v1",
+  receipt
+}))
 
 /** Small persistence-neutral state owner; Workspace DO persists these rows in OCM-03. */
 export class CalendarOAuthWorkspaceAdmissions {
@@ -100,6 +148,13 @@ export class CalendarOAuthWorkspaceAdmissions {
     return receipt
   }
 
+  /** Private request lookup for the Workspace ledger only; never an RPC capability. */
+  resolveRequest(input: { workspaceId: EntityId; principal: Email; requestId: string }): CalendarOAuthAdmissionReceipt {
+    const receipt = this.#byRequestIdentity.get(`${input.workspaceId}:${input.principal}:${input.requestId}`)
+    if (receipt === undefined) throw new CalendarOAuthWorkspaceAdmissionError()
+    return receipt
+  }
+
   begin(input: {
     workspaceId: EntityId
     principal: Email
@@ -107,15 +162,22 @@ export class CalendarOAuthWorkspaceAdmissions {
     commitMessage: string
     attribution: MutationAttribution
     handleSecret: string
+    retainedHandleSecrets?: readonly string[]
     now: string
   }): CalendarOAuthWorkspaceAdmission {
     const requestFingerprint = calendarOAuthBeginRequestFingerprint(input)
     const requestIdentity = `${input.workspaceId}:${input.principal}:${input.requestId}`
+    const keyring = calendarOAuthKeyring(input.handleSecret, input.retainedHandleSecrets)
     const existing = this.#byRequestIdentity.get(requestIdentity)
     if (existing !== undefined) {
       if (existing.requestFingerprint !== requestFingerprint) throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection request conflicts with its original intent.")
-      const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint: existing.requestFingerprint, version: existing.handleDerivationVersion })
-      return Object.freeze({ receipt: existing, attemptHandle })
+      for (const handleSecret of keyring) {
+        const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint: existing.requestFingerprint, version: existing.handleDerivationVersion })
+        if (witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: attemptHandle })) === existing.attemptHandleDigest) {
+          return Object.freeze({ receipt: existing, attemptHandle })
+        }
+      }
+      throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection admission key is no longer retained.")
     }
     const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint })
     const withoutWitness = {
@@ -127,7 +189,7 @@ export class CalendarOAuthWorkspaceAdmissions {
       authorityAttemptId: opaqueId("coa_") as CalendarOAuthAdmissionReceipt["authorityAttemptId"],
       admittedAt: input.now as CalendarOAuthAdmissionReceipt["admittedAt"]
     }
-    const receipt = new CalendarOAuthAdmissionReceipt({ ...withoutWitness, admissionWitnessDigest: witnessDigest(admissionWitness(input.handleSecret, withoutWitness)) })
+    const receipt = new CalendarOAuthAdmissionReceipt({ ...withoutWitness, admissionWitnessDigest: witnessDigest(calendarOAuthAdmissionWitnessDigest(input.handleSecret, withoutWitness)) })
     const admission = Object.freeze({ receipt, attemptHandle })
     this.#byRequestIdentity.set(requestIdentity, receipt)
     return admission

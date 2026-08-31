@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as Schema from "effect/Schema"
-import { CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
+import { CalendarOAuthClientAttemptHandle, CalendarOAuthProviderCompletionWitness, Email, EntityId } from "@athenaeum/domain"
 import { CalendarOAuthWorkspaceAdmissionError, CalendarOAuthWorkspaceAdmissions } from "../src/calendar-oauth-workspace-admission.js"
 
 const workspaceId = EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa7")
@@ -16,9 +16,18 @@ describe("Workspace calendar OAuth admission", () => {
     const first = begin(store)
     const replay = begin(store)
     expect(replay).toEqual(first)
+    expect(Schema.decodeUnknownSync(CalendarOAuthClientAttemptHandle)(first.attemptHandle)).toBe(first.attemptHandle)
     expect(first.receipt.handleDerivationVersion).toBe("hmac-sha256.workspace-principal-request-fingerprint.v1")
     expect(JSON.stringify(first.receipt)).not.toContain(first.attemptHandle)
     expect(() => begin(store, "Connect another calendar.")).toThrow(CalendarOAuthWorkspaceAdmissionError)
+  })
+
+  it("replays a receipt after HMAC key rotation only when the old key is retained", () => {
+    const store = new CalendarOAuthWorkspaceAdmissions()
+    const first = begin(store)
+    expect(() => store.begin({ workspaceId, principal, requestId: "connect-1", commitMessage: "Connect my calendar.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" }, handleSecret: "new-secret", now })).toThrow(CalendarOAuthWorkspaceAdmissionError)
+    const replay = store.begin({ workspaceId, principal, requestId: "connect-1", commitMessage: "Connect my calendar.", attribution: { version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" }, handleSecret: "new-secret", retainedHandleSecrets: [secret], now })
+    expect(replay).toEqual(first)
   })
 
   it("restores receipt-only admission state and re-derives its stable handle", () => {
@@ -37,7 +46,7 @@ describe("Workspace calendar OAuth admission", () => {
     const completion = {
       version: "athenaeum.calendar-oauth-provider-completion.v1" as const,
       providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      gatekeeperAttemptId: "gka_3fa85f64-5717-4562-b3fc-2c963f66afa5",
+      gatekeeperAttemptId: "coa_3fa85f64-5717-4562-b3fc-2c963f66afa5",
       bindingId: EntityId.make("3fa85f64-5717-4562-b3fc-2c963f66afa4"),
       providerReceiptDigest: digest,
       completionFactDigest: digest,
