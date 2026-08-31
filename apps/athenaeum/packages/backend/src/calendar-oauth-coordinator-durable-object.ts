@@ -5,6 +5,7 @@
  * test adapter for the same one-owner records that the Durable Object storage adapter will persist.
  * Raw OAuth code/state/tokens/account data are neither accepted nor retained here.
  */
+import { DurableObject } from "cloudflare:workers"
 import {
   CalendarOAuthAdmissionReceipt,
   CalendarOAuthProviderCompletionWitness,
@@ -13,6 +14,7 @@ import {
   type Email,
   type EntityId
 } from "@athenaeum/domain"
+import type { Env } from "./index.js"
 import {
   allocateCalendarOAuthAuthorityAttempt,
   activateCalendarOAuthAuthorityAttempt,
@@ -42,6 +44,21 @@ const handleDigest = (value: string): string => digest({ version: "athenaeum.cal
 const nonceDigest = (value: string): string => digest({ version: "athenaeum.calendar-oauth-state-nonce.v1", nonce: value })
 const opaque = (prefix: string): string => `${prefix}${crypto.randomUUID()}`
 
+/** Copy schema-defined fields before persistence so extra transport properties cannot become records. */
+const privateAdmission = (receipt: CalendarOAuthAdmissionReceipt): CalendarOAuthAdmissionReceipt => new CalendarOAuthAdmissionReceipt({
+  version: receipt.version, workspaceId: receipt.workspaceId, principal: receipt.principal,
+  requestId: receipt.requestId, requestFingerprint: receipt.requestFingerprint,
+  handleDerivationVersion: receipt.handleDerivationVersion, attemptHandleDigest: receipt.attemptHandleDigest,
+  calendarConnectionId: receipt.calendarConnectionId, authorityAttemptId: receipt.authorityAttemptId,
+  admissionWitnessDigest: receipt.admissionWitnessDigest, admittedAt: receipt.admittedAt
+})
+const privateCompletion = (completion: CalendarOAuthProviderCompletionWitness): CalendarOAuthProviderCompletionWitness => new CalendarOAuthProviderCompletionWitness({
+  version: completion.version, providerConnectionId: completion.providerConnectionId,
+  gatekeeperAttemptId: completion.gatekeeperAttemptId, bindingId: completion.bindingId,
+  providerReceiptDigest: completion.providerReceiptDigest, completionFactDigest: completion.completionFactDigest,
+  admissionWitnessDigest: completion.admissionWitnessDigest
+})
+
 /** Exact, versioned MAC-compatible verifier shared by trusted Workspace internal callers. */
 export const calendarOAuthAdmissionWitnessDigest = (secret: string, receipt: CalendarOAuthAdmissionReceipt): string => {
   const { admissionWitnessDigest: _witness, ...material } = receipt
@@ -52,23 +69,29 @@ export class CalendarOAuthCoordinator {
   readonly #byAttempt = new Map<string, CalendarOAuthCoordinatorRecord>()
   readonly #byHandleDigest = new Map<string, string>()
 
-  constructor(private readonly admissionWitnessSecret: string) {}
+  constructor(private readonly admissionWitnessSecret: string, records: readonly CalendarOAuthCoordinatorRecord[] = []) {
+    for (const record of records) this.#put(Object.freeze({ admission: privateAdmission(record.admission), attempt: record.attempt, completion: record.completion === undefined ? undefined : privateCompletion(record.completion) }))
+  }
+
+  /** The durable adapter persists only private receipt-bearing records, never transport secrets. */
+  snapshot(): readonly CalendarOAuthCoordinatorRecord[] { return [...this.#byAttempt.values()] }
 
   /** Idempotently allocates and activates the coordinator record from a Workspace-authentic receipt. */
   allocateActivate(input: { admission: CalendarOAuthAdmissionReceipt; now: string }): CalendarOAuthCoordinatorRecord {
-    this.#assertAdmission(input.admission)
-    const existing = this.#byAttempt.get(input.admission.authorityAttemptId)
+    const admission = privateAdmission(input.admission)
+    this.#assertAdmission(admission)
+    const existing = this.#byAttempt.get(admission.authorityAttemptId)
     if (existing !== undefined) {
-      if (existing.admission.admissionWitnessDigest !== input.admission.admissionWitnessDigest || existing.admission.requestFingerprint !== input.admission.requestFingerprint) throw new CalendarOAuthCoordinatorError()
+      if (existing.admission.admissionWitnessDigest !== admission.admissionWitnessDigest || existing.admission.requestFingerprint !== admission.requestFingerprint) throw new CalendarOAuthCoordinatorError()
       return existing
     }
     const allocated = allocateCalendarOAuthAuthorityAttempt({
-      workspaceId: input.admission.workspaceId, principal: input.admission.principal, now: input.now,
-      expiresAt: new Date(Date.parse(input.now) + 10 * 60_000).toISOString(), authorityAttemptId: input.admission.authorityAttemptId,
-      clientHandleDigest: input.admission.attemptHandleDigest, allocationWitnessDigest: input.admission.admissionWitnessDigest
+      workspaceId: admission.workspaceId, principal: admission.principal, now: input.now,
+      expiresAt: new Date(Date.parse(input.now) + 10 * 60_000).toISOString(), authorityAttemptId: admission.authorityAttemptId,
+      clientHandleDigest: admission.attemptHandleDigest, allocationWitnessDigest: admission.admissionWitnessDigest
     })
-    const attempt = activateCalendarOAuthAuthorityAttempt({ attempt: allocated.attempt, workspaceId: input.admission.workspaceId, principal: input.admission.principal, allocationWitnessDigest: input.admission.admissionWitnessDigest, now: input.now })
-    const record = Object.freeze({ admission: input.admission, attempt })
+    const attempt = activateCalendarOAuthAuthorityAttempt({ attempt: allocated.attempt, workspaceId: admission.workspaceId, principal: admission.principal, allocationWitnessDigest: admission.admissionWitnessDigest, now: input.now })
+    const record = Object.freeze({ admission, attempt })
     this.#put(record)
     return record
   }
@@ -106,7 +129,7 @@ export class CalendarOAuthCoordinator {
   /** Provider exchange occurs outside this contract; only its opaque immutable witness is admitted. */
   recordCompletion(input: { authorityAttemptId: string; callbackLease: string; callbackFence: number; completion: CalendarOAuthProviderCompletionWitness; now: string }): CalendarOAuthCoordinatorRecord {
     const record = this.#require(input.authorityAttemptId)
-    const completion = input.completion
+    const completion = privateCompletion(input.completion)
     if (completion.admissionWitnessDigest !== record.admission.admissionWitnessDigest || completion.gatekeeperAttemptId.length === 0) throw new CalendarOAuthCoordinatorError()
     try {
       const attempt = recordCalendarOAuthProviderCompletion({ attempt: record.attempt, callbackLease: input.callbackLease, callbackFence: input.callbackFence, providerReceiptDigest: completion.providerReceiptDigest, completionFactDigest: completion.completionFactDigest, now: input.now })
@@ -148,6 +171,8 @@ export class CalendarOAuthCoordinator {
     return record
   }
   #put(record: CalendarOAuthCoordinatorRecord): void {
+    const handleOwner = this.#byHandleDigest.get(record.admission.attemptHandleDigest)
+    if (handleOwner !== undefined && handleOwner !== record.admission.authorityAttemptId) throw new CalendarOAuthCoordinatorError()
     this.#byAttempt.set(record.admission.authorityAttemptId, record)
     this.#byHandleDigest.set(record.admission.attemptHandleDigest, record.admission.authorityAttemptId)
   }
@@ -155,3 +180,74 @@ export class CalendarOAuthCoordinator {
 
 const sameCompletion = (left: CalendarOAuthProviderCompletionWitness, right: CalendarOAuthProviderCompletionWitness): boolean =>
   left.providerConnectionId === right.providerConnectionId && left.gatekeeperAttemptId === right.gatekeeperAttemptId && left.bindingId === right.bindingId && left.providerReceiptDigest === right.providerReceiptDigest && left.completionFactDigest === right.completionFactDigest && left.admissionWitnessDigest === right.admissionWitnessDigest
+
+type CoordinatorEnv = Env & Readonly<{ CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET?: string }>
+type CoordinatorSnapshot = Readonly<{ version: "athenaeum.calendar-oauth-coordinator.v1"; records: readonly CalendarOAuthCoordinatorRecord[] }>
+const COORDINATOR_SNAPSHOT_KEY = "calendar-oauth-coordinator.private.v1"
+
+/**
+ * One global coordinator Durable Object. Its upcoming Worker binding must address exactly one
+ * named instance; this class deliberately exposes only trusted internal methods, not HTTP/RPC.
+ */
+export class CalendarOAuthCoordinatorDurableObject extends DurableObject<CoordinatorEnv> {
+  readonly #secret: string
+  #coordinator!: CalendarOAuthCoordinator
+  readonly #ready: Promise<void>
+  #tail: Promise<void> = Promise.resolve()
+
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    super(ctx, env)
+    this.#secret = env.CALENDAR_OAUTH_ADMISSION_WITNESS_SECRET ?? ""
+    this.#ready = ctx.blockConcurrencyWhile(async () => { await this.#reload() })
+  }
+
+  allocateActivate(input: { admission: CalendarOAuthAdmissionReceipt; now: string }): Promise<CalendarOAuthCoordinatorRecord> {
+    return this.#mutate((coordinator) => coordinator.allocateActivate(input))
+  }
+  issueLaunch(input: { authorityAttemptId: string; workspaceId: EntityId; principal: Email; now: string; launchCapability?: string }): Promise<Readonly<{ launchCapability: string; launchGeneration: number }>> {
+    return this.#mutate((coordinator) => coordinator.issueLaunch(input))
+  }
+  redeemLaunch(input: { authorityAttemptId: string; launchCapability: string; expectedLaunchGeneration: number; now: string; stateNonce?: string }): Promise<Readonly<{ stateNonce: string; stateGeneration: number }>> {
+    return this.#mutate((coordinator) => coordinator.redeemLaunch(input))
+  }
+  claimCallback(input: { authorityAttemptId: string; stateNonce: string; stateGeneration: number; now: string; leaseExpiresAt: string; callbackLease?: string }): Promise<Readonly<{ callbackLease: string; callbackFence: number }>> {
+    return this.#mutate((coordinator) => coordinator.claimCallback(input))
+  }
+  recordCompletion(input: { authorityAttemptId: string; callbackLease: string; callbackFence: number; completion: CalendarOAuthProviderCompletionWitness; now: string }): Promise<CalendarOAuthCoordinatorRecord> {
+    return this.#mutate((coordinator) => coordinator.recordCompletion(input))
+  }
+  reconcileWorkspaceCommit(input: { authorityAttemptId: string; workspaceId: EntityId; principal: Email; completion: CalendarOAuthProviderCompletionWitness; workspaceCommitWitnessDigest: string; now: string }): Promise<CalendarOAuthCoordinatorRecord> {
+    return this.#mutate((coordinator) => coordinator.reconcileWorkspaceCommit(input))
+  }
+  completionView(input: { authorityAttemptId: string; workspaceId: EntityId; principal: Email; attemptHandle: string; now: string }): Promise<CalendarOAuthCompletionView> {
+    return this.#serial(async () => {
+      await this.#ready
+      return this.#coordinator.completionView(input)
+    })
+  }
+
+  #serial<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#tail.then(operation, operation)
+    this.#tail = result.then(() => undefined, () => undefined)
+    return result
+  }
+  #mutate<T>(operation: (coordinator: CalendarOAuthCoordinator) => T): Promise<T> {
+    return this.#serial(async () => {
+      await this.#ready
+      try {
+        return await this.ctx.storage.transaction(async (transaction) => {
+          const result = operation(this.#coordinator)
+          await transaction.put(COORDINATOR_SNAPSHOT_KEY, { version: "athenaeum.calendar-oauth-coordinator.v1", records: this.#coordinator.snapshot() } satisfies CoordinatorSnapshot)
+          return result
+        })
+      } catch (error) {
+        await this.#reload()
+        throw error
+      }
+    })
+  }
+  async #reload(): Promise<void> {
+    const snapshot = await this.ctx.storage.get<CoordinatorSnapshot>(COORDINATOR_SNAPSHOT_KEY)
+    this.#coordinator = new CalendarOAuthCoordinator(this.#secret, snapshot?.records ?? [])
+  }
+}

@@ -51,7 +51,12 @@ describe("Calendar OAuth coordinator authority", () => {
     const redeemed = coordinator.redeemLaunch({ authorityAttemptId: admission.receipt.authorityAttemptId, launchCapability: launch.launchCapability, expectedLaunchGeneration: launch.launchGeneration, stateNonce: "state", now })
     const claim = coordinator.claimCallback({ authorityAttemptId: admission.receipt.authorityAttemptId, stateNonce: redeemed.stateNonce, stateGeneration: redeemed.stateGeneration, now, leaseExpiresAt: "2026-08-31T10:01:00.000Z", callbackLease: "oclse_lease" })
     const completion = completionFor(admission)
-    coordinator.recordCompletion({ authorityAttemptId: admission.receipt.authorityAttemptId, callbackLease: claim.callbackLease, callbackFence: claim.callbackFence, completion, now })
+    // Transport may contain accidental provider fields; coordinator copies only the witness schema.
+    const completionWithRawTransportFields = { ...completion, authorizationCode: "provider-code-must-not-persist", state: "state-must-not-persist" } as CalendarOAuthProviderCompletionWitness
+    const recorded = coordinator.recordCompletion({ authorityAttemptId: admission.receipt.authorityAttemptId, callbackLease: claim.callbackLease, callbackFence: claim.callbackFence, completion: completionWithRawTransportFields, now })
+    expect(JSON.stringify(recorded)).not.toContain("provider-code-must-not-persist")
+    expect(JSON.stringify(recorded)).not.toContain("state-must-not-persist")
+    expect(JSON.stringify(recorded)).not.toContain("ocl_first")
     expect(coordinator.recordCompletion({ authorityAttemptId: admission.receipt.authorityAttemptId, callbackLease: "lost-response", callbackFence: claim.callbackFence, completion, now: "2026-08-31T10:20:00.000Z" })).toBeDefined()
     expect(() => coordinator.reconcileWorkspaceCommit({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, completion: Schema.decodeUnknownSync(CalendarOAuthProviderCompletionWitness)({ ...completion, completionFactDigest: "b".repeat(64) }), workspaceCommitWitnessDigest: digest, now: "2026-08-31T10:20:00.000Z" })).toThrow(CalendarOAuthCoordinatorError)
     coordinator.reconcileWorkspaceCommit({ authorityAttemptId: admission.receipt.authorityAttemptId, workspaceId, principal, completion, workspaceCommitWitnessDigest: digest, now: "2026-08-31T10:20:00.000Z" })
