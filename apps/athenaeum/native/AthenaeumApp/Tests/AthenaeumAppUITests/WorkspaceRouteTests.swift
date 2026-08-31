@@ -17,6 +17,21 @@ final class WorkspaceRouteTests: XCTestCase {
         XCTAssertNotEqual(WorkspaceRoute.searchID("node"), WorkspaceRoute.graphID("node"))
     }
 
+    func testAgentReviewIsAFirstClassNativeShellAction() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/WorkspaceCommandCenterView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Button(WorkspaceSection.agent.title, systemImage: WorkspaceSection.agent.systemImage)"))
+        XCTAssertTrue(source.contains(".keyboardShortcut(\"j\", modifiers: .command)"))
+        XCTAssertTrue(source.contains("selection = .agent"))
+        XCTAssertTrue(source.contains("iOSPath.append(WorkspaceRoute.agentAction)"))
+    }
+
     func testPersonRouteCarriesTheValidatedEntityIDWithoutUsingGraphRows() throws {
         let personNodeId = try EntityId(validating: "550e8400-e29b-41d4-a716-446655440000")
 

@@ -420,6 +420,13 @@ public struct WorkspaceCommandCenterView: View {
                     .help("Search workspace")
                 }
                 ToolbarItem {
+                    Button(WorkspaceSection.agent.title, systemImage: WorkspaceSection.agent.systemImage) {
+                        selection = .agent
+                    }
+                    .keyboardShortcut("j", modifiers: .command)
+                    .help("Open agent review")
+                }
+                ToolbarItem {
                     Button {
                         showingWorkspaceSwitcher = true
                     } label: {
@@ -476,6 +483,14 @@ public struct WorkspaceCommandCenterView: View {
                             Label("Browse", systemImage: "square.grid.2x2")
                         }
                         .accessibilityHint("Opens search and supporting workspace tools.")
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            iOSPath.append(WorkspaceRoute.agentAction)
+                        } label: {
+                            Label(WorkspaceSection.agent.title, systemImage: WorkspaceSection.agent.systemImage)
+                        }
+                        .accessibilityHint(WorkspaceSection.agent.subtitle)
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button { showingWorkspaceSwitcher = true } label: {
