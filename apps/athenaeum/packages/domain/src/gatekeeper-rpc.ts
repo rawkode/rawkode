@@ -5,6 +5,21 @@ import { GatekeeperBinding, GatekeeperBindingSummary } from "./gatekeeper-bindin
 import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 
+/**
+ * Opaque stable handle held by an authenticated client while it waits for a server-owned OAuth
+ * completion. It is not the backend authority attempt id and is never accepted by the browser
+ * callback. The backend persists only its digest.
+ */
+export const CalendarOAuthClientAttemptHandle = Schema.String.pipe(
+  Schema.pattern(/^oca_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  Schema.brand("CalendarOAuthClientAttemptHandle")
+)
+export type CalendarOAuthClientAttemptHandle = typeof CalendarOAuthClientAttemptHandle.Type
+
+/** Safe lifecycle projection; it intentionally carries neither account data nor receipt material. */
+export const CalendarOAuthCompletionStatus = Schema.Literal("pending", "connected", "failed", "expired")
+export type CalendarOAuthCompletionStatus = typeof CalendarOAuthCompletionStatus.Type
+
 // Phase 5 domain-extension task, item 5: "RPC schemas: connectGoogleCalendar (OAuth kickoff),
 // googleCalendarOAuthCallback, disconnectGoogleCalendar, syncGoogleCalendar (manual trigger),
 // listCalendarEvents, createBookmark, listBookmarks, linkCalendarEventToNode." Same one-
@@ -65,6 +80,78 @@ export class ConnectGoogleCalendarOutput extends Schema.Class<ConnectGoogleCalen
   authorizationUrl: Schema.String,
   state: Schema.String
 }) {}
+
+/**
+ * Safe replacement for new clients. The authority foundation declares this contract before it is
+ * mounted on the Workspace RPC; callers must not adopt the legacy raw state/authorization-URL pair.
+ */
+export class BeginGoogleCalendarConnectionInput extends Schema.Class<BeginGoogleCalendarConnectionInput>(
+  "BeginGoogleCalendarConnectionInput"
+)({
+  workspaceId: EntityId,
+  requestId: MutationRequestId,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+export class BeginGoogleCalendarConnectionOutput extends Schema.Class<BeginGoogleCalendarConnectionOutput>(
+  "BeginGoogleCalendarConnectionOutput"
+)({
+  attemptHandle: CalendarOAuthClientAttemptHandle
+}) {}
+
+/** The one-time fixed-server launch URL is distinct from the stable completion handle. */
+export class IssueGoogleCalendarLaunchInput extends Schema.Class<IssueGoogleCalendarLaunchInput>(
+  "IssueGoogleCalendarLaunchInput"
+)({
+  workspaceId: EntityId,
+  attemptHandle: CalendarOAuthClientAttemptHandle
+}) {}
+
+export const FixedGoogleCalendarLaunchUrl = Schema.String.pipe(
+  Schema.pattern(/^https:\/\/[a-z0-9.-]+\/oauth\/google-calendar\/launch\/ocl_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  Schema.brand("FixedGoogleCalendarLaunchUrl")
+)
+export type FixedGoogleCalendarLaunchUrl = typeof FixedGoogleCalendarLaunchUrl.Type
+
+export class IssueGoogleCalendarLaunchOutput extends Schema.Class<IssueGoogleCalendarLaunchOutput>(
+  "IssueGoogleCalendarLaunchOutput"
+)({
+  /** Opaque one-time capability URL; never a provider authorization URL. */
+  fixedLaunchUrl: FixedGoogleCalendarLaunchUrl
+}) {}
+
+export class GetGoogleCalendarConnectionCompletionInput extends Schema.Class<GetGoogleCalendarConnectionCompletionInput>(
+  "GetGoogleCalendarConnectionCompletionInput"
+)({
+  workspaceId: EntityId,
+  attemptHandle: CalendarOAuthClientAttemptHandle
+}) {}
+
+/** Completion is discriminated so a pending/failed/expired read cannot carry a binding. */
+export class PendingGoogleCalendarConnectionCompletion extends Schema.Class<PendingGoogleCalendarConnectionCompletion>(
+  "PendingGoogleCalendarConnectionCompletion"
+)({ status: Schema.Literal("pending"), binding: Schema.optional(Schema.Never) }) {}
+
+export class ConnectedGoogleCalendarConnectionCompletion extends Schema.Class<ConnectedGoogleCalendarConnectionCompletion>(
+  "ConnectedGoogleCalendarConnectionCompletion"
+)({ status: Schema.Literal("connected"), binding: GatekeeperBindingSummary }) {}
+
+export class FailedGoogleCalendarConnectionCompletion extends Schema.Class<FailedGoogleCalendarConnectionCompletion>(
+  "FailedGoogleCalendarConnectionCompletion"
+)({ status: Schema.Literal("failed"), binding: Schema.optional(Schema.Never) }) {}
+
+export class ExpiredGoogleCalendarConnectionCompletion extends Schema.Class<ExpiredGoogleCalendarConnectionCompletion>(
+  "ExpiredGoogleCalendarConnectionCompletion"
+)({ status: Schema.Literal("expired"), binding: Schema.optional(Schema.Never) }) {}
+
+export const GetGoogleCalendarConnectionCompletionOutput = Schema.Union(
+  PendingGoogleCalendarConnectionCompletion,
+  ConnectedGoogleCalendarConnectionCompletion,
+  FailedGoogleCalendarConnectionCompletion,
+  ExpiredGoogleCalendarConnectionCompletion
+)
+export type GetGoogleCalendarConnectionCompletionOutput = typeof GetGoogleCalendarConnectionCompletionOutput.Type
 
 /** Completes the OAuth exchange (`code` + `state`, Google's redirect-back parameters) and
  *  finalizes the `GatekeeperBinding` for `calendarId`/`mode` in the same call — see this file's

@@ -618,14 +618,23 @@ export {
 } from "./gatekeeper.js"
 
 export {
+  BeginGoogleCalendarConnectionInput,
+  BeginGoogleCalendarConnectionOutput,
+  CalendarOAuthClientAttemptHandle,
+  CalendarOAuthCompletionStatus,
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,
   CreateBookmarkInput,
   CreateBookmarkOutput,
   DisconnectGoogleCalendarInput,
   DisconnectGoogleCalendarOutput,
+  FixedGoogleCalendarLaunchUrl,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
+  GetGoogleCalendarConnectionCompletionInput,
+  GetGoogleCalendarConnectionCompletionOutput,
+  IssueGoogleCalendarLaunchInput,
+  IssueGoogleCalendarLaunchOutput,
   LinkCalendarEventToNodeInput,
   LinkCalendarEventToNodeOutput,
   ListBookmarksInput,

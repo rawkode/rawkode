@@ -5,6 +5,9 @@ import { Bookmark, BookmarkUrl } from "./bookmark.js"
 import { CalendarEvent, CalendarEventTime } from "./calendar-event.js"
 import { GatekeeperBinding, GatekeeperBindingSummary, GoogleCalendarBindingConfig } from "./gatekeeper-binding.js"
 import {
+  BeginGoogleCalendarConnectionInput,
+  BeginGoogleCalendarConnectionOutput,
+  CalendarOAuthClientAttemptHandle,
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,
   CreateBookmarkInput,
@@ -13,6 +16,11 @@ import {
   DisconnectGoogleCalendarOutput,
   GoogleCalendarOAuthCallbackInput,
   GoogleCalendarOAuthCallbackOutput,
+  GetGoogleCalendarConnectionCompletionInput,
+  GetGoogleCalendarConnectionCompletionOutput,
+  FixedGoogleCalendarLaunchUrl,
+  IssueGoogleCalendarLaunchInput,
+  IssueGoogleCalendarLaunchOutput,
   LinkCalendarEventToNodeInput,
   LinkCalendarEventToNodeOutput,
   ListBookmarksInput,
@@ -77,6 +85,20 @@ describe("Google Calendar connect/disconnect/sync RPC schemas", () => {
         state: "opaque-csrf-nonce"
       })
     )
+  })
+
+  it("round-trips only opaque material through the server-owned connection lifecycle", () => {
+    const attribution = new HumanUiMutationAttribution({ version: "athenaeum.mutation-attribution.v1", kind: "humanUi", surface: "web-calendar" })
+    const attemptHandle = Schema.decodeUnknownSync(CalendarOAuthClientAttemptHandle)("oca_3fa85f64-5717-4562-b3fc-2c963f66afa0")
+    roundTrip(BeginGoogleCalendarConnectionInput, new BeginGoogleCalendarConnectionInput({ workspaceId, requestId: "calendar-connect-1", commitMessage: "Connect my work calendar.", attribution }))
+    roundTrip(BeginGoogleCalendarConnectionOutput, new BeginGoogleCalendarConnectionOutput({ attemptHandle }))
+    roundTrip(IssueGoogleCalendarLaunchInput, new IssueGoogleCalendarLaunchInput({ workspaceId, attemptHandle }))
+    roundTrip(IssueGoogleCalendarLaunchOutput, new IssueGoogleCalendarLaunchOutput({ fixedLaunchUrl: Schema.decodeUnknownSync(FixedGoogleCalendarLaunchUrl)("https://athenaeum.example/oauth/google-calendar/launch/ocl_3fa85f64-5717-4562-b3fc-2c963f66afa0") }))
+    roundTrip(GetGoogleCalendarConnectionCompletionInput, new GetGoogleCalendarConnectionCompletionInput({ workspaceId, attemptHandle }))
+    roundTrip(GetGoogleCalendarConnectionCompletionOutput, { status: "pending" })
+    roundTrip(GetGoogleCalendarConnectionCompletionOutput, { status: "connected", binding: new GatekeeperBindingSummary({ id: bindingId, workspaceId, gatekeeperKind: "google-calendar", mode: "selected", createdAt: iso(0) }) })
+    expect(() => Schema.decodeUnknownSync(GetGoogleCalendarConnectionCompletionOutput)({ status: "pending", binding: new GatekeeperBindingSummary({ id: bindingId, workspaceId, gatekeeperKind: "google-calendar", mode: "selected", createdAt: iso(0) }) })).toThrow()
+    expect(() => Schema.decodeUnknownSync(GetGoogleCalendarConnectionCompletionOutput)({ status: "connected" })).toThrow()
   })
 
   it("round-trips GoogleCalendarOAuthCallbackInput/Output, state round-tripping verbatim", () => {
