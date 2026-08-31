@@ -668,8 +668,8 @@
 
 /* --- Daily note: writing owns the route -------------------------------------------------------
    The route is a named container because the agent drawer changes available width without
-   changing the viewport. The context rail only appears when the document's minimum readable
-   column, the rail, and their gap all fit together: 42rem + 16rem + 3rem = 61rem. */
+   changing the viewport. The context rail only appears when the document's writing column, the
+   rail, and their gap all fit together inside the measured notes-route container (64rem and up). */
 
 .notes-route {
   container: notes-route / inline-size;
@@ -703,6 +703,21 @@
   width: min(100%, 65ch);
   margin-inline: auto;
   padding-top: var(--space-5);
+}
+
+/* One live calendar-context child follows the writing column in DOM order. The workspace owns
+   the responsive grid; the editor stays a real flex container so its hierarchy is stable. */
+.daily-note-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-7);
+  min-width: 0;
+}
+
+.daily-note-workspace > .daily-note-editor,
+.daily-note-workspace > .daily-note-context {
+  min-width: 0;
 }
 
 /* The calendar projection is one live child of the note, rather than a second copy hidden in a
@@ -2517,40 +2532,18 @@
   color: var(--color-accent);
 }
 
-@container notes-route (min-width: 61rem) {
-  .daily-note {
-    display: grid;
-    grid-template-columns: minmax(42rem, 65ch) minmax(16rem, 1fr);
-    align-items: start;
-    gap: var(--space-7);
+@container notes-route (min-width: 64rem) {
+  .daily-note-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
   }
 
-  /* Let the header, canvas, and context participate in the note grid while keeping the compact
-     DOM order (header → canvas → context) for narrow layouts. */
   .daily-note-editor {
-    display: contents;
     width: auto;
     margin-inline: 0;
   }
 
-  .daily-note-header,
-  .daily-note-canvas,
-  .daily-standup-subdocument,
-  .daily-note > .backlinks {
-    grid-column: 1;
-  }
-
   .daily-note-header {
     padding-top: var(--space-5);
-  }
-
-  .daily-note-context {
-    position: sticky;
-    top: var(--space-5);
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    max-height: calc(100vh - var(--space-7));
-    overflow-y: auto;
   }
 
   .daily-note-context > .today-brief {
@@ -2563,11 +2556,6 @@
     display: none;
   }
 
-  .daily-standup-subdocument,
-  .daily-note > .backlinks {
-    width: 100%;
-    margin-inline: 0;
-  }
 }
 
 .today-brief-events {
@@ -4373,6 +4361,7 @@
   .daily-note-day-nav {
     width: 100%;
     margin-left: 0;
+    flex-wrap: wrap;
   }
 
   .daily-note-header h1 {

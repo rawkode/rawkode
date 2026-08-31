@@ -335,6 +335,7 @@ export function DailyNote({
 
   return (
     <section className="daily-note">
+      <div className="daily-note-workspace">
       <div className="daily-note-editor">
         <header className={`daily-note-header${isToday ? " daily-note-header-today" : ""}`}>
           <h1 aria-label={`Daily note for ${fullDateLabel}`}>
@@ -513,12 +514,12 @@ export function DailyNote({
             </>
           )}
         </div>
-
-        {dailyContext !== undefined && (
-          <div className="daily-note-context">
-            {dailyContext}
-          </div>
-        )}
+      </div>
+      {dailyContext !== undefined && (
+        <div className="daily-note-context">
+          {dailyContext}
+        </div>
+      )}
       </div>
 
       {state.status === "success" && (

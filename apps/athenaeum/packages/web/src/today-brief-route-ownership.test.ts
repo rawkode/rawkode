@@ -4,6 +4,7 @@ import calendarRouteSource from "./routes/CalendarRoute.tsx?raw"
 import dailyNoteSource from "./DailyNote.tsx?raw"
 import ledgerActivitySource from "./LedgerActivityPanel.tsx?raw"
 import todayBriefSource from "./TodayBrief.tsx?raw"
+import appCss from "./app.css?raw"
 
 /** Source ownership tests care about rendered JSX, not prose comments or import-specifier order. */
 const renderedRouteSource = (source: string): string => {
@@ -48,6 +49,20 @@ describe("Today Brief route ownership", () => {
     expect(dailyNoteSource).not.toContain("client.activateLoroPage(")
     expect(dailyNoteSource).toContain('() => import("./legacy-daily-note.js")')
     expect(dailyNoteSource).toContain("legacy.resolveLegacyDailyNote(client, workspaceId, nodeId, legacyCell)")
+  })
+
+  it("owns the Today companion layout with a measured, non-sticky collapse contract", () => {
+    expect(appCss).toContain(".daily-note-workspace")
+    expect(appCss).toContain("@container notes-route (min-width: 64rem)")
+    expect(appCss).toContain("grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem)")
+    expect(appCss).not.toContain("display: contents")
+
+    const wideLayoutStart = appCss.indexOf("@container notes-route (min-width: 64rem)")
+    const wideLayoutEnd = appCss.indexOf("\n.today-brief-events", wideLayoutStart)
+    const wideLayout = appCss.slice(wideLayoutStart, wideLayoutEnd === -1 ? undefined : wideLayoutEnd)
+    expect(wideLayout).not.toContain("position: sticky")
+    expect(wideLayout).not.toContain("max-height")
+    expect(wideLayout).not.toContain("overflow-y")
   })
 
 })
