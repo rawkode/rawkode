@@ -114,6 +114,23 @@ enum DailyNotePreparationAnnouncementPresentation {
     }
 }
 
+/// A deferred native reveal is valid only for the render generation and daily-note node that
+/// received the authority-backed completion. The outer ScrollViewReader performs the actual
+/// visual scroll; this value-only gate keeps a late layout callback from revealing another note.
+enum DailyNotePreparationFocusPresentation {
+    static func mayApply(
+        requestGeneration: Int,
+        currentGeneration: Int,
+        requestDailyNoteId: EntityId,
+        currentDailyNoteId: EntityId,
+        hasTarget: Bool
+    ) -> Bool {
+        requestGeneration == currentGeneration
+            && requestDailyNoteId == currentDailyNoteId
+            && hasTarget
+    }
+}
+
 /// The settled note should recede into the background. Only active saving or an actionable
 /// exception earns a persistent status line; the editor itself keeps a modest writing floor
 /// instead of occupying dashboard-sized empty space.
@@ -167,11 +184,14 @@ public struct DailyNoteView: View {
     private let contextualView: AnyView?
     private let onOpenEmployeeUpdate: ((EntityId) -> Void)?
     private let onReviewStandup: (() -> Void)?
+    private let onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)?
     private let onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)?
     private let standupLifecycleDriver: DailyStandupLifecycleDriver
     /// DailyNote is the sole owner; standup detail/strip are passive observers.
     @StateObject private var dailyStandupModel: DailyStandupViewModel
     @State private var preparationNotice: String?
+    @AccessibilityFocusState private var focusedMeetingPreparation: LoroMeetingPreparationIdentity?
+    @State private var preparationFocusGeneration = 0
     @State private var standupFocusGeneration = 0
     @AccessibilityFocusState private var isStandupHeadingFocused: Bool
     @State private var hasAutofocused = false
@@ -195,6 +215,7 @@ public struct DailyNoteView: View {
         self.contextualView = nil
         self.onOpenEmployeeUpdate = nil
         self.onReviewStandup = nil
+        self.onFocusMeetingPreparation = nil
         self.onOpenReference = nil
         self.standupLifecycleDriver = .live
         _dailyStandupModel = StateObject(wrappedValue: .init(ledgerLoader: nil, employeeLoader: nil))
@@ -210,6 +231,7 @@ public struct DailyNoteView: View {
         contextualView: AnyView? = nil,
         onOpenEmployeeUpdate: ((EntityId) -> Void)? = nil,
         onReviewStandup: (() -> Void)? = nil,
+        onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil,
         onOpenReference: ((LoroCanonicalSemanticValueV1.InlineReference) -> Void)? = nil,
         standupLifecycleDriver: DailyStandupLifecycleDriver = .live
     ) {
@@ -222,6 +244,7 @@ public struct DailyNoteView: View {
         self.contextualView = contextualView
         self.onOpenEmployeeUpdate = onOpenEmployeeUpdate
         self.onReviewStandup = onReviewStandup
+        self.onFocusMeetingPreparation = onFocusMeetingPreparation
         self.onOpenReference = onOpenReference
         self.standupLifecycleDriver = standupLifecycleDriver
         _dailyStandupModel = StateObject(wrappedValue: .init(
@@ -334,6 +357,7 @@ public struct DailyNoteView: View {
                 // heading that no longer belongs to the resolved note.
                 isStandupHeadingFocused = false
                 standupFocusGeneration += 1
+                preparationFocusGeneration += 1
             default:
                 break
             }
@@ -358,6 +382,7 @@ public struct DailyNoteView: View {
             clearSupertagEditorFocusWitness()
             isStandupHeadingFocused = false
             standupFocusGeneration += 1
+            preparationFocusGeneration += 1
             hasAutofocused = false
             preparationNotice = nil
         }
@@ -544,8 +569,37 @@ public struct DailyNoteView: View {
     }
 
     private func consumePreparationCompletion() {
-        guard model.consumePreparationCompletion() != nil else { return }
+        guard let completion = model.consumePreparationCompletion(),
+              completion.dailyNoteId == model.dailyNoteId,
+              let identity = LoroMeetingPreparationIdentity(
+                localDate: completion.localDate.rawValue,
+                occurrenceKey: completion.occurrenceKey
+              )
+        else { return }
         preparationNotice = DailyNotePreparationAnnouncementPresentation.message
+        let expectedNodeId = model.dailyNoteId
+        let expectedGeneration = preparationFocusGeneration
+        if pageContainsMeetingPreparation(identity) {
+            Task { @MainActor in
+                await Task.yield()
+                guard DailyNotePreparationFocusPresentation.mayApply(
+                    requestGeneration: expectedGeneration,
+                    currentGeneration: preparationFocusGeneration,
+                    requestDailyNoteId: expectedNodeId,
+                    currentDailyNoteId: model.dailyNoteId,
+                    hasTarget: pageContainsMeetingPreparation(identity)
+                ) else { return }
+                onFocusMeetingPreparation?(identity)
+                guard DailyNotePreparationFocusPresentation.mayApply(
+                    requestGeneration: expectedGeneration,
+                    currentGeneration: preparationFocusGeneration,
+                    requestDailyNoteId: expectedNodeId,
+                    currentDailyNoteId: model.dailyNoteId,
+                    hasTarget: pageContainsMeetingPreparation(identity)
+                ) else { return }
+                focusedMeetingPreparation = identity
+            }
+        }
         if DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: model.pagePresentation) {
             hasAutofocused = false
             focusEditorIfNeeded()
@@ -812,6 +866,14 @@ public struct DailyNoteView: View {
             return AnyView(VStack(alignment: .leading, spacing: 10) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) } }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Read-only Loro page"))
+        case .meetingPreparation(let identity, let children):
+            return AnyView(VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) }
+            }
+            .id(identity)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Prepared meeting context")
+            .accessibilityFocused($focusedMeetingPreparation, equals: identity))
         case .paragraph(let children):
             return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in loroProjection(child) } })
         case .heading(_, let children):
@@ -824,6 +886,22 @@ public struct DailyNoteView: View {
                 .foregroundStyle(.secondary)
                 .italic()
                 .accessibilityLabel("Unsupported read-only content"))
+        }
+    }
+
+    private func pageContainsMeetingPreparation(_ identity: LoroMeetingPreparationIdentity) -> Bool {
+        guard case .loroProjectedReadOnly(let state) = model.pagePresentation else { return false }
+        return containsMeetingPreparation(identity, in: state.projection.root)
+    }
+
+    private func containsMeetingPreparation(_ identity: LoroMeetingPreparationIdentity, in node: LoroPageProjectionNode) -> Bool {
+        switch node {
+        case .meetingPreparation(let candidate, let children):
+            return candidate == identity || children.contains { containsMeetingPreparation(identity, in: $0) }
+        case .document(let children), .paragraph(let children), .heading(_, let children):
+            return children.contains { containsMeetingPreparation(identity, in: $0) }
+        case .text, .unsupported:
+            return false
         }
     }
 

@@ -119,8 +119,20 @@ final class LoroPageDocumentStoreTests: XCTestCase {
 
         var projector = LoroPageProjector(limits: LoroPageProjectionLimits())
         XCTAssertEqual(try projector.project(document), .document([
-            .document([.paragraph([.text("Meeting preparation", marks: [])])])
+            .meetingPreparation(
+                try XCTUnwrap(LoroMeetingPreparationIdentity(localDate: "2026-08-27", occurrenceKey: String(repeating: "a", count: 64))),
+                children: [.paragraph([.text("Meeting preparation", marks: [])])]
+            )
         ]))
+    }
+
+    func testMeetingPreparationIdentityRejectsMalformedDateAndOccurrenceKey() {
+        let key = String(repeating: "a", count: 64)
+        XCTAssertNotNil(LoroMeetingPreparationIdentity(localDate: "2026-02-28", occurrenceKey: key))
+        XCTAssertNil(LoroMeetingPreparationIdentity(localDate: "2026-02-30", occurrenceKey: key))
+        XCTAssertNil(LoroMeetingPreparationIdentity(localDate: "2026-2-28", occurrenceKey: key))
+        XCTAssertNil(LoroMeetingPreparationIdentity(localDate: "2026-02-28", occurrenceKey: key.uppercased()))
+        XCTAssertNil(LoroMeetingPreparationIdentity(localDate: "2026-02-28", occurrenceKey: String(repeating: "a", count: 63)))
     }
 
     func testArbitraryUnknownBlockRemainsUnsupported() throws {

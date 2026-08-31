@@ -55,6 +55,46 @@ export interface SupertagRefPayload {
   readonly label: string
 }
 
+/**
+ * Presentation identity for the one server-owned unknown block that the calendar workflow
+ * writes.  This is deliberately narrower than the underlying block marker: the editor may use
+ * it to return the user to a meeting section, but must never expose arbitrary unknown attrs or
+ * provider data in the DOM.
+ */
+export interface MeetingPreparationMarker {
+  readonly localDate: string
+  readonly occurrenceKey: string
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+
+const markerString = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value
+  if (isRecord(value) && typeof value.val === "string") return value.val
+  return undefined
+}
+
+const isRealLocalDate = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split("-").map(Number)
+  const candidate = new Date(Date.UTC(year!, month! - 1, day!))
+  return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month! - 1 && candidate.getUTCDate() === day
+}
+
+/** Extract only the validated meeting-preparation identity from a ProseMirror unknown block. */
+export const meetingPreparationMarkerForNode = (node: PMNode): MeetingPreparationMarker | undefined => {
+  const raw = node.attrs.unknownBlock
+  if (!isRecord(raw) || markerString(raw.type) !== "athenaeum-meeting-prep" || !Array.isArray(raw.parents)) return undefined
+  if (raw.isEmbed !== undefined && raw.isEmbed !== false) return undefined
+  if (!isRecord(raw.attrs) || raw.attrs.schemaVersion !== 1) return undefined
+  const localDate = raw.attrs.localDate
+  const occurrenceKey = raw.attrs.occurrenceKey
+  if (typeof localDate !== "string" || !isRealLocalDate(localDate)) return undefined
+  if (typeof occurrenceKey !== "string" || !/^[a-f0-9]{64}$/.test(occurrenceKey)) return undefined
+  return { localDate, occurrenceKey }
+}
+
 const richTextSchemaSpec: MappedSchemaSpec = {
   nodes: {
     doc: { content: "block+" },
@@ -75,7 +115,17 @@ const richTextSchemaSpec: MappedSchemaSpec = {
       group: "block",
       content: "block+",
       parseDOM: [{ tag: "div", attrs: { "data-unknown-block": "true" } }],
-      toDOM: () => ["div", { "data-unknown-block": "true" }, 0]
+      toDOM: (node) => {
+        const marker = meetingPreparationMarkerForNode(node)
+        return marker === undefined
+          ? ["div", { "data-unknown-block": "true" }, 0]
+          : ["div", {
+              "data-unknown-block": "true",
+              "data-athenaeum-meeting-preparation": "true",
+              "data-athenaeum-meeting-preparation-date": marker.localDate,
+              "data-athenaeum-meeting-preparation-occurrence": marker.occurrenceKey
+            }, 0]
+      }
     },
 
     heading: {

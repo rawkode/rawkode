@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { LoroSyncPlugin, LoroUndoPlugin, loroSyncPluginKey, redo, undo, type LoroDocType } from "loro-prosemirror"
 import * as Effect from "effect/Effect"
-import { EditorState, type Transaction } from "prosemirror-state"
+import { EditorState, TextSelection, type Transaction } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { CommitLoroPageContentInput, GetPageDocumentDescriptorInput, HumanUiMutationAttribution, IanaTimeZone, LoroMutationIntentV1, PrepareMeetingInDailyNoteInput, type EntityId, type LocalDate, type PageDocumentDescriptor, type PrepareMeetingInDailyNoteOutput } from "@athenaeum/domain"
 import { runtime, runtimeConnectionIdentity } from "./runtime.js"
@@ -340,6 +340,82 @@ export function LoroConflictNotice({
  * Owns the live official-plugin view for a coordinator. Rebinding destroys only the view/support
  * pair; the coordinator and its serialized queue intentionally survive across A -> B -> authority+B.
  */
+/**
+ * Return focus to a server-owned meeting block after its external commit has been reconciled.
+ * The DOM attributes are presentation-only, so the target is still validated against the
+ * occurrence/date supplied by the current receipt and against the live attachment guard before
+ * and after selection/focus. A missing or stale target is a safe no-op rather than a fallback to
+ * an unrelated paragraph.
+ */
+export const focusMeetingPreparation = (
+  view: EditorView,
+  target: { readonly localDate: string; readonly occurrenceKey: string },
+  isCurrent: () => boolean = () => true
+): boolean => {
+  if (!isCurrent() || !/^\d{4}-\d{2}-\d{2}$/.test(target.localDate) || !/^[a-f0-9]{64}$/.test(target.occurrenceKey)) return false
+  const candidates = Array.from(view.dom.querySelectorAll<HTMLElement>("[data-athenaeum-meeting-preparation='true']"))
+  const element = candidates.find((candidate) =>
+    candidate.getAttribute("data-athenaeum-meeting-preparation-date") === target.localDate &&
+    candidate.getAttribute("data-athenaeum-meeting-preparation-occurrence") === target.occurrenceKey
+  )
+  if (element === undefined || !isCurrent()) return false
+  let position: number
+  try {
+    position = view.posAtDOM(element, 0)
+  } catch {
+    return false
+  }
+  if (!Number.isSafeInteger(position) || !isCurrent()) return false
+  const selectionPosition = Math.min(view.state.doc.content.size, Math.max(0, position + 1))
+  try {
+    view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selectionPosition))).scrollIntoView())
+    if (!isCurrent()) return false
+    if (typeof element.scrollIntoView === "function") {
+      element.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+    if (!isCurrent()) return false
+    view.focus()
+  } catch {
+    return false
+  }
+  return isCurrent()
+}
+
+type MeetingPreparationFocusBinding = {
+  focusMeetingPreparation: (
+    target: { readonly localDate: string; readonly occurrenceKey: string },
+    isCurrent?: () => boolean
+  ) => boolean
+}
+
+const waitForEditorRenderTurn = (): Promise<void> => new Promise((resolve) => {
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => resolve())
+  } else {
+    setTimeout(resolve, 0)
+  }
+})
+
+/**
+ * Wait a bounded number of render turns for the authoritative marker to enter the PM DOM. The
+ * reload and attachment witnesses remain the source of truth; this helper only bridges the
+ * asynchronous view update and never falls back to an arbitrary editor position.
+ */
+export const focusMeetingPreparationWhenReady = async (
+  binding: MeetingPreparationFocusBinding | undefined,
+  target: { readonly localDate: string; readonly occurrenceKey: string },
+  isCurrent: () => boolean = () => true,
+  maximumAttempts = 8
+): Promise<boolean> => {
+  const attempts = Math.max(1, Math.floor(maximumAttempts))
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (!isCurrent()) return false
+    if (binding?.focusMeetingPreparation(target, isCurrent) === true) return true
+    if (attempt + 1 < attempts) await waitForEditorRenderTurn()
+  }
+  return false
+}
+
 export const createLoroEditorBinding = (options: {
   readonly container: HTMLElement
   /** Compatibility path for focused coordinator tests; production uses the custody attachment below. */
@@ -504,6 +580,10 @@ export const createLoroEditorBinding = (options: {
       support?.dispose()
       view?.destroy()
     },
+    focusMeetingPreparation: (
+      target: { readonly localDate: string; readonly occurrenceKey: string },
+      isCurrent: () => boolean = () => true
+    ): boolean => view !== undefined && focusMeetingPreparation(view, target, isCurrent),
     get view(): EditorView | undefined { return view }
   }
 }
@@ -673,7 +753,16 @@ export function LoroRichNoteEditor({
         })) {
           throw new Error("meeting preparation reload did not restore the active daily note")
         }
-        binding?.view?.focus()
+        // The authoritative reload may contain several prepared meetings. Return only to the
+        // exact occurrence marker that produced this receipt; when the marker is not yet present
+        // (for example while ProseMirror is still applying its owned initialization transaction),
+        // do not move focus to an arbitrary paragraph.
+        const focused = await focusMeetingPreparationWhenReady(
+          binding,
+          { localDate, occurrenceKey },
+          () => isCurrentUiAttachment(attachment.snapshot())
+        )
+        if (!focused) throw new Error("Meeting preparation was committed, but its exact note section could not be shown")
         preparationCompleted?.(result)
         return result
       } catch (error) {

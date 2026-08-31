@@ -696,7 +696,8 @@ public final class AthenaeumViewModel: ObservableObject {
     /// semantic change, and the page is reloaded before the editor can accept input again.
     public func prepareMeetingInDailyNote(
         brief: RPCTodayBrief,
-        event: RPCTodayBriefEvent
+        event: RPCTodayBriefEvent,
+        routeIsCurrent: @escaping () -> Bool = { true }
     ) async throws -> PrepareMeetingInDailyNoteOutput {
         let intent = try LoroMutationIntentV1(
             requestId: UUID().uuidString.lowercased(),
@@ -711,20 +712,69 @@ public final class AthenaeumViewModel: ObservableObject {
             occurrenceKey: event.occurrenceKey,
             intent: intent
         )
-        return try await prepareMeetingInDailyNote(input)
+        return try await prepareMeetingInDailyNote(input, routeIsCurrent: routeIsCurrent)
+    }
+
+    /// Standalone Today Briefs may describe a different civil day from the note currently on
+    /// screen. Join the one navigation task that `showLocalDate` creates rather than polling
+    /// the render state; after that finite handshake, recheck the exact node/date before the
+    /// ordinary custody-aware preparation route claims a mutation.
+    public func prepareMeetingFromStandaloneBrief(
+        brief: RPCTodayBrief,
+        event: RPCTodayBriefEvent,
+        routeIsCurrent: @escaping () -> Bool = { true }
+    ) async throws -> PrepareMeetingInDailyNoteOutput {
+        let expectedNodeId = dailyNoteIdForLocalDate(brief.localDate)
+        let expectedDate = brief.localDate.rawValue
+        guard routeIsCurrent() else {
+            throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+        }
+        if activeSelection.nodeId != expectedNodeId {
+            guard routeIsCurrent() else {
+                throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+            }
+            showLocalDate(brief.localDate)
+            guard let navigationTask else {
+                throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+            }
+            await navigationTask.value
+        }
+        guard !Task.isCancelled,
+              routeIsCurrent(),
+              activeSelection.nodeId == expectedNodeId,
+              localDateStamp(activeSelection.date, calendar: navigator.calendar) == expectedDate,
+              !isNavigating
+        else { throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId) }
+        do {
+            let output = try await prepareMeetingInDailyNote(
+                brief: brief,
+                event: event,
+                routeIsCurrent: routeIsCurrent
+            )
+            guard !Task.isCancelled, routeIsCurrent() else {
+                preparationCompletion = nil
+                throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+            }
+            return output
+        } catch {
+            if !routeIsCurrent() { preparationCompletion = nil }
+            throw error
+        }
     }
 
     /// Shared mutation entry point for native Today Brief surfaces. Keeping the input form public
     /// also gives future native widgets/extensions one custody-aware route without granting them a
     /// second direct RPC client.
     public func prepareMeetingInDailyNote(
-        _ input: PrepareMeetingInDailyNoteInput
+        _ input: PrepareMeetingInDailyNoteInput,
+        routeIsCurrent: @escaping () -> Bool = { true }
     ) async throws -> PrepareMeetingInDailyNoteOutput {
         let expectedNodeId = dailyNoteIdForLocalDate(input.localDate)
         guard input.workspaceId == workspaceId,
               input.dailyNoteId == expectedNodeId,
               activeSelection.nodeId == expectedNodeId,
               localDateStamp(activeSelection.date, calendar: navigator.calendar) == input.localDate.rawValue,
+              routeIsCurrent(),
               !isNavigating,
               !loroSubmitEntered,
               !isLoroRecoveryInProgress,
@@ -769,7 +819,14 @@ public final class AthenaeumViewModel: ObservableObject {
         }
 
         do {
+            guard routeIsCurrent() else {
+                throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+            }
             let output = try await pageOperations.prepareMeetingInDailyNote(input)
+            guard routeIsCurrent() else {
+                preparationCompletion = nil
+                throw DailyNotePageOperationError.externalMutationUnavailable(expectedNodeId)
+            }
             guard output.dailyNoteId == expectedNodeId,
                   output.localDate == input.localDate,
                   output.occurrenceKey == input.occurrenceKey
@@ -781,6 +838,7 @@ public final class AthenaeumViewModel: ObservableObject {
             let reloadGeneration = pageOperationGeneration
             await loadDailyNote(selection)
             guard isCurrent(selection, generation: reloadGeneration),
+                  routeIsCurrent(),
                   status == .synced,
                   acceptsPreparationCompletionPresentation
             else { throw TodayBriefPreparationError.invalidOutput }

@@ -7,10 +7,43 @@ import Loro
 /// this boundary. User-authored text is the only raw document content intentionally retained.
 public indirect enum LoroPageProjectionNode: Sendable, Equatable {
     case document([LoroPageProjectionNode])
+    /// A server-owned, read-only meeting-preparation block. The identity has already been
+    /// validated at the Core boundary; no Loro attributes or marker representation escape.
+    case meetingPreparation(LoroMeetingPreparationIdentity, children: [LoroPageProjectionNode])
     case paragraph([LoroPageProjectionNode])
     case heading(level: Int, children: [LoroPageProjectionNode])
     case text(String, marks: [LoroPageProjectionMark])
     case unsupported
+}
+
+/// The only safe identity native presentation needs in order to target one prepared meeting
+/// block. It deliberately excludes every other marker attribute, including attendees and
+/// arbitrary server metadata.
+public struct LoroMeetingPreparationIdentity: Sendable, Equatable, Hashable {
+    public let localDate: String
+    public let occurrenceKey: String
+
+    public init?(localDate: String, occurrenceKey: String) {
+        guard Self.isValidLocalDate(localDate), Self.isValidOccurrenceKey(occurrenceKey) else { return nil }
+        self.localDate = localDate
+        self.occurrenceKey = occurrenceKey
+    }
+
+    private static func isValidLocalDate(_ value: String) -> Bool {
+        guard value.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) != nil else { return false }
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let components = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        guard let date = calendar.date(from: components) else { return false }
+        let roundTrip = calendar.dateComponents([.year, .month, .day], from: date)
+        return roundTrip.year == parts[0] && roundTrip.month == parts[1] && roundTrip.day == parts[2]
+    }
+
+    private static func isValidOccurrenceKey(_ value: String) -> Bool {
+        value.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
 }
 
 /// Sanitized presentation semantics only. In particular, `.link` never includes a URL and
@@ -225,7 +258,10 @@ struct LoroPageProjector {
             // This is the single server-owned block the Worker writes for meeting preparation.
             // Its children are still projected through the normal known-node policy; every other
             // unknown block remains opaque to native clients.
-            return isMeetingPreparationBlock(attributes) ? .document(projected) : .unsupported
+            if let identity = meetingPreparationIdentity(attributes) {
+                return .meetingPreparation(identity, children: projected)
+            }
+            return .unsupported
         case .horizontalRule, .unknownLeaf:
             guard children.len() == 0 else { throw LoroPageProjectionError.malformedKnownContent }
             return .unsupported
@@ -383,15 +419,15 @@ struct LoroPageProjector {
         return true
     }
 
-    private func isMeetingPreparationBlock(_ attributes: LoroMap) -> Bool {
+    private func meetingPreparationIdentity(_ attributes: LoroMap) -> LoroMeetingPreparationIdentity? {
         guard let marker = attributes.get(key: "unknownBlock"),
               case .map(let object) = deepValue(marker),
               let type = object["type"], compatibilityReferenceValue(type) == "athenaeum-meeting-prep",
               case .map(let attrs)? = object["attrs"],
               attrs["schemaVersion"] == .i64(value: 1),
-              case .string? = attrs["localDate"],
-              case .string? = attrs["occurrenceKey"] else { return false }
-        return true
+              case .string(let localDate)? = attrs["localDate"],
+              case .string(let occurrenceKey)? = attrs["occurrenceKey"] else { return nil }
+        return LoroMeetingPreparationIdentity(localDate: localDate, occurrenceKey: occurrenceKey)
     }
 
     private func compatibilityReferenceValue(_ value: LoroValue) -> String? {

@@ -2,7 +2,7 @@ import XCTest
 @testable import AthenaeumAppUI
 @testable import AthenaeumCore
 import AthenaeumDomain
-import AthenaeumRPC
+@testable import AthenaeumRPC
 #if os(macOS)
 import AppKit
 import SwiftUI
@@ -88,6 +88,64 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         )
         XCTAssertFalse(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .unavailable))
         XCTAssertFalse(DailyNotePreparationAnnouncementPresentation.shouldFocus(pagePresentation: .automergeRichTextReadOnly))
+    }
+
+    func testPreparationFocusRequiresTheCurrentRenderGenerationAndExactNote() {
+        let target = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let other = dailyNoteIdForDate(Calendar.current.date(byAdding: .day, value: 1, to: Date(timeIntervalSince1970: 0))!, calendar: .current)
+        XCTAssertTrue(
+            DailyNotePreparationFocusPresentation.mayApply(
+                requestGeneration: 4,
+                currentGeneration: 4,
+                requestDailyNoteId: target,
+                currentDailyNoteId: target,
+                hasTarget: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNotePreparationFocusPresentation.mayApply(
+                requestGeneration: 3,
+                currentGeneration: 4,
+                requestDailyNoteId: target,
+                currentDailyNoteId: target,
+                hasTarget: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNotePreparationFocusPresentation.mayApply(
+                requestGeneration: 4,
+                currentGeneration: 4,
+                requestDailyNoteId: target,
+                currentDailyNoteId: other,
+                hasTarget: true
+            )
+        )
+        XCTAssertFalse(
+            DailyNotePreparationFocusPresentation.mayApply(
+                requestGeneration: 4,
+                currentGeneration: 4,
+                requestDailyNoteId: target,
+                currentDailyNoteId: target,
+                hasTarget: false
+            )
+        )
+    }
+
+    func testStandaloneBriefRouteClaimsCannotFinishAfterInvalidationOrAtoBtoAReturn() {
+        let coordinator = WorkspaceStandaloneBriefRouteCoordinator()
+        let first = coordinator.claim()
+        XCTAssertTrue(coordinator.isCurrent(first))
+        coordinator.invalidate()
+        XCTAssertFalse(coordinator.isCurrent(first))
+        XCTAssertFalse(coordinator.finish(first))
+
+        let second = coordinator.claim()
+        coordinator.invalidate()
+        let third = coordinator.claim()
+        XCTAssertFalse(coordinator.isCurrent(second))
+        XCTAssertTrue(coordinator.isCurrent(third))
+        XCTAssertTrue(coordinator.finish(third))
+        XCTAssertFalse(coordinator.isCurrent(third))
     }
 
     func testPreparationAnnouncementUsesTheNativePoliteUpdateTrait() throws {
@@ -413,6 +471,96 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         model.showDate(nextDate)
         try await waitUntil { model.selectedDate == Calendar.current.startOfDay(for: nextDate) }
         XCTAssertNil(model.preparationCompletion, "an accepted day transition clears the old completion")
+    }
+
+    func testStandaloneBriefNavigatesToItsExactDayBeforePreparing() async throws {
+        let start = Date(timeIntervalSince1970: 0)
+        let target = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 1, to: start))
+        let startNode = dailyNoteIdForDate(start, calendar: .current)
+        let targetNode = dailyNoteIdForDate(target, calendar: .current)
+        let targetDate = try LocalDate(validating: localDateStamp(target, calendar: .current))
+        let occurrenceKey = String(repeating: "a", count: 64)
+        let fake = FakeOperations(
+            descriptors: [native(startNode), native(targetNode), native(targetNode)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.preparationResult = try PrepareMeetingInDailyNoteOutput(
+            dailyNoteId: targetNode, localDate: targetDate, occurrenceKey: occurrenceKey,
+            status: .created, resultSnapshotSha256: String(repeating: "b", count: 64)
+        )
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: start)
+        await model.start()
+        let brief = try rpcBrief(localDate: targetDate, occurrenceKey: occurrenceKey)
+
+        let result = try await model.prepareMeetingFromStandaloneBrief(brief: brief, event: brief.events[0])
+
+        XCTAssertEqual(result.dailyNoteId, targetNode)
+        XCTAssertEqual(model.dailyNoteId, targetNode)
+        XCTAssertEqual(fake.preparationCount, 1)
+        XCTAssertEqual(fake.preparedInputs.count, 1)
+        XCTAssertEqual(fake.preparedInputs.first?.dailyNoteId, targetNode)
+        XCTAssertEqual(fake.preparedInputs.first?.localDate, targetDate)
+    }
+
+    func testCancelledStandaloneBriefNavigationCannotPrepareOrPublishCompletion() async throws {
+        let start = Date(timeIntervalSince1970: 0)
+        let target = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 1, to: start))
+        let startNode = dailyNoteIdForDate(start, calendar: .current)
+        let targetNode = dailyNoteIdForDate(target, calendar: .current)
+        let targetDate = try LocalDate(validating: localDateStamp(target, calendar: .current))
+        let occurrenceKey = String(repeating: "c", count: 64)
+        let fake = FakeOperations(
+            descriptors: [native(startNode), native(targetNode)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: start)
+        await model.start()
+        fake.blocksRecovery = true
+        let brief = try rpcBrief(localDate: targetDate, occurrenceKey: occurrenceKey)
+        let task = Task { try? await model.prepareMeetingFromStandaloneBrief(brief: brief, event: brief.events[0]) }
+        try await waitUntil { fake.recoveryEntered }
+
+        task.cancel()
+        fake.releaseRecovery()
+        _ = await task.value
+
+        XCTAssertEqual(fake.preparationCount, 0)
+        XCTAssertNil(model.preparationCompletion)
+    }
+
+    func testStandaloneBriefRouteGuardStopsBeforeTheCustodyMutation() async throws {
+        let start = Date(timeIntervalSince1970: 0)
+        let target = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 1, to: start))
+        let targetNode = dailyNoteIdForDate(target, calendar: .current)
+        let targetDate = try LocalDate(validating: localDateStamp(target, calendar: .current))
+        let occurrenceKey = String(repeating: "d", count: 64)
+        let fake = FakeOperations(
+            descriptors: [native(dailyNoteIdForDate(start, calendar: .current))],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: false)
+        )
+        fake.preparationResult = try PrepareMeetingInDailyNoteOutput(
+            dailyNoteId: targetNode,
+            localDate: targetDate,
+            occurrenceKey: occurrenceKey,
+            status: .created,
+            resultSnapshotSha256: String(repeating: "e", count: 64)
+        )
+        let model = try AthenaeumViewModel(workspaceId: workspace, pageOperations: fake, date: start)
+        await model.start()
+        let brief = try rpcBrief(localDate: targetDate, occurrenceKey: occurrenceKey)
+
+        do {
+            _ = try await model.prepareMeetingFromStandaloneBrief(
+                brief: brief,
+                event: brief.events[0],
+                routeIsCurrent: { false }
+            )
+            XCTFail("a stale shell claim must fail before navigation or mutation")
+        } catch { }
+
+        XCTAssertEqual(fake.preparationCount, 0)
+        XCTAssertEqual(model.dailyNoteId, dailyNoteIdForDate(start, calendar: .current))
+        XCTAssertNil(model.preparationCompletion)
     }
 
     func testPreparationReceiptMismatchNeverPublishesCompletion() async throws {
@@ -2075,6 +2223,23 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
     }
     private func migrated(_ node: EntityId, heads: String) -> PageDocumentDescriptor {
         .migratedLoro(nodeId: node, storageVersion: 2, automerge: .init(docId: node.rawValue, headsHash: heads, bytesSha256: String(repeating: "a", count: 64)), loro: .init(schemaVersion: 1, snapshotSha256: String(repeating: "b", count: 64)))
+    }
+    private func rpcBrief(localDate: LocalDate, occurrenceKey: String) throws -> RPCTodayBrief {
+        try RPCTodayBrief(.object([
+            "localDate": .string(localDate.rawValue),
+            "timeZone": .string("UTC"),
+            "from": .string("1970-01-01T00:00:00.000Z"),
+            "to": .string("1970-01-02T00:00:00.000Z"),
+            "calendarHistory": .object(["status": .string("noneInRetainedData")]),
+            "events": .array([.object([
+                "id": .string("01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61"),
+                "occurrenceKey": .string(occurrenceKey),
+                "title": .string("Meeting"),
+                "start": .string("1970-01-01T10:00:00.000Z"),
+                "end": .string("1970-01-01T11:00:00.000Z"),
+                "people": .array([])
+            ])])
+        ]))
     }
     private func native(_ node: EntityId, version: Int = 1, snapshot: Character = "b") -> PageDocumentDescriptor {
         .nativeLoro(nodeId: node, storageVersion: version, loro: .init(schemaVersion: 1, snapshotSha256: String(repeating: snapshot, count: 64)))

@@ -268,6 +268,38 @@ private struct TodayNoteBriefLayout: Layout {
     }
 }
 
+/// Standalone calendar brief actions cross an asynchronous note navigation boundary. The shell
+/// owns a monotonic claim so a late completion cannot pull the user back to Today after they have
+/// chosen another section (including an A -> B -> A route that reuses the same note).
+@MainActor
+final class WorkspaceStandaloneBriefRouteCoordinator: ObservableObject {
+    private(set) var generation = 0
+
+    func claim() -> Int {
+        generation &+= 1
+        return generation
+    }
+
+    func invalidate() {
+        generation &+= 1
+    }
+
+    func isCurrent(_ claim: Int) -> Bool {
+        claim == generation
+    }
+
+    @discardableResult
+    func finish(_ claim: Int) -> Bool {
+        guard claim == generation else { return false }
+        generation &+= 1
+        return true
+    }
+}
+
+enum WorkspaceStandaloneBriefRouteError: Error, Equatable {
+    case staleRoute
+}
+
 /// The native workspace shell keeps the daily note primary while giving every supporting tool a
 /// stable destination. The old workspace was one long scroll of unrelated surfaces, which made a
 /// morning note, graph inspection, agent review, and voice capture compete for the same attention.
@@ -294,11 +326,13 @@ public struct WorkspaceCommandCenterView: View {
     @State private var iOSPath = NavigationPath()
     @State private var showingIOSBrowse = false
     #endif
+    @StateObject private var standaloneBriefRoutes: WorkspaceStandaloneBriefRouteCoordinator
     @StateObject private var host: WorkspaceCommandCenterHost
 
     public init(session: DevSession, workspaceId: EntityId) {
         self.session = session
         self.workspaceId = workspaceId
+        _standaloneBriefRoutes = StateObject(wrappedValue: WorkspaceStandaloneBriefRouteCoordinator())
         _host = StateObject(
             wrappedValue: WorkspaceCommandCenterHost(
                 baseURL: session.backendURL,
@@ -352,6 +386,7 @@ public struct WorkspaceCommandCenterView: View {
                                         selectedSearchNodeId = nil
                                         openDailyNote(localDate, model: host.model)
                                     } else {
+                                        standaloneBriefRoutes.invalidate()
                                         selectedSearchNodeId = row.id
                                     }
                                 } label: {
@@ -403,6 +438,7 @@ public struct WorkspaceCommandCenterView: View {
                 host.search(query: value)
             }
             .onChange(of: selection) { _ in
+                standaloneBriefRoutes.invalidate()
                 selectedSearchNodeId = nil
                 selectedGraphNodeId = nil
                 selectedDirectEntityDestination = nil
@@ -501,6 +537,9 @@ public struct WorkspaceCommandCenterView: View {
                 }
                 .navigationDestination(for: WorkspaceRoute.self) { route in iOSDestination(route) }
                 .task { await host.start() }
+                .onChange(of: iOSPath.count) { _ in
+                    standaloneBriefRoutes.invalidate()
+                }
         }
         .sheet(isPresented: $showingIOSBrowse) {
             iOSBrowseSheet
@@ -513,9 +552,16 @@ public struct WorkspaceCommandCenterView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        iOSContent(WorkspaceIOSHomePresentation.homeSection, model: model, onReviewStandup: {
-                            withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
-                        })
+                        iOSContent(
+                            WorkspaceIOSHomePresentation.homeSection,
+                            model: model,
+                            onReviewStandup: {
+                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                            },
+                            onFocusMeetingPreparation: { identity in
+                                withAnimation { proxy.scrollTo(identity, anchor: .center) }
+                            }
+                        )
                     }
                     .padding(24)
                 }
@@ -611,9 +657,16 @@ public struct WorkspaceCommandCenterView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            iOSContent(section, model: model, onReviewStandup: {
-                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
-                            })
+                            iOSContent(
+                                section,
+                                model: model,
+                                onReviewStandup: {
+                                    withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                },
+                                onFocusMeetingPreparation: { identity in
+                                    withAnimation { proxy.scrollTo(identity, anchor: .center) }
+                                }
+                            )
                         }
                         .padding(24)
                     }
@@ -633,9 +686,16 @@ public struct WorkspaceCommandCenterView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            iOSContent(.today, model: model, onReviewStandup: {
-                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
-                            })
+                            iOSContent(
+                                .today,
+                                model: model,
+                                onReviewStandup: {
+                                    withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                                },
+                                onFocusMeetingPreparation: { identity in
+                                    withAnimation { proxy.scrollTo(identity, anchor: .center) }
+                                }
+                            )
                         }
                         .padding(24)
                     }
@@ -684,7 +744,8 @@ public struct WorkspaceCommandCenterView: View {
     @ViewBuilder private func iOSContent(
         _ section: WorkspaceSection,
         model: AthenaeumViewModel,
-        onReviewStandup: (() -> Void)? = nil
+        onReviewStandup: (() -> Void)? = nil,
+        onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil
     ) -> some View {
         switch section {
         case .meetings:
@@ -700,7 +761,17 @@ public struct WorkspaceCommandCenterView: View {
                     workspaceId: workspaceId,
                     bearerCredential: session.credential,
                     preparer: { brief, event in
-                        try await model.prepareMeetingInDailyNote(brief: brief, event: event)
+                        let claim = standaloneBriefRoutes.claim()
+                        let output = try await model.prepareMeetingFromStandaloneBrief(
+                            brief: brief,
+                            event: event,
+                            routeIsCurrent: { standaloneBriefRoutes.isCurrent(claim) }
+                        )
+                        guard standaloneBriefRoutes.finish(claim) else {
+                            throw WorkspaceStandaloneBriefRouteError.staleRoute
+                        }
+                        iOSPath = NavigationPath()
+                        return output
                     },
                     onOpenDailyNote: { localDate in
                         openDailyNote(localDate, model: model)
@@ -712,7 +783,12 @@ public struct WorkspaceCommandCenterView: View {
                 Divider()
                 CalendarDayView(backendURL: session.backendURL, workspaceId: workspaceId, bearerCredential: session.credential) { iOSPath.append(WorkspaceRoute.graphID($0)) }
             }
-        default: selectedContent(model: model, section: section, onReviewStandup: onReviewStandup)
+        default: selectedContent(
+            model: model,
+            section: section,
+            onReviewStandup: onReviewStandup,
+            onFocusMeetingPreparation: onFocusMeetingPreparation
+        )
         }
     }
     #endif
@@ -746,9 +822,15 @@ public struct WorkspaceCommandCenterView: View {
                         if selection.showsDestinationHeader {
                             detailHeader
                         }
-                        selectedContent(model: model, onReviewStandup: {
-                            withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
-                        })
+                        selectedContent(
+                            model: model,
+                            onReviewStandup: {
+                                withAnimation { proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top) }
+                            },
+                            onFocusMeetingPreparation: { identity in
+                                withAnimation { proxy.scrollTo(identity, anchor: .center) }
+                            }
+                        )
                     }
                     .padding(24)
                     .frame(maxWidth: 900, alignment: .leading)
@@ -804,7 +886,8 @@ public struct WorkspaceCommandCenterView: View {
     private func selectedContent(
         model: AthenaeumViewModel,
         section: WorkspaceSection? = nil,
-        onReviewStandup: (() -> Void)? = nil
+        onReviewStandup: (() -> Void)? = nil,
+        onFocusMeetingPreparation: ((LoroMeetingPreparationIdentity) -> Void)? = nil
     ) -> some View {
         switch section ?? selection {
         case .today:
@@ -817,6 +900,7 @@ public struct WorkspaceCommandCenterView: View {
                     standupBearerCredential: session.credential,
                     onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                     onReviewStandup: onReviewStandup,
+                    onFocusMeetingPreparation: onFocusMeetingPreparation,
                     onOpenReference: { reference in openReference(reference) }
                 )
                 .frame(maxWidth: 600, alignment: .leading)
@@ -832,6 +916,7 @@ public struct WorkspaceCommandCenterView: View {
                 contextualView: AnyView(dailyBrief(model: model)),
                 onOpenEmployeeUpdate: { nodeId in openEmployeeUpdate(nodeId) },
                 onReviewStandup: onReviewStandup,
+                onFocusMeetingPreparation: onFocusMeetingPreparation,
                 onOpenReference: { reference in openReference(reference) }
             )
             #endif
@@ -872,6 +957,7 @@ public struct WorkspaceCommandCenterView: View {
             )
         case .graph:
             GraphNodesView(model: model) { nodeId in
+                standaloneBriefRoutes.invalidate()
                 selectedGraphNodeId = nodeId
             }
         case .agent:
@@ -883,7 +969,17 @@ public struct WorkspaceCommandCenterView: View {
                     workspaceId: workspaceId,
                     bearerCredential: session.credential,
                     preparer: { brief, event in
-                        try await model.prepareMeetingInDailyNote(brief: brief, event: event)
+                        let claim = standaloneBriefRoutes.claim()
+                        let output = try await model.prepareMeetingFromStandaloneBrief(
+                            brief: brief,
+                            event: event,
+                            routeIsCurrent: { standaloneBriefRoutes.isCurrent(claim) }
+                        )
+                        guard standaloneBriefRoutes.finish(claim) else {
+                            throw WorkspaceStandaloneBriefRouteError.staleRoute
+                        }
+                        selection = .today
+                        return output
                     },
                     onOpenDailyNote: { localDate in openDailyNote(localDate, model: model) },
                     onOpenPerson: { personNodeId in openPerson(personNodeId) }
@@ -894,6 +990,7 @@ public struct WorkspaceCommandCenterView: View {
                     workspaceId: workspaceId,
                     bearerCredential: session.credential,
                     onOpenEntity: { nodeId in
+                        standaloneBriefRoutes.invalidate()
                         selectedGraphNodeId = nodeId
                     }
                 )
@@ -929,6 +1026,7 @@ public struct WorkspaceCommandCenterView: View {
 
     private func openDailyNote(_ localDate: LocalDate, model: AthenaeumViewModel?) {
         guard let model else { return }
+        standaloneBriefRoutes.invalidate()
         model.showLocalDate(localDate)
         #if os(macOS)
         selection = .today
@@ -955,6 +1053,7 @@ public struct WorkspaceCommandCenterView: View {
     }
 
     private func openPerson(_ personNodeId: EntityId) {
+        standaloneBriefRoutes.invalidate()
         #if os(macOS)
         selectedSearchNodeId = nil
         selectedGraphNodeId = nil
@@ -965,6 +1064,7 @@ public struct WorkspaceCommandCenterView: View {
     }
 
     private func openEmployeeUpdate(_ employeeUpdateNodeId: EntityId) {
+        standaloneBriefRoutes.invalidate()
         #if os(macOS)
         selectedSearchNodeId = nil
         selectedGraphNodeId = nil
@@ -975,6 +1075,7 @@ public struct WorkspaceCommandCenterView: View {
     }
 
     private func openReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) {
+        standaloneBriefRoutes.invalidate()
         switch reference.kind {
         case .entity:
             #if os(macOS)
@@ -1362,7 +1463,7 @@ enum WorkspaceEntityPagePreviewContent: Equatable {
     private static func hasVisibleText(_ node: LoroPageProjectionNode) -> Bool {
         switch node {
         case .text(let value, _): return !value.isEmpty
-        case .document(let children), .paragraph(let children), .heading(_, let children):
+        case .document(let children), .meetingPreparation(_, let children), .paragraph(let children), .heading(_, let children):
             return children.contains(where: hasVisibleText)
         case .unsupported:
             // Unsupported content is still content. It must not be mistaken for an empty page.
@@ -1677,6 +1778,12 @@ private struct ReadOnlyLoroProjectionView: View {
             return AnyView(VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) }
             }.accessibilityElement(children: .contain).accessibilityLabel("Read-only Loro page"))
+        case .meetingPreparation(_, let children):
+            return AnyView(VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Prepared meeting context"))
         case .paragraph(let children):
             return AnyView(HStack(spacing: 0) { ForEach(Array(children.enumerated()), id: \.offset) { _, child in render(child) } })
         case .heading(_, let children):

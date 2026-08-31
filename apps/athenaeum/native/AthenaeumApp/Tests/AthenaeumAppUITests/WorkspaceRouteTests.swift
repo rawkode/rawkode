@@ -106,7 +106,11 @@ final class WorkspaceRouteTests: XCTestCase {
             source.components(separatedBy: "proxy.scrollTo(DailyNoteStandupPresentation.anchorID, anchor: .top)").count - 1,
             4
         )
-        XCTAssertTrue(source.contains("iOSContent(WorkspaceIOSHomePresentation.homeSection, model: model, onReviewStandup:"))
+        XCTAssertTrue(source.contains("WorkspaceIOSHomePresentation.homeSection"))
+        XCTAssertGreaterThanOrEqual(
+            source.components(separatedBy: "proxy.scrollTo(identity, anchor: .center)").count - 1,
+            4
+        )
     }
 
     func testSidebarKeepsCoreWorkSurfacesSeparateFromBrowseDestinations() {
