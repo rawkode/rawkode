@@ -27,6 +27,8 @@ export {
   APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION,
   START_MEETING_MESSAGE_DERIVATION_VERSION,
   CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION,
+  BEGIN_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION,
+  COMMIT_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION,
   APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION,
   ENSURE_LORO_PAGE_MESSAGE_DERIVATION_VERSION,
   COMMIT_LORO_PAGE_CONTENT_MESSAGE_DERIVATION_VERSION,
@@ -79,6 +81,10 @@ export {
   LinkCalendarEventToNodeLedgerReceipt,
   CalendarProjectionLedgerCommand,
   CalendarProjectionLedgerPayload,
+  BeginGoogleCalendarConnectionLedgerCommand,
+  BeginGoogleCalendarConnectionLedgerPayload,
+  CommitGoogleCalendarConnectionLedgerCommand,
+  CommitGoogleCalendarConnectionLedgerPayload,
   CreateBookmarkLedgerTitle,
   CreateBookmarkLedgerTitleAbsent,
   CreateBookmarkLedgerTitlePresent,
@@ -602,6 +608,28 @@ export { CalendarEvent, CalendarEventAttendee, CalendarEventStatus, CalendarEven
 export { Bookmark, BookmarkUrl } from "./bookmark.js"
 
 export {
+  CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
+  CalendarOAuthHandleDerivationVersion,
+  CalendarOAuthClientAttemptHandle,
+  CalendarConnectionId,
+  CalendarOAuthAuthorityAttemptId,
+  GoogleCalendarGatekeeperAttemptId,
+  GoogleCalendarProviderConnectionId,
+  CalendarOAuthRequestFingerprint,
+  CalendarOAuthWitnessDigest,
+  CalendarConnectionLedgerTarget,
+  GatekeeperBindingLedgerTarget,
+  CalendarOAuthLedgerTarget,
+  CalendarOAuthAdmissionReceipt,
+  CalendarOAuthProviderCompletionWitness,
+  CalendarOAuthBindingCommitReceipt,
+  GoogleCalendarAccountAlias,
+  calendarOAuthBeginRequestFingerprint,
+  LEGACY_GOOGLE_CALENDAR_OAUTH_DISABLED_CODE,
+  LegacyGoogleCalendarOAuthDisabled
+} from "./calendar-oauth.js"
+
+export {
   GatekeeperBinding,
   GatekeeperBindingSummary,
   GatekeeperBindingConfig,
@@ -620,7 +648,6 @@ export {
 export {
   BeginGoogleCalendarConnectionInput,
   BeginGoogleCalendarConnectionOutput,
-  CalendarOAuthClientAttemptHandle,
   CalendarOAuthCompletionStatus,
   ConnectGoogleCalendarInput,
   ConnectGoogleCalendarOutput,

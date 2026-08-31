@@ -1,20 +1,13 @@
 import * as Schema from "effect/Schema"
 import { Bookmark, BookmarkUrl } from "./bookmark.js"
 import { CalendarEvent } from "./calendar-event.js"
+import { CalendarOAuthClientAttemptHandle as CalendarOAuthClientAttemptHandleSchema } from "./calendar-oauth.js"
 import { GatekeeperBinding, GatekeeperBindingSummary } from "./gatekeeper-binding.js"
 import { MutationAttribution, MutationCommitMessage, MutationRequestId } from "./ledger.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 
-/**
- * Opaque stable handle held by an authenticated client while it waits for a server-owned OAuth
- * completion. It is not the backend authority attempt id and is never accepted by the browser
- * callback. The backend persists only its digest.
- */
-export const CalendarOAuthClientAttemptHandle = Schema.String.pipe(
-  Schema.pattern(/^oca_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
-  Schema.brand("CalendarOAuthClientAttemptHandle")
-)
-export type CalendarOAuthClientAttemptHandle = typeof CalendarOAuthClientAttemptHandle.Type
+/** Kept here as a re-export for established RPC-schema callers. */
+export { CalendarOAuthClientAttemptHandle } from "./calendar-oauth.js"
 
 /** Safe lifecycle projection; it intentionally carries neither account data nor receipt material. */
 export const CalendarOAuthCompletionStatus = Schema.Literal("pending", "connected", "failed", "expired")
@@ -97,7 +90,7 @@ export class BeginGoogleCalendarConnectionInput extends Schema.Class<BeginGoogle
 export class BeginGoogleCalendarConnectionOutput extends Schema.Class<BeginGoogleCalendarConnectionOutput>(
   "BeginGoogleCalendarConnectionOutput"
 )({
-  attemptHandle: CalendarOAuthClientAttemptHandle
+  attemptHandle: CalendarOAuthClientAttemptHandleSchema
 }) {}
 
 /** The one-time fixed-server launch URL is distinct from the stable completion handle. */
@@ -105,7 +98,7 @@ export class IssueGoogleCalendarLaunchInput extends Schema.Class<IssueGoogleCale
   "IssueGoogleCalendarLaunchInput"
 )({
   workspaceId: EntityId,
-  attemptHandle: CalendarOAuthClientAttemptHandle
+  attemptHandle: CalendarOAuthClientAttemptHandleSchema
 }) {}
 
 export const FixedGoogleCalendarLaunchUrl = Schema.String.pipe(
@@ -125,7 +118,7 @@ export class GetGoogleCalendarConnectionCompletionInput extends Schema.Class<Get
   "GetGoogleCalendarConnectionCompletionInput"
 )({
   workspaceId: EntityId,
-  attemptHandle: CalendarOAuthClientAttemptHandle
+  attemptHandle: CalendarOAuthClientAttemptHandleSchema
 }) {}
 
 /** Completion is discriminated so a pending/failed/expired read cannot carry a binding. */

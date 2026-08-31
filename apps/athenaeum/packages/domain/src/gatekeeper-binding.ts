@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { Email } from "./auth.js"
+import { GoogleCalendarAccountAlias } from "./calendar-oauth.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 
 // Phase 5 domain-extension task, item 3: `GatekeeperBinding` — the plan's own naming
@@ -96,5 +97,7 @@ export class GatekeeperBindingSummary extends Schema.Class<GatekeeperBindingSumm
   workspaceId: EntityId,
   gatekeeperKind: GatekeeperKind,
   mode: Schema.Literal("selected", "allVisible"),
+  /** New opaque connections receive a stable alias; absence is reserved for readable legacy rows. */
+  accountAlias: Schema.optional(GoogleCalendarAccountAlias),
   createdAt: IsoDateTimeString
 }) {}

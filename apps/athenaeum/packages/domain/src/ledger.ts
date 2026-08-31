@@ -1,6 +1,11 @@
 import * as Schema from "effect/Schema"
 import { AppIcon } from "./app.js"
 import { BookmarkUrl } from "./bookmark.js"
+import {
+  CalendarConnectionLedgerTarget,
+  CalendarOAuthAdmissionReceipt,
+  CalendarOAuthBindingCommitReceipt
+} from "./calendar-oauth.js"
 import { JsonValue } from "./json-value.js"
 import { EntityId, IsoDateTimeString } from "./node.js"
 import { canonicalJsonBytes, sha256HexSync } from "./canonical-hash.js"
@@ -35,6 +40,8 @@ export const LINK_CALENDAR_EVENT_TO_NODE_MESSAGE_DERIVATION_VERSION = "link-cale
 export const APPEND_TRANSCRIPT_SEGMENT_MESSAGE_DERIVATION_VERSION = "append-transcript-segment.v1" as const
 export const START_MEETING_MESSAGE_DERIVATION_VERSION = "start-meeting.v1" as const
 export const CALENDAR_PROJECTION_MESSAGE_DERIVATION_VERSION = "calendar-projection.v1" as const
+export const BEGIN_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION = "calendar-oauth-admission.v1" as const
+export const COMMIT_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION = "calendar-oauth-binding-commit.v1" as const
 /** App lifecycle commands retain the caller rationale in their private payload while exposing a
  * deterministic operation label to public activity feeds. */
 export const APP_LIFECYCLE_MESSAGE_DERIVATION_VERSION = "app-lifecycle.v1" as const
@@ -403,6 +410,21 @@ export class CalendarProjectionLedgerPayload extends Schema.Class<CalendarProjec
   calendarEventId: EntityId,
   sourceRevisionDigest: Schema.String.pipe(Schema.minLength(1)),
   attendeeObservationDigests: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+/** Private admission evidence. Raw OAuth state, provider code, tokens, and account identity are forbidden. */
+export class BeginGoogleCalendarConnectionLedgerPayload extends Schema.Class<BeginGoogleCalendarConnectionLedgerPayload>("BeginGoogleCalendarConnectionLedgerPayload")({
+  target: CalendarConnectionLedgerTarget,
+  admission: CalendarOAuthAdmissionReceipt,
+  commitMessage: MutationCommitMessage,
+  attribution: MutationAttribution
+}) {}
+
+/** Private binding completion evidence; all provider facts are opaque ids or digests. */
+export class CommitGoogleCalendarConnectionLedgerPayload extends Schema.Class<CommitGoogleCalendarConnectionLedgerPayload>("CommitGoogleCalendarConnectionLedgerPayload")({
+  commit: CalendarOAuthBindingCommitReceipt,
   commitMessage: MutationCommitMessage,
   attribution: MutationAttribution
 }) {}
@@ -845,6 +867,24 @@ export class CalendarProjectionLedgerCommand extends Schema.Class<CalendarProjec
   createdAt: Schema.String.pipe(Schema.minLength(1))
 }) {}
 
+export class BeginGoogleCalendarConnectionLedgerCommand extends Schema.Class<BeginGoogleCalendarConnectionLedgerCommand>("BeginGoogleCalendarConnectionLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("beginGoogleCalendarConnection"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(BEGIN_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION),
+  message: MutationCommitMessage, payload: BeginGoogleCalendarConnectionLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
+export class CommitGoogleCalendarConnectionLedgerCommand extends Schema.Class<CommitGoogleCalendarConnectionLedgerCommand>("CommitGoogleCalendarConnectionLedgerCommand")({
+  version: Schema.Literal(LEDGER_COMMAND_VERSION), requestId: MutationRequestId,
+  fingerprint: Schema.String.pipe(Schema.minLength(1)), type: Schema.Literal("commitGoogleCalendarConnection"),
+  workspaceId: EntityId, principal: Schema.String.pipe(Schema.minLength(1)), capability: Schema.Literal("build"),
+  policy: Schema.String.pipe(Schema.minLength(1)),
+  messageDerivationVersion: Schema.Literal(COMMIT_GOOGLE_CALENDAR_CONNECTION_MESSAGE_DERIVATION_VERSION),
+  message: MutationCommitMessage, payload: CommitGoogleCalendarConnectionLedgerPayload, createdAt: Schema.String.pipe(Schema.minLength(1))
+}) {}
+
 export class AppendTranscriptSegmentLedgerCommand extends Schema.Class<AppendTranscriptSegmentLedgerCommand>("AppendTranscriptSegmentLedgerCommand")({
   version: Schema.Literal(LEDGER_COMMAND_VERSION),
   requestId: MutationRequestId,
@@ -902,6 +942,8 @@ export const LedgerCommand = Schema.Union(
   CreateBookmarkLedgerCommand,
   LinkCalendarEventToNodeLedgerCommand,
   CalendarProjectionLedgerCommand,
+  BeginGoogleCalendarConnectionLedgerCommand,
+  CommitGoogleCalendarConnectionLedgerCommand,
   AppendTranscriptSegmentLedgerCommand,
   StartMeetingLedgerCommand
 )
