@@ -1199,6 +1199,12 @@
   gap: var(--space-1);
 }
 
+/* The empty-state list stays in the DOM for recovery/test contracts, but author layout rules
+   must not override the semantic `hidden` attribute. */
+.chat-list ul[hidden] {
+  display: none !important;
+}
+
 .chat-list-item {
   width: 100%;
   text-align: left;
