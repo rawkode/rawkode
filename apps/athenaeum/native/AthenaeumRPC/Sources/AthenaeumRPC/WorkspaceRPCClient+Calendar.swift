@@ -200,6 +200,8 @@ public struct RPCGatekeeperBindingSummary: Sendable, Equatable {
     public let gatekeeperKind: String
     public let mode: String
     public let createdAt: String
+    /// Privacy-safe provider account alias. `nil` preserves old-server compatibility.
+    public let accountAlias: String?
 
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
@@ -213,11 +215,80 @@ public struct RPCGatekeeperBindingSummary: Sendable, Equatable {
         self.gatekeeperKind = gatekeeperKind
         self.mode = mode
         self.createdAt = createdAt
+        self.accountAlias = try value.field("accountAlias").stringValue
+    }
+}
+
+/// Opaque completion handle returned by the Workspace-owned OAuth admission.
+public struct RPCGoogleCalendarConnectionAttempt: Sendable, Equatable {
+    public let attemptHandle: String
+}
+
+/// Safe completion projection; provider codes, state, tokens, and custody receipts never cross it.
+public enum RPCGoogleCalendarConnectionCompletion: Sendable, Equatable {
+    case pending
+    case connected(binding: RPCGatekeeperBindingSummary)
+    case failed
+    case expired
+
+    init(_ value: CapnWebValue) throws {
+        guard let status = try value.field("status").stringValue else {
+            throw CapnWebError.malformedMessage("malformed Google Calendar completion (missing status): \(value)")
+        }
+        switch status {
+        case "pending": self = .pending
+        case "connected": self = .connected(binding: try RPCGatekeeperBindingSummary(value.field("binding")))
+        case "failed": self = .failed
+        case "expired": self = .expired
+        default: throw CapnWebError.malformedMessage("unknown Google Calendar completion status: \(status)")
+        }
     }
 }
 
 extension WorkspaceRPCClient {
     // MARK: - Google Calendar: connect / disconnect / sync
+
+    /// Creates/replays an authenticated, provenance-bearing OAuth admission. The returned handle
+    /// is opaque and stable across retries; native callers may retain it locally for polling.
+    public func beginGoogleCalendarConnection(
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution
+    ) async throws -> RPCGoogleCalendarConnectionAttempt {
+        let result = try await rpc("beginGoogleCalendarConnection", [
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": .object([
+                "version": .string(attribution.version),
+                "kind": .string(attribution.kind),
+                "surface": attribution.surface.map(CapnWebValue.string) ?? .undefined,
+                "jobId": attribution.jobId.map(CapnWebValue.string) ?? .undefined,
+                "runId": attribution.runId.map(CapnWebValue.string) ?? .undefined,
+                "source": attribution.source.map(CapnWebValue.string) ?? .undefined
+            ])
+        ])
+        guard let attemptHandle = try result.field("attemptHandle").stringValue else {
+            throw CapnWebError.malformedMessage("beginGoogleCalendarConnection response missing attemptHandle")
+        }
+        return RPCGoogleCalendarConnectionAttempt(attemptHandle: attemptHandle)
+    }
+
+    /// Issues a one-time, first-party launch URL. It is not a provider authorization URL.
+    public func issueGoogleCalendarLaunch(attemptHandle: String) async throws -> URL {
+        let result = try await rpc("issueGoogleCalendarLaunch", ["attemptHandle": .string(attemptHandle)])
+        guard let raw = try result.field("fixedLaunchUrl").stringValue, let url = URL(string: raw) else {
+            throw CapnWebError.malformedMessage("issueGoogleCalendarLaunch response missing fixedLaunchUrl")
+        }
+        return url
+    }
+
+    /// Reads the owner-fenced completion projection for an opaque stable handle.
+    public func getGoogleCalendarConnectionCompletion(
+        attemptHandle: String
+    ) async throws -> RPCGoogleCalendarConnectionCompletion {
+        let result = try await rpc("getGoogleCalendarConnectionCompletion", ["attemptHandle": .string(attemptHandle)])
+        return try RPCGoogleCalendarConnectionCompletion(result)
+    }
 
     /// `role` gate: `"build"` (`workspace-durable-object.ts`'s Phase 5 section) — requires a real
     /// caller (`init(bearerCredential:)`).
