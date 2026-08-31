@@ -4,6 +4,19 @@ import AthenaeumRPC
 
 @MainActor
 final class AgentChatTitleTests: XCTestCase {
+    func testEmptyCatalogLeavesOneComposerFirstPromptWithoutACompetingEmptySentence() throws {
+        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let packageDirectory = testDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageDirectory
+            .appendingPathComponent("Sources/AthenaeumAppUI/PendingChangesView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Text(\"Start with a request\")"))
+        XCTAssertFalse(source.contains("No conversations yet —"))
+    }
+
     private struct PrivateTransportError: Error, CustomStringConvertible {
         let description = "backend=https://internal.example/api?credential=private-token"
     }

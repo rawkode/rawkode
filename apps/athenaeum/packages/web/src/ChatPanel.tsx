@@ -675,6 +675,7 @@ export function ChatPanel() {
   }
 
   const chats: ReadonlyArray<Chat> = chatsState.status === "success" ? chatsState.value.chats : []
+  const isKnownEmptyCatalog = chatsState.status === "success" && chats.length === 0
 
   return (
     <section className="chat-panel">
@@ -702,7 +703,7 @@ export function ChatPanel() {
               </button>
             </div>
           )}
-          <ul>
+          <ul hidden={isKnownEmptyCatalog}>
             {chats.map((chat) => (
               <li key={chat.id}>
                 <button
@@ -721,7 +722,7 @@ export function ChatPanel() {
             {chats.length === 0 && chatsState.status === "success" && <li className="chat-list-empty">No chats yet.</li>}
           </ul>
 
-          <details className="chat-create-disclosure">
+          <details className="chat-create-disclosure" hidden={isKnownEmptyCatalog}>
             <summary>Start a named chat</summary>
             <form onSubmit={handleCreate} className="chat-create-form">
               <input

@@ -181,14 +181,7 @@ public struct PendingChangesView: View {
                 }
             }
 
-            if AgentEditViewModel.isLoadedEmptyChatCatalog(
-                chatsAreEmpty: model.chats.isEmpty,
-                status: model.status
-            ) {
-                Text("No conversations yet — send a request below and Athenaeum will name the conversation for you.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else if !model.chats.isEmpty {
+            if !model.chats.isEmpty {
                 Picker("Chat", selection: Binding(
                     get: { model.selectedChatId ?? model.chats.first?.id ?? "" },
                     set: { newId in selectChatDetail(newId) }
