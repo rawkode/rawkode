@@ -52,7 +52,8 @@ describe("opaque calendar OAuth contracts", () => {
       version: "athenaeum.calendar-oauth-admission.v1", workspaceId, principal, requestId: "calendar-connect-1",
       requestFingerprint, handleDerivationVersion: CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
       attemptHandleDigest: witnessDigest, calendarConnectionId,
-      authorityAttemptId, admissionWitnessDigest: witnessDigest, admittedAt
+      authorityAttemptId, providerConnectionId: "gpc_3fa85f64-5717-4562-b3fc-2c963f66afa3" as never,
+      gatekeeperAttemptId: authorityAttemptId as never, bindingId, admissionWitnessDigest: witnessDigest, admittedAt
     })
     expect(Schema.encodeSync(CalendarOAuthAdmissionReceipt)(receipt).handleDerivationVersion).toBe(CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION)
     expect(Schema.decodeUnknownSync(CalendarConnectionLedgerTarget)({ kind: "calendarConnection", id: receipt.calendarConnectionId })).toBeDefined()

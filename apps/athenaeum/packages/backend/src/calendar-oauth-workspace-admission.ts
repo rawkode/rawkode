@@ -180,13 +180,18 @@ export class CalendarOAuthWorkspaceAdmissions {
       throw new CalendarOAuthWorkspaceAdmissionError("Calendar connection admission key is no longer retained.")
     }
     const attemptHandle = deriveCalendarOAuthAttemptHandle({ handleSecret: input.handleSecret, workspaceId: input.workspaceId, principal: input.principal, requestFingerprint })
+    const authorityAttemptId = opaqueId("coa_") as CalendarOAuthAdmissionReceipt["authorityAttemptId"]
     const withoutWitness = {
       version: "athenaeum.calendar-oauth-admission.v1" as const,
       workspaceId: input.workspaceId, principal: input.principal, requestId: input.requestId,
       requestFingerprint, handleDerivationVersion: CALENDAR_OAUTH_HANDLE_DERIVATION_VERSION,
       attemptHandleDigest: witnessDigest(digest({ version: "athenaeum.calendar-oauth-handle-digest.v1", handle: attemptHandle })),
       calendarConnectionId: opaqueId("ccn_") as CalendarOAuthAdmissionReceipt["calendarConnectionId"],
-      authorityAttemptId: opaqueId("coa_") as CalendarOAuthAdmissionReceipt["authorityAttemptId"],
+      authorityAttemptId,
+      providerConnectionId: opaqueId("gpc_") as CalendarOAuthAdmissionReceipt["providerConnectionId"],
+      // Gatekeeper's opaque attempt namespace is `coa_`; bind it to the coordinator identity.
+      gatekeeperAttemptId: authorityAttemptId as never,
+      bindingId: crypto.randomUUID() as CalendarOAuthAdmissionReceipt["bindingId"],
       admittedAt: input.now as CalendarOAuthAdmissionReceipt["admittedAt"]
     }
     const receipt = new CalendarOAuthAdmissionReceipt({ ...withoutWitness, admissionWitnessDigest: witnessDigest(calendarOAuthAdmissionWitnessDigest(input.handleSecret, withoutWitness)) })

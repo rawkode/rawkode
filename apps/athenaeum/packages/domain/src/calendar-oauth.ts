@@ -59,6 +59,12 @@ export class CalendarOAuthAdmissionReceipt extends Schema.Class<CalendarOAuthAdm
   attemptHandleDigest: CalendarOAuthWitnessDigest,
   calendarConnectionId: CalendarConnectionId,
   authorityAttemptId: CalendarOAuthAuthorityAttemptId,
+  /** Allocated before launch, so callback exchange cannot choose a different opaque account. */
+  providerConnectionId: GoogleCalendarProviderConnectionId,
+  /** The deployed Gatekeeper accepts the coordinator's `coa_` attempt namespace. */
+  gatekeeperAttemptId: GoogleCalendarGatekeeperAttemptId,
+  /** Workspace-owned binding identity is fixed before the provider is contacted. */
+  bindingId: EntityId,
   admissionWitnessDigest: CalendarOAuthWitnessDigest,
   admittedAt: IsoDateTimeString
 }) {}

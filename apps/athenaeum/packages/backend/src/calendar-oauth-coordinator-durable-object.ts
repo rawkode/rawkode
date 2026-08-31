@@ -52,6 +52,8 @@ const privateAdmission = (receipt: CalendarOAuthAdmissionReceipt): CalendarOAuth
   requestId: receipt.requestId, requestFingerprint: receipt.requestFingerprint,
   handleDerivationVersion: receipt.handleDerivationVersion, attemptHandleDigest: receipt.attemptHandleDigest,
   calendarConnectionId: receipt.calendarConnectionId, authorityAttemptId: receipt.authorityAttemptId,
+  providerConnectionId: receipt.providerConnectionId, gatekeeperAttemptId: receipt.gatekeeperAttemptId,
+  bindingId: receipt.bindingId,
   admissionWitnessDigest: receipt.admissionWitnessDigest, admittedAt: receipt.admittedAt
 })
 const privateCompletion = (completion: CalendarOAuthProviderCompletionWitness): CalendarOAuthProviderCompletionWitness => new CalendarOAuthProviderCompletionWitness({
@@ -65,6 +67,7 @@ export class CalendarOAuthCoordinator {
   readonly #byAttempt = new Map<string, CalendarOAuthCoordinatorRecord>()
   readonly #byHandleDigest = new Map<string, string>()
   readonly #byLaunchCapabilityDigest = new Map<string, string>()
+  readonly #byStateNonceDigest = new Map<string, string>()
 
   constructor(
     private readonly admissionWitnessSecret: string,
@@ -136,11 +139,32 @@ export class CalendarOAuthCoordinator {
     } catch { throw new CalendarOAuthCoordinatorError() }
   }
 
+  /** Callback authority comes only from the one-time nonce; returns private, exact exchange facts. */
+  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }): Readonly<{
+    authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceipt
+  }> {
+    const authorityAttemptId = this.#byStateNonceDigest.get(nonceDigest(input.stateNonce))
+    if (authorityAttemptId === undefined) throw new CalendarOAuthCoordinatorError()
+    const record = this.#require(authorityAttemptId)
+    const claim = this.claimCallback({ authorityAttemptId, stateNonce: input.stateNonce, stateGeneration: record.attempt.stateGeneration, now: input.now, leaseExpiresAt: input.leaseExpiresAt })
+    return { authorityAttemptId, callbackLease: claim.callbackLease, callbackFence: claim.callbackFence, admission: record.admission }
+  }
+
+  /** Owner-fenced private context consumed by the Workspace finalizer, never exposed to clients. */
+  completionContext(input: { authorityAttemptId: string; workspaceId: EntityId; principal: Email }): CalendarOAuthCoordinatorRecord {
+    return this.#requireOwner(input.authorityAttemptId, input.workspaceId, input.principal)
+  }
+
   /** Provider exchange occurs outside this contract; only its opaque immutable witness is admitted. */
   recordCompletion(input: { authorityAttemptId: string; callbackLease: string; callbackFence: number; completion: CalendarOAuthProviderCompletionWitness; now: string }): CalendarOAuthCoordinatorRecord {
     const record = this.#require(input.authorityAttemptId)
     const completion = privateCompletion(input.completion)
-    if (completion.admissionWitnessDigest !== record.admission.admissionWitnessDigest || completion.gatekeeperAttemptId.length === 0) throw new CalendarOAuthCoordinatorError()
+    if (
+      completion.admissionWitnessDigest !== record.admission.admissionWitnessDigest ||
+      completion.providerConnectionId !== record.admission.providerConnectionId ||
+      completion.gatekeeperAttemptId !== record.admission.gatekeeperAttemptId ||
+      completion.bindingId !== record.admission.bindingId
+    ) throw new CalendarOAuthCoordinatorError()
     try {
       const attempt = recordCalendarOAuthProviderCompletion({ attempt: record.attempt, callbackLease: input.callbackLease, callbackFence: input.callbackFence, providerReceiptDigest: completion.providerReceiptDigest, completionFactDigest: completion.completionFactDigest, now: input.now })
       const updated = Object.freeze({ ...record, attempt, completion })
@@ -192,6 +216,8 @@ export class CalendarOAuthCoordinator {
     this.#byHandleDigest.set(record.admission.attemptHandleDigest, record.admission.authorityAttemptId)
     for (const [digest, owner] of this.#byLaunchCapabilityDigest) if (owner === record.admission.authorityAttemptId) this.#byLaunchCapabilityDigest.delete(digest)
     if (record.attempt.launchCapabilityDigest !== undefined) this.#byLaunchCapabilityDigest.set(record.attempt.launchCapabilityDigest, record.admission.authorityAttemptId)
+    for (const [digest, owner] of this.#byStateNonceDigest) if (owner === record.admission.authorityAttemptId) this.#byStateNonceDigest.delete(digest)
+    if (record.attempt.stateNonceDigest !== undefined) this.#byStateNonceDigest.set(record.attempt.stateNonceDigest, record.admission.authorityAttemptId)
   }
 }
 
@@ -236,6 +262,9 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
   claimCallback(input: { authorityAttemptId: string; stateNonce: string; stateGeneration: number; now: string; leaseExpiresAt: string; callbackLease?: string }): Promise<Readonly<{ callbackLease: string; callbackFence: number }>> {
     return this.#mutate((coordinator) => coordinator.claimCallback(input))
   }
+  claimCallbackByState(input: { stateNonce: string; now: string; leaseExpiresAt: string }): Promise<Readonly<{ authorityAttemptId: string; callbackLease: string; callbackFence: number; admission: CalendarOAuthAdmissionReceipt }>> {
+    return this.#mutate((coordinator) => coordinator.claimCallbackByState(input))
+  }
   recordCompletion(input: { authorityAttemptId: string; callbackLease: string; callbackFence: number; completion: CalendarOAuthProviderCompletionWitness; now: string }): Promise<CalendarOAuthCoordinatorRecord> {
     return this.#mutate((coordinator) => coordinator.recordCompletion(input))
   }
@@ -247,6 +276,9 @@ export class CalendarOAuthCoordinatorDurableObject extends DurableObject<Coordin
       await this.#ready
       return this.#coordinator.completionView(input)
     })
+  }
+  completionContext(input: { authorityAttemptId: string; workspaceId: EntityId; principal: Email }): Promise<CalendarOAuthCoordinatorRecord> {
+    return this.#serial(async () => { await this.#ready; return this.#coordinator.completionContext(input) })
   }
 
   #serial<T>(operation: () => Promise<T>): Promise<T> {
