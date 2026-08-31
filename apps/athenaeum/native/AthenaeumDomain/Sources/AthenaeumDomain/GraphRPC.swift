@@ -238,3 +238,45 @@ public struct AssignTagOutput: Codable, Hashable, Sendable {
         self.changed = changed
     }
 }
+
+/// Mirrors the ledger-routed `ApplySupertagInput` rather than composing `assignTag` and facts in
+/// the client. A caller owns one semantic request identity across an uncertain response/retry.
+public struct ApplySupertagFieldValue: Codable, Hashable, Sendable {
+    public let fieldId: EntityId
+    public let value: JSONValue
+    public init(fieldId: EntityId, value: JSONValue) {
+        self.fieldId = fieldId
+        self.value = value
+    }
+}
+
+public struct ApplySupertagInput: Codable, Hashable, Sendable {
+    public let workspaceId: EntityId
+    public let nodeId: EntityId
+    public let tagId: EntityId
+    public let requestId: String
+    public let commitMessage: String
+    public let attribution: MutationAttribution
+    public let fieldValues: [ApplySupertagFieldValue]?
+
+    public init(workspaceId: EntityId, nodeId: EntityId, tagId: EntityId, requestId: String, commitMessage: String, attribution: MutationAttribution, fieldValues: [ApplySupertagFieldValue]? = nil) {
+        self.workspaceId = workspaceId
+        self.nodeId = nodeId
+        self.tagId = tagId
+        self.requestId = requestId
+        self.commitMessage = commitMessage
+        self.attribution = attribution
+        self.fieldValues = fieldValues
+    }
+}
+
+public struct ApplySupertagOutput: Codable, Hashable, Sendable {
+    public let nodeId: EntityId
+    public let tagId: EntityId
+    public let facts: [Fact]
+    public init(nodeId: EntityId, tagId: EntityId, facts: [Fact]) {
+        self.nodeId = nodeId
+        self.tagId = tagId
+        self.facts = facts
+    }
+}

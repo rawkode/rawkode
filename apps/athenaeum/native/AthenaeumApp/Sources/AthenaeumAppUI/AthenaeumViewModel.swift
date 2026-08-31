@@ -3,6 +3,32 @@ import AthenaeumCore
 import AthenaeumDomain
 import AthenaeumRPC
 
+public enum DailyNoteSupertagAssignmentState: Equatable {
+    case idle
+    case loading
+    case failed
+    case emptyCatalog
+    case loaded(tags: [RPCTag], appliedTagIds: Set<String>)
+}
+
+/// The note-level picker owns one read/mutate capability. Keeping this seam separate from the
+/// broader page-operation stack lets tests exercise stale snapshots and uncertain responses
+/// without manufacturing a second page or sync owner.
+protocol DailyNoteSupertagClient {
+    func listTags() async throws -> [RPCTag]
+    func runView(viewName: String, viewSpec: CapnWebValue) async throws -> [CapnWebValue]
+    func applySupertag(
+        nodeId: String,
+        tagId: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution,
+        fieldValues: [ApplySupertagFieldValue]?
+    ) async throws -> ApplySupertagOutput
+}
+
+extension WorkspaceRPCClient: DailyNoteSupertagClient {}
+
 // The native mirror of `web/src/App.tsx` + `DailyNote.tsx` + `Backlinks.tsx` + `GraphView.tsx`'s
 // combined data layer, built on real `AthenaeumCore` actors instead of Effect/React hooks: one
 // `@MainActor` `ObservableObject` owning the local-authority/CRDT/sync stack for exactly one
@@ -13,7 +39,7 @@ import AthenaeumRPC
 // `WorkspaceSyncClientLiveTests.swift` itself established: `WorkspaceSyncClient` owns its own internal
 // client for the durable-before-sync write path (node/page/tag/fact/edge creation); `readClient`
 // here is a second, independent client used only for read-only queries this stage's
-// `WorkspaceSyncClient` doesn't wrap (`listBacklinks`, `runView`, `assignTag`,
+// `WorkspaceSyncClient` doesn't wrap (`listBacklinks`, `runView`, `assignTag`, `applySupertag`,
 // `createRelationDefinition`, `getNode`) — exactly the same methods `Backlinks.tsx`/`GraphView.tsx`
 // call directly against `WorkspaceRpcClient` on the web side, without going through the local-SQLite
 // write path (those calls have no local table to stay durable-before-sync with; the web client
@@ -72,6 +98,56 @@ public final class AthenaeumViewModel: ObservableObject {
 
         var coreWitness: LoroPageRouteWitness {
             return LoroPageRouteWitness(nodeId: nodeId, format: format, storageVersion: storageVersion, schemaVersion: schemaVersion, snapshotSHA256: snapshotSHA256)
+        }
+
+        init(_ route: LoroPageRouteWitness) {
+            nodeId = route.nodeId
+            format = .loroV1
+            storageVersion = route.storageVersion
+            schemaVersion = route.schemaVersion
+            snapshotSHA256 = route.snapshotSHA256
+            automerge = nil
+        }
+    }
+
+    private struct DailyNoteSupertagReadClaim: Equatable {
+        let selection: DailyNoteSelection
+        let pageGeneration: Int
+        let witness: PageRouteWitness
+        let token: Int
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.selection.nodeId == rhs.selection.nodeId &&
+                lhs.selection.date == rhs.selection.date &&
+                lhs.pageGeneration == rhs.pageGeneration &&
+                lhs.witness == rhs.witness &&
+                lhs.token == rhs.token
+        }
+    }
+
+    private struct PendingDailyNoteSupertagIntent: Equatable {
+        let claim: DailyNoteSupertagReadClaim
+        let nodeId: EntityId
+        let tagId: EntityId
+        let requestId: String
+        let commitMessage: String
+        let attribution: MutationAttribution
+
+        func selectionMatches(_ claim: DailyNoteSupertagReadClaim) -> Bool {
+            self.claim.selection.nodeId == claim.selection.nodeId &&
+                self.claim.selection.date == claim.selection.date &&
+                self.nodeId == claim.selection.nodeId
+        }
+
+        func rebinding(to claim: DailyNoteSupertagReadClaim) -> Self {
+            .init(
+                claim: claim,
+                nodeId: nodeId,
+                tagId: tagId,
+                requestId: requestId,
+                commitMessage: commitMessage,
+                attribution: attribution
+            )
         }
     }
 
@@ -189,6 +265,7 @@ public final class AthenaeumViewModel: ObservableObject {
     @Published public private(set) var preparationCompletionGeneration = 0
     /// Changes only after a guarded native human edit enters either editable Loro draft lane.
     @Published public private(set) var acceptedHumanEditGeneration = 0
+    @Published public private(set) var dailyNoteSupertagAssignmentState: DailyNoteSupertagAssignmentState = .idle
 
     public let workspaceId: EntityId
     /// The deterministic node currently presented by the daily-note route. Secondary projections
@@ -212,6 +289,11 @@ public final class AthenaeumViewModel: ObservableObject {
         return loroRichSession?.base
     }
     public var isEditorInputDisabled: Bool { isRichTextReadOnly || isNavigating || loroSubmitEntered || loroDraftBlocked || externalMutationInFlight }
+    /// An uncertain tag write keeps this route pinned until its immutable semantic request has
+    /// been reconciled or retried; another daily note must never inherit that operation.
+    public var isDailyNoteSupertagRetryAvailable: Bool {
+        pendingDailyNoteSupertagIntent != nil && !externalMutationInFlight && !isNavigating && !loroDraftBlocked
+    }
 
     /// The command center may open a direct entity from Today while this same model owns the
     /// workspace's local store, Loro document store, and per-node operation gate.  Expose the
@@ -228,6 +310,7 @@ public final class AthenaeumViewModel: ObservableObject {
     private let localStore: LocalWorkspaceStore
     private let syncClient: WorkspaceSyncClient
     private let readClient: WorkspaceRPCClient
+    private let dailyNoteSupertagClient: any DailyNoteSupertagClient
     private let pageOperations: any DailyNotePageOperations
     /// Internal test seam for verifying that a successful primary page route continues into the
     /// backlinks/graph lifecycle. Production leaves this unset.
@@ -265,6 +348,12 @@ public final class AthenaeumViewModel: ObservableObject {
     /// A graph result belongs to the filter intent that reserved it, not to whichever read happens
     /// to finish last. This stays actor-isolated with the published graph state.
     private var graphReadGeneration = 0
+    private var dailyNoteSupertagReadGeneration = 0
+    private var dailyNoteSupertagMutationGeneration = 0
+    private var activeDailyNoteSupertagMutationToken: Int?
+    private var dailyNoteSupertagReadClaim: DailyNoteSupertagReadClaim?
+    private var pendingDailyNoteSupertagIntent: PendingDailyNoteSupertagIntent?
+    private var presentedPageRouteWitness: PageRouteWitness?
     /// Test-only completion witness for deterministic out-of-order graph-read fixtures.
     private let graphReadCompletionObserver: (() -> Void)?
 
@@ -289,6 +378,7 @@ public final class AthenaeumViewModel: ObservableObject {
         let workspaceURL = baseURL.appendingPathComponent("api/workspace/\(workspaceId.rawValue)")
         let writeClient = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
         self.readClient = WorkspaceRPCClient(baseURL: workspaceURL, workspaceId: workspaceId.rawValue, bearerCredential: bearerCredential)
+        self.dailyNoteSupertagClient = self.readClient
         self.localStore = try LocalWorkspaceStore(path: try WorkspaceConfiguration.localStorePath(workspaceId: workspaceId))
         self.syncClient = WorkspaceSyncClient(
             localStore: localStore, rpcClient: writeClient, workspaceId: workspaceId
@@ -310,6 +400,7 @@ public final class AthenaeumViewModel: ObservableObject {
         date: Date = Date(),
         secondaryLifecycleObserver: (() -> Void)? = nil,
         readClient: WorkspaceRPCClient? = nil,
+        dailyNoteSupertagClient: (any DailyNoteSupertagClient)? = nil,
         graphReadCompletionObserver: (() -> Void)? = nil,
         nativeLoroEditingEnabled: Bool? = nil
     ) throws {
@@ -322,6 +413,7 @@ public final class AthenaeumViewModel: ObservableObject {
         let url = URL(string: "http://127.0.0.1")!
         let testReadClient = readClient ?? WorkspaceRPCClient(baseURL: url, workspaceId: workspaceId.rawValue)
         self.readClient = testReadClient
+        self.dailyNoteSupertagClient = dailyNoteSupertagClient ?? testReadClient
         self.localStore = try LocalWorkspaceStore(path: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("athenaeum-ui-test-\(UUID().uuidString).sqlite").path)
         self.syncClient = WorkspaceSyncClient(localStore: localStore, rpcClient: testReadClient, workspaceId: workspaceId)
         self.pageOperations = pageOperations
@@ -350,7 +442,7 @@ public final class AthenaeumViewModel: ObservableObject {
     /// load backlinks + the read-only graph view. Each selection owns one cached sync handle, so
     /// returning to a day does not leak a new server session.
     public func start() async {
-        guard !isLoroRecoveryInProgress else { return }
+        guard !isLoroRecoveryInProgress, pendingDailyNoteSupertagIntent == nil else { return }
         resetPagePresentation()
         status = .loading
         isNavigating = true
@@ -363,7 +455,8 @@ public final class AthenaeumViewModel: ObservableObject {
     /// fast previous/next click from discarding the last typed splice.
     public func showDate(_ date: Date) {
         let normalizedDate = navigator.calendar.startOfDay(for: date)
-        guard normalizedDate != selectedDate, !isLoroRecoveryInProgress, !externalMutationInFlight else { return }
+        guard normalizedDate != selectedDate, !isLoroRecoveryInProgress, !externalMutationInFlight,
+              pendingDailyNoteSupertagIntent == nil else { return }
 
         // A native Loro draft is a single value-level Core submission.  Do not reset the editor
         // or cancel an entered call merely because navigation was requested; successful custody
@@ -535,7 +628,7 @@ public final class AthenaeumViewModel: ObservableObject {
         // A generic retry must not reset the route while an explicit recovery owns the
         // checkpoint. Resetting here would invalidate that recovery's generation, then route
         // this same native Loro page through `routeLoro` and start a second Core recovery.
-        guard !isNavigating, !isLoroRecoveryInProgress else { return }
+        guard !isNavigating, !isLoroRecoveryInProgress, pendingDailyNoteSupertagIntent == nil else { return }
         navigationTask?.cancel()
         navigationIntent.cancel()
         localCommitQueue.clear()
@@ -723,6 +816,8 @@ public final class AthenaeumViewModel: ObservableObject {
             }
             if let descriptor {
                 guard descriptor.nodeId == selection.nodeId else { throw DailyNotePageRouteError.descriptorNodeMismatch }
+                guard isCurrent(selection, generation: generation) else { return }
+                presentedPageRouteWitness = PageRouteWitness(descriptor)
 
                 switch descriptor {
                 case .legacy:
@@ -807,6 +902,183 @@ public final class AthenaeumViewModel: ObservableObject {
         await reloadBacklinks(for: selection)
         guard isCurrent(selection) else { return }
         await reloadGraphView()
+        guard isCurrent(selection) else { return }
+        await refreshDailyNoteSupertags()
+    }
+
+    // MARK: - Note-level Supertag assignment
+
+    /// Reads both sides of the assignment decision from server authority. A tag selector is never
+    /// enabled from an old catalog or an optimistic local membership cache.
+    public func refreshDailyNoteSupertags() async {
+        // An ambiguous operation remains the same operation across a reconciliation read. The
+        // read fence itself must change, but the request id/reason/attribution must not.
+        let retainedIntent = pendingDailyNoteSupertagIntent
+        dailyNoteSupertagReadGeneration &+= 1
+        let token = dailyNoteSupertagReadGeneration
+        dailyNoteSupertagReadClaim = nil
+        dailyNoteSupertagAssignmentState = .loading
+        let selection = activeSelection
+        let generation = pageOperationGeneration
+        do {
+            guard let witness = presentedPageRouteWitness,
+                  witness.nodeId == selection.nodeId,
+                  witness.format == .loroV1 else {
+                throw DailyNotePageRouteError.routeChanged
+            }
+            let claim = DailyNoteSupertagReadClaim(selection: selection, pageGeneration: generation, witness: witness, token: token)
+            async let catalog = dailyNoteSupertagClient.listTags()
+            async let rows = dailyNoteSupertagClient.runView(viewName: "graph_node_tags", viewSpec: Self.dailyNoteTagMembershipViewSpec(nodeId: selection.nodeId))
+            let (tags, membershipRows) = try await (catalog, rows)
+            for tag in tags {
+                guard (try? EntityId(validating: tag.id)) != nil else {
+                    throw CapnWebError.malformedMessage("invalid daily-note Supertag catalog")
+                }
+            }
+            let tagIDs = Set(tags.map(\.id))
+            var applied = Set<String>()
+            for row in membershipRows {
+                guard let rowNodeId = try row.field("nodeId").stringValue,
+                      let rowTagId = try row.field("tagId").stringValue,
+                      rowNodeId == selection.nodeId.rawValue,
+                      (try? EntityId(validating: rowTagId)) != nil,
+                      tagIDs.contains(rowTagId)
+                else { throw CapnWebError.malformedMessage("invalid daily-note tag membership") }
+                applied.insert(rowTagId)
+            }
+            guard isCurrentDailyNoteSupertagRead(claim) else { return }
+            dailyNoteSupertagReadClaim = claim
+            dailyNoteSupertagAssignmentState = tags.isEmpty ? .emptyCatalog : .loaded(tags: tags, appliedTagIds: applied)
+            if let retainedIntent,
+               retainedIntent.selectionMatches(claim),
+               retainedIntent.claim.witness == claim.witness {
+                pendingDailyNoteSupertagIntent = retainedIntent.rebinding(to: claim)
+            }
+        } catch {
+            guard token == dailyNoteSupertagReadGeneration, isCurrent(selection, generation: generation) else { return }
+            dailyNoteSupertagReadClaim = nil
+            dailyNoteSupertagAssignmentState = .failed
+        }
+    }
+
+    public func applyDailyNoteSupertag(tagId: String) async {
+        guard case .loaded(let tags, let applied) = dailyNoteSupertagAssignmentState,
+              !applied.contains(tagId),
+              let tag = tags.first(where: { $0.id == tagId }),
+              let decodedTagId = try? EntityId(validating: tag.id),
+              let readClaim = dailyNoteSupertagReadClaim,
+              pendingDailyNoteSupertagIntent == nil,
+              !externalMutationInFlight,
+              !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
+              isDailyNoteSupertagPresentationSafe
+        else { return }
+
+        let intent = PendingDailyNoteSupertagIntent(
+            claim: readClaim,
+            nodeId: readClaim.selection.nodeId,
+            tagId: decodedTagId,
+            requestId: UUID().uuidString.lowercased(),
+            commitMessage: "Apply \(tag.name) to this daily note.",
+            attribution: MutationAttribution(kind: "humanUi", surface: Self.nativeSurface)
+        )
+        // Claim synchronously before the first suspension. A second tap observes this identity
+        // and cannot independently mint a request id during the descriptor check below.
+        pendingDailyNoteSupertagIntent = intent
+        dailyNoteSupertagMutationGeneration &+= 1
+        let mutationToken = dailyNoteSupertagMutationGeneration
+        activeDailyNoteSupertagMutationToken = mutationToken
+        externalMutationInFlight = true
+        await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
+    }
+
+    public func retryDailyNoteSupertagAssignment() async {
+        guard let intent = pendingDailyNoteSupertagIntent, !externalMutationInFlight,
+              isCurrent(intent.claim.selection, generation: intent.claim.pageGeneration),
+              !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
+              isDailyNoteSupertagPresentationSafe else { return }
+        dailyNoteSupertagMutationGeneration &+= 1
+        let mutationToken = dailyNoteSupertagMutationGeneration
+        activeDailyNoteSupertagMutationToken = mutationToken
+        externalMutationInFlight = true
+        await submitClaimedDailyNoteSupertag(intent, mutationToken: mutationToken)
+    }
+
+    private func submitClaimedDailyNoteSupertag(_ intent: PendingDailyNoteSupertagIntent, mutationToken: Int) async {
+        guard pendingDailyNoteSupertagIntent == intent,
+              isCurrentDailyNoteSupertagRead(intent.claim),
+              !isNavigating, !loroSubmitEntered, !isLoroRecoveryInProgress, !loroDraftBlocked,
+              isDailyNoteSupertagPresentationSafe
+        else {
+            releaseDailyNoteSupertagMutation(mutationToken)
+            return
+        }
+        defer {
+            // A delayed A completion must never release B's mutation gate.
+            releaseDailyNoteSupertagMutation(mutationToken)
+        }
+        do {
+            let output = try await dailyNoteSupertagClient.applySupertag(
+                nodeId: intent.nodeId.rawValue,
+                tagId: intent.tagId.rawValue,
+                requestId: intent.requestId,
+                commitMessage: intent.commitMessage,
+                attribution: intent.attribution,
+                fieldValues: nil
+            )
+            guard output.nodeId == intent.nodeId, output.tagId == intent.tagId,
+                  isCurrentDailyNoteSupertagRead(intent.claim)
+            else { return }
+            // Keep the intent until the authoritative membership read confirms the write. A
+            // successful RPC response is not itself a read-model snapshot; clearing custody here
+            // would make a response-loss/reconciliation failure look like a completed assignment.
+            await refreshDailyNoteSupertags()
+            if case .loaded(_, let applied) = dailyNoteSupertagAssignmentState,
+               applied.contains(intent.tagId.rawValue) {
+                pendingDailyNoteSupertagIntent = nil
+            }
+        } catch {
+            guard isCurrentDailyNoteSupertagRead(intent.claim) else { return }
+            // Response loss is ambiguous. Reconcile first; only a still-unconfirmed exact intent
+            // remains retryable, retaining its immutable request identity.
+            await refreshDailyNoteSupertags()
+            if case .loaded(_, let applied) = dailyNoteSupertagAssignmentState,
+               applied.contains(intent.tagId.rawValue) {
+                pendingDailyNoteSupertagIntent = nil
+            }
+        }
+    }
+
+    private func releaseDailyNoteSupertagMutation(_ mutationToken: Int) {
+        guard activeDailyNoteSupertagMutationToken == mutationToken else { return }
+        activeDailyNoteSupertagMutationToken = nil
+        externalMutationInFlight = false
+    }
+
+    private var isDailyNoteSupertagPresentationSafe: Bool {
+        switch pagePresentation {
+        case .loroPlainEditable:
+            return loroEditorBase != nil && loroPlainDraft == loroEditorBase?.text
+        case .loroRichEditable:
+            return loroRichSession != nil && loroRichSession?.draft == loroRichSession?.base.document
+        case .loroReadOnly(let projection): return !projection.isDirty
+        case .loroProjectedReadOnly(let projection): return !projection.projection.isDirty
+        default: return false
+        }
+    }
+
+    private func isCurrentDailyNoteSupertagRead(_ claim: DailyNoteSupertagReadClaim) -> Bool {
+        guard claim.token == dailyNoteSupertagReadGeneration,
+              isCurrent(claim.selection, generation: claim.pageGeneration),
+              presentedPageRouteWitness == claim.witness else { return false }
+        return true
+    }
+
+    private static var nativeSurface: String {
+        #if os(macOS)
+        return "macos"
+        #else
+        return "ios"
+        #endif
     }
 
     private func isCurrent(_ selection: DailyNoteSelection) -> Bool {
@@ -968,6 +1240,13 @@ public final class AthenaeumViewModel: ObservableObject {
 
     private func resetPagePresentation() {
         pageOperationGeneration &+= 1
+        dailyNoteSupertagReadGeneration &+= 1
+        dailyNoteSupertagReadClaim = nil
+        dailyNoteSupertagAssignmentState = .idle
+        presentedPageRouteWitness = nil
+        // Preserve a claimed semantic request only while its route remains live. A route change
+        // must not expose a retry that could target the newly selected note.
+        pendingDailyNoteSupertagIntent = nil
         syncTask?.cancel()
         syncTask = nil
         syncTasksByNodeId[activeSelection.nodeId.rawValue]?.cancel()
@@ -1062,6 +1341,7 @@ public final class AthenaeumViewModel: ObservableObject {
         text = ""
         isRichTextReadOnly = false
         pagePresentation = .loroProjectedReadOnly(projection)
+        presentedPageRouteWitness = PageRouteWitness(projection.projection.route)
         status = projection.projection.isDirty ? .pending("Local Loro replica has not converged") : .synced
         isNavigating = false
     }
@@ -1077,6 +1357,7 @@ public final class AthenaeumViewModel: ObservableObject {
         loroNotice = nil
         loroDraftBlocked = false
         pagePresentation = .loroPlainEditable
+        presentedPageRouteWitness = PageRouteWitness(state.route)
         status = .synced
         isNavigating = false
     }
@@ -1094,6 +1375,7 @@ public final class AthenaeumViewModel: ObservableObject {
         loroNotice = nil
         loroDraftBlocked = false
         pagePresentation = .loroRichEditable
+        presentedPageRouteWitness = PageRouteWitness(state.route)
         status = .synced
         isNavigating = false
     }
@@ -1853,5 +2135,18 @@ public final class AthenaeumViewModel: ObservableObject {
             fields["filter"] = .object(["op": .string("hasTag"), "tagId": .string(BaseTagIds.person.rawValue)])
         }
         return .object(fields)
+    }
+
+    static func dailyNoteTagMembershipViewSpec(nodeId: EntityId) -> CapnWebValue {
+        .object([
+            "filter": .object([
+                "op": .string("eq"),
+                "field": .object(["kind": .string("column"), "column": .string("nodeId")]),
+                "value": .string(nodeId.rawValue)
+            ]),
+            "view": .string("table"),
+            "visibleColumns": .array([.string("nodeId"), .string("tagId")]),
+            "rowLimit": .int(100)
+        ])
     }
 }

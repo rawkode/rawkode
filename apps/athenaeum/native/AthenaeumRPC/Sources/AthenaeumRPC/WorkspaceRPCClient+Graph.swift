@@ -21,6 +21,13 @@ public struct RPCTag: Sendable, Equatable {
     public let parentIds: [String]
     public let builtin: Bool
 
+    public init(id: String, name: String, parentIds: [String] = [], builtin: Bool) {
+        self.id = id
+        self.name = name
+        self.parentIds = parentIds
+        self.builtin = builtin
+    }
+
     init(_ value: CapnWebValue) throws {
         guard let id = try value.field("id").stringValue,
               let name = try value.field("name").stringValue,
@@ -208,6 +215,31 @@ extension WorkspaceRPCClient {
         ])
     }
 
+    /// Applies membership through the Worker’s one ledgered Supertag mutation. This deliberately
+    /// has no optimistic local write: the daily-note owner reconciles `graph_node_tags` first.
+    public func applySupertag(nodeId: String, tagId: String, requestId: String, commitMessage: String, attribution: MutationAttribution, fieldValues: [ApplySupertagFieldValue]? = nil) async throws -> ApplySupertagOutput {
+        var args: [String: CapnWebValue] = [
+            "nodeId": .string(nodeId),
+            "tagId": .string(tagId),
+            "requestId": .string(requestId),
+            "commitMessage": .string(commitMessage),
+            "attribution": mutationAttributionValue(attribution)
+        ]
+        if let fieldValues {
+            args["fieldValues"] = .array(fieldValues.map {
+                .object(["fieldId": .string($0.fieldId.rawValue), "value": capnWebValue($0.value)])
+            })
+        }
+        let result = try await rpc("applySupertag", args)
+        guard let resultNodeId = try result.field("nodeId").stringValue,
+              let resultTagId = try result.field("tagId").stringValue,
+              let decodedNodeId = try? EntityId(validating: resultNodeId),
+              let decodedTagId = try? EntityId(validating: resultTagId)
+        else { throw CapnWebError.malformedMessage("malformed applySupertag response") }
+        let facts = try (result.field("facts").arrayValue ?? []).map(decodeFact)
+        return ApplySupertagOutput(nodeId: decodedNodeId, tagId: decodedTagId, facts: facts)
+    }
+
     // MARK: - Facts
 
     private func mutationAttributionValue(_ attribution: MutationAttribution) -> CapnWebValue {
@@ -220,6 +252,38 @@ extension WorkspaceRPCClient {
         if let runId = attribution.runId { fields["runId"] = .string(runId) }
         if let source = attribution.source { fields["source"] = .string(source) }
         return .object(fields)
+    }
+
+    private func capnWebValue(_ value: JSONValue) -> CapnWebValue {
+        switch value {
+        case .null: return .null
+        case .bool(let value): return .bool(value)
+        case .number(let value): return .number(value)
+        case .string(let value): return .string(value)
+        case .array(let values): return .array(values.map(capnWebValue))
+        case .object(let fields): return .object(fields.mapValues(capnWebValue))
+        }
+    }
+
+    private func jsonValue(_ value: CapnWebValue) throws -> JSONValue {
+        switch value {
+        case .null: return .null
+        case .bool(let value): return .bool(value)
+        case .number(let value): return .number(value)
+        case .string(let value): return .string(value)
+        case .array(let values): return .array(try values.map(jsonValue))
+        case .object(let fields): return .object(try fields.mapValues(jsonValue))
+        case .bytes, .undefined, .error:
+            throw CapnWebError.malformedMessage("non-JSON fact value")
+        }
+    }
+
+    private func decodeFact(_ value: CapnWebValue) throws -> Fact {
+        guard let id = try value.field("id").stringValue.flatMap({ try? EntityId(validating: $0) }),
+              let nodeId = try value.field("nodeId").stringValue.flatMap({ try? EntityId(validating: $0) }),
+              let predicateId = try value.field("predicateId").stringValue
+        else { throw CapnWebError.malformedMessage("malformed applySupertag fact") }
+        return Fact(id: id, nodeId: nodeId, predicateId: predicateId, value: try jsonValue(value.field("value")))
     }
 
     /// `requestId` is the caller-owned semantic operation identity and must be retained across

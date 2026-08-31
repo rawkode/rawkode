@@ -6,7 +6,9 @@ import AthenaeumCore
 /// heading (or any other structure) is meaningful user-authored content and must not be obscured
 /// by a writing prompt.
 struct LoroNativeRichEmptyStatePresentation: Equatable {
-    static let promptText = "Start with what matters. Use # to connect a person or project; @ to link context."
+    // Native note-level tagging is available through the explicit control below the editor. Do
+    // not promise inline `#`/`@` syntax until the native editor can actually interpret it.
+    static let promptText = "Start with what matters."
 
     let prompt: String?
 

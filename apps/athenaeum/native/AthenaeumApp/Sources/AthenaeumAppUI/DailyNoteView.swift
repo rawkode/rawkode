@@ -265,6 +265,7 @@ public struct DailyNoteView: View {
                     ProgressView("Preparing daily note…")
                 }
                 statusLine
+                DailyNoteSupertagAssignmentView(model: model)
                 if let preparationNotice {
                     Text(preparationNotice)
                         .font(.caption)

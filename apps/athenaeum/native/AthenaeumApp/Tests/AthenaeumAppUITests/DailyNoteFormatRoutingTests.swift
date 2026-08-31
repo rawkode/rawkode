@@ -1586,6 +1586,146 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         XCTAssertLessThan(standupIndex, backlinksIndex)
     }
 
+    func testDailyNoteSupertagPreexistingMembershipIsDisplayedAndNeverReapplied() async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+
+        guard case .loaded(let tags, let applied) = model.dailyNoteSupertagAssignmentState else {
+            return XCTFail("expected an authoritative loaded Supertag snapshot")
+        }
+        XCTAssertEqual(tags.map(\.id), [tagID.rawValue])
+        XCTAssertEqual(applied, [tagID.rawValue])
+        await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+        XCTAssertEqual(client.applyCount, 0, "an already-applied tag must be a read-only disabled action")
+    }
+
+    func testDailyNoteSupertagUnknownMembershipFailsClosed() async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let unknownTagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: unknownTagID)]
+        )
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+
+        XCTAssertEqual(model.dailyNoteSupertagAssignmentState, .failed)
+        await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+        XCTAssertEqual(client.applyCount, 0, "catalog/membership disagreement must not expose a mutation")
+    }
+
+    func testDailyNoteSupertagResponseLossRetainsRequestIdentityUntilAuthoritativeReconciliation() async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRowsByApplyCount: [
+                [], [], [Self.membershipRow(node: node, tag: tagID)]
+            ]
+        )
+        client.applyResults = [
+            .failure(DailyNoteSupertagTestError.responseLost),
+            .success(ApplySupertagOutput(nodeId: node, tagId: tagID, facts: []))
+        ]
+        let model = try makeSupertagModel(client: client)
+        await model.start()
+
+        await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+
+        XCTAssertEqual(client.applyCount, 1)
+        XCTAssertTrue(model.isDailyNoteSupertagRetryAvailable, "an unconfirmed response must leave the exact request retryable")
+        let firstRequestID = try XCTUnwrap(client.appliedInputs.first?.requestId)
+        await model.retryDailyNoteSupertagAssignment()
+
+        XCTAssertEqual(client.applyCount, 2)
+        XCTAssertEqual(client.appliedInputs.map(\.requestId), [firstRequestID, firstRequestID])
+        guard case .loaded(_, let applied) = model.dailyNoteSupertagAssignmentState else {
+            return XCTFail("expected the post-retry membership read to be loaded")
+        }
+        XCTAssertEqual(applied, [tagID.rawValue])
+        XCTAssertFalse(model.isDailyNoteSupertagRetryAvailable, "confirmed membership clears the retained intent")
+    }
+
+    func testDailyNoteSupertagConcurrentPressesCreateOneMutation() async throws {
+        let node = dailyNoteIdForDate(Date(timeIntervalSince1970: 0), calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRowsByApplyCount: [[], [Self.membershipRow(node: node, tag: tagID)]]
+        )
+        client.applyDelayNanoseconds = 100_000_000
+        let model = try makeSupertagModel(client: client)
+        await model.start()
+
+        let first = Task { await model.applyDailyNoteSupertag(tagId: tagID.rawValue) }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        let second = Task { await model.applyDailyNoteSupertag(tagId: tagID.rawValue) }
+        await first.value
+        await second.value
+
+        XCTAssertEqual(client.applyCount, 1, "the synchronous pending-intent claim must fence a second press")
+    }
+
+    func testDailyNoteSupertagDirtyProjectionNeverMutates() async throws {
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(tags: [tag])
+        let model = try makeSupertagModel(client: client, loroIsDirty: true)
+        await model.start()
+
+        await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+
+        XCTAssertEqual(client.applyCount, 0, "dirty Loro projection has no safe external-mutation boundary")
+    }
+
+    private func makeSupertagModel(
+        client: FakeDailyNoteSupertagClient,
+        loroIsDirty: Bool = false
+    ) throws -> AthenaeumViewModel {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let fake = FakeOperations(
+            descriptors: [native(node)],
+            loroResult: .init(format: .loroV1, schemaVersion: 1, isDirty: loroIsDirty)
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [EmptyWorkspaceRPCURLProtocol.self]
+        let readClient = WorkspaceRPCClient(
+            baseURL: URL(string: "http://daily-note-supertags.invalid")!,
+            workspaceId: workspace.rawValue,
+            urlSession: URLSession(configuration: configuration)
+        )
+        return try AthenaeumViewModel(
+            workspaceId: workspace,
+            pageOperations: fake,
+            date: date,
+            readClient: readClient,
+            dailyNoteSupertagClient: client,
+            nativeLoroEditingEnabled: true
+        )
+    }
+
+    private static func supertag(id: EntityId, name: String) -> RPCTag? {
+        RPCTag(id: id.rawValue, name: name, builtin: false)
+    }
+
+    private static func membershipRow(node: EntityId, tag: EntityId) -> CapnWebValue {
+        .object(["nodeId": .string(node.rawValue), "tagId": .string(tag.rawValue)])
+    }
+
     private func liveDailyNoteOperationsSource() throws -> String {
         let package = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // AthenaeumAppUITests
@@ -1828,4 +1968,93 @@ private final class FakeOperations: DailyNotePageOperations {
         if let preparationResult { return preparationResult }
         throw DailyNotePageOperationError.externalMutationUnavailable(input.dailyNoteId)
     }
+}
+
+private enum DailyNoteSupertagTestError: Error {
+    case responseLost
+}
+
+@MainActor
+private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
+    struct AppliedInput {
+        let nodeId: String
+        let tagId: String
+        let requestId: String
+        let commitMessage: String
+        let attribution: MutationAttribution
+    }
+
+    let tags: [RPCTag]
+    let initialMembershipRows: [CapnWebValue]
+    let membershipRowsByApplyCount: [[CapnWebValue]]
+    var applyResults: [Result<ApplySupertagOutput, Error>] = []
+    var applyDelayNanoseconds: UInt64 = 0
+    var applyCount = 0
+    var appliedInputs: [AppliedInput] = []
+
+    init(
+        tags: [RPCTag],
+        membershipRows: [CapnWebValue] = [],
+        membershipRowsByApplyCount: [[CapnWebValue]] = []
+    ) {
+        self.tags = tags
+        self.initialMembershipRows = membershipRows
+        self.membershipRowsByApplyCount = membershipRowsByApplyCount
+    }
+
+    func listTags() async throws -> [RPCTag] { tags }
+
+    func runView(viewName: String, viewSpec _: CapnWebValue) async throws -> [CapnWebValue] {
+        guard viewName == "graph_node_tags" else { return [] }
+        if !membershipRowsByApplyCount.isEmpty {
+            let index = min(applyCount, membershipRowsByApplyCount.count - 1)
+            return membershipRowsByApplyCount[index]
+        }
+        return initialMembershipRows
+    }
+
+    func applySupertag(
+        nodeId: String,
+        tagId: String,
+        requestId: String,
+        commitMessage: String,
+        attribution: MutationAttribution,
+        fieldValues _: [ApplySupertagFieldValue]?
+    ) async throws -> ApplySupertagOutput {
+        applyCount += 1
+        appliedInputs.append(.init(nodeId: nodeId, tagId: tagId, requestId: requestId, commitMessage: commitMessage, attribution: attribution))
+        if applyDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: applyDelayNanoseconds)
+        }
+        let result = applyResults.isEmpty
+            ? Result.success(
+                ApplySupertagOutput(
+                    nodeId: try EntityId(validating: nodeId),
+                    tagId: try EntityId(validating: tagId),
+                    facts: []
+                )
+            )
+            : applyResults.removeFirst()
+        return try result.get()
+    }
+}
+
+private final class EmptyWorkspaceRPCURLProtocol: URLProtocol {
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = "[\"resolve\",1,{\"edges\":[],\"rows\":[],\"tags\":[]}]\n"
+        let httpResponse = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: httpResponse, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(response.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

@@ -6,7 +6,7 @@ final class LoroNativeRichEmptyStatePresentationTests: XCTestCase {
     func testCanonicalEmptyParagraphShowsTheWritingPrompt() {
         let presentation = LoroNativeRichEmptyStatePresentation(document: document(blocks: [.paragraph([])]))
 
-        XCTAssertEqual(presentation.prompt, "Start with what matters. Use # to connect a person or project; @ to link context.")
+        XCTAssertEqual(presentation.prompt, "Start with what matters.")
     }
 
     func testExistingTextAndIntentionalEmptyStructureDoNotShowThePrompt() {
@@ -28,7 +28,7 @@ final class LoroNativeRichEmptyStatePresentationTests: XCTestCase {
         XCTAssertNil(LoroNativeRichEmptyStatePresentation(baseDocument: base, liveDraft: draft).prompt)
         XCTAssertEqual(
             LoroNativeRichEmptyStatePresentation(baseDocument: draft, liveDraft: base).prompt,
-            "Start with what matters. Use # to connect a person or project; @ to link context."
+            "Start with what matters."
         )
     }
 
