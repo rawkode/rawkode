@@ -161,6 +161,30 @@ describe("projectTodayBriefSchedule", () => {
     expect(container.querySelector(".today-brief-focus-toggle")?.getAttribute("aria-expanded")).toBe("true")
   })
 
+  it("retains an unparseable timestamp in Full schedule with safe time copy", async () => {
+    const value = {
+      localDate: "2026-08-26",
+      timeZone: "UTC",
+      calendarHistory: { status: "found" },
+      events: [event("malformed", "not-a-timestamp", "still-not-a-timestamp")]
+    } as unknown as GetTodayBriefOutput
+    const container = await mount(createElement(TodayBriefFreshness, {
+      value,
+      isToday: true,
+      now,
+      stale: false,
+      clock: () => now,
+      onBoundary: () => undefined
+    }))
+
+    expect(container.querySelector(".today-brief-event")).toBeNull()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".today-brief-focus-toggle")?.click()
+    })
+    expect(container.querySelector(".today-brief-event time")?.textContent).toBe("Time unavailable")
+    expect(container.querySelector(".today-brief-event strong")?.textContent).toBe("malformed")
+  })
+
   it("keeps repeated references as distinct source occurrences", () => {
     const shared = event("same-reference", "2026-08-26T11:00:00Z", "2026-08-26T12:00:00Z")
     const events = [event("past", "2026-08-26T09:00:00Z", "2026-08-26T10:00:00Z"), shared, shared]

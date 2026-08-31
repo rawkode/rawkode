@@ -11,6 +11,11 @@ import { workspaceId } from "./workspace-id.js"
 const timeFormatter = (timeZone: string): Intl.DateTimeFormat =>
   new Intl.DateTimeFormat(undefined, { timeZone, hour: "numeric", minute: "2-digit" })
 
+const formatEventTime = (formatter: Intl.DateTimeFormat, value: string): string => {
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? formatter.format(date) : "Time unavailable"
+}
+
 const defaultClock = (): Date => new Date()
 
 const formatHistory = (status: GetTodayBriefOutput["calendarHistory"]["status"]): string => {
@@ -607,7 +612,7 @@ function EventList({ events, formatter, localDate, timeZone, onPrepareMeeting, o
     const people = projectTodayBriefPeople(event.people, onOpenPerson !== undefined)
     const showPreparation = allowPreparation && (isPreparationAllowed?.(event, sourceIndex) ?? true)
     return <li key={`${sourceIndex}-${event.occurrenceKey}`} className="today-brief-event">
-      <time dateTime={event.start}>{formatter.format(new Date(event.start))}</time>
+      <time dateTime={event.start}>{formatEventTime(formatter, event.start)}</time>
       <div className="today-brief-event-content"><strong>{event.title}</strong>{people.length > 0 && <div className="today-brief-event-people" role="group" aria-label="People">{people.map((person, personIndex) => {
         const personNodeId = person.personNodeId
         return personNodeId === undefined
