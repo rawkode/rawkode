@@ -387,7 +387,8 @@ public struct DailyNoteView: View {
                 if model.isDailyNoteSupertagAssignmentEligible {
                     DailyNoteSupertagAssignmentView(
                         model: model,
-                        onWillAssign: captureSupertagEditorFocus
+                        onWillAssign: captureSupertagEditorFocus,
+                        onOpenAppliedSupertag: openAppliedSupertagFieldCapture
                     )
                 }
                 if let preparationNotice {
@@ -489,6 +490,19 @@ public struct DailyNoteView: View {
                 return
             }
             restoreEditorFocusAfterSupertagFieldCaptureDismissal()
+        }
+        .onChange(of: model.dailyNoteAppliedSupertagSummaryState) { state in
+            guard supertagFieldCapture?.origin == .appliedChip else { return }
+            // A summary rebuild changes the schema/fact claim that admitted this chip. Dismiss
+            // the old presentation so a changed field definition can never remain an edit route;
+            // the user can reopen the freshly loaded chip once the new snapshot is visible.
+            switch state {
+            case .loading, .failed:
+                supertagFieldCapture = nil
+                supertagFieldCaptureFocusWitness = nil
+            case .idle, .loaded:
+                break
+            }
         }
         .onChange(of: dailyStandupModel.employeeLoadGeneration) { _ in
             // Refreshing the same note is still a new snapshot; never let an old row focus after
@@ -1438,6 +1452,7 @@ public struct DailyNoteView: View {
             // and any capture-specific focus choreography.
             supertagFieldCaptureFocusWitness = .init(
                 commandID: acknowledgement.commandID,
+                origin: capture.origin,
                 dailyNoteID: pending.dailyNoteID,
                 date: pending.date,
                 operationGeneration: pending.operationGeneration,
@@ -1445,6 +1460,22 @@ public struct DailyNoteView: View {
             )
             supertagFieldCapture = capture
         }
+    }
+
+    private func openAppliedSupertagFieldCapture(tagId: String) {
+        guard let capture = model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: tagId) else { return }
+        // This is a context-chip route, not an editor command. Retain a presentation witness so
+        // an ambiguous field write can reopen the exact chip, while its origin prevents editor
+        // selection restoration.
+        supertagFieldCaptureFocusWitness = .init(
+            commandID: capture.commandID,
+            origin: capture.origin,
+            dailyNoteID: model.dailyNoteId,
+            date: model.selectedDate,
+            operationGeneration: model.dailyNoteOperationGeneration,
+            presentation: model.pagePresentation
+        )
+        supertagFieldCapture = capture
     }
 
     private func isCurrentSupertagFieldCaptureRoute(

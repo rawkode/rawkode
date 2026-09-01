@@ -5,6 +5,50 @@ private final class DailyNoteSupertagPickerActivation {
     var didCapturePreActivation = false
 }
 
+/// A compact, named context strip for tags already attached to the note. The model supplies one
+/// complete snapshot, so chips never render a stale tag name beside a newer field value.
+private struct DailyNoteAppliedSupertagSummaryStrip: View {
+    let summaries: [DailyNoteAppliedSupertagSummary]
+    let onOpenTag: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Applied context")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(summaries) { summary in
+                        Button {
+                            onOpenTag(summary.tagId)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("#\(summary.tagName)")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(summary.preview ?? "No fields yet")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            .frame(minWidth: 120, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(summary.fields.isEmpty)
+                        .accessibilityIdentifier("daily-note-applied-supertag-\(summary.tagId)")
+                        .accessibilityHint(
+                            summary.fields.isEmpty
+                                ? "This Supertag has no fields to edit."
+                                : "Opens the fields attached to this Supertag."
+                        )
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+    }
+}
+
 /// The concrete picker is kept separate from the server-backed state view so the focus boundary
 /// is explicit: the opener captures the editor witness, while a later row action only submits the
 /// selected tag. This same control is hosted by the macOS and iOS shells.
@@ -74,10 +118,16 @@ struct DailyNoteSupertagAssignmentView: View {
     /// Called synchronously from the picker opener, before the popover can move keyboard or
     /// first-responder focus away from the editor.
     let onWillAssign: () -> Void
+    let onOpenAppliedSupertag: (String) -> Void
 
-    init(model: AthenaeumViewModel, onWillAssign: @escaping () -> Void = {}) {
+    init(
+        model: AthenaeumViewModel,
+        onWillAssign: @escaping () -> Void = {},
+        onOpenAppliedSupertag: @escaping (String) -> Void = { _ in }
+    ) {
         self.model = model
         self.onWillAssign = onWillAssign
+        self.onOpenAppliedSupertag = onOpenAppliedSupertag
     }
 
     var body: some View {
@@ -101,29 +151,57 @@ struct DailyNoteSupertagAssignmentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .loaded(let tags, let appliedTagIds):
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if model.isDailyNoteSupertagRetryAvailable {
-                    Button("Retry tag assignment") {
-                        Task { await model.retryDailyNoteSupertagAssignment() }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if model.isDailyNoteSupertagRetryAvailable {
+                        Button("Retry tag assignment") {
+                            Task { await model.retryDailyNoteSupertagAssignment() }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .accessibilityHint("Retries the same pending tag assignment for this note.")
                     }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .accessibilityHint("Retries the same pending tag assignment for this note.")
-                }
-                DailyNoteSupertagPicker(
-                    tags: tags,
-                    appliedTagIds: appliedTagIds,
-                    isDisabled: model.isEditorInputDisabled || model.isDailyNoteSupertagRetryAvailable,
-                    onWillAssign: onWillAssign,
-                    onAssign: { tagId in
-                        Task { await model.applyDailyNoteSupertag(tagId: tagId) }
-                    }
-                )
+                    DailyNoteSupertagPicker(
+                        tags: tags,
+                        appliedTagIds: appliedTagIds,
+                        isDisabled: model.isEditorInputDisabled || model.isDailyNoteSupertagRetryAvailable,
+                        onWillAssign: onWillAssign,
+                        onAssign: { tagId in
+                            Task { await model.applyDailyNoteSupertag(tagId: tagId) }
+                        }
+                    )
 
-                if !appliedTagIds.isEmpty {
-                    Text("\(appliedTagIds.count) applied")
+                    if !appliedTagIds.isEmpty {
+                        Text("\(appliedTagIds.count) applied")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                switch model.dailyNoteAppliedSupertagSummaryState {
+                case .loaded(let summaries) where !summaries.isEmpty:
+                    DailyNoteAppliedSupertagSummaryStrip(
+                        summaries: summaries,
+                        onOpenTag: onOpenAppliedSupertag
+                    )
+                case .loading:
+                    Label("Loading applied context…", systemImage: "circle.dotted")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.updatesFrequently)
+                case .failed:
+                    HStack(spacing: 8) {
+                        Label("Applied context is unavailable.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Retry") {
+                            Task { await model.refreshDailyNoteSupertags() }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                case .idle, .loaded:
+                    EmptyView()
                 }
             }
         }

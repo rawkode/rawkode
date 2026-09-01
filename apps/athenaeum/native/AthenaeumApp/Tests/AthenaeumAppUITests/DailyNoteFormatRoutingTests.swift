@@ -2377,6 +2377,201 @@ final class DailyNoteFormatRoutingTests: XCTestCase {
         ))
     }
 
+    func testAppliedSupertagSummaryFormatsTypedValuesAndOpensASeparateChipCapture() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let personID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let projectID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e62")
+        let roleID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let statusID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e72")
+        let roleFactID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e81")
+        let statusFactID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e82")
+        let person = try XCTUnwrap(Self.supertag(id: personID, name: "Person"))
+        let project = try XCTUnwrap(Self.supertag(id: projectID, name: "Project"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [person, project],
+            membershipRows: [
+                Self.membershipRow(node: node, tag: personID),
+                Self.membershipRow(node: node, tag: projectID)
+            ]
+        )
+        client.fieldsByTagID[personID.rawValue] = [
+            try Self.resolvedSupertagField(id: roleID, tagID: personID, name: "Role", kind: .text)
+        ]
+        client.fieldsByTagID[projectID.rawValue] = [
+            try Self.resolvedSupertagField(id: statusID, tagID: projectID, name: "Status", kind: .text)
+        ]
+        client.graphFactRows = [
+            Self.graphFactRow(id: roleFactID, node: node, predicateID: roleID.rawValue, encodedValue: "\"Engineer\""),
+            Self.graphFactRow(id: statusFactID, node: node, predicateID: statusID.rawValue, encodedValue: "\"Active\"")
+        ]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+
+        guard case .loaded(let summaries) = model.dailyNoteAppliedSupertagSummaryState else {
+            return XCTFail("expected an atomic applied-Supertag summary")
+        }
+        XCTAssertEqual(summaries.map(\.tagName), ["Person", "Project"])
+        XCTAssertEqual(summaries.map(\.preview), ["Role: Engineer", "Status: Active"])
+
+        let capture = try XCTUnwrap(model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: personID.rawValue))
+        XCTAssertEqual(capture.origin, .appliedChip)
+        XCTAssertNotEqual(capture.commandID, UUID())
+        XCTAssertEqual(capture.tagName, "Person")
+        XCTAssertEqual(capture.fields.map { $0.existingFact?.id }, [roleFactID])
+    }
+
+    func testDailyNoteSupertagStaleSummaryHydrationCannotResurrectRetryAfterRouteInvalidation() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRowsByApplyCount: [[], []]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Role", kind: .text)
+        ]
+        client.applyResults = [.failure(DailyNoteSupertagTestError.responseLost)]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let applyResult = await model.applyDailyNoteSupertag(tagId: tagID.rawValue)
+        XCTAssertFalse(applyResult)
+        XCTAssertTrue(model.isDailyNoteSupertagRetryAvailable)
+
+        // The next reconciliation sees the server-side membership and suspends while its
+        // applied-context schema is hydrated. Supersede that route before hydration resumes.
+        client.membershipRowsOverride = [Self.membershipRow(node: node, tag: tagID)]
+        client.blockNextFieldRead = true
+        let staleRefresh = Task { await model.refreshDailyNoteSupertags() }
+        try await waitUntil { client.fieldReadBlocked }
+        model.invalidatePageRouteForTesting()
+        client.releaseFieldRead()
+        await staleRefresh.value
+
+        XCTAssertFalse(model.isDailyNoteSupertagRetryAvailable, "a stale summary completion must not restore route-scoped retry custody")
+        XCTAssertEqual(model.dailyNoteSupertagAssignmentState, .idle)
+    }
+
+    func testAppliedSupertagChipNeverRestoresInlineEditorFocus() throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let noteID = dailyNoteIdForDate(date, calendar: .current)
+        let witness = DailyNoteInlineSupertagFieldCaptureFocusWitness(
+            commandID: UUID(),
+            origin: .appliedChip,
+            dailyNoteID: noteID,
+            date: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable
+        )
+
+        XCTAssertFalse(witness.permitsRestoration(
+            hasResolvedDailyNote: true,
+            dailyNoteID: noteID,
+            selectedDate: date,
+            operationGeneration: 7,
+            presentation: .loroRichEditable,
+            isEditorInputDisabled: false
+        ))
+    }
+
+    func testAppliedSupertagSummaryFormatterOmitsStructuredValuesAndBoundsLongText() {
+        XCTAssertEqual(
+            AthenaeumViewModel.formatDailyNoteAppliedSupertagValue(.bool(true), valueKind: .checkbox),
+            "yes"
+        )
+        XCTAssertEqual(
+            AthenaeumViewModel.formatDailyNoteAppliedSupertagValue(.number(3.5), valueKind: .number),
+            "3.5"
+        )
+        XCTAssertNil(
+            AthenaeumViewModel.formatDailyNoteAppliedSupertagValue(.object(["secret": .string("raw")]), valueKind: .text)
+        )
+        let long = String(repeating: "x", count: 60)
+        let bounded = AthenaeumViewModel.formatDailyNoteAppliedSupertagValue(.string(long), valueKind: .text)
+        XCTAssertEqual(bounded?.count, 48)
+        XCTAssertTrue(bounded?.hasSuffix("…") == true)
+    }
+
+    func testAppliedSupertagCaptureResponseLossKeepsTheExactChipRetryReachable() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let fieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: fieldID, tagID: tagID, name: "Role", kind: .text)
+        ]
+        client.addFactResults = [.failure(DailyNoteSupertagTestError.responseLost)]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let capture = try XCTUnwrap(model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: tagID.rawValue))
+        let firstSave = await model.saveDailyNoteInlineSupertagField(
+            captureID: capture.commandID,
+            fieldID: fieldID.rawValue,
+            value: .string("Engineer")
+        )
+        XCTAssertFalse(firstSave)
+        XCTAssertFalse(model.canDismissDailyNoteInlineSupertagFieldCapture(captureID: capture.commandID))
+        XCTAssertEqual(
+            model.retainedDailyNoteInlineSupertagFieldCaptureRequiringResolution(captureID: capture.commandID),
+            capture
+        )
+        XCTAssertNil(
+            model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: tagID.rawValue),
+            "a new chip cannot bypass an unresolved fact operation"
+        )
+
+        let retried = await model.retryDailyNoteInlineSupertagField(
+            captureID: capture.commandID,
+            fieldID: fieldID.rawValue
+        )
+        XCTAssertTrue(retried)
+        XCTAssertTrue(model.canDismissDailyNoteInlineSupertagFieldCapture(captureID: capture.commandID))
+    }
+
+    func testAppliedSupertagCaptureCannotWriteAfterItsSchemaGenerationChanges() async throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let node = dailyNoteIdForDate(date, calendar: .current)
+        let tagID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e61")
+        let oldFieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e71")
+        let newFieldID = try EntityId(validating: "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e72")
+        let tag = try XCTUnwrap(Self.supertag(id: tagID, name: "Person"))
+        let client = FakeDailyNoteSupertagClient(
+            tags: [tag],
+            membershipRows: [Self.membershipRow(node: node, tag: tagID)]
+        )
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: oldFieldID, tagID: tagID, name: "Role", kind: .text)
+        ]
+        let model = try makeSupertagModel(client: client)
+
+        await model.start()
+        let oldCapture = try XCTUnwrap(model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: tagID.rawValue))
+        client.fieldsByTagID[tagID.rawValue] = [
+            try Self.resolvedSupertagField(id: newFieldID, tagID: tagID, name: "Team", kind: .text)
+        ]
+        await model.refreshDailyNoteSupertags()
+
+        let staleSave = await model.saveDailyNoteInlineSupertagField(
+            captureID: oldCapture.commandID,
+            fieldID: oldFieldID.rawValue,
+            value: .string("Engineer")
+        )
+        XCTAssertFalse(staleSave, "an old chip schema cannot mutate after a newer summary claim")
+        let newCapture = try XCTUnwrap(model.prepareDailyNoteAppliedSupertagFieldCapture(tagId: tagID.rawValue))
+        XCTAssertEqual(newCapture.fields.map(\.id), [newFieldID.rawValue])
+    }
+
     func testInlineSupertagFieldCaptureResponseLossRetriesTheExactFrozenOperation() async throws {
         let date = Date(timeIntervalSince1970: 0)
         let node = dailyNoteIdForDate(date, calendar: .current)
@@ -2962,6 +3157,7 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
     var tags: [RPCTag]
     let initialMembershipRows: [CapnWebValue]
     let membershipRowsByApplyCount: [[CapnWebValue]]
+    var membershipRowsOverride: [CapnWebValue]?
     var applyResults: [Result<ApplySupertagOutput, Error>] = []
     var addFactResults: [Result<RPCFact, Error>] = []
     var fieldsByTagID: [String: [RPCResolvedTagField]] = [:]
@@ -3014,7 +3210,9 @@ private final class FakeDailyNoteSupertagClient: DailyNoteSupertagClient {
         guard viewName == "graph_node_tags" else { return [] }
         membershipReadCount += 1
         let snapshot: [CapnWebValue]
-        if !membershipRowsByApplyCount.isEmpty {
+        if let membershipRowsOverride {
+            snapshot = membershipRowsOverride
+        } else if !membershipRowsByApplyCount.isEmpty {
             let index = min(applyCount, membershipRowsByApplyCount.count - 1)
             snapshot = membershipRowsByApplyCount[index]
         } else {

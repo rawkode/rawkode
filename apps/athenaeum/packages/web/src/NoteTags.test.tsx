@@ -2,7 +2,7 @@
 
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { EntityId, WorkspaceNotFound } from "@athenaeum/domain"
+import { EntityId, ResolvedTagField, TagFieldDefinition, WorkspaceNotFound } from "@athenaeum/domain"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const queryStateMock = vi.hoisted(() => ({
@@ -14,16 +14,17 @@ const queryStateMock = vi.hoisted(() => ({
 vi.mock("./use-effect-query.js", () => ({
   useEffectQuery: (_effect: unknown, dependencies: ReadonlyArray<unknown>) => {
     queryStateMock.dependencies.push([...dependencies])
-    // The note-level tag list owns the only three-part dependency tuple. Field summaries have
-    // their own two-part query, which stays empty here so this test exercises real chip rendering
-    // without coupling it to field-value fetching.
+    // The note-level query has a numeric refresh key in slot two. Field summaries carry the tag
+    // id in that slot; keep their default empty so parent chip tests remain focused unless a test
+    // explicitly supplies a field-summary state.
     if (dependencies.length !== 3) return { status: "success", value: [] }
     const key = dependencies.map(String).join(":")
+    if (typeof dependencies[1] !== "number") return queryStateMock.states.get(key) ?? { status: "success", value: [] }
     return queryStateMock.states.get(key) ?? queryStateMock.current
   }
 }))
 
-import { NoteTags } from "./NoteTags.js"
+import { formatNoteTagFieldValue, NoteTags } from "./NoteTags.js"
 import type { NoteTagChip } from "./NoteTags.js"
 import type { FloatingAnchorRect, FloatingAnchorRectSource } from "./floating-popover-position.js"
 
@@ -56,6 +57,22 @@ const render = async (
 
 const queryStateKey = (currentNodeId: EntityId, refreshKey: number, retryKey: number): string =>
   [currentNodeId, refreshKey, retryKey].map(String).join(":")
+
+const fieldStateKey = (currentNodeId: EntityId, currentTagId: EntityId, refreshKey: number): string =>
+  [currentNodeId, currentTagId, refreshKey].map(String).join(":")
+
+const fieldForKind = (valueKind: "text" | "number" | "date" | "checkbox" | "entity-ref"): ResolvedTagField =>
+  new ResolvedTagField({
+    field: new TagFieldDefinition({
+      id: EntityId.make("00000000-0000-4000-8000-000000000003"),
+      tagId,
+      name: "Value",
+      valueKind,
+      sortOrder: 0,
+      builtin: false
+    }),
+    inherited: false
+  })
 
 const mount = async (state: unknown, refreshKey = 7, currentNodeId: EntityId = nodeId) => {
   queryStateMock.current = state
@@ -195,6 +212,40 @@ describe("NoteTags load recovery", () => {
     expect(host.querySelector("[role=status]")?.textContent).toContain("Loading Supertags…")
   })
 
+  it("fences a field summary across refresh loading, failure, and the next success", async () => {
+    const firstField = fieldStateKey(nodeId, tagId, 7)
+    queryStateMock.states.set(firstField, { status: "success", value: ["Status: A"] })
+    const { root, host, onSelectTag } = await mount({
+      status: "success",
+      value: [{ tagId, name: "Person" }]
+    }, 7)
+    expect(host.querySelector(".note-tags-summary")?.textContent).toBe("Status: A")
+
+    const refreshParent = queryStateKey(nodeId, 8, 0)
+    const refreshField = fieldStateKey(nodeId, tagId, 8)
+    queryStateMock.states.set(refreshParent, { status: "loading" })
+    queryStateMock.states.set(refreshField, { status: "loading" })
+    await render(root, 8, onSelectTag)
+    expect(host.querySelector(".note-tags-summary")).toBeNull()
+
+    queryStateMock.states.set(refreshParent, { status: "failure", error: new Error("private") })
+    queryStateMock.states.set(refreshField, { status: "failure", error: new Error("private") })
+    await render(root, 8, onSelectTag)
+    expect(host.querySelector(".note-tags-summary")).toBeNull()
+    expect(host.textContent).not.toContain("Status: A")
+
+    const nextParent = queryStateKey(nodeId, 9, 0)
+    const nextField = fieldStateKey(nodeId, tagId, 9)
+    queryStateMock.states.set(nextParent, { status: "loading" })
+    queryStateMock.states.set(nextField, { status: "loading" })
+    await render(root, 9, onSelectTag)
+    queryStateMock.states.set(nextParent, { status: "success", value: [{ tagId, name: "Person" }] })
+    queryStateMock.states.set(nextField, { status: "success", value: ["Status: B"] })
+    await render(root, 9, onSelectTag)
+    expect(host.querySelector(".note-tags-summary")?.textContent).toBe("Status: B")
+    expect(host.textContent).not.toContain("Status: A")
+  })
+
   it("keeps the successful empty and chip-selection paths intact", async () => {
     const empty = await mount({ status: "success", value: [] })
     expect(empty.host.querySelector(".note-tags-load-state")).toBeNull()
@@ -212,5 +263,18 @@ describe("NoteTags load recovery", () => {
       expect.objectContaining({ top: expect.any(Number), left: expect.any(Number) }),
       expect.any(Function)
     )
+  })
+})
+
+describe("NoteTags typed previews", () => {
+  it("accepts only values matching the declared field kind", () => {
+    expect(formatNoteTagFieldValue("Engineer", fieldForKind("text"))).toBe("Engineer")
+    expect(formatNoteTagFieldValue("2026-09-01", fieldForKind("date"))).toBe("2026-09-01")
+    expect(formatNoteTagFieldValue(42, fieldForKind("number"))).toBe("42")
+    expect(formatNoteTagFieldValue(true, fieldForKind("checkbox"))).toBe("yes")
+
+    expect(formatNoteTagFieldValue("42", fieldForKind("number"))).toBeUndefined()
+    expect(formatNoteTagFieldValue(true, fieldForKind("entity-ref"))).toBeUndefined()
+    expect(formatNoteTagFieldValue({ nested: "raw" }, fieldForKind("text"))).toBeUndefined()
   })
 })

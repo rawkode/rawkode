@@ -3,6 +3,14 @@ import SwiftUI
 import AthenaeumDomain
 import AthenaeumRPC
 
+/// The field editor can be opened either by an acknowledged inline reference insertion or by an
+/// already-applied tag chip in the note context strip. The latter gets its own presentation
+/// identity and never pretends that an editor command acknowledgement happened.
+enum DailyNoteInlineSupertagFieldCaptureOrigin: Equatable {
+    case inline
+    case appliedChip
+}
+
 /// The immutable field schema snapshot that follows one acknowledged inline `#Supertag`
 /// insertion.  It is deliberately keyed by the editor command UUID rather than by a visible tag
 /// label or caret range: the same tag can be inserted twice at the same location, but only the
@@ -11,9 +19,24 @@ struct DailyNoteInlineSupertagFieldCapture: Identifiable, Equatable {
     let commandID: UUID
     let tagID: EntityId
     let tagName: String
+    let origin: DailyNoteInlineSupertagFieldCaptureOrigin
     /// Server order is presentation order. Inherited metadata remains attached to each field so
     /// native never has to recreate the tag-closure ordering locally.
     let fields: [DailyNoteInlineSupertagField]
+
+    init(
+        commandID: UUID,
+        tagID: EntityId,
+        tagName: String,
+        origin: DailyNoteInlineSupertagFieldCaptureOrigin = .inline,
+        fields: [DailyNoteInlineSupertagField]
+    ) {
+        self.commandID = commandID
+        self.tagID = tagID
+        self.tagName = tagName
+        self.origin = origin
+        self.fields = fields
+    }
 
     var id: UUID { commandID }
 }
@@ -24,10 +47,27 @@ struct DailyNoteInlineSupertagFieldCapture: Identifiable, Equatable {
 /// is in flight.
 struct DailyNoteInlineSupertagFieldCaptureFocusWitness: Equatable {
     let commandID: UUID
+    let origin: DailyNoteInlineSupertagFieldCaptureOrigin
     let dailyNoteID: EntityId
     let date: Date
     let operationGeneration: Int
     let presentation: AthenaeumViewModel.PagePresentation
+
+    init(
+        commandID: UUID,
+        origin: DailyNoteInlineSupertagFieldCaptureOrigin = .inline,
+        dailyNoteID: EntityId,
+        date: Date,
+        operationGeneration: Int,
+        presentation: AthenaeumViewModel.PagePresentation
+    ) {
+        self.commandID = commandID
+        self.origin = origin
+        self.dailyNoteID = dailyNoteID
+        self.date = date
+        self.operationGeneration = operationGeneration
+        self.presentation = presentation
+    }
 
     func permitsRestoration(
         hasResolvedDailyNote: Bool,
@@ -37,7 +77,8 @@ struct DailyNoteInlineSupertagFieldCaptureFocusWitness: Equatable {
         presentation: AthenaeumViewModel.PagePresentation,
         isEditorInputDisabled: Bool
     ) -> Bool {
-        hasResolvedDailyNote &&
+        origin == .inline &&
+            hasResolvedDailyNote &&
             self.dailyNoteID == dailyNoteID &&
             date == selectedDate &&
             self.operationGeneration == operationGeneration &&

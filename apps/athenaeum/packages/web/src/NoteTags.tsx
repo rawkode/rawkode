@@ -45,19 +45,24 @@ interface FactRow {
 /** Keep the chip row useful at a glance without turning it into a second editor. Empty values are
  * omitted; a malformed fact degrades to no summary rather than leaking raw JSON or breaking the
  * note surface. */
-const formatFieldValue = (value: JsonValue | undefined, field: ResolvedTagField): string | undefined => {
+export const formatNoteTagFieldValue = (value: JsonValue | undefined, field: ResolvedTagField): string | undefined => {
   if (value === undefined || value === null) return undefined
-  if (field.field.valueKind === "checkbox") return typeof value === "boolean" ? (value ? "yes" : "no") : undefined
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed.length > 0 ? trimmed : undefined
-  }
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : undefined
-  if (typeof value === "boolean") return value ? "yes" : "no"
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return undefined
+  switch (field.field.valueKind) {
+    case "text":
+    case "date":
+    case "entity-ref": {
+      if (typeof value !== "string") return undefined
+      const trimmed = value.trim()
+      return trimmed.length > 0 ? trimmed : undefined
+    }
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined
+    case "checkbox":
+      return typeof value === "boolean" ? (value ? "yes" : "no") : undefined
+    default:
+      // Structured values are intentionally omitted from this compact context strip. The field
+      // editor remains the place for structured data; never leak raw JSON into the note chrome.
+      return undefined
   }
 }
 
@@ -221,7 +226,13 @@ export function NoteTags({
                 >
                   #{chip.name}
                 </button>
-                <NoteTagFieldSummary nodeId={nodeId} tagId={chip.tagId} tagName={chip.name} />
+                <NoteTagFieldSummary
+                  key={`${chip.tagId}:${refreshKey}`}
+                  nodeId={nodeId}
+                  tagId={chip.tagId}
+                  tagName={chip.name}
+                  refreshKey={refreshKey}
+                />
               </div>
             </li>
           ))}
@@ -234,11 +245,13 @@ export function NoteTags({
 function NoteTagFieldSummary({
   nodeId,
   tagId,
-  tagName
+  tagName,
+  refreshKey
 }: {
   readonly nodeId: EntityId
   readonly tagId: EntityId
   readonly tagName: string
+  readonly refreshKey: number
 }) {
   const effect = useMemo(
     () =>
@@ -264,15 +277,15 @@ function NoteTagFieldSummary({
               })
             )
             return fields.flatMap((resolved) => {
-              const value = formatFieldValue(facts.get(resolved.field.id), resolved)
+              const value = formatNoteTagFieldValue(facts.get(resolved.field.id), resolved)
               return value === undefined ? [] : [`${resolved.field.name}: ${value}`]
             })
           })
         )
       ),
-    [nodeId, tagId]
+    [nodeId, tagId, refreshKey]
   )
-  const state = useEffectQuery(effect, [nodeId, tagId])
+  const state = useEffectQuery(effect, [nodeId, tagId, refreshKey])
 
   if (state.status !== "success" || state.value.length === 0) return null
   return (

@@ -11,6 +11,52 @@ public enum DailyNoteSupertagAssignmentState: Equatable {
     case loaded(tags: [RPCTag], appliedTagIds: Set<String>)
 }
 
+/// A deliberately small, typed projection for the note context strip. The full `Fact` and
+/// resolved-field values stay in the view model so opening a chip can reuse their stable ids;
+/// the published surface contains only safe, human-readable previews.
+public struct DailyNoteAppliedSupertagFieldSummary: Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    public let value: String?
+    public let inherited: Bool
+
+    public init(id: String, name: String, value: String?, inherited: Bool) {
+        self.id = id
+        self.name = name
+        self.value = value
+        self.inherited = inherited
+    }
+}
+
+public struct DailyNoteAppliedSupertagSummary: Identifiable, Equatable {
+    public let tagId: String
+    public let tagName: String
+    public let fields: [DailyNoteAppliedSupertagFieldSummary]
+
+    public var id: String { tagId }
+
+    public init(tagId: String, tagName: String, fields: [DailyNoteAppliedSupertagFieldSummary]) {
+        self.tagId = tagId
+        self.tagName = tagName
+        self.fields = fields
+    }
+
+    public var preview: String? {
+        let values = fields.compactMap { field -> String? in
+            guard let value = field.value else { return nil }
+            return "\(field.name): \(value)"
+        }
+        return values.isEmpty ? nil : values.joined(separator: " · ")
+    }
+}
+
+public enum DailyNoteAppliedSupertagSummaryState: Equatable {
+    case idle
+    case loading
+    case failed
+    case loaded([DailyNoteAppliedSupertagSummary])
+}
+
 /// The note-level picker owns one read/mutate capability. Keeping this seam separate from the
 /// broader page-operation stack lets tests exercise stale snapshots and uncertain responses
 /// without manufacturing a second page or sync owner.
@@ -186,13 +232,53 @@ public final class AthenaeumViewModel: ObservableObject {
         }
     }
 
+    /// A field capture's origin is part of its route custody. Inline captures carry the exact
+    /// editor acknowledgement; applied-chip captures carry only a fresh presentation UUID and
+    /// the membership read claim that produced the chip. These paths are intentionally not
+    /// interchangeable.
+    private enum DailyNoteInlineSupertagFieldCaptureClaimOrigin: Equatable {
+        case inline(LoroNativeRichTextInlineReferenceInsertionAcknowledgement)
+        case appliedChip(
+            presentationID: UUID,
+            tagID: EntityId,
+            readClaim: DailyNoteSupertagReadClaim,
+            summaryGeneration: Int,
+            schema: [DailyNoteAppliedSupertagFieldSchema]
+        )
+    }
+
+    private struct DailyNoteAppliedSupertagFieldSchema: Equatable {
+        let id: String
+        let tagID: String
+        let name: String
+        let valueKind: RPCTagFieldValueKind
+        let sortOrder: Int
+        let builtin: Bool
+        let inherited: Bool
+
+        init(_ field: DailyNoteInlineSupertagField) {
+            id = field.resolved.field.id
+            tagID = field.resolved.field.tagId
+            name = field.resolved.field.name
+            valueKind = field.resolved.field.valueKind
+            sortOrder = field.resolved.field.sortOrder
+            builtin = field.resolved.field.builtin
+            inherited = field.resolved.inherited
+        }
+    }
+
     /// Field capture can only start from the exact editor command that rendered a typed
     /// `supertagRef`. The editor acknowledgement is retained in full so no later command that
     /// happens to have the same tag/range can borrow this route witness.
     private struct DailyNoteInlineSupertagFieldCaptureClaim: Equatable {
-        let acknowledgement: LoroNativeRichTextInlineReferenceInsertionAcknowledgement
+        let origin: DailyNoteInlineSupertagFieldCaptureClaimOrigin
         let tagID: EntityId
         let readClaim: DailyNoteSupertagReadClaim
+    }
+
+    private struct DailyNoteAppliedSupertagSummaryReadClaim: Equatable {
+        let membershipClaim: DailyNoteSupertagReadClaim
+        let summaryGeneration: Int
     }
 
     private struct DailyNoteInlineSupertagFieldCaptureSession {
@@ -364,6 +450,7 @@ public final class AthenaeumViewModel: ObservableObject {
     /// Changes only after a guarded native human edit enters either editable Loro draft lane.
     @Published public private(set) var acceptedHumanEditGeneration = 0
     @Published public private(set) var dailyNoteSupertagAssignmentState: DailyNoteSupertagAssignmentState = .idle
+    @Published public private(set) var dailyNoteAppliedSupertagSummaryState: DailyNoteAppliedSupertagSummaryState = .idle
     @Published public private(set) var isDailyNoteSupertagMutationInFlight = false
     /// The field form observes this only for presentation. The model retains the full immutable
     /// operation so closing/re-rendering the form cannot change a retry's fact/request identity.
@@ -501,8 +588,13 @@ public final class AthenaeumViewModel: ObservableObject {
     /// to finish last. This stays actor-isolated with the published graph state.
     private var graphReadGeneration = 0
     private var dailyNoteSupertagReadGeneration = 0
+    private var dailyNoteAppliedSupertagSummaryGeneration = 0
     private var dailyNoteSupertagMutationGate = DailyNoteSupertagMutationGate()
     private var dailyNoteSupertagReadClaim: DailyNoteSupertagReadClaim?
+    private var dailyNoteAppliedSupertagSummaryClaim: DailyNoteAppliedSupertagSummaryReadClaim?
+    /// Full typed field/fact snapshots are retained privately so a chip can open the existing
+    /// field editor without issuing a second per-chip read or losing fact identity.
+    private var dailyNoteAppliedSupertagFieldsByTagID: [String: [DailyNoteInlineSupertagField]] = [:]
     private var pendingDailyNoteSupertagIntent: PendingDailyNoteSupertagIntent?
     private var dailyNoteInlineSupertagFieldMutationGate = DailyNoteSupertagMutationGate()
     private var dailyNoteInlineSupertagFieldCaptureSessions: [UUID: DailyNoteInlineSupertagFieldCaptureSession] = [:]
@@ -1125,6 +1217,7 @@ public final class AthenaeumViewModel: ObservableObject {
     public func refreshDailyNoteSupertags(allowDirtyRichDraft: Bool = false) async {
         guard isDailyNoteSupertagReadEligible(allowDirtyRichDraft: allowDirtyRichDraft) else {
             dailyNoteSupertagReadGeneration &+= 1
+            invalidateDailyNoteAppliedSupertagSummary(state: .idle)
             dailyNoteSupertagReadClaim = nil
             dailyNoteSupertagAssignmentState = .idle
             return
@@ -1134,6 +1227,7 @@ public final class AthenaeumViewModel: ObservableObject {
         let retainedIntent = pendingDailyNoteSupertagIntent
         dailyNoteSupertagReadGeneration &+= 1
         let token = dailyNoteSupertagReadGeneration
+        let summaryToken = invalidateDailyNoteAppliedSupertagSummary(state: .loading)
         dailyNoteSupertagReadClaim = nil
         dailyNoteSupertagAssignmentState = .loading
         let selection = activeSelection
@@ -1170,13 +1264,225 @@ public final class AthenaeumViewModel: ObservableObject {
             if let retainedIntent,
                retainedIntent.selectionMatches(claim),
                retainedIntent.claim.witness == claim.witness {
+                // Rebind retry custody before summary hydration suspends. A route change while
+                // loading field/fact context must not let this invocation resurrect stale intent.
                 pendingDailyNoteSupertagIntent = retainedIntent.rebinding(to: claim)
             }
+            await loadDailyNoteAppliedSupertagSummary(
+                membershipClaim: claim,
+                summaryGeneration: summaryToken,
+                tags: tags,
+                appliedTagIds: applied
+            )
         } catch {
             guard token == dailyNoteSupertagReadGeneration, isCurrent(selection, generation: generation) else { return }
             dailyNoteSupertagReadClaim = nil
+            invalidateDailyNoteAppliedSupertagSummary(state: .failed)
             dailyNoteSupertagAssignmentState = .failed
         }
+    }
+
+    @discardableResult
+    private func invalidateDailyNoteAppliedSupertagSummary(
+        state: DailyNoteAppliedSupertagSummaryState
+    ) -> Int {
+        dailyNoteAppliedSupertagSummaryGeneration &+= 1
+        dailyNoteAppliedSupertagSummaryClaim = nil
+        dailyNoteAppliedSupertagFieldsByTagID.removeAll()
+        dailyNoteAppliedSupertagSummaryState = state
+        return dailyNoteAppliedSupertagSummaryGeneration
+    }
+
+    /// Hydrates one complete route-scoped context snapshot. Catalog order is the presentation
+    /// order; effective fields are read once per applied tag and graph facts are read exactly once
+    /// for the note. No per-chip task may publish independently of this claim.
+    private func loadDailyNoteAppliedSupertagSummary(
+        membershipClaim: DailyNoteSupertagReadClaim,
+        summaryGeneration: Int,
+        tags: [RPCTag],
+        appliedTagIds: Set<String>
+    ) async {
+        let summaryClaim = DailyNoteAppliedSupertagSummaryReadClaim(
+            membershipClaim: membershipClaim,
+            summaryGeneration: summaryGeneration
+        )
+        guard isCurrentDailyNoteSupertagRead(membershipClaim),
+              summaryGeneration == dailyNoteAppliedSupertagSummaryGeneration
+        else { return }
+
+        let tagIDs = tags.map(\.id)
+        guard Set(tagIDs).count == tagIDs.count else {
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+            dailyNoteAppliedSupertagSummaryState = .failed
+            return
+        }
+        let appliedTags = tags.filter { appliedTagIds.contains($0.id) }
+        guard !appliedTags.isEmpty else {
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+            dailyNoteAppliedSupertagSummaryClaim = summaryClaim
+            dailyNoteAppliedSupertagSummaryState = .loaded([])
+            return
+        }
+
+        do {
+            var fieldsByTagID: [String: [RPCResolvedTagField]] = [:]
+            var permittedPredicateIDs = Set<String>()
+            for tag in appliedTags {
+                guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+                let fields = try await dailyNoteSupertagClient.listTagFields(tagId: tag.id)
+                guard fields.allSatisfy({
+                    EntityId.isValid($0.field.id) &&
+                        EntityId.isValid($0.field.tagId) &&
+                        !$0.field.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }), Set(fields.map(\.field.id)).count == fields.count else {
+                    throw CapnWebError.malformedMessage("invalid daily-note Supertag field summary")
+                }
+                fieldsByTagID[tag.id] = fields
+                permittedPredicateIDs.formUnion(fields.map(\.field.id))
+            }
+
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+            let rows = try await dailyNoteSupertagClient.runView(
+                viewName: "graph_facts",
+                viewSpec: Self.dailyNoteInlineSupertagFactsViewSpec(nodeId: membershipClaim.selection.nodeId)
+            )
+            let factsByPredicate = try Self.decodeDailyNoteInlineSupertagFacts(
+                rows,
+                expectedNodeID: membershipClaim.selection.nodeId,
+                permittedPredicateIDs: permittedPredicateIDs
+            )
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+
+            var fullFieldsByTagID: [String: [DailyNoteInlineSupertagField]] = [:]
+            let summaries = appliedTags.map { tag in
+                let fields = (fieldsByTagID[tag.id] ?? []).map { resolved in
+                    DailyNoteInlineSupertagField(
+                        resolved: resolved,
+                        existingFact: factsByPredicate[resolved.field.id]
+                    )
+                }
+                fullFieldsByTagID[tag.id] = fields
+                return DailyNoteAppliedSupertagSummary(
+                    tagId: tag.id,
+                    tagName: tag.name,
+                    fields: fields.map { field in
+                        DailyNoteAppliedSupertagFieldSummary(
+                            id: field.id,
+                            name: field.resolved.field.name,
+                            value: Self.formatDailyNoteAppliedSupertagValue(
+                                field.existingFact?.value,
+                                valueKind: field.resolved.field.valueKind
+                            ),
+                            inherited: field.resolved.inherited
+                        )
+                    }
+                )
+            }
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+            dailyNoteAppliedSupertagSummaryClaim = summaryClaim
+            dailyNoteAppliedSupertagFieldsByTagID = fullFieldsByTagID
+            dailyNoteAppliedSupertagSummaryState = .loaded(summaries)
+        } catch {
+            guard isCurrentDailyNoteAppliedSupertagSummary(summaryClaim) else { return }
+            dailyNoteAppliedSupertagSummaryClaim = nil
+            dailyNoteAppliedSupertagFieldsByTagID.removeAll()
+            dailyNoteAppliedSupertagSummaryState = .failed
+        }
+    }
+
+    private func isCurrentDailyNoteAppliedSupertagSummary(
+        _ claim: DailyNoteAppliedSupertagSummaryReadClaim
+    ) -> Bool {
+        claim.summaryGeneration == dailyNoteAppliedSupertagSummaryGeneration &&
+            isCurrentDailyNoteSupertagRead(claim.membershipClaim) &&
+            dailyNoteSupertagReadClaim == claim.membershipClaim
+    }
+
+    /// Opens the existing field editor from a named applied-tag chip. This route is intentionally
+    /// synchronous: it can only use the complete, already-published snapshot above, and it mints a
+    /// fresh presentation identity rather than fabricating an editor command acknowledgement.
+    func prepareDailyNoteAppliedSupertagFieldCapture(
+        tagId: String
+    ) -> DailyNoteInlineSupertagFieldCapture? {
+        guard let tagID = try? EntityId(validating: tagId),
+              case .loaded(let summaries) = dailyNoteAppliedSupertagSummaryState,
+              let summary = summaries.first(where: { $0.tagId == tagId }),
+              let summaryClaim = dailyNoteAppliedSupertagSummaryClaim,
+              isCurrentDailyNoteAppliedSupertagSummary(summaryClaim),
+              case .loaded(_, let appliedTagIDs) = dailyNoteSupertagAssignmentState,
+              appliedTagIDs.contains(tagId),
+              let fields = dailyNoteAppliedSupertagFieldsByTagID[tagId],
+              !fields.isEmpty,
+              !hasUnresolvedDailyNoteInlineSupertagFactIntent(on: .init(summaryClaim.membershipClaim)),
+              isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true)
+        else { return nil }
+
+        let presentationID = UUID()
+        let claim = DailyNoteInlineSupertagFieldCaptureClaim(
+            origin: .appliedChip(
+                presentationID: presentationID,
+                tagID: tagID,
+                readClaim: summaryClaim.membershipClaim,
+                summaryGeneration: summaryClaim.summaryGeneration,
+                schema: fields.map(DailyNoteAppliedSupertagFieldSchema.init)
+            ),
+            tagID: tagID,
+            readClaim: summaryClaim.membershipClaim
+        )
+        let capture = DailyNoteInlineSupertagFieldCapture(
+            commandID: presentationID,
+            tagID: tagID,
+            tagName: summary.tagName,
+            origin: .appliedChip,
+            fields: fields
+        )
+        dailyNoteInlineSupertagFieldCaptureSessions[presentationID] = .init(
+            capture: capture,
+            claim: claim,
+            factsByPredicate: Dictionary(uniqueKeysWithValues: fields.compactMap { field in
+                guard let fact = field.existingFact else { return nil }
+                return (field.id, fact)
+            })
+        )
+        return capture
+    }
+
+    private func refreshDailyNoteAppliedSupertagSummaryFromCurrentMembership() async {
+        guard let membershipClaim = dailyNoteSupertagReadClaim,
+              isCurrentDailyNoteSupertagRead(membershipClaim),
+              case .loaded(let tags, let appliedTagIds) = dailyNoteSupertagAssignmentState
+        else { return }
+        let summaryGeneration = invalidateDailyNoteAppliedSupertagSummary(state: .loading)
+        await loadDailyNoteAppliedSupertagSummary(
+            membershipClaim: membershipClaim,
+            summaryGeneration: summaryGeneration,
+            tags: tags,
+            appliedTagIds: appliedTagIds
+        )
+    }
+
+    /// Formats only the typed scalar kinds supported by the field editor. Structured or malformed
+    /// values are omitted instead of leaking raw JSON into the compact note context strip.
+    static func formatDailyNoteAppliedSupertagValue(
+        _ value: JSONValue?,
+        valueKind: RPCTagFieldValueKind
+    ) -> String? {
+        let formatted: String?
+        switch (valueKind, value) {
+        case (.text, .string(let text)), (.date, .string(let text)), (.entityRef, .string(let text)):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            formatted = trimmed.isEmpty ? nil : trimmed
+        case (.number, .number(let number)) where number.isFinite:
+            formatted = String(number)
+        case (.checkbox, .bool(let checked)):
+            formatted = checked ? "yes" : "no"
+        default:
+            formatted = nil
+        }
+        guard let formatted else { return nil }
+        let limit = 48
+        guard formatted.count > limit else { return formatted }
+        return String(formatted.prefix(limit - 1)) + "…"
     }
 
     /// Applies a tag and returns true only after the authoritative membership reread confirms it.
@@ -1369,7 +1675,7 @@ public final class AthenaeumViewModel: ObservableObject {
         else { return nil }
 
         let claim = DailyNoteInlineSupertagFieldCaptureClaim(
-            acknowledgement: acknowledgement,
+            origin: .inline(acknowledgement),
             tagID: acknowledgement.reference.id,
             readClaim: readClaim
         )
@@ -1403,6 +1709,7 @@ public final class AthenaeumViewModel: ObservableObject {
                 commandID: acknowledgement.commandID,
                 tagID: claim.tagID,
                 tagName: acknowledgement.reference.label,
+                origin: .inline,
                 fields: fields.map { .init(resolved: $0, existingFact: factsByPredicate[$0.field.id]) }
             )
             // An empty effective schema is a successful no-UI outcome. In particular, it must
@@ -1521,6 +1828,7 @@ public final class AthenaeumViewModel: ObservableObject {
             )
             dailyNoteInlineSupertagFieldCaptureSessions[captureID] = session
             clearPendingDailyNoteInlineSupertagFact(captureID: captureID, fieldID: fieldID)
+            await refreshDailyNoteAppliedSupertagSummaryFromCurrentMembership()
             return true
         } catch {
             // Preserve the entire immutable intent for an exact retry. A transport error cannot
@@ -1548,16 +1856,32 @@ public final class AthenaeumViewModel: ObservableObject {
     private func isCurrentDailyNoteInlineSupertagFieldCapture(
         _ claim: DailyNoteInlineSupertagFieldCaptureClaim
     ) -> Bool {
-        guard claim.acknowledgement.trigger == .supertag,
-              claim.acknowledgement.reference.kind == .supertag,
-              claim.acknowledgement.reference.id == claim.tagID,
-              currentDailyNoteInlineSupertagFactCustodyRoute() == .init(claim.readClaim),
+        guard currentDailyNoteInlineSupertagFactCustodyRoute() == .init(claim.readClaim),
               let currentReadClaim = dailyNoteSupertagReadClaim,
+              currentReadClaim == claim.readClaim,
               isCurrentDailyNoteSupertagRead(currentReadClaim),
               isDailyNoteSupertagReadEligible(allowDirtyRichDraft: true),
               case .loaded(_, let appliedTagIDs) = dailyNoteSupertagAssignmentState
         else { return false }
-        return appliedTagIDs.contains(claim.tagID.rawValue)
+        guard appliedTagIDs.contains(claim.tagID.rawValue) else { return false }
+        switch claim.origin {
+        case .inline(let acknowledgement):
+            return acknowledgement.trigger == .supertag &&
+                acknowledgement.reference.kind == .supertag &&
+                acknowledgement.reference.id == claim.tagID
+        case .appliedChip(_, let tagID, let readClaim, let summaryGeneration, let schema):
+            guard tagID == claim.tagID,
+                  readClaim == claim.readClaim,
+                  let summaryClaim = dailyNoteAppliedSupertagSummaryClaim,
+                  summaryClaim.membershipClaim == claim.readClaim,
+                  summaryClaim.summaryGeneration == summaryGeneration,
+                  summaryClaim.summaryGeneration == dailyNoteAppliedSupertagSummaryGeneration,
+                  schema == (dailyNoteAppliedSupertagFieldsByTagID[claim.tagID.rawValue] ?? [])
+                      .map(DailyNoteAppliedSupertagFieldSchema.init),
+                  case .loaded(let summaries) = dailyNoteAppliedSupertagSummaryState
+            else { return false }
+            return summaries.contains { $0.tagId == claim.tagID.rawValue }
+        }
     }
 
     private static func decodeDailyNoteInlineSupertagFacts(
@@ -1935,6 +2259,7 @@ public final class AthenaeumViewModel: ObservableObject {
     private func resetPagePresentation() {
         pageOperationGeneration &+= 1
         dailyNoteSupertagReadGeneration &+= 1
+        invalidateDailyNoteAppliedSupertagSummary(state: .idle)
         dailyNoteSupertagReadClaim = nil
         dailyNoteSupertagAssignmentState = .idle
         presentedPageRouteWitness = nil
