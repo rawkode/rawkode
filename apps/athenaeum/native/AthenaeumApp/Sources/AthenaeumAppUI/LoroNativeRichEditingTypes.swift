@@ -177,6 +177,22 @@ struct LoroNativeRichInlineMarkCommand: Equatable, Sendable, Identifiable {
     }
 }
 
+enum LoroNativeRichMarkdownShortcutKind: String, Equatable, Sendable {
+    case h1, h2, h3, uncheckedTask
+}
+
+struct LoroNativeRichMarkdownShortcutCommand: Equatable, Sendable, Identifiable {
+    let commandID: UUID
+    let requestToken: Int
+    let editorGeneration: Int
+    let selection: LoroNativeRichTextSelection
+    let topLevelBlockIndex: Int
+    let expectedBlock: LoroCanonicalSemanticValueV1.Block
+    let kind: LoroNativeRichMarkdownShortcutKind
+    let requestedBlock: LoroCanonicalSemanticValueV1.Block
+    var id: UUID { commandID }
+}
+
 /// A value-only structural location for a top-level checklist item.  The ordinals are never
 /// persisted as semantic data; they are paired with the editor generation and full item value in
 /// `LoroNativeRichTaskItemToggleCommand` before a mutation can leave the UI process.

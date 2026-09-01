@@ -237,12 +237,28 @@ struct LoroNativeRichEditingEngine {
 
     private func blockContaining(_ offset: Int) -> (index: Int, start: Int, length: Int, block: LoroCanonicalSemanticValueV1.Block)? {
         guard offset >= 0 else { return nil }
+
         var cursor = 0
         for (index, block) in admittedDocument.semantic.blocks.enumerated() {
             let length = scalarLength(of: block)
             let blockEnd = cursor + length
             if offset >= cursor,
                offset < blockEnd || (offset == blockEnd && (length == 0 || index + 1 == admittedDocument.semantic.blocks.count)) {
+                return (index, cursor, length, block)
+            }
+            cursor += length + 1
+        }
+        return nil
+    }
+
+    /// Markdown conversion also accepts a caret immediately before a block separator. Keep this
+    /// broader terminal lookup local so existing style-menu boundary semantics remain unchanged.
+    private func markdownShortcutBlockContaining(_ offset: Int) -> (index: Int, start: Int, length: Int, block: LoroCanonicalSemanticValueV1.Block)? {
+        guard offset >= 0 else { return nil }
+        var cursor = 0
+        for (index, block) in admittedDocument.semantic.blocks.enumerated() {
+            let length = scalarLength(of: block)
+            if offset >= cursor, offset <= cursor + length {
                 return (index, cursor, length, block)
             }
             cursor += length + 1
@@ -312,6 +328,55 @@ struct LoroNativeRichEditingEngine {
     ) -> LoroNativeRichEditingEffect {
         guard composition == nil else { return .rejected(.invalidEdit) }
         return replace(in: admittedDocument, utf16Range: utf16Range, with: .inlineReference(reference))
+    }
+
+    mutating func makeMarkdownShortcutCommand(
+        selection: LoroNativeRichTextSelection,
+        commandID: UUID = UUID(),
+        requestToken: Int = 0
+    ) -> LoroNativeRichMarkdownShortcutCommand? {
+        guard composition == nil, pendingLocalDocument == nil,
+              selection.length == 0,
+              let (index, start, length, block) = markdownShortcutBlockContaining(selection.location),
+              case let .paragraph(runs) = block,
+              selection.location == start + length,
+              !runs.isEmpty,
+              runs.allSatisfy({ $0.marks.isEmpty && $0.reference == nil })
+        else { return nil }
+        let text = runs.map(\.text).joined()
+        let kind: LoroNativeRichMarkdownShortcutKind
+        let requested: LoroCanonicalSemanticValueV1.Block
+        switch text {
+        case "#": kind = .h1; requested = .heading(level: 1, runs: [])
+        case "##": kind = .h2; requested = .heading(level: 2, runs: [])
+        case "###": kind = .h3; requested = .heading(level: 3, runs: [])
+        case "[]", "[ ]": kind = .uncheckedTask; requested = .taskList([.init(checked: false, runs: [])])
+        default: return nil
+        }
+        return .init(commandID: commandID, requestToken: requestToken,
+                     editorGeneration: documentGeneration, selection: selection,
+                     topLevelBlockIndex: index, expectedBlock: block,
+                     kind: kind, requestedBlock: requested)
+    }
+
+    mutating func applyMarkdownShortcut(_ command: LoroNativeRichMarkdownShortcutCommand) -> LoroNativeRichEditingEffect {
+        guard composition == nil, pendingLocalDocument == nil,
+              command.editorGeneration == documentGeneration,
+              command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex < admittedDocument.semantic.blocks.count,
+              admittedDocument.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock,
+              case let .paragraph(runs) = command.expectedBlock,
+              runs.allSatisfy({ $0.marks.isEmpty && $0.reference == nil }),
+              let (index, start, length, block) = markdownShortcutBlockContaining(command.selection.location),
+              index == command.topLevelBlockIndex, block == command.expectedBlock,
+              command.selection.location == start + length,
+              command.selection.length == 0
+        else { return .rejected(.invalidEdit) }
+        var blocks = admittedDocument.semantic.blocks
+        blocks[command.topLevelBlockIndex] = command.requestedBlock
+        // The selection is document-relative, so keep the caret at the beginning of the
+        // converted block even when the shortcut was typed after earlier blocks.
+        return admit(.init(semantic: .init(blocks: blocks)), selection: .init(location: start, length: 0))
     }
 
     /// Captures a scalar-aligned mark target from semantic runs. The fingerprint is deliberately

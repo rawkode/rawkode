@@ -186,6 +186,57 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         XCTAssertEqual(engine.applyInlineMark(command), .rejected(.invalidEdit))
     }
 
+    func testMarkdownShortcutConvertsAllApprovedTerminalPatternsAtomically() throws {
+        let cases: [(String, LoroCanonicalSemanticValueV1.Block)] = [
+            ("#", .heading(level: 1, runs: [])),
+            ("##", .heading(level: 2, runs: [])),
+            ("###", .heading(level: 3, runs: [])),
+            ("[]", .taskList([.init(checked: false, runs: [])])),
+            ("[ ]", .taskList([.init(checked: false, runs: [])]))
+        ]
+        for (text, expected) in cases {
+            var engine = LoroNativeRichEditingEngine(document: paragraph(text))
+            let command = try XCTUnwrap(engine.makeMarkdownShortcutCommand(selection: .init(location: text.unicodeScalars.count, length: 0), requestToken: 9))
+            XCTAssertEqual(command.requestedBlock, expected)
+            XCTAssertEqual(engine.applyMarkdownShortcut(command), .publish(document: .init(semantic: .init(blocks: [expected])), selection: .init(location: 0, length: 0)))
+        }
+    }
+
+    func testMarkdownShortcutPreservesDocumentTopologyAndPlacesCaretAtBlockStart() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before")]),
+            .paragraph([.init(text: "#")]),
+            .paragraph([.init(text: "after")])
+        ]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+        let command = try XCTUnwrap(engine.makeMarkdownShortcutCommand(selection: .init(location: 8, length: 0), requestToken: 3))
+
+        XCTAssertEqual(
+            engine.applyMarkdownShortcut(command),
+            .publish(
+                document: .init(semantic: .init(blocks: [
+                    .paragraph([.init(text: "before")]),
+                    .heading(level: 1, runs: []),
+                    .paragraph([.init(text: "after")])
+                ])),
+                selection: .init(location: 7, length: 0)
+            )
+        )
+    }
+
+    func testMarkdownShortcutRejectsNonExactOrUnsafeWitnesses() throws {
+        var tooMany = LoroNativeRichEditingEngine(document: paragraph("####"))
+        var suffix = LoroNativeRichEditingEngine(document: paragraph("#x"))
+        var marked = LoroNativeRichEditingEngine(document: paragraph("#", marks: [.strong]))
+        XCTAssertNil(tooMany.makeMarkdownShortcutCommand(selection: .init(location: 4, length: 0)))
+        XCTAssertNil(suffix.makeMarkdownShortcutCommand(selection: .init(location: 2, length: 0)))
+        XCTAssertNil(marked.makeMarkdownShortcutCommand(selection: .init(location: 1, length: 0)))
+        var engine = LoroNativeRichEditingEngine(document: paragraph("#"))
+        let command = try XCTUnwrap(engine.makeMarkdownShortcutCommand(selection: .init(location: 1, length: 0)))
+        _ = engine.replace(utf16Range: NSRange(location: 0, length: 0), withPlainText: "x")
+        XCTAssertEqual(engine.applyMarkdownShortcut(command), .rejected(.invalidEdit))
+    }
+
     func testBlockStyleCanTargetEmptyParagraphAtLeadingMiddleAndTrailingTopologyPositions() throws {
         let leading = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .paragraph([]), .paragraph([.init(text: "after")])

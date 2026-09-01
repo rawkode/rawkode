@@ -225,6 +225,17 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(editor.blockStyleState(), .init(current: .h1, isEnabled: false), "a pending local proposal disables a second style mutation until the parent acknowledges it")
     }
 
+    func testTypedMarkdownSpaceUsesAdapterWitnessAndPublishesOnlyConvertedContainer() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(document: paragraph("#"), isEditable: true) {
+            published.append($0)
+        }
+        editor.testingSelect(NSRange(location: 1, length: 0))
+        editor.testingInsertText(" ", replacementRange: NSRange(location: 1, length: 0))
+        XCTAssertEqual(published, [.init(semantic: .init(blocks: [.heading(level: 1, runs: [])]))])
+        XCTAssertEqual(editor.testingSelection(), .init(location: 0, length: 0))
+    }
+
     func testBlockStyleControlSupportsKeyboardAndAccessibilityPressBeforeMenuFocus() {
         let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .paragraph([.init(text: "title")])

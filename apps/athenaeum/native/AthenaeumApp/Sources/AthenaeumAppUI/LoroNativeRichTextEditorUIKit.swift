@@ -160,6 +160,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private var lastTaskListInsertionRequestGeneration = 0
     private var pendingTaskListInsertion: (token: Int, command: LoroNativeRichTaskListInsertionCommand)?
     private var lastAppliedTaskListInsertionID: UUID?
+    private var pendingMarkdownShortcutWitness: (range: NSRange, selection: LoroNativeRichTextSelection)?
+    private var nextMarkdownShortcutRequestToken = 0
     private var lastAppliedTaskListInsertionCancellationID: UUID?
     private var nextBlockStyleRequestToken = 0
     private var nextInlineMarkRequestToken = 0
@@ -364,6 +366,27 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         return state
     }
 
+    fileprivate func armMarkdownShortcutForTypedSpace() {
+        guard isEditableInput, !pendingComposition, !hasMarkedText,
+              engine.pendingLocalDocument == nil, let selection = scalarSelection(),
+              textView.selectedRange.length == 0 else { return }
+        pendingMarkdownShortcutWitness = (textView.selectedRange, selection)
+    }
+
+    private func consumeMarkdownShortcutIfEligible(range: NSRange, replacement: String) -> Bool {
+        guard replacement == " ", let witness = pendingMarkdownShortcutWitness, witness.range == range else {
+            pendingMarkdownShortcutWitness = nil
+            return false
+        }
+        pendingMarkdownShortcutWitness = nil
+        let token = nextMarkdownShortcutRequestToken &+ 1
+        guard let command = engine.makeMarkdownShortcutCommand(selection: witness.selection, requestToken: token) else { return false }
+        nextMarkdownShortcutRequestToken = token
+        invalidateReferenceContext(.supertag)
+        _ = apply(engine.applyMarkdownShortcut(command))
+        return true
+    }
+
     func captureInlineMarkTarget() -> LoroNativeRichInlineMarkTarget? {
         captureInlineMarkTarget(forUTF16Range: textView.selectedRange)
     }
@@ -467,6 +490,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // UIKit owns transient marked presentation. We only accept its final plain string through
         // the shared engine after unmark/insert establishes an exactly-once boundary.
         guard !pendingComposition, !hasMarkedText else { return true }
+        if consumeMarkdownShortcutIfEligible(range: range, replacement: text) { return false }
         // The engine has rendered the admitted document itself. Returning `true` would allow
         // UIKit to replay the original native edit into that rendered document.
         _ = apply(engine.replace(utf16Range: range, withPlainText: text))
@@ -1550,6 +1574,7 @@ private final class GuardedUIKitRichTextView: UITextView {
             richController?.endComposition()
             return
         }
+        if text == " " { richController?.armMarkdownShortcutForTypedSpace() }
         super.insertText(text)
     }
 
