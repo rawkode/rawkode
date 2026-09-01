@@ -99,7 +99,12 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
     }
 
     func testBlockStyleTransformsOnlyWitnessedTopLevelBlockAndPreservesRuns() throws {
-        let strong = LoroCanonicalSemanticValueV1.TextRun(text: "Title", marks: [.strong])
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(
+            kind: .entity,
+            id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"),
+            label: "Title"
+        )
+        let strong = LoroCanonicalSemanticValueV1.TextRun(text: "Title", marks: [.strong], reference: reference)
         let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .paragraph([strong]),
             .taskList([.init(checked: false, runs: [.init(text: "task")])]),
@@ -143,6 +148,50 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         let command = try XCTUnwrap(engine.makeBlockStyleCommand(style: .text, selection: .init(location: 1, length: 0)))
         XCTAssertEqual(engine.applyBlockStyle(command), .noChange)
         XCTAssertNil(engine.pendingLocalDocument)
+    }
+
+    func testBlockStyleCanTargetEmptyParagraphAtLeadingMiddleAndTrailingTopologyPositions() throws {
+        let leading = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([]), .paragraph([.init(text: "after")])
+        ]))
+        var leadingEngine = LoroNativeRichEditingEngine(document: leading)
+        let leadingCommand = try XCTUnwrap(leadingEngine.makeBlockStyleCommand(
+            style: .h1, selection: .init(location: 0, length: 0)
+        ))
+        XCTAssertEqual(leadingCommand.topLevelBlockIndex, 0)
+        XCTAssertEqual(leadingEngine.applyBlockStyle(leadingCommand), .publish(
+            document: .init(semantic: .init(blocks: [
+                .heading(level: 1, runs: []), .paragraph([.init(text: "after")])
+            ])), selection: .init(location: 0, length: 0)
+        ))
+
+        let middle = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before")]), .paragraph([]), .paragraph([.init(text: "after")])
+        ]))
+        var middleEngine = LoroNativeRichEditingEngine(document: middle)
+        let middleCommand = try XCTUnwrap(middleEngine.makeBlockStyleCommand(
+            style: .h2, selection: .init(location: 7, length: 0)
+        ))
+        XCTAssertEqual(middleCommand.topLevelBlockIndex, 1)
+        XCTAssertEqual(middleEngine.applyBlockStyle(middleCommand), .publish(
+            document: .init(semantic: .init(blocks: [
+                .paragraph([.init(text: "before")]), .heading(level: 2, runs: []), .paragraph([.init(text: "after")])
+            ])), selection: .init(location: 7, length: 0)
+        ))
+
+        let trailing = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "before")]), .paragraph([])
+        ]))
+        var trailingEngine = LoroNativeRichEditingEngine(document: trailing)
+        let trailingCommand = try XCTUnwrap(trailingEngine.makeBlockStyleCommand(
+            style: .h3, selection: .init(location: 7, length: 0)
+        ))
+        XCTAssertEqual(trailingCommand.topLevelBlockIndex, 1)
+        XCTAssertEqual(trailingEngine.applyBlockStyle(trailingCommand), .publish(
+            document: .init(semantic: .init(blocks: [
+                .paragraph([.init(text: "before")]), .heading(level: 3, runs: [])
+            ])), selection: .init(location: 7, length: 0)
+        ))
     }
 
     func testPendingParentAcknowledgementIsExactAndDifferentParentIsDeferred() {

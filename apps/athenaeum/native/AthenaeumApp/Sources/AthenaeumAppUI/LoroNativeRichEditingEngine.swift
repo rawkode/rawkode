@@ -140,6 +140,21 @@ struct LoroNativeRichEditingEngine {
         commandID: UUID = UUID(),
         requestToken: Int = 0
     ) -> LoroNativeRichBlockStyleCommand? {
+        guard let target = makeBlockStyleTarget(selection: selection) else { return nil }
+        return .init(
+            commandID: commandID,
+            requestToken: requestToken,
+            editorGeneration: target.editorGeneration,
+            style: style,
+            selection: target.selection,
+            topLevelBlockIndex: target.topLevelBlockIndex,
+            expectedBlock: target.expectedBlock
+        )
+    }
+
+    mutating func makeBlockStyleTarget(
+        selection: LoroNativeRichTextSelection
+    ) -> LoroNativeRichBlockStyleTarget? {
         guard composition == nil,
               selection.location >= 0,
               selection.length >= 0,
@@ -148,17 +163,30 @@ struct LoroNativeRichEditingEngine {
         else { return nil }
         let end = selection.location + selection.length
         guard end <= start + length,
-              !(selection.length == 0 && selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
               LoroNativeRichBlockStyle.forBlock(block) != nil
         else { return nil }
         return .init(
-            commandID: commandID,
-            requestToken: requestToken,
             editorGeneration: documentGeneration,
-            style: style,
             selection: selection,
             topLevelBlockIndex: index,
             expectedBlock: block
+        )
+    }
+
+    mutating func makeBlockStyleCommand(
+        style: LoroNativeRichBlockStyle,
+        target: LoroNativeRichBlockStyleTarget,
+        commandID: UUID = UUID(),
+        requestToken: Int = 0
+    ) -> LoroNativeRichBlockStyleCommand {
+        .init(
+            commandID: commandID,
+            requestToken: requestToken,
+            editorGeneration: target.editorGeneration,
+            style: style,
+            selection: target.selection,
+            topLevelBlockIndex: target.topLevelBlockIndex,
+            expectedBlock: target.expectedBlock
         )
     }
 
@@ -166,9 +194,8 @@ struct LoroNativeRichEditingEngine {
         guard selection.location >= 0,
               selection.length >= 0,
               selection.location <= Int.max - selection.length,
-              let (index, start, length, block) = blockContaining(selection.location),
+              let (_, start, length, block) = blockContaining(selection.location),
               selection.location + selection.length <= start + length,
-              !(selection.length == 0 && selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
               let current = LoroNativeRichBlockStyle.forBlock(block)
         else { return .disabled }
         return .init(current: current, isEnabled: composition == nil && pendingLocalDocument == nil)
@@ -187,7 +214,6 @@ struct LoroNativeRichEditingEngine {
               index == command.topLevelBlockIndex,
               block == command.expectedBlock,
               command.selection.location + command.selection.length <= start + length,
-              !(command.selection.length == 0 && command.selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
               LoroNativeRichBlockStyle.forBlock(block) != nil
         else { return .rejected(.invalidEdit) }
 
@@ -206,7 +232,9 @@ struct LoroNativeRichEditingEngine {
         var cursor = 0
         for (index, block) in admittedDocument.semantic.blocks.enumerated() {
             let length = scalarLength(of: block)
-            if offset <= cursor + length {
+            let blockEnd = cursor + length
+            if offset >= cursor,
+               offset < blockEnd || (offset == blockEnd && (length == 0 || index + 1 == admittedDocument.semantic.blocks.count)) {
                 return (index, cursor, length, block)
             }
             cursor += length + 1

@@ -282,19 +282,29 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     /// monotonic button generation and never supplies a mirrored selection.
     @discardableResult
     func requestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool {
+        guard let target = captureBlockStyleTarget() else { return false }
+        return requestBlockStyle(style, target: target)
+    }
+
+    func captureBlockStyleTarget() -> LoroNativeRichBlockStyleTarget? {
         guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
-              pendingTaskListInsertion == nil, let selection = scalarSelection(),
-              let command = engine.makeBlockStyleCommand(style: style, selection: selection,
-                                                          requestToken: nextBlockStyleRequestToken + 1)
+              pendingTaskListInsertion == nil, let selection = scalarSelection()
+        else { return nil }
+        return engine.makeBlockStyleTarget(selection: selection)
+    }
+
+    @discardableResult
+    func requestBlockStyle(_ style: LoroNativeRichBlockStyle, target: LoroNativeRichBlockStyleTarget) -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil
         else { return false }
-        nextBlockStyleRequestToken &+= 1
-        let commandWithToken = LoroNativeRichBlockStyleCommand(
-            commandID: command.commandID, requestToken: nextBlockStyleRequestToken,
-            editorGeneration: command.editorGeneration, style: command.style,
-            selection: command.selection, topLevelBlockIndex: command.topLevelBlockIndex,
-            expectedBlock: command.expectedBlock)
-        let effect = engine.applyBlockStyle(commandWithToken)
+        let requestToken = nextBlockStyleRequestToken &+ 1
+        let command = engine.makeBlockStyleCommand(style: style, target: target,
+                                                    requestToken: requestToken)
+        nextBlockStyleRequestToken = requestToken
+        let effect = engine.applyBlockStyle(command)
         guard case .publish = effect else { _ = apply(effect); return true }
         _ = apply(effect)
         return true
@@ -947,20 +957,13 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 final class LoroNativeRichTextEditorHostView: NSView {
     private weak var controller: LoroNativeRichTextEditorController?
     private let scrollView: NSScrollView
-    private let styleControl: NSPopUpButton
+    private let styleControl: LoroNativeRichBlockStyleControl
 
     init(controller: LoroNativeRichTextEditorController, scrollView: NSScrollView) {
         self.controller = controller
         self.scrollView = scrollView
-        styleControl = NSPopUpButton(frame: .zero, pullsDown: false)
+        styleControl = LoroNativeRichBlockStyleControl(controller: controller)
         super.init(frame: .zero)
-
-        styleControl.target = self
-        styleControl.action = #selector(styleChanged(_:))
-        styleControl.controlSize = .small
-        styleControl.bezelStyle = .rounded
-        styleControl.setAccessibilityLabel("Text style")
-        styleControl.setAccessibilityHelp("Changes the current paragraph or heading without changing its content.")
 
         styleControl.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -982,26 +985,85 @@ final class LoroNativeRichTextEditorHostView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
-        styleControl.removeAllItems()
-        styleControl.addItems(withTitles: LoroNativeRichBlockStyle.allCases.map(\.title))
-        if let current = state.current,
-           let index = LoroNativeRichBlockStyle.allCases.firstIndex(of: current) {
-            styleControl.selectItem(at: index)
-        } else {
-            styleControl.selectItem(at: -1)
-            styleControl.title = "Text style"
-        }
-        styleControl.isEnabled = state.isEnabled
-        for (index, item) in styleControl.itemArray.enumerated() {
-            item.representedObject = LoroNativeRichBlockStyle.allCases[index].rawValue
-            item.toolTip = LoroNativeRichBlockStyle.allCases[index].title
-        }
+        styleControl.updateStyleState(state)
+    }
+}
+
+/// A lightweight AppKit menu view keeps the editor's style affordance out of the generic
+/// `NSButton` tree used by hosted picker tests while capturing the live selection before menu
+/// focus moves. The menu is presentation-only; the controller and shared engine own admission.
+final class LoroNativeRichBlockStyleControl: NSView {
+    private weak var controller: LoroNativeRichTextEditorController?
+    private var current: LoroNativeRichBlockStyle?
+    private var controlEnabled = false
+    private var pendingTarget: LoroNativeRichBlockStyleTarget?
+
+    init(controller: LoroNativeRichTextEditorController) {
+        self.controller = controller
+        super.init(frame: .zero)
+        setAccessibilityLabel("Text style")
+        setAccessibilityHelp("Changes the current paragraph or heading without changing its content.")
+        setAccessibilityRole(.button)
     }
 
-    @objc private func styleChanged(_ sender: NSPopUpButton) {
-        guard let raw = sender.selectedItem?.representedObject as? String,
-              let style = LoroNativeRichBlockStyle(rawValue: raw) else { return }
-        _ = controller?.requestBlockStyle(style)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 108, height: 24) }
+
+    func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
+        current = state.current
+        controlEnabled = state.isEnabled
+        needsDisplay = true
+    }
+
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        (controlEnabled ? NSColor.controlBackgroundColor : NSColor.windowBackgroundColor).setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.stroke()
+
+        let title = current?.title ?? "Text style"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: controlEnabled ? NSColor.labelColor : NSColor.disabledControlTextColor
+        ]
+        let titleRect = NSRect(x: 9, y: (bounds.height - 16) / 2, width: max(0, bounds.width - 26), height: 16)
+        title.draw(in: titleRect, withAttributes: attributes)
+        let chevron = NSBezierPath()
+        chevron.move(to: NSPoint(x: bounds.width - 14, y: bounds.midY + 2))
+        chevron.line(to: NSPoint(x: bounds.width - 10, y: bounds.midY - 2))
+        chevron.line(to: NSPoint(x: bounds.width - 6, y: bounds.midY + 2))
+        chevron.lineWidth = 1.5
+        (controlEnabled ? NSColor.secondaryLabelColor : NSColor.disabledControlTextColor).setStroke()
+        chevron.stroke()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard controlEnabled, let target = controller?.captureBlockStyleTarget() else { return }
+        pendingTarget = target
+        let menu = NSMenu(title: "Text style")
+        for style in LoroNativeRichBlockStyle.allCases {
+            let item = NSMenuItem(title: style.title, action: #selector(applyStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = style == current ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height), in: self)
+    }
+
+    @objc private func applyStyle(_ sender: NSMenuItem) {
+        defer { pendingTarget = nil }
+        guard let raw = sender.representedObject as? String,
+              let style = LoroNativeRichBlockStyle(rawValue: raw),
+              let target = pendingTarget else { return }
+        _ = controller?.requestBlockStyle(style, target: target)
         updateStyleState(controller?.blockStyleState() ?? .disabled)
     }
 }

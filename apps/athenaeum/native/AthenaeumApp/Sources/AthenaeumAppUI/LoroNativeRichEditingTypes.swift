@@ -58,6 +58,15 @@ struct LoroNativeRichBlockStyleState: Equatable, Sendable {
     static let disabled = Self(current: nil, isEnabled: false)
 }
 
+/// The topology witness captured before an editor-adjacent menu can move focus. The eventual
+/// command adds its style and request identity, while this value keeps the exact live target.
+struct LoroNativeRichBlockStyleTarget: Equatable, Sendable {
+    let editorGeneration: Int
+    let selection: LoroNativeRichTextSelection
+    let topLevelBlockIndex: Int
+    let expectedBlock: LoroCanonicalSemanticValueV1.Block
+}
+
 /// Immutable witness for a block-style request. `requestToken` is monotonic within an adapter;
 /// the UUID is retained for diagnostics and tests without making either value durable.
 struct LoroNativeRichBlockStyleCommand: Equatable, Sendable, Identifiable {
