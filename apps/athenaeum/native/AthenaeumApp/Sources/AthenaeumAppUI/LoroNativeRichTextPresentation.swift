@@ -134,7 +134,16 @@ enum LoroNativeRichTextPresentation {
                 presentationRange = followingSeparator
                 separatorRange = followingSeparator
             } else if let precedingSeparator {
-                presentationRange = precedingSeparator
+                // A trailing empty block can be adjacent to another empty block. The preceding
+                // newline may already belong to that earlier block's following separator, so do
+                // not let two blocks claim one character. The first block remains the stable
+                // owner and this trailing block falls back to a zero-length presentation range.
+                let alreadyClaimed = blocks.contains {
+                    NSIntersectionRange($0.presentationRange, precedingSeparator).length > 0
+                }
+                presentationRange = alreadyClaimed
+                    ? .init(location: start, length: 0)
+                    : precedingSeparator
                 separatorRange = precedingSeparator
             } else if let terminalSeparator {
                 presentationRange = terminalSeparator
@@ -174,6 +183,14 @@ enum LoroNativeRichTextPresentation {
                 guard separator.length == 1,
                       separator.location >= 0,
                       NSMaxRange(separator) <= rendered.length else { return nil }
+            }
+        }
+        for firstIndex in blocks.indices {
+            for secondIndex in blocks.indices where secondIndex > firstIndex {
+                guard NSIntersectionRange(
+                    blocks[firstIndex].presentationRange,
+                    blocks[secondIndex].presentationRange
+                ).length == 0 else { return nil }
             }
         }
         return .init(blocks: blocks, spans: spans, renderedUTF16Length: rendered.length)

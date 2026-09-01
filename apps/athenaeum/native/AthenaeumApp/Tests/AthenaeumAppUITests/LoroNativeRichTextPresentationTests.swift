@@ -63,6 +63,21 @@ final class LoroNativeRichTextPresentationTests: XCTestCase {
         XCTAssertEqual(plan.spans.map(\.range), [NSRange(location: 1, length: 5)])
     }
 
+    func testPlanDoesNotLetConsecutiveEmptyBlocksShareOneSeparator() throws {
+        let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: []),
+            .heading(level: 2, runs: [])
+        ]))
+
+        let plan = try XCTUnwrap(LoroNativeRichTextPresentation.make(for: document))
+        XCTAssertEqual(plan.renderedUTF16Length, 1)
+        XCTAssertEqual(plan.blocks.map(\.presentationRange), [
+            NSRange(location: 0, length: 1),
+            NSRange(location: 1, length: 0)
+        ])
+        XCTAssertEqual(NSIntersectionRange(plan.blocks[0].presentationRange, plan.blocks[1].presentationRange).length, 0)
+    }
+
     func testPlanCarriesTypedReferenceKindWithoutPlatformAttributes() throws {
         let reference = LoroCanonicalSemanticValueV1.InlineReference(
             kind: .entity,

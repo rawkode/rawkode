@@ -46,7 +46,7 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published.count, 1)
     }
 
-    func testPresentationDecoratesDisplayLayerWithoutContaminatingEditableStorage() throws {
+    func testPresentationUsesOneTextKitLayoutWithoutContaminatingSemanticStorage() throws {
         let entity = LoroCanonicalSemanticValueV1.InlineReference(
             kind: .entity,
             id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"),
@@ -74,16 +74,15 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
             .init("dev.athenaeum.rich.separator-after.v1"),
             .init("dev.athenaeum.rich.terminal-empty-document.v1")
         ]
-        for storage in [semantic, input] {
-            storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
-                XCTAssertTrue(Set(attributes.keys).isSubset(of: markerKeys), "editable storage must remain marker-only: \(attributes.keys)")
-            }
+        semantic.enumerateAttributes(in: NSRange(location: 0, length: semantic.length)) { attributes, _, _ in
+            XCTAssertTrue(Set(attributes.keys).isSubset(of: markerKeys), "semantic storage must remain marker-only: \(attributes.keys)")
         }
-        XCTAssertNotNil(display.attribute(.font, at: 0, effectiveRange: nil))
-        XCTAssertNotNil(display.attribute(.paragraphStyle, at: 0, effectiveRange: nil))
-        XCTAssertNotNil(display.attribute(.obliqueness, at: 0, effectiveRange: nil))
-        XCTAssertNotNil(display.attribute(.foregroundColor, at: 0, effectiveRange: nil))
-        XCTAssertNotNil(display.attribute(.underlineStyle, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(input.attribute(.font, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(input.attribute(.paragraphStyle, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(input.attribute(.obliqueness, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(input.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(input.attribute(.underlineStyle, at: 0, effectiveRange: nil))
+        XCTAssertEqual(input, display)
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(semantic), document)
         controller.testingRefreshPresentation()
         XCTAssertTrue(published.isEmpty, "presentation refresh must never publish a document")
