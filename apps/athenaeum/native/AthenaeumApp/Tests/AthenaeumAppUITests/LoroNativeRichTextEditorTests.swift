@@ -21,6 +21,37 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(storage), document)
     }
 
+    func testTemporaryPresentationUsesTypedRoleAndMarksWithoutTouchingSemanticStorage() throws {
+        let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "Alice", marks: [.code, .emphasis, .strong], reference: reference())]),
+            .paragraph([.init(text: "body")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: document,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        let temporary = editor.testingTemporaryAttributes(atUTF16Offset: 0)
+        XCTAssertNotNil(temporary[.font])
+        XCTAssertNotNil(temporary[.paragraphStyle])
+        XCTAssertNotNil(temporary[.obliqueness])
+        XCTAssertNotNil(temporary[.foregroundColor])
+        XCTAssertNotNil(temporary[.underlineStyle])
+        let storage = editor.testingStorage()
+        storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
+            XCTAssertNil(attributes[.font])
+            XCTAssertNil(attributes[.paragraphStyle])
+            XCTAssertNil(attributes[.foregroundColor])
+            XCTAssertNil(attributes[.underlineStyle])
+            XCTAssertNil(attributes[.obliqueness])
+        }
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(storage), document)
+        editor.testingRefreshPresentation()
+        XCTAssertTrue(published.isEmpty, "presentation refresh must never publish a document")
+    }
+
     func testChecklistToggleUsesAcknowledgedAdoptionLaneAndPublishesNoOrdinaryDraft() throws {
         let source = checklistDocument()
         let rendered = try LoroNativeRichTextCodec.attributedString(for: source)

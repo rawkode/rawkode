@@ -136,6 +136,9 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private var pendingComposition = false
     private var hostCompositionGeneration = 0
     private var scheduledFlushGeneration: Int?
+    /// Appearance/accessibility changes only rebuild temporary layout attributes. If TextKit is
+    /// holding marked text, the refresh waits until the semantic composition has settled.
+    private var presentationRefreshPending = false
     /// A parent refresh received during IME is applied only after the shared engine has either
     /// committed or cancelled the captured semantic composition. This prevents date navigation
     /// from silently destroying marked text while still converging on the requested document.
@@ -544,6 +547,12 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
     func testingSelection() -> LoroNativeRichTextSelection { engine.admittedSelection }
     func testingStorage() -> NSAttributedString { semanticStorage.copy() as! NSAttributedString }
+    func testingTemporaryAttributes(atUTF16Offset offset: Int) -> [NSAttributedString.Key: Any] {
+        guard offset >= 0, offset < semanticStorage.length,
+              let layout = textView.layoutManager else { return [:] }
+        return layout.temporaryAttributes(atCharacterIndex: offset, effectiveRange: nil)
+    }
+    func testingRefreshPresentation() { refreshPresentation() }
     func testingReplace(_ range: NSRange, with string: String) { replace(range: range, withPlainText: string) }
     func testingInsert(reference: LoroCanonicalSemanticValueV1.InlineReference, replacingUTF16Range range: NSRange) {
         insert(reference: reference, replacingUTF16Range: range)
@@ -865,6 +874,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         rendering = true; defer { rendering = false }
         semanticStorage = NSMutableAttributedString(attributedString: rendered)
         textView.textStorage?.setAttributedString(rendered)
+        presentationRefreshPending = false
         applyTemporaryPresentation()
         // NSTextView can install a default `NSOriginalFont` while it lays out a temporary font.
         // It is presentation residue, never an admitted semantic attribute.
@@ -875,25 +885,120 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func applyTemporaryPresentation() {
         guard let layout = textView.layoutManager, let storage = textView.textStorage else { return }
-        layout.removeTemporaryAttribute(.font, forCharacterRange: NSRange(location: 0, length: storage.length))
-        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: storage.length))
-        layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: NSRange(location: 0, length: storage.length))
-        storage.enumerateAttribute(Marker.block, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let marker = value as? String, marker.hasPrefix("heading-") else { return }
-            let level = CGFloat(Int(marker.dropFirst(8)) ?? 1)
-            layout.addTemporaryAttribute(.font, value: NSFont.boldSystemFont(ofSize: 22 - level * 2), forCharacterRange: range)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        layout.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.obliqueness, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.paragraphStyle, forCharacterRange: fullRange)
+        guard let plan = LoroNativeRichTextPresentation.make(for: engine.admittedDocument) else {
+            textView.setNeedsDisplay(textView.bounds)
+            return
         }
-        storage.enumerateAttribute(Marker.marks, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let marks = value as? String else { return }
-            if marks.contains("strong") { layout.addTemporaryAttribute(.font, value: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize), forCharacterRange: range) }
-            if marks.contains("code") { layout.addTemporaryAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular), forCharacterRange: range) }
-            if marks.contains("emphasis") { layout.addTemporaryAttribute(.obliqueness, value: 0.18, forCharacterRange: range) }
+
+        for block in plan.blocks {
+            guard block.presentationRange.length > 0 else { continue }
+            let font = nativeFont(for: block.role, marks: [])
+            layout.addTemporaryAttribute(.font, value: font, forCharacterRange: block.presentationRange)
+            layout.addTemporaryAttribute(
+                .paragraphStyle,
+                value: paragraphStyle(for: block.role, font: font),
+                forCharacterRange: block.presentationRange
+            )
         }
-        storage.enumerateAttribute(Marker.reference, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard value != nil else { return }
-            layout.addTemporaryAttribute(.foregroundColor, value: NSColor.controlAccentColor, forCharacterRange: range)
-            layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: range)
+        for span in plan.spans {
+            guard let block = plan.blocks.first(where: { NSIntersectionRange($0.contentRange, span.range).length == span.range.length }) else { continue }
+            let font = nativeFont(for: block.role, marks: span.marks)
+            layout.addTemporaryAttribute(.font, value: font, forCharacterRange: span.range)
+            if span.marks.contains(.emphasis) {
+                layout.addTemporaryAttribute(.obliqueness, value: 0.18, forCharacterRange: span.range)
+            }
+            if let reference = span.reference {
+                layout.addTemporaryAttribute(.foregroundColor, value: referenceColor(reference), forCharacterRange: span.range)
+                layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: span.range)
+            }
         }
+        textView.layoutManager?.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        textView.setNeedsDisplay(textView.bounds)
+    }
+
+    private func nativeFont(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        marks: [LoroCanonicalSemanticValueV1.Mark]
+    ) -> NSFont {
+        let textStyle: NSFont.TextStyle
+        switch role {
+        case .paragraph, .task: textStyle = .body
+        case .heading(1): textStyle = .title1
+        case .heading(2): textStyle = .title2
+        case .heading: textStyle = .title3
+        }
+        let base = NSFont.preferredFont(forTextStyle: textStyle)
+        if marks.contains(.code) {
+            let code = NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: marks.contains(.strong) ? .bold : .regular)
+            var traits = code.fontDescriptor.symbolicTraits
+            if marks.contains(.emphasis) { traits.insert(.italic) }
+            if traits != code.fontDescriptor.symbolicTraits {
+                let descriptor = code.fontDescriptor.withSymbolicTraits(traits)
+                if let italic = NSFont(descriptor: descriptor, size: base.pointSize) {
+                    return italic
+                }
+            }
+            return code
+        }
+        var traits = base.fontDescriptor.symbolicTraits
+        if marks.contains(.strong) { traits.insert(.bold) }
+        if marks.contains(.emphasis) { traits.insert(.italic) }
+        let descriptor = base.fontDescriptor.withSymbolicTraits(traits)
+        if let resolved = NSFont(descriptor: descriptor, size: base.pointSize) {
+            return resolved
+        }
+        return base
+    }
+
+    private func paragraphStyle(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        font: NSFont
+    ) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        let scale = max(1, font.pointSize / max(1, NSFont.preferredFont(forTextStyle: .body).pointSize))
+        switch role {
+        case .paragraph, .task:
+            style.paragraphSpacing = 4 * scale
+        case .heading(1):
+            style.paragraphSpacingBefore = 14 * scale
+            style.paragraphSpacing = 8 * scale
+        case .heading(2):
+            style.paragraphSpacingBefore = 10 * scale
+            style.paragraphSpacing = 6 * scale
+        case .heading:
+            style.paragraphSpacingBefore = 8 * scale
+            style.paragraphSpacing = 4 * scale
+        }
+        return style
+    }
+
+    private func referenceColor(_ reference: LoroNativeRichTextPresentation.ReferenceKind) -> NSColor {
+        switch reference {
+        case .entity: return .systemBlue
+        case .supertag: return .systemPurple
+        }
+    }
+
+    /// Presentation refreshes are deliberately generation-neutral and never publish a document.
+    func refreshPresentation() {
+        guard !rendering else { return }
+        guard engine.compositionState == .idle, !pendingComposition, !textView.hasMarkedText() else {
+            presentationRefreshPending = true
+            return
+        }
+        presentationRefreshPending = false
+        applyTemporaryPresentation()
+    }
+
+    private func flushPresentationRefreshIfNeeded() {
+        guard presentationRefreshPending else { return }
+        refreshPresentation()
     }
 
     private func scalarSelection() -> LoroNativeRichTextCodec.ScalarSelection? {
@@ -926,6 +1031,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         // its captured semantic base and final plain string instead.
         _ = apply(engine.commitComposition())
         reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
     }
 
     private func cancelComposition() {
@@ -935,6 +1041,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         textView.cancelMarkedText()
         _ = apply(engine.cancelComposition())
         reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
     }
 
     private func reconcileDeferredParentIfPossible() {
@@ -1128,6 +1235,10 @@ private final class GuardedRichTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.didMoveToWindow()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        controller?.refreshPresentation()
     }
     override func becomeFirstResponder() -> Bool {
         let didBecome = super.becomeFirstResponder()

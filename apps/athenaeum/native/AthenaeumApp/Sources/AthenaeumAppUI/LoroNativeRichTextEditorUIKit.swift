@@ -131,12 +131,20 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private let textView = GuardedUIKitRichTextView(frame: .zero, textContainer: nil)
+    /// UIKit's TextKit 1 layout manager has no temporary-attribute API. Keep the editable
+    /// marker-only text view untouched and render a synchronized, non-interactive display view
+    /// above it. The display view is presentation-only and is never decoded.
+    private let presentationView = UITextView(frame: .zero, textContainer: nil)
     private weak var styleHost: LoroNativeRichTextEditorUIKitHostView?
     private let referenceTap = UITapGestureRecognizer()
     private let taskToggleTap = UITapGestureRecognizer()
     private var engine: LoroNativeRichEditingEngine
+    /// Marker-only snapshot used by every non-IME semantic boundary. UIKit's layout manager may
+    /// carry temporary display attributes, but this value never does and is never user-editable.
+    private var semanticStorage = NSMutableAttributedString()
     private var rendering = false
     private var pendingComposition = false
+    private var presentationRefreshPending = false
     private var hostCompositionGeneration = 0
     private var scheduledFlushGeneration: Int?
     private var deferredParentDocument: LoroNativeRichDocumentV1?
@@ -207,12 +215,22 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.isSelectable = true
         textView.alwaysBounceVertical = true
         textView.backgroundColor = .clear
+        textView.adjustsFontForContentSizeCategory = true
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
         textView.autocorrectionType = .no
         textView.textDragInteraction?.isEnabled = false
         textView.accessibilityLabel = "Rich text editor. References are links."
+        presentationView.isEditable = false
+        presentationView.isSelectable = false
+        presentationView.isScrollEnabled = false
+        presentationView.isUserInteractionEnabled = false
+        presentationView.backgroundColor = .clear
+        presentationView.adjustsFontForContentSizeCategory = true
+        presentationView.textContainerInset = textView.textContainerInset
+        presentationView.textContainer.lineFragmentPadding = textView.textContainer.lineFragmentPadding
+        presentationView.accessibilityElementsHidden = true
         textView.accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: "Open linked reference") { [weak self] _ in
                 self?.openReferenceAtCurrentSelection() ?? false
@@ -238,9 +256,14 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     func makeTextView() -> UITextView { textView }
+    func makePresentationTextView() -> UITextView { presentationView }
 
     func makeHostView() -> LoroNativeRichTextEditorUIKitHostView {
-        let host = LoroNativeRichTextEditorUIKitHostView(controller: self, textView: textView)
+        let host = LoroNativeRichTextEditorUIKitHostView(
+            controller: self,
+            textView: textView,
+            presentationView: presentationView
+        )
         styleHost = host
         host.updateStyleState(blockStyleState())
         return host
@@ -423,16 +446,21 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // Every intended non-composition write returns false from `shouldChangeTextIn` and is
         // rendered by us. Any other storage change is untrusted and restored atomically.
         guard let displayed = textView.attributedText,
-              (try? LoroNativeRichTextCodec.decode(displayed)) == engine.admittedDocument
+              displayed.isEqual(to: semanticStorage)
         else { reject(.invalidEdit); return }
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
-        guard !rendering, let selection = scalarSelection() else { return }
+        guard !rendering, !pendingComposition, let selection = scalarSelection() else { return }
         engine.setSelection(selection)
         onSelectionChange(selection)
         styleHost?.updateStyleState(blockStyleState())
         publishReferenceContexts()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === textView else { return }
+        presentationView.contentOffset = scrollView.contentOffset
     }
 
     fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
@@ -565,6 +593,10 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     // These value-facing seams let the iOS test bundle exercise UIKit policy without making the
     // representable part of daily-note product admission.
     func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
+    func testingSemanticStorage() -> NSAttributedString { semanticStorage.copy() as! NSAttributedString }
+    func testingDisplayStorage() -> NSAttributedString { presentationView.attributedText ?? NSAttributedString() }
+    func testingRefreshPresentation() { refreshPresentation() }
+    func testingPresentationRefreshPending() -> Bool { presentationRefreshPending }
     func testingSelection() -> LoroNativeRichTextSelection { engine.admittedSelection }
     func testingTaskListInsertion() -> LoroNativeRichTaskListInsertionCommand? {
         guard requestTaskListInsertion() else { return nil }
@@ -694,9 +726,9 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard let rendered = try? LoroNativeRichTextCodec.attributedString(for: document) else { return }
         rendering = true
         defer { rendering = false }
+        semanticStorage = NSMutableAttributedString(attributedString: rendered)
         textView.attributedText = rendered
-        textView.textStorage.removeAttribute(.font, range: NSRange(location: 0, length: textView.textStorage.length))
-        textView.textStorage.removeAttribute(.link, range: NSRange(location: 0, length: textView.textStorage.length))
+        presentationRefreshPending = false
         applyTemporaryPresentation()
         if let selection,
            let range = try? LoroNativeRichTextCodec.utf16Range(forScalarSelection: selection, in: rendered) {
@@ -705,28 +737,152 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private func applyTemporaryPresentation() {
-        // UIKit's current TextKit layout manager has no temporary-attribute surface. Keep its
-        // typography on the view (not `textStorage`), so marker attributes remain the sole
-        // semantic value. Reference hit testing still reads the typed marker directly; the
-        // native rich editor can add a platform-specific visual treatment when UIKit exposes a
-        // non-semantic presentation hook again.
+        let plan = LoroNativeRichTextPresentation.make(for: engine.admittedDocument)
+        guard let plan else {
+            textView.font = .preferredFont(forTextStyle: .body)
+            textView.textColor = .clear
+            presentationView.attributedText = semanticStorage
+            presentationView.font = .preferredFont(forTextStyle: .body)
+            presentationView.textColor = .label
+            removePresentationAttributesFromInputStorage()
+            textView.setNeedsDisplay()
+            return
+        }
+
+        // Keep the actual editor storage marker-only. A separate non-interactive view carries
+        // display attributes because UIKit's NSLayoutManager has no temporary-attribute API.
+        let display = NSMutableAttributedString(attributedString: semanticStorage)
+        for block in plan.blocks where block.presentationRange.length > 0 {
+            let font = nativeFont(for: block.role, marks: [])
+            display.addAttribute(.font, value: font, range: block.presentationRange)
+            display.addAttribute(.paragraphStyle, value: paragraphStyle(for: block.role, font: font), range: block.presentationRange)
+        }
+        for span in plan.spans {
+            guard let block = plan.blocks.first(where: { NSIntersectionRange($0.contentRange, span.range).length == span.range.length }) else { continue }
+            let font = nativeFont(for: block.role, marks: span.marks)
+            display.addAttribute(.font, value: font, range: span.range)
+            if span.marks.contains(.emphasis) {
+                display.addAttribute(.obliqueness, value: 0.18, range: span.range)
+            }
+            if let reference = span.reference {
+                display.addAttribute(.foregroundColor, value: referenceColor(reference), range: span.range)
+                display.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: span.range)
+            }
+        }
         textView.font = .preferredFont(forTextStyle: .body)
-        textView.textColor = .label
+        textView.textColor = .clear
+        removePresentationAttributesFromInputStorage()
+        presentationView.attributedText = display
+        presentationView.font = .preferredFont(forTextStyle: .body)
+        presentationView.textColor = .label
+        presentationView.contentOffset = textView.contentOffset
+        textView.setNeedsDisplay()
+        presentationView.setNeedsDisplay()
+    }
+
+    /// `UITextView.font` and `textColor` are allowed to seed its typing/display attributes, and
+    /// UIKit may copy those defaults into the mutable storage. Strip that residue after every
+    /// presentation rebuild so the editable TextKit boundary remains marker-only. The display
+    /// overlay owns all visual attributes; marked text is left alone until composition settles.
+    private func removePresentationAttributesFromInputStorage() {
+        guard !hasMarkedText, textView.textStorage.length > 0 else { return }
+        let storage = textView.textStorage
+        let range = NSRange(location: 0, length: storage.length)
+        for key in [NSAttributedString.Key.font, .foregroundColor, .paragraphStyle, .underlineStyle, .obliqueness] {
+            storage.removeAttribute(key, range: range)
+        }
+    }
+
+    private func nativeFont(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        marks: [LoroCanonicalSemanticValueV1.Mark]
+    ) -> UIFont {
+        let textStyle: UIFont.TextStyle
+        switch role {
+        case .paragraph, .task: textStyle = .body
+        case .heading(1): textStyle = .title1
+        case .heading(2): textStyle = .title2
+        case .heading: textStyle = .title3
+        }
+        let base = UIFont.preferredFont(forTextStyle: textStyle)
+        if marks.contains(.code) {
+            let code = UIFont.monospacedSystemFont(ofSize: base.pointSize, weight: marks.contains(.strong) ? .bold : .regular)
+            var traits = code.fontDescriptor.symbolicTraits
+            if marks.contains(.emphasis) { traits.insert(.traitItalic) }
+            if traits != code.fontDescriptor.symbolicTraits,
+               let descriptor = code.fontDescriptor.withSymbolicTraits(traits) {
+                return UIFont(descriptor: descriptor, size: base.pointSize)
+            }
+            return code
+        }
+        var traits = base.fontDescriptor.symbolicTraits
+        if marks.contains(.strong) { traits.insert(.traitBold) }
+        if marks.contains(.emphasis) { traits.insert(.traitItalic) }
+        if let descriptor = base.fontDescriptor.withSymbolicTraits(traits) {
+            return UIFont(descriptor: descriptor, size: base.pointSize)
+        }
+        return base
+    }
+
+    private func paragraphStyle(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        font: UIFont
+    ) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        let bodyPointSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        let scale = max(1, font.pointSize / max(1, bodyPointSize))
+        switch role {
+        case .paragraph, .task:
+            style.paragraphSpacing = 4 * scale
+        case .heading(1):
+            style.paragraphSpacingBefore = 14 * scale
+            style.paragraphSpacing = 8 * scale
+        case .heading(2):
+            style.paragraphSpacingBefore = 10 * scale
+            style.paragraphSpacing = 6 * scale
+        case .heading:
+            style.paragraphSpacingBefore = 8 * scale
+            style.paragraphSpacing = 4 * scale
+        }
+        return style
+    }
+
+    private func referenceColor(_ reference: LoroNativeRichTextPresentation.ReferenceKind) -> UIColor {
+        switch reference {
+        case .entity: return .systemBlue
+        case .supertag: return .systemPurple
+        }
+    }
+
+    /// Refreshes only transient layout attributes. A marked-text session owns its transient
+    /// ranges, so a Dynamic Type/appearance change waits until the engine settles it.
+    func refreshPresentation() {
+        guard !rendering else { return }
+        guard engine.compositionState == .idle, !pendingComposition, !hasMarkedText else {
+            presentationRefreshPending = true
+            return
+        }
+        presentationRefreshPending = false
+        applyTemporaryPresentation()
+    }
+
+    private func flushPresentationRefreshIfNeeded() {
+        guard presentationRefreshPending else { return }
+        refreshPresentation()
     }
 
     /// Draws checklist affordances outside semantic storage. TextKit remains a plain text host;
     /// the square/checkmark is presentation-only and is positioned from the exact line fragment
     /// carrying this codec's opaque task marker.
     fileprivate func drawChecklist(in view: GuardedUIKitRichTextView) {
-        let layoutManager = view.layoutManager
-        let textContainer = view.textContainer
-        guard let rendered = view.attributedText,
-              rendered.length > 0 else { return }
+        let layoutManager = presentationView.layoutManager
+        let textContainer = presentationView.textContainer
+        guard semanticStorage.length > 0 else { return }
         layoutManager.ensureLayout(for: textContainer)
-        let origin = CGPoint(x: view.textContainerInset.left, y: view.textContainerInset.top)
+        let origin = CGPoint(x: presentationView.textContainerInset.left, y: presentationView.textContainerInset.top)
         var drawn: Set<String> = []
-        for offset in 0..<rendered.length {
-            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: rendered) else { continue }
+        for offset in 0..<semanticStorage.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: semanticStorage) else { continue }
             let key = "\(location.taskListIndex):\(location.itemIndex)"
             guard drawn.insert(key).inserted else { continue }
             let glyphRange = layoutManager.glyphRange(
@@ -765,17 +921,15 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     /// Returns a semantic offset only when the pointer is inside the presentation checkbox. A
     /// tap on the prose still follows UITextView's ordinary caret/touch behaviour.
     fileprivate func taskToggleOffset(atViewPoint viewPoint: CGPoint, in view: GuardedUIKitRichTextView) -> Int? {
-        guard isEditableInput,
-              let rendered = view.attributedText,
-              rendered.length > 0 else { return nil }
-        let layoutManager = view.layoutManager
-        let textContainer = view.textContainer
+        guard isEditableInput, !hasMarkedText, semanticStorage.length > 0 else { return nil }
+        let layoutManager = presentationView.layoutManager
+        let textContainer = presentationView.textContainer
         layoutManager.ensureLayout(for: textContainer)
-        let origin = CGPoint(x: view.textContainerInset.left, y: view.textContainerInset.top)
+        let origin = CGPoint(x: presentationView.textContainerInset.left, y: presentationView.textContainerInset.top)
         let point = LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: origin)
         var seen: Set<String> = []
-        for offset in 0..<rendered.length {
-            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: rendered) else { continue }
+        for offset in 0..<semanticStorage.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: semanticStorage) else { continue }
             let key = "\(location.taskListIndex):\(location.itemIndex)"
             guard seen.insert(key).inserted else { continue }
             let glyphRange = layoutManager.glyphRange(
@@ -815,7 +969,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
               insertion.utf16Range == published.utf16Range,
               scalarSelection() == published.selection,
               let current = LoroNativeRichTextInlineReferenceContext.detect(
-                  in: textView.attributedText ?? NSAttributedString(),
+                  in: semanticStorage,
                   selection: textView.selectedRange,
                   trigger: trigger
               ),
@@ -845,7 +999,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         for trigger in LoroNativeRichTextReferenceTrigger.allCases {
             guard isEditableInput, !pendingComposition, !hasMarkedText,
                   let context = LoroNativeRichTextInlineReferenceContext.detect(
-                      in: textView.attributedText ?? NSAttributedString(),
+                      in: semanticStorage,
                       selection: textView.selectedRange,
                       trigger: trigger
                   ) else {
@@ -895,14 +1049,13 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private func scalarSelection() -> LoroNativeRichTextSelection? {
-        try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: textView.selectedRange, in: textView.attributedText ?? NSAttributedString())
+        return try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: textView.selectedRange, in: semanticStorage)
     }
 
     @discardableResult
     private func openReference(atUTF16Offset offset: Int) -> Bool {
-        guard !pendingComposition,
-              let rendered = textView.attributedText,
-              let reference = LoroNativeRichTextCodec.reference(atUTF16Offset: offset, in: rendered)
+        guard !pendingComposition, !hasMarkedText,
+              let reference = LoroNativeRichTextCodec.reference(atUTF16Offset: offset, in: semanticStorage)
         else { return false }
         onOpenReference(reference)
         return true
@@ -952,17 +1105,16 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         // space. TextKit's container origin is the inset only; line-fragment padding belongs to
         // glyph layout and contentOffset must not be applied a second time here.
         let origin = CGPoint(
-            x: textView.textContainerInset.left,
-            y: textView.textContainerInset.top
+            x: presentationView.textContainerInset.left,
+            y: presentationView.textContainerInset.top
         )
         let containerPoint = LoroNativeRichTextCodec.textContainerPoint(point, origin: origin)
-        let index = textView.layoutManager.characterIndex(for: containerPoint, in: textView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
-        guard index >= 0, index < textView.textStorage.length else { return nil }
-        let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
-        let glyphRect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
-        guard LoroNativeRichTextCodec.admitsReferenceHit(characterIndex: index, textLength: textView.textStorage.length, textContainerPoint: containerPoint, glyphRect: glyphRect),
-              let rendered = textView.attributedText,
-              LoroNativeRichTextCodec.reference(atUTF16Offset: index, in: rendered) != nil
+        let index = presentationView.layoutManager.characterIndex(for: containerPoint, in: presentationView.textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard !hasMarkedText, index >= 0, index < semanticStorage.length else { return nil }
+        let glyphRange = presentationView.layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+        let glyphRect = presentationView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: presentationView.textContainer)
+        guard LoroNativeRichTextCodec.admitsReferenceHit(characterIndex: index, textLength: semanticStorage.length, textContainerPoint: containerPoint, glyphRect: glyphRect),
+              LoroNativeRichTextCodec.reference(atUTF16Offset: index, in: semanticStorage) != nil
         else { return nil }
         return index
     }
@@ -997,6 +1149,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         pendingComposition = false
         _ = apply(engine.commitComposition())
         reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
     }
 
     private func cancelComposition() {
@@ -1006,6 +1159,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         textView.unmarkText()
         _ = apply(engine.cancelComposition())
         reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
     }
 
     private func reconcileDeferredParentIfPossible() {
@@ -1095,12 +1249,18 @@ final class LoroNativeRichTextEditorUIKitHostView: UIView, UIEditMenuInteraction
     private weak var controller: LoroNativeRichTextEditorUIKitController?
     private let styleButton: UIButton
     private let textView: UITextView
+    private let presentationView: UITextView
     private lazy var styleMenuInteraction = UIEditMenuInteraction(delegate: self)
     private var pendingStyleTarget: LoroNativeRichBlockStyleTarget?
 
-    init(controller: LoroNativeRichTextEditorUIKitController, textView: UITextView) {
+    init(
+        controller: LoroNativeRichTextEditorUIKitController,
+        textView: UITextView,
+        presentationView: UITextView? = nil
+    ) {
         self.controller = controller
         self.textView = textView
+        self.presentationView = presentationView ?? controller.makePresentationTextView()
         styleButton = UIButton(type: .system)
         super.init(frame: .zero)
 
@@ -1112,7 +1272,24 @@ final class LoroNativeRichTextEditorUIKitHostView: UIView, UIEditMenuInteraction
         styleButton.addTarget(self, action: #selector(styleButtonPressed), for: .touchUpInside)
         addInteraction(styleMenuInteraction)
 
-        let stack = UIStackView(arrangedSubviews: [styleButton, textView])
+        let editorContainer = UIView()
+        editorContainer.backgroundColor = .clear
+        editorContainer.addSubview(self.textView)
+        editorContainer.addSubview(self.presentationView)
+        self.presentationView.translatesAutoresizingMaskIntoConstraints = false
+        self.textView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            self.presentationView.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
+            self.presentationView.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
+            self.presentationView.topAnchor.constraint(equalTo: editorContainer.topAnchor),
+            self.presentationView.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
+            self.textView.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
+            self.textView.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
+            self.textView.topAnchor.constraint(equalTo: editorContainer.topAnchor),
+            self.textView.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor)
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [styleButton, editorContainer])
         stack.axis = .vertical
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -1205,6 +1382,11 @@ private final class GuardedUIKitRichTextView: UITextView {
     override func draw(_ rect: CGRect) {
         super.draw(rect)
         richController?.drawChecklist(in: self)
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        richController?.refreshPresentation()
     }
 
     override func becomeFirstResponder() -> Bool {

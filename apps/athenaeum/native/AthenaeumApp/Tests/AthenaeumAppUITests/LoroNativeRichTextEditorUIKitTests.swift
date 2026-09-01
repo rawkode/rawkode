@@ -46,6 +46,63 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published.count, 1)
     }
 
+    func testPresentationDecoratesDisplayLayerWithoutContaminatingEditableStorage() throws {
+        let entity = LoroCanonicalSemanticValueV1.InlineReference(
+            kind: .entity,
+            id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"),
+            label: "Alice"
+        )
+        let document = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "Alice", marks: [.code, .emphasis, .strong], reference: entity)]),
+            .paragraph([.init(text: "body")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: document,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+
+        let semantic = controller.testingSemanticStorage()
+        let input = controller.makeTextView().attributedText!
+        let display = controller.testingDisplayStorage()
+        let markerKeys: Set<NSAttributedString.Key> = [
+            .init("dev.athenaeum.rich.marks.v1"),
+            .init("dev.athenaeum.rich.reference.v1"),
+            .init("dev.athenaeum.rich.block.v1"),
+            .init("dev.athenaeum.rich.separator-before.v1"),
+            .init("dev.athenaeum.rich.separator-after.v1"),
+            .init("dev.athenaeum.rich.terminal-empty-document.v1")
+        ]
+        for storage in [semantic, input] {
+            storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
+                XCTAssertTrue(Set(attributes.keys).isSubset(of: markerKeys), "editable storage must remain marker-only: \(attributes.keys)")
+            }
+        }
+        XCTAssertNotNil(display.attribute(.font, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(display.attribute(.paragraphStyle, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(display.attribute(.obliqueness, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(display.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(display.attribute(.underlineStyle, at: 0, effectiveRange: nil))
+        XCTAssertEqual(try LoroNativeRichTextCodec.decode(semantic), document)
+        controller.testingRefreshPresentation()
+        XCTAssertTrue(published.isEmpty, "presentation refresh must never publish a document")
+    }
+
+    func testPresentationRefreshWaitsForCompositionThenFlushesOnce() {
+        let controller = LoroNativeRichTextEditorUIKitController(document: heading("title", marks: [.strong]), isEditable: true)
+
+        controller.testingBeginComposition(range: NSRange(location: 5, length: 0))
+        controller.testingRefreshPresentation()
+        XCTAssertTrue(controller.testingPresentationRefreshPending())
+        controller.testingFinalizeComposition("!")
+        controller.testingEndComposition()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(controller.testingPresentationRefreshPending())
+        XCTAssertEqual(controller.testingDocument(), heading("title!", marks: [.strong]))
+    }
+
     func testParentReplacementCancelsCompositionBeforeRenderingNextDocument() {
         let source = paragraph("today")
         let next = paragraph("tomorrow")
