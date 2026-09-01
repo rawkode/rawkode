@@ -155,6 +155,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     private var lastAppliedTaskListInsertionID: UUID?
     private var lastAppliedTaskListInsertionCancellationID: UUID?
     private var nextBlockStyleRequestToken = 0
+    private var nextInlineMarkRequestToken = 0
+    private var pendingInlineMark: LoroNativeRichInlineMarkCommand?
     #if DEBUG
     /// Test-only responder result seam. Production always asks this controller's own window.
     private var testingFocusAttempt: (() -> Bool)?
@@ -241,9 +243,11 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
             // A remote replacement may happen to contain the same visible trigger. It still
             // needs a new generation so a picker result from the prior document cannot apply.
             invalidateAllReferenceContexts()
+            pendingInlineMark = nil
             render(document, preserving: selection)
         case let .acknowledged(document, selection):
             invalidateAllReferenceContexts()
+            pendingInlineMark = nil
             render(document, preserving: selection)
         case .deferredForComposition:
             deferredParentDocument = document
@@ -267,7 +271,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func requestTaskListInsertion() -> Bool {
         guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
-              pendingTaskListInsertion == nil, let selection = scalarSelection(), selection.length == 0,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection(), selection.length == 0,
               let command = engine.makeTaskListInsertionCommand(atScalarOffset: selection.location) else { return false }
         nextTaskListInsertionRequestToken &+= 1
         pendingTaskListInsertion = (nextTaskListInsertionRequestToken, command)
@@ -292,7 +297,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func captureBlockStyleTarget() -> LoroNativeRichBlockStyleTarget? {
         guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
-              pendingTaskListInsertion == nil, let selection = scalarSelection()
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection()
         else { return nil }
         return engine.makeBlockStyleTarget(selection: selection)
     }
@@ -301,7 +307,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     func requestBlockStyle(_ style: LoroNativeRichBlockStyle, target: LoroNativeRichBlockStyleTarget) -> Bool {
         guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
-              pendingTaskListInsertion == nil
+              pendingTaskListInsertion == nil, pendingInlineMark == nil
         else { return false }
         let requestToken = nextBlockStyleRequestToken &+ 1
         let command = engine.makeBlockStyleCommand(style: style, target: target,
@@ -318,10 +324,33 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         else { return .disabled }
         let state = engine.blockStyleState(for: selection)
         guard pendingTaskToggle == nil, pendingTaskListInsertion == nil,
+              pendingInlineMark == nil,
               !pendingComposition, !textView.hasMarkedText() else {
             return .init(current: state.current, isEnabled: false)
         }
         return state
+    }
+
+    func captureInlineMarkTarget() -> LoroNativeRichInlineMarkTarget? {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection() else { return nil }
+        return engine.makeInlineMarkTarget(selection: selection)
+    }
+
+    @discardableResult
+    func requestInlineMark(_ mark: LoroCanonicalSemanticValueV1.Mark, target: LoroNativeRichInlineMarkTarget) -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil else { return false }
+        let token = nextInlineMarkRequestToken &+ 1
+        let command = engine.makeInlineMarkCommand(mark: mark, target: target, requestToken: token)
+        nextInlineMarkRequestToken = token
+        pendingInlineMark = command
+        let didPublish = apply(engine.applyInlineMark(command))
+        if !didPublish { pendingInlineMark = nil }
+        return didPublish
     }
 
     func applyTaskListInsertionAcknowledgement(_ acknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?) {
@@ -427,9 +456,8 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         // A formatting command during an IME composition must not rebuild or decode the marked
         // display buffer. It is consumed by the shortcut handler until the composition commits.
         guard !pendingComposition, !textView.hasMarkedText() else { return }
-        let range = textView.selectedRange()
-        guard range.length > 0 else { return }
-        _ = apply(engine.toggle(mark: mark, utf16Range: range))
+        guard let target = captureInlineMarkTarget() else { return }
+        _ = requestInlineMark(mark, target: target)
     }
 
     /// Inserts an already-resolved semantic reference without exposing AppKit's attributed-text
@@ -456,6 +484,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
               !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil,
               pendingTaskToggle == nil,
+              pendingInlineMark == nil,
               let command = engine.makeTaskToggleCommand(atUTF16Offset: offset)
         else {
             if !isEditableInput { reject(.disabled) }
@@ -532,15 +561,16 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         switch (charactersIgnoringModifiers?.lowercased(), modifiers) {
         case ("b", .command): mark = .strong
         case ("i", .command): mark = .emphasis
+        case ("e", .command): mark = .code
         default: mark = nil
         }
         guard let mark else { return false }
+        guard isEditableInput else { reject(.disabled); return true }
         guard !pendingComposition, !textView.hasMarkedText() else { return true }
         // The canonical value has no typing-attributes state. Without a selection, leave the
         // event to AppKit rather than inventing a latent format that cannot be persisted.
-        guard textView.selectedRange().length > 0 else { return false }
-        toggle(mark: mark)
-        return true
+        guard let target = captureInlineMarkTarget() else { return false }
+        return requestInlineMark(mark, target: target)
     }
 
     // Internal inspection points keep the AppKit contract directly testable without a live window.
@@ -1049,6 +1079,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
         deferredParentDocument = nil
         switch engine.receiveParentDocument(document) {
         case let .adopted(document, selection), let .acknowledged(document, selection):
+            pendingInlineMark = nil
             render(document, preserving: selection)
         case .deferredForComposition:
             deferredParentDocument = document
@@ -1230,6 +1261,7 @@ final class LoroNativeRichBlockStyleControl: NSView {
 
 private final class GuardedRichTextView: NSTextView {
     weak var controller: LoroNativeRichTextEditorController?
+    private var pendingInlineMarkTarget: LoroNativeRichInlineMarkTarget?
     private var isUnmarking = false
     private var suppressCompositionCallbacks = false
     override func viewDidMoveToWindow() {
@@ -1260,7 +1292,28 @@ private final class GuardedRichTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
     override func menu(for event: NSEvent) -> NSMenu? {
+        // Capture before AppKit has a chance to transfer menu focus away from the editor.
+        let capturedInlineMarkTarget = controller?.captureInlineMarkTarget()
         let menu = super.menu(for: event) ?? NSMenu()
+        pendingInlineMarkTarget = capturedInlineMarkTarget
+        if let capturedInlineMarkTarget {
+            let formatMenu = NSMenu(title: "Format")
+            for mark in LoroCanonicalSemanticValueV1.Mark.allCases {
+                let item = NSMenuItem(title: mark.editorTitle, action: #selector(applyInlineMark(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = mark.rawValue
+                item.toolTip = "Command-\(mark.editorShortcut)"
+                switch capturedInlineMarkTarget.state(for: mark) {
+                case .on: item.state = .on
+                case .mixed: item.state = .mixed
+                case .off: item.state = .off
+                }
+                formatMenu.addItem(item)
+            }
+            let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+            formatItem.submenu = formatMenu
+            menu.addItem(formatItem)
+        }
         let styleMenu = NSMenu(title: "Block Style")
         for style in LoroNativeRichBlockStyle.allCases {
             let item = NSMenuItem(title: style.title, action: #selector(applyBlockStyle(_:)), keyEquivalent: "")
@@ -1274,6 +1327,13 @@ private final class GuardedRichTextView: NSTextView {
         menu.addItem(.separator())
         menu.addItem(item)
         return menu
+    }
+    @objc private func applyInlineMark(_ sender: NSMenuItem) {
+        defer { pendingInlineMarkTarget = nil }
+        guard let raw = sender.representedObject as? String,
+              let mark = LoroCanonicalSemanticValueV1.Mark(rawValue: raw),
+              let target = pendingInlineMarkTarget else { return }
+        _ = controller?.requestInlineMark(mark, target: target)
     }
     @objc private func applyBlockStyle(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,

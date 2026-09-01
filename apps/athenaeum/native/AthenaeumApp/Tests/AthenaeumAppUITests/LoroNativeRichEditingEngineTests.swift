@@ -28,6 +28,11 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
                 selection: .init(location: 0, length: 5)
             )
         )
+        // A second local command is intentionally fenced until the parent acknowledges the
+        // first proposal; this is the same single-flight contract used by both native adapters.
+        XCTAssertEqual(engine.receiveParentDocument(paragraph("hello", marks: [.strong])), .acknowledged(
+            document: paragraph("hello", marks: [.strong]), selection: .init(location: 0, length: 5)
+        ))
         XCTAssertEqual(
             engine.toggle(mark: .strong, utf16Range: NSRange(location: 0, length: 5)),
             .publish(document: paragraph("hello"), selection: .init(location: 0, length: 5))
@@ -148,6 +153,37 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         let command = try XCTUnwrap(engine.makeBlockStyleCommand(style: .text, selection: .init(location: 1, length: 0)))
         XCTAssertEqual(engine.applyBlockStyle(command), .noChange)
         XCTAssertNil(engine.pendingLocalDocument)
+    }
+
+    func testInlineMarkCommandAppliesMixedRunsAcrossParagraphHeadingAndTaskItem() throws {
+        let task = LoroCanonicalSemanticValueV1.TaskItem(checked: false, runs: [.init(text: "todo")])
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "one"), .init(text: " two", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "head")]),
+            .taskList([task])
+        ]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+        let command = try XCTUnwrap(engine.makeInlineMarkCommand(mark: .strong, selection: .init(location: 0, length: 7), requestToken: 4))
+        XCTAssertEqual(command.operation, .remove)
+        guard case let .publish(document, selection) = engine.applyInlineMark(command) else { return XCTFail("expected semantic publish") }
+        XCTAssertEqual(selection, .init(location: 0, length: 7))
+        XCTAssertEqual(document.semantic.blocks[0], .paragraph([.init(text: "one two")]))
+        _ = engine.receiveParentDocument(document)
+        let taskCommand = try XCTUnwrap(engine.makeInlineMarkCommand(mark: .code, selection: .init(location: 13, length: 4)))
+        XCTAssertEqual(engine.applyInlineMark(taskCommand), .publish(document: .init(semantic: .init(blocks: [
+            .paragraph([.init(text: "one two")]), .heading(level: 2, runs: [.init(text: "head")]),
+            .taskList([.init(checked: false, runs: [.init(text: "todo", marks: [.code])])])
+        ])), selection: .init(location: 13, length: 4)))
+    }
+
+    func testInlineMarkRejectsPartialReferenceAndStaleFingerprint() throws {
+        let reference = LoroCanonicalSemanticValueV1.InlineReference(kind: .entity, id: try EntityId(validating: "10000000-0000-4000-8000-000000000001"), label: "Alice")
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [.paragraph([.init(text: "Alice", reference: reference)])]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+        XCTAssertNil(engine.makeInlineMarkCommand(mark: .strong, selection: .init(location: 1, length: 2)))
+        let command = try XCTUnwrap(engine.makeInlineMarkCommand(mark: .strong, selection: .init(location: 0, length: 5)))
+        _ = engine.replace(utf16Range: NSRange(location: 0, length: 0), withPlainText: "x")
+        XCTAssertEqual(engine.applyInlineMark(command), .rejected(.invalidEdit))
     }
 
     func testBlockStyleCanTargetEmptyParagraphAtLeadingMiddleAndTrailingTopologyPositions() throws {

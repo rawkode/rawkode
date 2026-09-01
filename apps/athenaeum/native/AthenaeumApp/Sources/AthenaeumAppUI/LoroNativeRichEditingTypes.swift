@@ -99,6 +99,84 @@ struct LoroNativeRichBlockStyleCommand: Equatable, Sendable, Identifiable {
     }
 }
 
+enum LoroNativeRichInlineMarkContainer: Equatable, Sendable {
+    case block(index: Int, expected: LoroCanonicalSemanticValueV1.Block)
+    case taskItem(listIndex: Int, itemIndex: Int, expectedList: [LoroCanonicalSemanticValueV1.TaskItem], expectedItem: LoroCanonicalSemanticValueV1.TaskItem)
+}
+
+extension LoroCanonicalSemanticValueV1.Mark {
+    var editorTitle: String {
+        switch self {
+        case .strong: return "Bold"
+        case .emphasis: return "Italic"
+        case .code: return "Code"
+        }
+    }
+
+    var editorShortcut: String {
+        switch self {
+        case .strong: return "B"
+        case .emphasis: return "I"
+        case .code: return "E"
+        }
+    }
+}
+
+struct LoroNativeRichInlineMarkRunFingerprint: Equatable, Sendable {
+    let scalarRange: LoroNativeRichTextSelection
+    let text: String
+    let marks: [LoroCanonicalSemanticValueV1.Mark]
+    let reference: LoroCanonicalSemanticValueV1.InlineReference?
+}
+
+/// Captured before an editor menu receives focus. It contains no platform object or mirrored
+/// selection, only the semantic container and selected-run value witness.
+struct LoroNativeRichInlineMarkTarget: Equatable, Sendable {
+    let editorGeneration: Int
+    let selection: LoroNativeRichTextSelection
+    let container: LoroNativeRichInlineMarkContainer
+    let selectedRuns: [LoroNativeRichInlineMarkRunFingerprint]
+
+    func state(for mark: LoroCanonicalSemanticValueV1.Mark) -> LoroNativeRichInlineMarkSelectionState {
+        let markedCount = selectedRuns.reduce(into: 0) { count, run in
+            if run.marks.contains(mark) { count += 1 }
+        }
+        if markedCount == 0 { return .off }
+        if markedCount == selectedRuns.count { return .on }
+        return .mixed
+    }
+}
+
+enum LoroNativeRichInlineMarkSelectionState: String, Equatable, Sendable {
+    case off
+    case mixed
+    case on
+}
+
+struct LoroNativeRichInlineMarkCommand: Equatable, Sendable, Identifiable {
+    enum Operation: Equatable, Sendable { case add, remove }
+    let commandID: UUID
+    let requestToken: Int
+    let editorGeneration: Int
+    let mark: LoroCanonicalSemanticValueV1.Mark
+    let operation: Operation
+    let selection: LoroNativeRichTextSelection
+    let container: LoroNativeRichInlineMarkContainer
+    let selectedRuns: [LoroNativeRichInlineMarkRunFingerprint]
+    var id: UUID { commandID }
+
+    init(commandID: UUID = UUID(), requestToken: Int = 0, mark: LoroCanonicalSemanticValueV1.Mark, operation: Operation, target: LoroNativeRichInlineMarkTarget) {
+        self.commandID = commandID
+        self.requestToken = requestToken
+        self.editorGeneration = target.editorGeneration
+        self.mark = mark
+        self.operation = operation
+        self.selection = target.selection
+        self.container = target.container
+        self.selectedRuns = target.selectedRuns
+    }
+}
+
 /// A value-only structural location for a top-level checklist item.  The ordinals are never
 /// persisted as semantic data; they are paired with the editor generation and full item value in
 /// `LoroNativeRichTaskItemToggleCommand` before a mutation can leave the UI process.

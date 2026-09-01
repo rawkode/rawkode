@@ -29,6 +29,14 @@ struct LoroNativeRichEditingEngine {
         var finalized: Bool
     }
 
+    private struct InlineSegment {
+        let start: Int
+        let end: Int
+        let blockIndex: Int
+        let itemIndex: Int?
+        let runs: [LoroCanonicalSemanticValueV1.TextRun]
+    }
+
     private(set) var admittedDocument: LoroNativeRichDocumentV1
     private(set) var admittedSelection: LoroNativeRichTextSelection
     private(set) var pendingLocalDocument: LoroNativeRichDocumentV1?
@@ -306,24 +314,205 @@ struct LoroNativeRichEditingEngine {
         return replace(in: admittedDocument, utf16Range: utf16Range, with: .inlineReference(reference))
     }
 
+    /// Captures a scalar-aligned mark target from semantic runs. The fingerprint is deliberately
+    /// value-only, so duplicate visible text or a later parent refresh cannot satisfy this request.
+    mutating func makeInlineMarkTarget(
+        selection: LoroNativeRichTextSelection,
+    ) -> LoroNativeRichInlineMarkTarget? {
+        guard composition == nil, pendingLocalDocument == nil,
+              selection.length > 0, selection.location >= 0,
+              selection.location <= Int.max - selection.length,
+              let segment = inlineSegments().first(where: { selection.location >= $0.start && selection.location + selection.length <= $0.end })
+        else { return nil }
+        let localStart = selection.location - segment.start
+        let localEnd = localStart + selection.length
+        var fingerprints: [LoroNativeRichInlineMarkRunFingerprint] = []
+        var cursor = 0
+        for run in segment.runs {
+            let runLength = run.text.unicodeScalars.count
+            let runEnd = cursor + runLength
+            let overlapStart = max(localStart, cursor)
+            let overlapEnd = min(localEnd, runEnd)
+            if overlapStart < overlapEnd {
+                if run.reference != nil && (overlapStart != cursor || overlapEnd != runEnd) { return nil }
+                let text = scalarSlice(run.text, from: overlapStart - cursor, length: overlapEnd - overlapStart)
+                fingerprints.append(.init(
+                    scalarRange: .init(location: segment.start + overlapStart, length: overlapEnd - overlapStart),
+                    text: text, marks: run.marks, reference: run.reference
+                ))
+            }
+            cursor = runEnd
+        }
+        guard !fingerprints.isEmpty else { return nil }
+        let container: LoroNativeRichInlineMarkContainer
+        if let itemIndex = segment.itemIndex,
+           case let .taskList(items) = admittedDocument.semantic.blocks[segment.blockIndex] {
+            container = .taskItem(listIndex: segment.blockIndex, itemIndex: itemIndex,
+                                  expectedList: items, expectedItem: items[itemIndex])
+        } else {
+            container = .block(index: segment.blockIndex, expected: admittedDocument.semantic.blocks[segment.blockIndex])
+        }
+        return .init(editorGeneration: documentGeneration, selection: selection,
+                     container: container, selectedRuns: fingerprints)
+    }
+
+    mutating func makeInlineMarkCommand(
+        mark: LoroCanonicalSemanticValueV1.Mark,
+        selection: LoroNativeRichTextSelection,
+        commandID: UUID = UUID(),
+        requestToken: Int = 0
+    ) -> LoroNativeRichInlineMarkCommand? {
+        guard let target = makeInlineMarkTarget(selection: selection) else { return nil }
+        let hasMark = target.selectedRuns.contains { $0.marks.contains(mark) }
+        return .init(commandID: commandID, requestToken: requestToken, mark: mark,
+                     operation: hasMark ? .remove : .add, target: target)
+    }
+
+    mutating func makeInlineMarkCommand(
+        mark: LoroCanonicalSemanticValueV1.Mark,
+        target: LoroNativeRichInlineMarkTarget,
+        commandID: UUID = UUID(),
+        requestToken: Int = 0
+    ) -> LoroNativeRichInlineMarkCommand {
+        let hasMark = target.selectedRuns.contains { $0.marks.contains(mark) }
+        return .init(commandID: commandID, requestToken: requestToken, mark: mark,
+                     operation: hasMark ? .remove : .add, target: target)
+    }
+
+    mutating func applyInlineMark(_ command: LoroNativeRichInlineMarkCommand) -> LoroNativeRichEditingEffect {
+        guard composition == nil, pendingLocalDocument == nil,
+              command.editorGeneration == documentGeneration,
+              command.selection.length > 0,
+              command.selection.location >= 0,
+              command.selection.location <= Int.max - command.selection.length,
+              let segment = inlineSegments().first(where: { $0.itemIndex == commandContainerItem(command) && $0.blockIndex == commandContainerIndex(command) }),
+              segment.start <= command.selection.location,
+              command.selection.location + command.selection.length <= segment.end,
+              inlineContainerMatches(command.container),
+              let currentFingerprint = inlineFingerprint(for: segment, selection: command.selection),
+              currentFingerprint == command.selectedRuns
+        else { return .rejected(.invalidEdit) }
+        let hasMark = currentFingerprint.contains { $0.marks.contains(command.mark) }
+        guard command.operation == (hasMark ? .remove : .add) else { return .rejected(.invalidEdit) }
+        let localStart = command.selection.location - segment.start
+        let localEnd = localStart + command.selection.length
+        let rewritten = rewriteRuns(segment.runs, localStart: localStart, localEnd: localEnd,
+                                    mark: command.mark, operation: command.operation)
+        var blocks = admittedDocument.semantic.blocks
+        switch command.container {
+        case let .block(index, _):
+            switch blocks[index] {
+            case .paragraph: blocks[index] = .paragraph(rewritten)
+            case let .heading(level, _): blocks[index] = .heading(level: level, runs: rewritten)
+            case .taskList: return .rejected(.invalidEdit)
+            }
+        case let .taskItem(listIndex, itemIndex, _, _):
+            guard case let .taskList(items) = blocks[listIndex] else { return .rejected(.invalidEdit) }
+            var updated = items; updated[itemIndex] = .init(checked: items[itemIndex].checked, runs: rewritten)
+            blocks[listIndex] = .taskList(updated)
+        }
+        return admit(.init(semantic: .init(blocks: blocks)), selection: command.selection)
+    }
+
+    /// Compatibility wrapper retained for keyboard callers; all mutations go through the typed
+    /// semantic command and never through first-character attributed storage.
     mutating func toggle(mark: LoroCanonicalSemanticValueV1.Mark, utf16Range: NSRange) -> LoroNativeRichEditingEffect {
-        guard utf16Range.length > 0,
-              let rendered = try? LoroNativeRichTextCodec.attributedString(for: admittedDocument),
-              utf16Range.location >= 0,
-              NSMaxRange(utf16Range) <= rendered.length
+        guard let rendered = try? LoroNativeRichTextCodec.attributedString(for: admittedDocument),
+              let selection = try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: utf16Range, in: rendered)
         else { return .rejected(.invalidEdit) }
-        let candidate = NSMutableAttributedString(attributedString: rendered)
-        let marksKey = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
-        let existing = candidate.attribute(marksKey, at: utf16Range.location, effectiveRange: nil) as? String ?? ""
-        var marks = existing.isEmpty ? [] : existing.split(separator: ",").map(String.init)
-        if let index = marks.firstIndex(of: mark.rawValue) { marks.remove(at: index) } else { marks.append(mark.rawValue) }
-        let canonical = ["code", "emphasis", "strong"].filter(marks.contains).joined(separator: ",")
-        if canonical.isEmpty { candidate.removeAttribute(marksKey, range: utf16Range) }
-        else { candidate.addAttribute(marksKey, value: canonical, range: utf16Range) }
-        guard let decoded = try? LoroNativeRichTextCodec.decode(candidate),
-              let selection = try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: utf16Range, in: candidate)
-        else { return .rejected(.invalidEdit) }
-        return admit(decoded, selection: selection)
+        guard let command = makeInlineMarkCommand(mark: mark, selection: selection) else { return .rejected(.invalidEdit) }
+        return applyInlineMark(command)
+    }
+
+    private func inlineSegments() -> [InlineSegment] {
+        var result: [InlineSegment] = []
+        var cursor = 0
+        for (index, block) in admittedDocument.semantic.blocks.enumerated() {
+            switch block {
+            case let .paragraph(runs), let .heading(_, runs):
+                let length = runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+                result.append(.init(start: cursor, end: cursor + length, blockIndex: index, itemIndex: nil, runs: runs))
+                cursor += length + 1
+            case let .taskList(items):
+                for (itemIndex, item) in items.enumerated() {
+                    let length = item.runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+                    result.append(.init(start: cursor, end: cursor + length, blockIndex: index, itemIndex: itemIndex, runs: item.runs))
+                    cursor += length + 1
+                }
+            }
+        }
+        return result
+    }
+
+    private func commandContainerIndex(_ command: LoroNativeRichInlineMarkCommand) -> Int {
+        switch command.container { case let .block(index, _), let .taskItem(index, _, _, _): return index }
+    }
+
+    private func commandContainerItem(_ command: LoroNativeRichInlineMarkCommand) -> Int? {
+        if case let .taskItem(_, index, _, _) = command.container { return index }; return nil
+    }
+
+    private func inlineContainerMatches(_ container: LoroNativeRichInlineMarkContainer) -> Bool {
+        switch container {
+        case let .block(index, expected): return admittedDocument.semantic.blocks.indices.contains(index) && admittedDocument.semantic.blocks[index] == expected
+        case let .taskItem(listIndex, itemIndex, expectedList, expectedItem):
+            guard admittedDocument.semantic.blocks.indices.contains(listIndex), case let .taskList(items) = admittedDocument.semantic.blocks[listIndex], items == expectedList, items.indices.contains(itemIndex) else { return false }
+            return items[itemIndex] == expectedItem
+        }
+    }
+
+    private func inlineFingerprint(for segment: InlineSegment, selection: LoroNativeRichTextSelection) -> [LoroNativeRichInlineMarkRunFingerprint]? {
+        let localStart = selection.location - segment.start
+        let localEnd = localStart + selection.length
+        guard localStart >= 0, localEnd > localStart, localEnd <= segment.end - segment.start else { return nil }
+        var output: [LoroNativeRichInlineMarkRunFingerprint] = []; var cursor = 0
+        for run in segment.runs {
+            let length = run.text.unicodeScalars.count; let end = cursor + length
+            let from = max(localStart, cursor); let to = min(localEnd, end)
+            if from < to {
+                guard run.reference == nil || (from == cursor && to == end) else { return nil }
+                output.append(.init(scalarRange: .init(location: segment.start + from, length: to - from), text: scalarSlice(run.text, from: from - cursor, length: to - from), marks: run.marks, reference: run.reference))
+            }
+            cursor = end
+        }
+        return output.isEmpty ? nil : output
+    }
+
+    private func rewriteRuns(_ runs: [LoroCanonicalSemanticValueV1.TextRun], localStart: Int, localEnd: Int, mark: LoroCanonicalSemanticValueV1.Mark, operation: LoroNativeRichInlineMarkCommand.Operation) -> [LoroCanonicalSemanticValueV1.TextRun] {
+        var output: [LoroCanonicalSemanticValueV1.TextRun] = []; var cursor = 0
+        for run in runs {
+            let length = run.text.unicodeScalars.count; let end = cursor + length
+            let from = max(localStart, cursor); let to = min(localEnd, end)
+            let pieces: [(Int, Int, Bool)] = [(cursor, from, false), (from, to, true), (to, end, false)]
+            for (a, b, selected) in pieces where b > a {
+                var marks = run.marks
+                if selected {
+                    if operation == .add { marks.append(mark) } else { marks.removeAll { $0 == mark } }
+                    marks = [.code, .emphasis, .strong].filter(marks.contains)
+                }
+                output.append(.init(text: scalarSlice(run.text, from: a - cursor, length: b - a), marks: marks, reference: run.reference))
+            }
+            cursor = end
+        }
+        return coalesce(output)
+    }
+
+    private func scalarSlice(_ text: String, from: Int, length: Int) -> String {
+        let scalars = text.unicodeScalars
+        let start = scalars.index(scalars.startIndex, offsetBy: from)
+        let end = scalars.index(start, offsetBy: length)
+        return String(scalars[start..<end])
+    }
+
+    private func coalesce(_ runs: [LoroCanonicalSemanticValueV1.TextRun]) -> [LoroCanonicalSemanticValueV1.TextRun] {
+        var output: [LoroCanonicalSemanticValueV1.TextRun] = []
+        for run in runs {
+            guard let previous = output.last else { output.append(run); continue }
+            if previous.reference == nil && run.reference == nil && previous.marks == run.marks {
+                output[output.count - 1] = .init(text: previous.text + run.text, marks: previous.marks, reference: previous.reference)
+            } else { output.append(run) }
+        }
+        return output
     }
 
     mutating func beginComposition(utf16Range: NSRange) -> LoroNativeRichEditingEffect {

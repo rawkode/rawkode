@@ -189,10 +189,13 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         editor.testingSelect(NSRange(location: 0, length: 5))
 
         XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "b", modifierFlags: .command))
+        editor.update(document: editor.testingDocument(), isEditable: true)
         XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "i", modifierFlags: .command))
-        XCTAssertEqual(published.count, 2)
+        editor.update(document: editor.testingDocument(), isEditable: true)
+        XCTAssertTrue(editor.testingHandleFormattingShortcut(charactersIgnoringModifiers: "e", modifierFlags: .command))
+        XCTAssertEqual(published.count, 3)
         XCTAssertEqual(editor.testingDocument().semantic.blocks, [
-            .paragraph([.init(text: "hello", marks: [.emphasis, .strong])])
+            .paragraph([.init(text: "hello", marks: [.code, .emphasis, .strong])])
         ])
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), editor.testingDocument())
     }

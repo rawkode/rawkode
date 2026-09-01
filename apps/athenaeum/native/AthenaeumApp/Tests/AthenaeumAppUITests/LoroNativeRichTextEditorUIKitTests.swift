@@ -102,6 +102,47 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), heading("title!", marks: [.strong]))
     }
 
+    func testInlineMarkShortcutUsesCanonicalCommandAndWaitsForAcknowledgement() {
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: paragraph("hello"),
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        controller.testingSelect(NSRange(location: 0, length: 5))
+
+        XCTAssertTrue(controller.testingCanHandleInlineMarkShortcut())
+        controller.testingApplyInlineMarkShortcut("b")
+        XCTAssertEqual(published, [paragraph("hello", marks: [.strong])])
+        XCTAssertFalse(controller.testingCanHandleInlineMarkShortcut(), "a local mark proposal is single-flight")
+
+        controller.testingUpdate(document: controller.testingDocument(), isEditable: true)
+        XCTAssertTrue(controller.testingCanHandleInlineMarkShortcut())
+        controller.testingApplyInlineMarkShortcut("b")
+        XCTAssertEqual(published, [paragraph("hello", marks: [.strong]), paragraph("hello")])
+    }
+
+    func testInlineMarkEditMenuTargetUsesPassedRangeAfterSelectionMoves() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "a", marks: [.emphasis]), .init(text: "bcde")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        XCTAssertEqual(controller.testingSemanticStorage().string, "abcde")
+        XCTAssertEqual(try LoroNativeRichTextCodec.scalarSelection(forUTF16Range: NSRange(location: 0, length: 1), in: controller.testingSemanticStorage()), .init(location: 0, length: 1))
+        let target = try XCTUnwrap(controller.testingInlineMarkTarget(forUTF16Range: NSRange(location: 0, length: 1)))
+        controller.testingSelect(NSRange(location: 1, length: 4))
+
+        XCTAssertTrue(controller.requestInlineMark(.strong, target: target))
+        XCTAssertEqual(published, [.init(semantic: .init(blocks: [
+            .paragraph([.init(text: "a", marks: [.emphasis, .strong]), .init(text: "bcde")])
+        ]))])
+    }
+
     func testPresentationRefreshPreservesSelectionViewportAndCallbacks() {
         let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .heading(level: 1, runs: [.init(text: String(repeating: "title ", count: 24))]),
@@ -630,8 +671,8 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(probe.didFail, shouldFail)
     }
 
-    private func paragraph(_ text: String) -> LoroNativeRichDocumentV1 {
-        .init(semantic: .init(blocks: [.paragraph([.init(text: text)])]))
+    private func paragraph(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark] = []) -> LoroNativeRichDocumentV1 {
+        .init(semantic: .init(blocks: [.paragraph([.init(text: text, marks: marks)])]))
     }
 
     private func heading(_ text: String, marks: [LoroCanonicalSemanticValueV1.Mark]) -> LoroNativeRichDocumentV1 {
