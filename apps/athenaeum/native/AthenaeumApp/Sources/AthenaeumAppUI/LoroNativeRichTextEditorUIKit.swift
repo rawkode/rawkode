@@ -724,6 +724,27 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private func applyTemporaryPresentation() {
+        let selection = textView.selectedRange
+        let contentOffset = textView.contentOffset
+        let wasRendering = rendering
+        // Rebuilding attributedText can synchronously move UIKit's selection and viewport. Keep
+        // this presentation-only operation behind the same rendering fence used by semantic
+        // renders, then restore both values without publishing an ephemeral selection event.
+        rendering = true
+        defer {
+            if !wasRendering {
+                let length = textView.textStorage.length
+                let location = min(max(0, selection.location), length)
+                let restoredRange = NSRange(
+                    location: location,
+                    length: min(selection.length, length - location)
+                )
+                textView.selectedRange = restoredRange
+                textView.setContentOffset(contentOffset, animated: false)
+            }
+            rendering = wasRendering
+        }
+
         let plan = LoroNativeRichTextPresentation.make(for: engine.admittedDocument)
         guard let plan else {
             // A malformed/future topology still gets a visible, editable body surface. The

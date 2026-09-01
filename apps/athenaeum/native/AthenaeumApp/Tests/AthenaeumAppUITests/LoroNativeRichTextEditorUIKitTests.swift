@@ -102,6 +102,59 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(controller.testingDocument(), heading("title!", marks: [.strong]))
     }
 
+    func testPresentationRefreshPreservesSelectionViewportAndCallbacks() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: String(repeating: "title ", count: 24))]),
+            .paragraph([.init(text: String(repeating: "body ", count: 24))])
+        ]))
+        var selections: [LoroNativeRichTextSelection] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onSelectionChange: { selections.append($0) }
+        )
+        let textView = controller.makeTextView()
+        textView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        textView.layoutIfNeeded()
+        controller.testingSelect(NSRange(location: 8, length: 5))
+        controller.textViewDidChangeSelection(textView)
+        textView.setContentOffset(CGPoint(x: 0, y: 64), animated: false)
+        let expectedSelection = textView.selectedRange
+        let expectedOffset = textView.contentOffset
+        let expectedScalarSelection: LoroNativeRichTextSelection? = controller.testingSelection()
+        let callbackCount = selections.count
+
+        controller.testingRefreshPresentation()
+
+        XCTAssertEqual(textView.selectedRange, expectedSelection)
+        XCTAssertEqual(textView.contentOffset, expectedOffset)
+        XCTAssertEqual(controller.testingSelection() as LoroNativeRichTextSelection?, expectedScalarSelection)
+        XCTAssertEqual(selections.count, callbackCount)
+        XCTAssertEqual(controller.testingDocument(), source)
+    }
+
+    func testUnexpectedTextKitAttributeIsRejectedAndRestored() {
+        let source = heading("title", marks: [.strong])
+        var rejections: [LoroNativeRichTextEditorRejection] = []
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) },
+            onRejectedInput: { rejections.append($0) }
+        )
+        let textView = controller.makeTextView()
+        textView.textStorage.addAttribute(.kern, value: 2.0, range: NSRange(location: 0, length: 1))
+
+        controller.textViewDidChange(textView)
+
+        XCTAssertEqual(rejections, [.invalidEdit])
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertEqual(controller.testingDocument(), source)
+        XCTAssertNil(textView.attributedText?.attribute(.kern, at: 0, effectiveRange: nil))
+        XCTAssertEqual(try? LoroNativeRichTextCodec.decode(controller.testingSemanticStorage()), source)
+    }
+
     func testParentReplacementCancelsCompositionBeforeRenderingNextDocument() {
         let source = paragraph("today")
         let next = paragraph("tomorrow")
