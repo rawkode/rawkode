@@ -236,6 +236,30 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(editor.testingSelection(), .init(location: 0, length: 0))
     }
 
+    func testTypedMarkdownSpaceCannotArmDuringAnotherPendingMutationLane() throws {
+        let insertionEditor = LoroNativeRichTextEditorController(document: paragraph("#"), isEditable: true)
+        insertionEditor.testingSelect(NSRange(location: 1, length: 0))
+        XCTAssertNotNil(insertionEditor.testingTaskListInsertion())
+        XCTAssertNil(insertionEditor.testingArmMarkdownShortcutForTypedSpace())
+
+        let inlineEditor = LoroNativeRichTextEditorController(document: paragraph("#x"), isEditable: true)
+        inlineEditor.testingSelect(NSRange(location: 0, length: 2))
+        let inlineTarget = try XCTUnwrap(inlineEditor.captureInlineMarkTarget())
+        XCTAssertTrue(inlineEditor.requestInlineMark(.strong, target: inlineTarget))
+        inlineEditor.testingSelect(NSRange(location: 2, length: 0))
+        XCTAssertNil(inlineEditor.testingArmMarkdownShortcutForTypedSpace())
+
+        let toggleSource = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .taskList([.init(checked: false, runs: [.init(text: "one")])]),
+            .paragraph([.init(text: "#")])
+        ]))
+        let toggleEditor = LoroNativeRichTextEditorController(document: toggleSource, isEditable: true)
+        XCTAssertNotNil(toggleEditor.testingTaskToggle(atUTF16Offset: 0))
+        let markdownEnd = toggleEditor.testingDisplayedString().utf16.count
+        toggleEditor.testingSelect(NSRange(location: markdownEnd, length: 0))
+        XCTAssertNil(toggleEditor.testingArmMarkdownShortcutForTypedSpace())
+    }
+
     func testBlockStyleControlSupportsKeyboardAndAccessibilityPressBeforeMenuFocus() {
         let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .paragraph([.init(text: "title")])

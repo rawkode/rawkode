@@ -370,6 +370,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     fileprivate func armMarkdownShortcutForTypedSpace() -> Int? {
         guard isEditableInput, !pendingComposition, !hasMarkedText,
               engine.pendingLocalDocument == nil, let selection = scalarSelection(),
+              pendingTaskToggle == nil, pendingTaskListInsertion == nil, pendingInlineMark == nil,
               textView.selectedRange.length == 0 else { return nil }
         nextMarkdownShortcutRequestToken &+= 1
         let token = nextMarkdownShortcutRequestToken

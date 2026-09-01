@@ -337,6 +337,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     fileprivate func armMarkdownShortcutForTypedSpace() -> Int? {
         guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
               engine.pendingLocalDocument == nil, let selection = scalarSelection(),
+              pendingTaskToggle == nil, pendingTaskListInsertion == nil, pendingInlineMark == nil,
               let range = Optional(textView.selectedRange()), range.length == 0 else { return nil }
         nextMarkdownShortcutRequestToken &+= 1
         let token = nextMarkdownShortcutRequestToken
@@ -664,6 +665,7 @@ final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
     }
     func testingUnmarkText() { textView.unmarkText() }
     func testingInsertText(_ value: Any, replacementRange: NSRange) { textView.insertText(value, replacementRange: replacementRange) }
+    func testingArmMarkdownShortcutForTypedSpace() -> Int? { armMarkdownShortcutForTypedSpace() }
     func testingCompositionReplacement() -> String? { engine.compositionReplacement() }
     func testingDisplayedString() -> String { textView.attributedString().string }
     func testingRequestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
