@@ -301,22 +301,32 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         _ = requestTaskListInsertion()
     }
 
-    /// The adapter captures its own UITextView selection when the host's compact control fires.
+    /// The adapter captures its own UITextView selection when a keyboard/edit-menu command fires.
     @discardableResult
     func requestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool {
+        guard let target = captureBlockStyleTarget() else { return false }
+        return requestBlockStyle(style, target: target)
+    }
+
+    func captureBlockStyleTarget() -> LoroNativeRichBlockStyleTarget? {
         guard isEditableInput, !pendingComposition, !hasMarkedText,
               engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
-              pendingTaskListInsertion == nil, let selection = scalarSelection(),
-              let command = engine.makeBlockStyleCommand(style: style, selection: selection,
-                                                          requestToken: nextBlockStyleRequestToken + 1)
+              pendingTaskListInsertion == nil, let selection = scalarSelection()
+        else { return nil }
+        return engine.makeBlockStyleTarget(selection: selection)
+    }
+
+    @discardableResult
+    func requestBlockStyle(_ style: LoroNativeRichBlockStyle, target: LoroNativeRichBlockStyleTarget) -> Bool {
+        guard isEditableInput, !pendingComposition, !hasMarkedText,
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil
         else { return false }
-        nextBlockStyleRequestToken &+= 1
-        let commandWithToken = LoroNativeRichBlockStyleCommand(
-            commandID: command.commandID, requestToken: nextBlockStyleRequestToken,
-            editorGeneration: command.editorGeneration, style: command.style,
-            selection: command.selection, topLevelBlockIndex: command.topLevelBlockIndex,
-            expectedBlock: command.expectedBlock)
-        _ = apply(engine.applyBlockStyle(commandWithToken))
+        let requestToken = nextBlockStyleRequestToken &+ 1
+        let command = engine.makeBlockStyleCommand(style: style, target: target,
+                                                    requestToken: requestToken)
+        nextBlockStyleRequestToken = requestToken
+        _ = apply(engine.applyBlockStyle(command))
         return true
     }
 
@@ -1076,13 +1086,17 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 }
 
-/// UIKit-owned accessory control. The button lives in the same host as the text view and sends
-/// its action directly to the controller, which captures the text view's live selection before
-/// UIKit changes responder state while presenting the menu.
-final class LoroNativeRichTextEditorUIKitHostView: UIView {
+/// UIKit-owned accessory control. The button lives in the same host as the text view and starts a
+/// UIEditMenuInteraction only after the controller has captured the live topology target. The
+/// interaction owns dismissal cleanup; menu actions consume that frozen target and let the shared
+/// engine reject any generation/block mismatch.
+@available(iOS 16.0, *)
+final class LoroNativeRichTextEditorUIKitHostView: UIView, UIEditMenuInteractionDelegate {
     private weak var controller: LoroNativeRichTextEditorUIKitController?
     private let styleButton: UIButton
     private let textView: UITextView
+    private lazy var styleMenuInteraction = UIEditMenuInteraction(delegate: self)
+    private var pendingStyleTarget: LoroNativeRichBlockStyleTarget?
 
     init(controller: LoroNativeRichTextEditorUIKitController, textView: UITextView) {
         self.controller = controller
@@ -1090,12 +1104,13 @@ final class LoroNativeRichTextEditorUIKitHostView: UIView {
         styleButton = UIButton(type: .system)
         super.init(frame: .zero)
 
-        styleButton.showsMenuAsPrimaryAction = true
         styleButton.contentHorizontalAlignment = .leading
         styleButton.accessibilityLabel = "Text style"
         styleButton.accessibilityHint = "Changes the current paragraph or heading without changing its content."
         styleButton.setContentHuggingPriority(.required, for: .vertical)
         styleButton.setContentCompressionResistancePriority(.required, for: .vertical)
+        styleButton.addTarget(self, action: #selector(styleButtonPressed), for: .touchUpInside)
+        addInteraction(styleMenuInteraction)
 
         let stack = UIStackView(arrangedSubviews: [styleButton, textView])
         stack.axis = .vertical
@@ -1118,13 +1133,68 @@ final class LoroNativeRichTextEditorUIKitHostView: UIView {
         let current = state.current
         styleButton.setTitle(current?.title ?? "Text style", for: .normal)
         styleButton.isEnabled = state.isEnabled
+    }
+
+    @objc private func styleButtonPressed() {
+        guard styleButton.isEnabled,
+              let target = controller?.captureBlockStyleTarget() else { return }
+        pendingStyleTarget = target
+        let sourcePoint = styleButton.convert(
+            CGPoint(x: styleButton.bounds.midX, y: styleButton.bounds.maxY),
+            to: self
+        )
+        let configuration = UIEditMenuConfiguration(identifier: nil, sourcePoint: sourcePoint)
+        styleMenuInteraction.presentEditMenu(with: configuration)
+    }
+
+    func editMenuInteraction(
+        _: UIEditMenuInteraction,
+        menuFor _: UIEditMenuConfiguration,
+        suggestedActions _: [UIMenuElement]
+    ) -> UIMenu? {
+        guard pendingStyleTarget != nil else { return nil }
         let actions = LoroNativeRichBlockStyle.allCases.map { style in
-            UIAction(title: style.title, state: style == current ? .on : .off) { [weak controller] _ in
-                _ = controller?.requestBlockStyle(style)
+            UIAction(title: style.title, state: style == controller?.blockStyleState().current ? .on : .off) { [weak self] _ in
+                guard let self, let target = self.pendingStyleTarget else { return }
+                _ = self.controller?.requestBlockStyle(style, target: target)
+                self.pendingStyleTarget = nil
+                self.updateStyleState(self.controller?.blockStyleState() ?? .disabled)
             }
         }
-        styleButton.menu = UIMenu(title: "Text style", image: UIImage(systemName: "textformat"), children: actions)
+        return UIMenu(title: "Text style", image: UIImage(systemName: "textformat"), children: actions)
     }
+
+    func editMenuInteraction(
+        _: UIEditMenuInteraction,
+        targetRectFor _: UIEditMenuConfiguration
+    ) -> CGRect {
+        styleButton.frame
+    }
+
+    func editMenuInteraction(
+        _: UIEditMenuInteraction,
+        willDismissMenuFor _: UIEditMenuConfiguration,
+        animator _: UIEditMenuInteractionAnimating
+    ) {
+        pendingStyleTarget = nil
+    }
+
+#if DEBUG
+    /// Test-only seams exercise the same pre-menu capture and post-selection application used by
+    /// the UI interaction without depending on simulator timing or private menu internals.
+    func testingCaptureStyleMenuTarget() -> Bool {
+        guard let target = controller?.captureBlockStyleTarget() else { return false }
+        pendingStyleTarget = target
+        return true
+    }
+
+    @discardableResult
+    func testingApplyStyleFromMenu(_ style: LoroNativeRichBlockStyle) -> Bool {
+        guard let target = pendingStyleTarget else { return false }
+        pendingStyleTarget = nil
+        return controller?.requestBlockStyle(style, target: target) ?? false
+    }
+#endif
 }
 
 private final class GuardedUIKitRichTextView: UITextView {
@@ -1159,9 +1229,11 @@ private final class GuardedUIKitRichTextView: UITextView {
 
     @available(iOS 16.0, *)
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu {
+        let target = richController?.captureBlockStyleTarget()
         let actions = LoroNativeRichBlockStyle.allCases.map { style in
             UIAction(title: style.title) { [weak self] _ in
-                _ = self?.richController?.requestBlockStyle(style)
+                guard let self, let target else { return }
+                _ = self.richController?.requestBlockStyle(style, target: target)
             }
         }
         let styleMenu = UIMenu(title: "Block Style", image: UIImage(systemName: "textformat"), children: actions)

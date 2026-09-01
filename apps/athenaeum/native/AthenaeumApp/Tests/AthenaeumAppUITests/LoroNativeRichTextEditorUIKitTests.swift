@@ -161,6 +161,32 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertFalse(controller.blockStyleState().isEnabled, "a pending local proposal disables a second style mutation until the parent acknowledges it")
     }
 
+    func testBlockStyleMenuUsesFrozenTargetWhenSelectionMovesBeforeChoice() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "title")]),
+            .paragraph([.init(text: "notes")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        let host = LoroNativeRichTextEditorUIKitHostView(controller: controller, textView: controller.makeTextView())
+        controller.testingSelect(NSRange(location: 1, length: 0))
+        XCTAssertTrue(host.testingCaptureStyleMenuTarget())
+
+        // A menu can move focus to another range before its action runs. The action must still
+        // use the target captured when the menu opened, not this later selection.
+        controller.testingSelect(NSRange(location: 7, length: 0))
+        XCTAssertTrue(host.testingApplyStyleFromMenu(.h1))
+        XCTAssertEqual(controller.testingDocument(), .init(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "title")]),
+            .paragraph([.init(text: "notes")])
+        ])))
+        XCTAssertEqual(published.count, 1)
+    }
+
     func testOrdinaryDelegateEditRendersOnceAndVetoesUIKitReplay() {
         var published: [LoroNativeRichDocumentV1] = []
         let controller = LoroNativeRichTextEditorUIKitController(

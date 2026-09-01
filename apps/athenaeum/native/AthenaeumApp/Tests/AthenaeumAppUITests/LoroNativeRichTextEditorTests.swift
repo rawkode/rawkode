@@ -191,6 +191,40 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(editor.blockStyleState(), .init(current: .h1, isEnabled: false), "a pending local proposal disables a second style mutation until the parent acknowledges it")
     }
 
+    func testBlockStyleControlSupportsKeyboardAndAccessibilityPressBeforeMenuFocus() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "title")])
+        ]))
+        let editor = LoroNativeRichTextEditorController(document: source, isEditable: true)
+        editor.testingSelect(NSRange(location: 1, length: 0))
+        let control = LoroNativeRichBlockStyleControl(controller: editor)
+        control.updateStyleState(editor.blockStyleState())
+        var captured: [LoroNativeRichBlockStyleTarget] = []
+        control.testingMenuPresentation = { captured.append($0) }
+
+        XCTAssertTrue(control.acceptsFirstResponder)
+        XCTAssertTrue(control.isAccessibilityEnabled())
+        XCTAssertEqual(control.accessibilityValue() as? String, "Text")
+        XCTAssertTrue(control.accessibilityPerformPress())
+        XCTAssertEqual(captured.map(\.selection), [.init(location: 1, length: 0)])
+
+        captured.removeAll()
+        let event = try! XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ))
+        control.keyDown(with: event)
+        XCTAssertEqual(captured.map(\.selection), [.init(location: 1, length: 0)])
+    }
+
     func testRichFormattingShortcutsLeaveUnsupportedAndEmptySelectionEventsToAppKit() {
         var published = 0
         let editor = LoroNativeRichTextEditorController(

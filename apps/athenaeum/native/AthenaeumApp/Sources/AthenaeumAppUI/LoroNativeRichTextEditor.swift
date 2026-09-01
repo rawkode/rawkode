@@ -997,13 +997,18 @@ final class LoroNativeRichBlockStyleControl: NSView {
     private var current: LoroNativeRichBlockStyle?
     private var controlEnabled = false
     private var pendingTarget: LoroNativeRichBlockStyleTarget?
+#if DEBUG
+    var testingMenuPresentation: ((LoroNativeRichBlockStyleTarget) -> Void)?
+#endif
 
     init(controller: LoroNativeRichTextEditorController) {
         self.controller = controller
         super.init(frame: .zero)
+        setAccessibilityElement(true)
         setAccessibilityLabel("Text style")
         setAccessibilityHelp("Changes the current paragraph or heading without changing its content.")
         setAccessibilityRole(.button)
+        focusRingType = .exterior
     }
 
     @available(*, unavailable)
@@ -1011,9 +1016,25 @@ final class LoroNativeRichBlockStyleControl: NSView {
 
     override var intrinsicContentSize: NSSize { NSSize(width: 108, height: 24) }
 
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome { needsDisplay = true }
+        return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { needsDisplay = true }
+        return didResign
+    }
+
     func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
         current = state.current
         controlEnabled = state.isEnabled
+        setAccessibilityEnabled(state.isEnabled)
+        setAccessibilityValue(state.current?.title ?? "Unavailable")
         needsDisplay = true
     }
 
@@ -1027,6 +1048,13 @@ final class LoroNativeRichBlockStyleControl: NSView {
         path.fill()
         NSColor.separatorColor.setStroke()
         path.stroke()
+
+        if window?.firstResponder === self {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let focusPath = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
+            focusPath.lineWidth = 2
+            focusPath.stroke()
+        }
 
         let title = current?.title ?? "Text style"
         let attributes: [NSAttributedString.Key: Any] = [
@@ -1044,9 +1072,34 @@ final class LoroNativeRichBlockStyleControl: NSView {
         chevron.stroke()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with _: NSEvent) {
+        _ = window?.makeFirstResponder(self)
+        showMenu()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 36 || event.keyCode == 49 else {
+            super.keyDown(with: event)
+            return
+        }
+        showMenu()
+    }
+
+    @objc override func accessibilityPerformPress() -> Bool {
+        guard controlEnabled else { return false }
+        showMenu()
+        return true
+    }
+
+    private func showMenu() {
         guard controlEnabled, let target = controller?.captureBlockStyleTarget() else { return }
         pendingTarget = target
+#if DEBUG
+        if let testingMenuPresentation {
+            testingMenuPresentation(target)
+            return
+        }
+#endif
         let menu = NSMenu(title: "Text style")
         for style in LoroNativeRichBlockStyle.allCases {
             let item = NSMenuItem(title: style.title, action: #selector(applyStyle(_:)), keyEquivalent: "")
