@@ -125,6 +125,7 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         let callbackCount = selections.count
 
         controller.testingRefreshPresentation()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
 
         XCTAssertEqual(textView.selectedRange, expectedSelection)
         XCTAssertEqual(textView.contentOffset, expectedOffset)
