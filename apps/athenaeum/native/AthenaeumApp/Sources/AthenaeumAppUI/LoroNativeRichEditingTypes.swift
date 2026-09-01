@@ -13,6 +13,83 @@ public struct LoroNativeRichTextSelection: Equatable, Sendable {
     }
 }
 
+/// The only block styles exposed by the native rich editor.  This remains a UI intent type;
+/// semantic conversion is performed by `LoroNativeRichEditingEngine`.
+enum LoroNativeRichBlockStyle: String, CaseIterable, Equatable, Sendable {
+    case text
+    case h1
+    case h2
+    case h3
+
+    var title: String {
+        switch self {
+        case .text: return "Text"
+        case .h1: return "Heading 1"
+        case .h2: return "Heading 2"
+        case .h3: return "Heading 3"
+        }
+    }
+
+    var headingLevel: Int? {
+        switch self {
+        case .text: return nil
+        case .h1: return 1
+        case .h2: return 2
+        case .h3: return 3
+        }
+    }
+
+    static func forBlock(_ block: LoroCanonicalSemanticValueV1.Block) -> Self? {
+        switch block {
+        case .paragraph: return .text
+        case let .heading(level, _): return Self.allCases.first { $0.headingLevel == level }
+        case .taskList: return nil
+        }
+    }
+}
+
+/// Presentation state for the adapter-owned style control. A nil style means the current
+/// selection is not one eligible paragraph/heading (for example a task item, separator, or
+/// cross-block range), so the control must fail closed rather than guess a target.
+struct LoroNativeRichBlockStyleState: Equatable, Sendable {
+    let current: LoroNativeRichBlockStyle?
+    let isEnabled: Bool
+
+    static let disabled = Self(current: nil, isEnabled: false)
+}
+
+/// Immutable witness for a block-style request. `requestToken` is monotonic within an adapter;
+/// the UUID is retained for diagnostics and tests without making either value durable.
+struct LoroNativeRichBlockStyleCommand: Equatable, Sendable, Identifiable {
+    let commandID: UUID
+    let requestToken: Int
+    let editorGeneration: Int
+    let style: LoroNativeRichBlockStyle
+    let selection: LoroNativeRichTextSelection
+    let topLevelBlockIndex: Int
+    let expectedBlock: LoroCanonicalSemanticValueV1.Block
+
+    var id: UUID { commandID }
+
+    init(
+        commandID: UUID = UUID(),
+        requestToken: Int = 0,
+        editorGeneration: Int,
+        style: LoroNativeRichBlockStyle,
+        selection: LoroNativeRichTextSelection,
+        topLevelBlockIndex: Int,
+        expectedBlock: LoroCanonicalSemanticValueV1.Block
+    ) {
+        self.commandID = commandID
+        self.requestToken = requestToken
+        self.editorGeneration = editorGeneration
+        self.style = style
+        self.selection = selection
+        self.topLevelBlockIndex = topLevelBlockIndex
+        self.expectedBlock = expectedBlock
+    }
+}
+
 /// A value-only structural location for a top-level checklist item.  The ordinals are never
 /// persisted as semantic data; they are paired with the editor generation and full item value in
 /// `LoroNativeRichTaskItemToggleCommand` before a mutation can leave the UI process.

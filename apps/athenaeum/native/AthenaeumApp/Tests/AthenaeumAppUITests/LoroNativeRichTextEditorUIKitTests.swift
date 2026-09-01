@@ -136,6 +136,31 @@ final class LoroNativeRichTextEditorUIKitTests: XCTestCase {
         XCTAssertEqual(published, [persisted])
     }
 
+    func testBlockStyleControlUsesLiveSelectionAndPublishesOneSemanticDocument() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "title", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "notes")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let controller = LoroNativeRichTextEditorUIKitController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        controller.testingSelect(NSRange(location: 1, length: 2))
+
+        XCTAssertEqual(controller.blockStyleState(), .init(current: .text, isEnabled: true))
+        XCTAssertTrue(controller.testingRequestBlockStyle(.h1))
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "title", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "notes")])
+        ]))
+        XCTAssertEqual(controller.testingDocument(), expected)
+        XCTAssertEqual(controller.testingSelection(), .init(location: 1, length: 2))
+        XCTAssertEqual(published, [expected])
+        XCTAssertFalse(controller.blockStyleState().isEnabled, "a pending local proposal disables a second style mutation until the parent acknowledges it")
+    }
+
     func testOrdinaryDelegateEditRendersOnceAndVetoesUIKitReplay() {
         var published: [LoroNativeRichDocumentV1] = []
         let controller = LoroNativeRichTextEditorUIKitController(

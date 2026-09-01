@@ -100,20 +100,21 @@ struct LoroNativeRichTextEditorUIKit: UIViewRepresentable {
         )
     }
 
-    func makeUIView(context: Context) -> UITextView { context.coordinator.makeTextView() }
+    func makeUIView(context: Context) -> LoroNativeRichTextEditorUIKitHostView { context.coordinator.makeHostView() }
 
-    func updateUIView(_ view: UITextView, context: Context) {
+    func updateUIView(_ view: LoroNativeRichTextEditorUIKitHostView, context: Context) {
         context.coordinator.applyTaskToggleAcknowledgement(taskToggleAcknowledgement)
         context.coordinator.applyTaskListInsertionCancellation(taskListInsertionCancellation)
         context.coordinator.applyTaskListInsertionAcknowledgement(taskListInsertionAcknowledgement)
         context.coordinator.requestTaskListInsertion(generation: taskListInsertionRequestGeneration)
         context.coordinator.update(document: state.document, isEditable: isEditable)
+        view.updateStyleState(context.coordinator.blockStyleState())
         context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
         context.coordinator.applyMentionInsertion(mentionInsertion)
         context.coordinator.applySupertagInsertion(supertagInsertion)
     }
 
-    static func dismantleUIView(_ view: UITextView, coordinator: LoroNativeRichTextEditorUIKitController) {
+    static func dismantleUIView(_ view: LoroNativeRichTextEditorUIKitHostView, coordinator: LoroNativeRichTextEditorUIKitController) {
         coordinator.dismantle()
     }
 }
@@ -130,6 +131,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 
     private let textView = GuardedUIKitRichTextView(frame: .zero, textContainer: nil)
+    private weak var styleHost: LoroNativeRichTextEditorUIKitHostView?
     private let referenceTap = UITapGestureRecognizer()
     private let taskToggleTap = UITapGestureRecognizer()
     private var engine: LoroNativeRichEditingEngine
@@ -149,6 +151,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private var pendingTaskListInsertion: (token: Int, command: LoroNativeRichTaskListInsertionCommand)?
     private var lastAppliedTaskListInsertionID: UUID?
     private var lastAppliedTaskListInsertionCancellationID: UUID?
+    private var nextBlockStyleRequestToken = 0
     #if DEBUG
     /// Test-only responder result seam. Production always asks this controller's own window.
     private var testingFocusAttempt: (() -> Bool)?
@@ -236,6 +239,13 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
 
     func makeTextView() -> UITextView { textView }
 
+    func makeHostView() -> LoroNativeRichTextEditorUIKitHostView {
+        let host = LoroNativeRichTextEditorUIKitHostView(controller: self, textView: textView)
+        styleHost = host
+        host.updateStyleState(blockStyleState())
+        return host
+    }
+
     func update(document: LoroNativeRichDocumentV1, isEditable: Bool) {
         let wasEditable = isEditableInput
         isEditableInput = isEditable
@@ -289,6 +299,36 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard generation > lastTaskListInsertionRequestGeneration else { return }
         lastTaskListInsertionRequestGeneration = generation
         _ = requestTaskListInsertion()
+    }
+
+    /// The adapter captures its own UITextView selection when the host's compact control fires.
+    @discardableResult
+    func requestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool {
+        guard isEditableInput, !pendingComposition, !hasMarkedText,
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, let selection = scalarSelection(),
+              let command = engine.makeBlockStyleCommand(style: style, selection: selection,
+                                                          requestToken: nextBlockStyleRequestToken + 1)
+        else { return false }
+        nextBlockStyleRequestToken &+= 1
+        let commandWithToken = LoroNativeRichBlockStyleCommand(
+            commandID: command.commandID, requestToken: nextBlockStyleRequestToken,
+            editorGeneration: command.editorGeneration, style: command.style,
+            selection: command.selection, topLevelBlockIndex: command.topLevelBlockIndex,
+            expectedBlock: command.expectedBlock)
+        _ = apply(engine.applyBlockStyle(commandWithToken))
+        return true
+    }
+
+    func blockStyleState() -> LoroNativeRichBlockStyleState {
+        guard isEditableInput, let selection = scalarSelection()
+        else { return .disabled }
+        let state = engine.blockStyleState(for: selection)
+        guard pendingTaskToggle == nil, pendingTaskListInsertion == nil,
+              !pendingComposition, !hasMarkedText else {
+            return .init(current: state.current, isEnabled: false)
+        }
+        return state
     }
 
     func applyTaskListInsertionAcknowledgement(_ acknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?) {
@@ -381,6 +421,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard !rendering, let selection = scalarSelection() else { return }
         engine.setSelection(selection)
         onSelectionChange(selection)
+        styleHost?.updateStyleState(blockStyleState())
         publishReferenceContexts()
     }
 
@@ -519,6 +560,8 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         guard requestTaskListInsertion() else { return nil }
         return pendingTaskListInsertion?.command
     }
+    @discardableResult
+    func testingRequestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool { requestBlockStyle(style) }
     func testingSelect(_ range: NSRange) {
         textView.selectedRange = range
         if let selection = scalarSelection() { engine.setSelection(selection) }
@@ -633,6 +676,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
             break
         }
         publishReferenceContexts()
+        styleHost?.updateStyleState(blockStyleState())
         return didPublish
     }
 
@@ -1032,6 +1076,57 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     }
 }
 
+/// UIKit-owned accessory control. The button lives in the same host as the text view and sends
+/// its action directly to the controller, which captures the text view's live selection before
+/// UIKit changes responder state while presenting the menu.
+final class LoroNativeRichTextEditorUIKitHostView: UIView {
+    private weak var controller: LoroNativeRichTextEditorUIKitController?
+    private let styleButton: UIButton
+    private let textView: UITextView
+
+    init(controller: LoroNativeRichTextEditorUIKitController, textView: UITextView) {
+        self.controller = controller
+        self.textView = textView
+        styleButton = UIButton(type: .system)
+        super.init(frame: .zero)
+
+        styleButton.showsMenuAsPrimaryAction = true
+        styleButton.contentHorizontalAlignment = .leading
+        styleButton.accessibilityLabel = "Text style"
+        styleButton.accessibilityHint = "Changes the current paragraph or heading without changing its content."
+        styleButton.setContentHuggingPriority(.required, for: .vertical)
+        styleButton.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        let stack = UIStackView(arrangedSubviews: [styleButton, textView])
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            styleButton.heightAnchor.constraint(equalToConstant: 32)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
+        let current = state.current
+        styleButton.setTitle(current?.title ?? "Text style", for: .normal)
+        styleButton.isEnabled = state.isEnabled
+        let actions = LoroNativeRichBlockStyle.allCases.map { style in
+            UIAction(title: style.title, state: style == current ? .on : .off) { [weak controller] _ in
+                _ = controller?.requestBlockStyle(style)
+            }
+        }
+        styleButton.menu = UIMenu(title: "Text style", image: UIImage(systemName: "textformat"), children: actions)
+    }
+}
+
 private final class GuardedUIKitRichTextView: UITextView {
     weak var richController: LoroNativeRichTextEditorUIKitController?
     private var suppressCompositionCallbacks = false
@@ -1060,6 +1155,17 @@ private final class GuardedUIKitRichTextView: UITextView {
         (super.keyCommands ?? []) + [
             UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(openReferenceShortcut(_:)))
         ]
+    }
+
+    @available(iOS 16.0, *)
+    override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu {
+        let actions = LoroNativeRichBlockStyle.allCases.map { style in
+            UIAction(title: style.title) { [weak self] _ in
+                _ = self?.richController?.requestBlockStyle(style)
+            }
+        }
+        let styleMenu = UIMenu(title: "Block Style", image: UIImage(systemName: "textformat"), children: actions)
+        return UIMenu(children: suggestedActions + [styleMenu])
     }
 
     @objc private func openReferenceShortcut(_ sender: UIKeyCommand) {

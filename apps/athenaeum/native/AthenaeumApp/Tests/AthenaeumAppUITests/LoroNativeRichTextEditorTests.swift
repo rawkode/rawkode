@@ -166,6 +166,31 @@ final class LoroNativeRichTextEditorTests: XCTestCase {
         XCTAssertEqual(try LoroNativeRichTextCodec.decode(editor.testingStorage()), editor.testingDocument())
     }
 
+    func testBlockStyleControlUsesLiveSelectionAndPublishesOneSemanticDocument() {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "title", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "notes")])
+        ]))
+        var published: [LoroNativeRichDocumentV1] = []
+        let editor = LoroNativeRichTextEditorController(
+            document: source,
+            isEditable: true,
+            onDocumentChange: { published.append($0) }
+        )
+        editor.testingSelect(NSRange(location: 1, length: 2))
+
+        XCTAssertEqual(editor.blockStyleState(), .init(current: .text, isEnabled: true))
+        XCTAssertTrue(editor.testingRequestBlockStyle(.h1))
+        let expected = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .heading(level: 1, runs: [.init(text: "title", marks: [.strong])]),
+            .heading(level: 2, runs: [.init(text: "notes")])
+        ]))
+        XCTAssertEqual(editor.testingDocument(), expected)
+        XCTAssertEqual(editor.testingSelection(), .init(location: 1, length: 2))
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(editor.blockStyleState(), .init(current: .h1, isEnabled: false), "a pending local proposal disables a second style mutation until the parent acknowledges it")
+    }
+
     func testRichFormattingShortcutsLeaveUnsupportedAndEmptySelectionEventsToAppKit() {
         var published = 0
         let editor = LoroNativeRichTextEditorController(

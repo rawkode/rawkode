@@ -131,6 +131,113 @@ struct LoroNativeRichEditingEngine {
         return nil
     }
 
+    /// Captures a style request from the adapter's current selection. The flattened scalar
+    /// witness deliberately excludes block separators, so a range can never cross a block or
+    /// enter a task list.
+    mutating func makeBlockStyleCommand(
+        style: LoroNativeRichBlockStyle,
+        selection: LoroNativeRichTextSelection,
+        commandID: UUID = UUID(),
+        requestToken: Int = 0
+    ) -> LoroNativeRichBlockStyleCommand? {
+        guard composition == nil,
+              selection.location >= 0,
+              selection.length >= 0,
+              selection.location <= Int.max - selection.length,
+              let (index, start, length, block) = blockContaining(selection.location)
+        else { return nil }
+        let end = selection.location + selection.length
+        guard end <= start + length,
+              !(selection.length == 0 && selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
+              LoroNativeRichBlockStyle.forBlock(block) != nil
+        else { return nil }
+        return .init(
+            commandID: commandID,
+            requestToken: requestToken,
+            editorGeneration: documentGeneration,
+            style: style,
+            selection: selection,
+            topLevelBlockIndex: index,
+            expectedBlock: block
+        )
+    }
+
+    func blockStyleState(for selection: LoroNativeRichTextSelection) -> LoroNativeRichBlockStyleState {
+        guard selection.location >= 0,
+              selection.length >= 0,
+              selection.location <= Int.max - selection.length,
+              let (index, start, length, block) = blockContaining(selection.location),
+              selection.location + selection.length <= start + length,
+              !(selection.length == 0 && selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
+              let current = LoroNativeRichBlockStyle.forBlock(block)
+        else { return .disabled }
+        return .init(current: current, isEnabled: composition == nil && pendingLocalDocument == nil)
+    }
+
+    /// Applies a previously captured request only when its generation, structural index, block
+    /// value, and scalar witness still describe this editor. A same-style request is a semantic
+    /// no-op and therefore cannot produce a second document-change callback.
+    mutating func applyBlockStyle(_ command: LoroNativeRichBlockStyleCommand) -> LoroNativeRichEditingEffect {
+        guard composition == nil,
+              command.editorGeneration == documentGeneration,
+              command.topLevelBlockIndex >= 0,
+              command.topLevelBlockIndex < admittedDocument.semantic.blocks.count,
+              admittedDocument.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock,
+              let (index, start, length, block) = blockContaining(command.selection.location),
+              index == command.topLevelBlockIndex,
+              block == command.expectedBlock,
+              command.selection.location + command.selection.length <= start + length,
+              !(command.selection.length == 0 && command.selection.location == start + length && index + 1 < admittedDocument.semantic.blocks.count),
+              LoroNativeRichBlockStyle.forBlock(block) != nil
+        else { return .rejected(.invalidEdit) }
+
+        guard let replacement = transformedBlock(command.expectedBlock, as: command.style) else {
+            return .rejected(.invalidEdit)
+        }
+        guard replacement != command.expectedBlock else { return .noChange }
+        var blocks = admittedDocument.semantic.blocks
+        blocks[command.topLevelBlockIndex] = replacement
+        let candidate = LoroNativeRichDocumentV1(semantic: .init(blocks: blocks))
+        return admit(candidate, selection: command.selection)
+    }
+
+    private func blockContaining(_ offset: Int) -> (index: Int, start: Int, length: Int, block: LoroCanonicalSemanticValueV1.Block)? {
+        guard offset >= 0 else { return nil }
+        var cursor = 0
+        for (index, block) in admittedDocument.semantic.blocks.enumerated() {
+            let length = scalarLength(of: block)
+            if offset <= cursor + length {
+                return (index, cursor, length, block)
+            }
+            cursor += length + 1
+        }
+        return nil
+    }
+
+    private func scalarLength(of block: LoroCanonicalSemanticValueV1.Block) -> Int {
+        switch block {
+        case let .paragraph(runs), let .heading(_, runs):
+            return runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+        case let .taskList(items):
+            return items.reduce(0) { total, item in
+                total + item.runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
+            } + max(0, items.count - 1)
+        }
+    }
+
+    private func transformedBlock(_ source: LoroCanonicalSemanticValueV1.Block, as style: LoroNativeRichBlockStyle) -> LoroCanonicalSemanticValueV1.Block? {
+        switch source {
+        case let .paragraph(runs):
+            if let level = style.headingLevel { return .heading(level: level, runs: runs) }
+            return .paragraph(runs)
+        case let .heading(_, runs):
+            if let level = style.headingLevel { return .heading(level: level, runs: runs) }
+            return .paragraph(runs)
+        case .taskList:
+            return nil
+        }
+    }
+
     /// Revalidates the flattened Unicode-scalar witness before an acknowledgement can adopt a
     /// document. This keeps a forged or stale command from moving focus to a different block.
     func isValidTaskListInsertionWitness(_ command: LoroNativeRichTaskListInsertionCommand) -> Bool {

@@ -98,6 +98,53 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         )))
     }
 
+    func testBlockStyleTransformsOnlyWitnessedTopLevelBlockAndPreservesRuns() throws {
+        let strong = LoroCanonicalSemanticValueV1.TextRun(text: "Title", marks: [.strong])
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([strong]),
+            .taskList([.init(checked: false, runs: [.init(text: "task")])]),
+            .heading(level: 2, runs: [.init(text: "Notes", marks: [.emphasis])])
+        ]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+        let command = try XCTUnwrap(engine.makeBlockStyleCommand(
+            style: .h1,
+            selection: .init(location: 2, length: 1),
+            requestToken: 7
+        ))
+        XCTAssertEqual(command.requestToken, 7)
+        XCTAssertEqual(command.topLevelBlockIndex, 0)
+        XCTAssertEqual(engine.applyBlockStyle(command), .publish(
+            document: .init(semantic: .init(blocks: [
+                .heading(level: 1, runs: [strong]),
+                .taskList([.init(checked: false, runs: [.init(text: "task")])]),
+                .heading(level: 2, runs: [.init(text: "Notes", marks: [.emphasis])])
+            ])),
+            selection: .init(location: 2, length: 1)
+        ))
+    }
+
+    func testBlockStyleRejectsTaskListsSeparatorsCrossBlockAndStaleGeneration() throws {
+        let source = LoroNativeRichDocumentV1(semantic: .init(blocks: [
+            .paragraph([.init(text: "one")]),
+            .heading(level: 2, runs: [.init(text: "two")]),
+            .taskList([.init(checked: false, runs: [.init(text: "task")])])
+        ]))
+        var engine = LoroNativeRichEditingEngine(document: source)
+        XCTAssertNil(engine.makeBlockStyleCommand(style: .h1, selection: .init(location: 3, length: 0)))
+        XCTAssertNil(engine.makeBlockStyleCommand(style: .h1, selection: .init(location: 2, length: 2)))
+        XCTAssertNil(engine.makeBlockStyleCommand(style: .h1, selection: .init(location: 7, length: 0)))
+        let command = try XCTUnwrap(engine.makeBlockStyleCommand(style: .h1, selection: .init(location: 0, length: 1)))
+        _ = engine.replace(utf16Range: NSRange(location: 0, length: 0), withPlainText: "x")
+        XCTAssertEqual(engine.applyBlockStyle(command), .rejected(.invalidEdit))
+    }
+
+    func testBlockStyleSameStyleIsNoChange() throws {
+        var engine = LoroNativeRichEditingEngine(document: paragraph("text"))
+        let command = try XCTUnwrap(engine.makeBlockStyleCommand(style: .text, selection: .init(location: 1, length: 0)))
+        XCTAssertEqual(engine.applyBlockStyle(command), .noChange)
+        XCTAssertNil(engine.pendingLocalDocument)
+    }
+
     func testPendingParentAcknowledgementIsExactAndDifferentParentIsDeferred() {
         var engine = LoroNativeRichEditingEngine(document: paragraph("base"))
         let local = paragraph("base local")
