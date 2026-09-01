@@ -344,15 +344,7 @@ struct LoroNativeRichEditingEngine {
               runs.allSatisfy({ $0.marks.isEmpty && $0.reference == nil })
         else { return nil }
         let text = runs.map(\.text).joined()
-        let kind: LoroNativeRichMarkdownShortcutKind
-        let requested: LoroCanonicalSemanticValueV1.Block
-        switch text {
-        case "#": kind = .h1; requested = .heading(level: 1, runs: [])
-        case "##": kind = .h2; requested = .heading(level: 2, runs: [])
-        case "###": kind = .h3; requested = .heading(level: 3, runs: [])
-        case "[]", "[ ]": kind = .uncheckedTask; requested = .taskList([.init(checked: false, runs: [])])
-        default: return nil
-        }
+        guard let (kind, requested) = markdownResult(for: text) else { return nil }
         return .init(commandID: commandID, requestToken: requestToken,
                      editorGeneration: documentGeneration, selection: selection,
                      topLevelBlockIndex: index, expectedBlock: block,
@@ -370,13 +362,26 @@ struct LoroNativeRichEditingEngine {
               let (index, start, length, block) = markdownShortcutBlockContaining(command.selection.location),
               index == command.topLevelBlockIndex, block == command.expectedBlock,
               command.selection.location == start + length,
-              command.selection.length == 0
+              command.selection.length == 0,
+              let derived = markdownResult(for: runs.map(\.text).joined()),
+              command.kind == derived.kind,
+              command.requestedBlock == derived.block
         else { return .rejected(.invalidEdit) }
         var blocks = admittedDocument.semantic.blocks
-        blocks[command.topLevelBlockIndex] = command.requestedBlock
+        blocks[command.topLevelBlockIndex] = derived.block
         // The selection is document-relative, so keep the caret at the beginning of the
         // converted block even when the shortcut was typed after earlier blocks.
         return admit(.init(semantic: .init(blocks: blocks)), selection: .init(location: start, length: 0))
+    }
+
+    private func markdownResult(for text: String) -> (kind: LoroNativeRichMarkdownShortcutKind, block: LoroCanonicalSemanticValueV1.Block)? {
+        switch text {
+        case "#": return (.h1, .heading(level: 1, runs: []))
+        case "##": return (.h2, .heading(level: 2, runs: []))
+        case "###": return (.h3, .heading(level: 3, runs: []))
+        case "[]", "[ ]": return (.uncheckedTask, .taskList([.init(checked: false, runs: [])]))
+        default: return nil
+        }
     }
 
     /// Captures a scalar-aligned mark target from semantic runs. The fingerprint is deliberately

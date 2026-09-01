@@ -237,6 +237,22 @@ final class LoroNativeRichEditingEngineTests: XCTestCase {
         XCTAssertEqual(engine.applyMarkdownShortcut(command), .rejected(.invalidEdit))
     }
 
+    func testMarkdownShortcutRejectsTamperedKindOrRequestedBlock() throws {
+        var engine = LoroNativeRichEditingEngine(document: paragraph("#"))
+        let command = try XCTUnwrap(engine.makeMarkdownShortcutCommand(selection: .init(location: 1, length: 0)))
+        let tampered = LoroNativeRichMarkdownShortcutCommand(
+            commandID: command.commandID,
+            requestToken: command.requestToken,
+            editorGeneration: command.editorGeneration,
+            selection: command.selection,
+            topLevelBlockIndex: command.topLevelBlockIndex,
+            expectedBlock: command.expectedBlock,
+            kind: .h2,
+            requestedBlock: .heading(level: 2, runs: [])
+        )
+        XCTAssertEqual(engine.applyMarkdownShortcut(tampered), .rejected(.invalidEdit))
+    }
+
     func testBlockStyleCanTargetEmptyParagraphAtLeadingMiddleAndTrailingTopologyPositions() throws {
         let leading = LoroNativeRichDocumentV1(semantic: .init(blocks: [
             .paragraph([]), .paragraph([.init(text: "after")])

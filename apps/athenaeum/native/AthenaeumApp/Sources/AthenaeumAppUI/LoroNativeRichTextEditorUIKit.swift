@@ -160,7 +160,7 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
     private var lastTaskListInsertionRequestGeneration = 0
     private var pendingTaskListInsertion: (token: Int, command: LoroNativeRichTaskListInsertionCommand)?
     private var lastAppliedTaskListInsertionID: UUID?
-    private var pendingMarkdownShortcutWitness: (range: NSRange, selection: LoroNativeRichTextSelection)?
+    private var pendingMarkdownShortcutWitness: (token: Int, range: NSRange, selection: LoroNativeRichTextSelection)?
     private var nextMarkdownShortcutRequestToken = 0
     private var lastAppliedTaskListInsertionCancellationID: UUID?
     private var nextBlockStyleRequestToken = 0
@@ -366,22 +366,26 @@ final class LoroNativeRichTextEditorUIKitController: NSObject, UITextViewDelegat
         return state
     }
 
-    fileprivate func armMarkdownShortcutForTypedSpace() {
+    @discardableResult
+    fileprivate func armMarkdownShortcutForTypedSpace() -> Int? {
         guard isEditableInput, !pendingComposition, !hasMarkedText,
               engine.pendingLocalDocument == nil, let selection = scalarSelection(),
-              textView.selectedRange.length == 0 else { return }
-        pendingMarkdownShortcutWitness = (textView.selectedRange, selection)
+              textView.selectedRange.length == 0 else { return nil }
+        nextMarkdownShortcutRequestToken &+= 1
+        let token = nextMarkdownShortcutRequestToken
+        pendingMarkdownShortcutWitness = (token, textView.selectedRange, selection)
+        return token
+    }
+
+    fileprivate func clearMarkdownShortcutWitness(token: Int) {
+        guard pendingMarkdownShortcutWitness?.token == token else { return }
+        pendingMarkdownShortcutWitness = nil
     }
 
     private func consumeMarkdownShortcutIfEligible(range: NSRange, replacement: String) -> Bool {
-        guard replacement == " ", let witness = pendingMarkdownShortcutWitness, witness.range == range else {
-            pendingMarkdownShortcutWitness = nil
-            return false
-        }
+        guard replacement == " ", let witness = pendingMarkdownShortcutWitness, witness.range == range else { return false }
         pendingMarkdownShortcutWitness = nil
-        let token = nextMarkdownShortcutRequestToken &+ 1
-        guard let command = engine.makeMarkdownShortcutCommand(selection: witness.selection, requestToken: token) else { return false }
-        nextMarkdownShortcutRequestToken = token
+        guard let command = engine.makeMarkdownShortcutCommand(selection: witness.selection, requestToken: witness.token) else { return false }
         invalidateReferenceContext(.supertag)
         _ = apply(engine.applyMarkdownShortcut(command))
         return true
@@ -1574,7 +1578,13 @@ private final class GuardedUIKitRichTextView: UITextView {
             richController?.endComposition()
             return
         }
-        if text == " " { richController?.armMarkdownShortcutForTypedSpace() }
+        var markdownWitnessToken: Int?
+        if text == " " { markdownWitnessToken = richController?.armMarkdownShortcutForTypedSpace() }
+        defer {
+            if let markdownWitnessToken {
+                richController?.clearMarkdownShortcutWitness(token: markdownWitnessToken)
+            }
+        }
         super.insertText(text)
     }
 
