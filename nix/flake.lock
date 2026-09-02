@@ -1546,22 +1546,6 @@
         "type": "github"
       }
     },
-    "orca": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1787998426,
-        "narHash": "sha256-Px5dCrZomJui+KF/s+8d5LUJiVfj/WUDj/Mt9oWfcCg=",
-        "owner": "stablyai",
-        "repo": "orca",
-        "rev": "51ed7d4f678de68b38eef14c79b473b84a6e55bc",
-        "type": "github"
-      },
-      "original": {
-        "owner": "stablyai",
-        "repo": "orca",
-        "type": "github"
-      }
-    },
     "pre-commit": {
       "inputs": {
         "flake-compat": "flake-compat_5",
@@ -1611,7 +1595,6 @@
         "nixpkgs-25-05": "nixpkgs-25-05",
         "nixpkgs-stable": "nixpkgs-stable_2",
         "nur": "nur",
-        "orca": "orca",
         "stylix": "stylix",
         "systems": "systems_11",
         "treefmt-nix": "treefmt-nix_3",

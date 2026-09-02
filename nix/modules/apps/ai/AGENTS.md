@@ -4,12 +4,11 @@
 - Always use conventional commits.
 - Inspect repository status and resolve the exact revision and requested scope before editing.
 - Preserve unrelated working-copy and history changes.
+- Do not modify Nix flake files by hand; use the appropriate Nix flake tooling to update them and keep their lock data synchronized.
 
 ## Homebrew Declarations
 
 - Keep Homebrew resource types exact: `taps` declares tap repositories, `brews` declares formulae, and `casks` declares casks. Use the resource type published by the upstream tap, including a fully qualified cask when needed to select the intended tap.
-- Orca is managed as a tapped cask: add `"stablyai/orca"` to `homebrew.taps` and `"stablyai/orca/orca"` to `homebrew.casks`. Do not add `"orca"` to `homebrew.brews` or use an unqualified `"orca"` cask, which resolves to an unrelated package.
-
 ## Low-Risk Package-List Changes
 
 - A one-file Homebrew tap/formula/cask list change is low risk. For these changes, use focused status, diff, formatter, and parser checks; do not run the full architecture or adversarial-review workflow unless the change spans modules, changes architecture, or introduces a material integration risk.

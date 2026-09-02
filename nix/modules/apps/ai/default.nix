@@ -30,7 +30,6 @@ mkApp {
   common.home =
     {
       config,
-      inputs,
       lib,
       ...
     }:
@@ -40,10 +39,7 @@ mkApp {
       localSkills = lib.mapAttrs (name: _type: "${skillsDir}/${name}") (
         lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
       );
-      externalSkills = {
-        orchestration = "${inputs.orca}/skills/orchestration";
-      };
-      skills = localSkills // externalSkills;
+      skills = localSkills;
       # Each agent discovers personal skills from its own directory.
       agentSkillDirs = [
         ".codex/skills"
@@ -88,7 +84,6 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        taps = [ "stablyai/orca" ];
         brews = [
           "amp"
           "gemini-cli"
@@ -99,7 +94,6 @@ mkApp {
           "claude-code@latest"
           "codex"
           "openusage"
-          "stablyai/orca/orca"
         ];
       };
     };
