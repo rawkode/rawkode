@@ -1,5 +1,5 @@
 {
-  flake.machineManifests.CW-GG9T93PVFC-L = {
+  flake.machineManifests.CW-FCXFN4YC0W-L = {
     platform = "darwin";
     system = "aarch64-darwin";
     primaryUser = "dflanagan";
