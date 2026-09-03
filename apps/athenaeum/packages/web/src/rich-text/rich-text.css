@@ -1,0 +1,408 @@
+/* Rich-text editor surface — layered on `design-system/tokens.css` (see `.impeccable.md`'s
+   "Confident command-center" direction: quiet chrome, one accent hue used only for state/action,
+   generous prose spacing). `RichNoteEditor` renders `.daily-note-body` (typography, from
+   `app.css`) alongside `.rich-note-editor`; the prose sits directly on the `.daily-note` card
+   surface — no inner box of its own (refinement pass: the old sunken/bordered inner box read as a
+   card nested inside a card, with a large empty void under a short note). */
+
+.rich-note-editor {
+  position: relative;
+  cursor: text;
+}
+
+/* A quiet first action for a truly new Today note. It stays outside the writing surface so
+   choosing it is optional and ordinary free writing remains the most direct path. */
+.daily-note-starter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent-tint) 42%, transparent);
+}
+
+.daily-note-starter-copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.daily-note-starter-copy strong {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.daily-note-starter-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.daily-note-starter-action {
+  flex: none;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast, white);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.daily-note-starter-action:hover {
+  filter: brightness(1.08);
+}
+
+.daily-note-starter-action:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .daily-note-starter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .daily-note-starter-action {
+    width: 100%;
+  }
+}
+
+.rich-note-editor .ProseMirror {
+  outline: none;
+  /* A few empty lines of click-to-focus room under a short note — not the old 14rem void. */
+  min-height: 5.25rem;
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+/* Give an empty daily note a quiet first action in the default (dark) theme as well as the
+   opt-in visual variants. The editor sets `data-empty` from the actual PM document because
+   ProseMirror's generated empty-paragraph DOM also contains widget decorations. */
+.rich-note-editor .ProseMirror[data-empty="true"]::before {
+  content: "Start with what matters. Use # to connect a person or project; @ to link context.";
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+.rich-note-editor .ProseMirror p {
+  margin: 0 0 var(--space-3);
+}
+
+.rich-note-editor .ProseMirror h1,
+.rich-note-editor .ProseMirror h2,
+.rich-note-editor .ProseMirror h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.25;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.rich-note-editor .ProseMirror h1 {
+  font-size: var(--text-xl);
+}
+
+.rich-note-editor .ProseMirror h2 {
+  font-size: var(--text-lg);
+}
+
+.rich-note-editor .ProseMirror h3 {
+  font-size: var(--text-md);
+}
+
+.rich-note-editor .ProseMirror blockquote {
+  margin: var(--space-3) 0;
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.rich-note-editor .ProseMirror pre {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+}
+
+.rich-note-editor .ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+.rich-note-editor .ProseMirror code {
+  font-family: var(--font-data);
+  font-size: 0.92em;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.rich-note-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--color-border-strong);
+  margin: var(--space-5) 0;
+}
+
+/* `design-system/base.css` resets `ul { list-style: none }` app-wide (correct for nav/UI lists) —
+   note content needs real bullets/numbers back, so restore them explicitly here rather than rely
+   on the (suppressed) browser default. */
+.rich-note-editor .ProseMirror ul {
+  list-style: disc;
+  margin: 0 0 var(--space-3);
+  padding-left: 1.4em;
+}
+
+.rich-note-editor .ProseMirror ol {
+  list-style: decimal;
+  margin: 0 0 var(--space-3);
+  padding-left: 1.4em;
+}
+
+.rich-note-editor .ProseMirror li::marker {
+  color: var(--color-text-faint);
+}
+
+.rich-note-editor .ProseMirror li {
+  margin: var(--space-1) 0;
+}
+
+.rich-note-editor .ProseMirror a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rich-note-editor .ProseMirror s {
+  color: var(--color-text-faint);
+}
+
+.rich-note-editor .ProseMirror .entity-ref {
+  color: var(--color-accent-strong);
+  background: var(--color-accent-tint);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+
+/* Supertag-centering pass (docs/supertag-centering-decisions.md §2): a distinct chip look from
+   `.entity-ref` above — a `#Person` reference reads as a typed tag, not an entity link, even
+   though both marks share the same "immutable id, JSON-serialized into the Automerge mark value"
+   mechanics. `font-family: var(--font-data)` + the `#` glyph is what actually carries the "this is
+   a structured tag" signal; the color/weight difference from `.entity-ref` is secondary. Reused
+   verbatim (not just inside the editor) by `NoteTags.tsx`'s chip row and
+   `SupertagFieldPopover.tsx`'s header, so this rule is not scoped under `.rich-note-editor`. */
+.supertag-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15em;
+  font-family: var(--font-data);
+  font-weight: 500;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-muted);
+  border-radius: 999px;
+  padding: 0.1em 0.6em;
+}
+
+button.supertag-chip {
+  appearance: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+button.supertag-chip:hover {
+  border-color: var(--color-accent);
+}
+
+/* --- Checklist ------------------------------------------------------------------------------- */
+
+.rich-note-editor .ProseMirror ul[data-task-list] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.rich-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.rich-task-item[data-checked="true"] .rich-task-content {
+  color: var(--color-text-faint);
+  text-decoration: line-through;
+}
+
+.rich-task-checkbox {
+  margin-top: 0.35em;
+  accent-color: var(--color-accent);
+  flex: none;
+}
+
+.rich-task-content {
+  min-width: 0;
+  flex: 1;
+}
+
+/* --- Drag handles ------------------------------------------------------------------------------
+
+   Refinement pass (live-screenshot findings, two real bugs fixed here):
+   1. Alignment: the handle widget is rendered INSIDE each top-level block, but the blocks were
+      `position: static`, so `position: absolute` resolved against `.rich-note-editor` itself —
+      every handle piled up at the editor's top-left corner, floating detached from its block.
+      Each top-level block is now its own positioning context, and the handle spans exactly the
+      block's first line box (`height: 1lh` inherits the block's own line-height), so it centers
+      on the line it grabs, for paragraphs and headings alike.
+   2. Rest visibility: handles faded in whenever the POINTER WAS ANYWHERE over the editor
+      (`.rich-note-editor:hover`), which in practice means "always visible while writing". Now
+      only the hovered block's own handle appears. Opacity-only transition — no layout motion. */
+
+.rich-note-editor .ProseMirror > * {
+  position: relative;
+}
+
+.rich-drag-handle {
+  position: absolute;
+  left: -1.5rem;
+  top: 0;
+  /* Inherits the block's own font-size/line-height (glyph size is fixed on the inner span), so
+     `1lh` here is exactly the block's first line box — the handle centers on the line it grabs. */
+  height: 1lh;
+  width: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-faint);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  user-select: none;
+}
+
+.rich-drag-handle-glyph {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.rich-note-editor .ProseMirror > *:hover > .rich-drag-handle,
+.rich-drag-handle:focus-visible {
+  opacity: 0.55;
+}
+
+.rich-drag-handle:hover {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+/* --- Floating bubble toolbar (mark formatting) ------------------------------------------------- */
+
+.rich-toolbar {
+  display: none;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  z-index: var(--z-floating);
+}
+
+.rich-toolbar-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  padding: 0.3em 0.55em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.rich-toolbar-button:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.rich-toolbar-button.is-active {
+  background: var(--color-accent-muted);
+  color: var(--color-accent-strong);
+}
+
+/* --- Slash command menu + mention picker (shared look) ------------------------------------------ */
+
+.rich-slash-menu,
+.rich-mention-menu {
+  display: none;
+  min-width: 15rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  z-index: var(--z-floating);
+}
+
+.rich-slash-item,
+.rich-mention-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  padding: 0.4em var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.rich-slash-item.is-selected,
+.rich-mention-item.is-selected,
+.rich-slash-item:hover,
+.rich-mention-item:hover {
+  background: var(--color-accent-muted);
+  color: var(--color-accent-strong);
+}
+
+.rich-slash-item-label {
+  font-family: var(--font-data);
+}
+
+.rich-slash-item-hint {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.rich-mention-item-badge {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-accent);
+}

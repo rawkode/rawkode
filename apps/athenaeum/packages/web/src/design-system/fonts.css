@@ -1,0 +1,45 @@
+/* Self-hosted variable fonts — no Google Fonts CDN at runtime, no Inter/Roboto/system-ui.
+   Files live in `public/fonts/` (fetched once at build time from Google's woff2 CDN, then
+   committed as static assets — see this project's report for provenance/licensing: all three
+   are OFL-licensed). Each is a single variable-font file covering its whole weight axis, so one
+   `@font-face` per family (with a `font-weight` *range*) is enough — the browser picks the exact
+   instance any `font-weight` value in that range asks for, no separate 400/500/600/700 files.
+
+   - Fraunces (opsz 9..144, wght 300..900): the display/heading face. Its optical-size axis
+     means the SAME file renders differently at heading sizes (high-contrast, characterful
+     serif) vs. small sizes (steadier, more text-like) — `font-optical-sizing: auto` (the
+     default) lets the browser interpolate that automatically from the rendered font-size, so
+     headings at different scales already look considered without extra CSS.
+   - Space Grotesk (wght 300..700): the data-dense "mono-adjacent" face — literally designed as
+     a proportional grotesk companion to Space Mono, so it reads as technical/precise (even
+     spacing, unfussy numerals) without being a literal monospace face used just for "tech vibes".
+     Used for nav labels, tables, ids, timestamps — anywhere data-dense, tabular-nums applied via
+     `font-variant-numeric` where numbers need to line up.
+   - Source Serif 4 (opsz 8..60, wght 300..600): the comfortable long-form reading face, used for
+     the daily note's prose body only — deliberately not the same family as the display face, so
+     the note doesn't inherit Fraunces's more idiosyncratic heading personality at paragraph
+     sizes. */
+
+@font-face {
+  font-family: "Fraunces Variable";
+  src: url("/fonts/fraunces-variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk Variable";
+  src: url("/fonts/space-grotesk-variable.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif Variable";
+  src: url("/fonts/source-serif-variable.woff2") format("woff2");
+  font-weight: 300 600;
+  font-style: normal;
+  font-display: swap;
+}

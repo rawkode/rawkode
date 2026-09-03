@@ -1,0 +1,14 @@
+# Wrangler local-dev-only secrets (never commit) — matches cloudflare-os's own .gitignore
+# convention and wrangler's own `wrangler init` scaffolding default. See
+# packages/backend/wrangler.jsonc's header comment for why DEV_AUTH_ENABLED/DEV_AUTH_HMAC_SECRET
+# specifically live in a git-ignored .dev.vars rather than the checked-in wrangler.jsonc.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
+
+node_modules
+dist
+.wrangler

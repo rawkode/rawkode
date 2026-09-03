@@ -1,0 +1,129 @@
+/* Design tokens — "confident command-center" (see /apps/athenaeum/.impeccable.md). OKLCH
+   throughout: L (lightness 0-1), C (chroma), H (hue in degrees). One accent hue (200 — cyan-
+   teal, a deliberate command-center/HUD association) is threaded through every neutral as a
+   faint tint (H 220, close to the accent) so the ground doesn't read as generic gray, and
+   through the accent scale itself for state/action/agent-activity — never decoratively.
+
+   Single-theme by design: .impeccable.md's chosen direction *is* "dark charcoal ground, warm
+   off-white text" — this app doesn't offer a light mode to switch to, so these are dark-first
+   AND dark-only tokens (no `@media (prefers-color-scheme: light)` override exists because no
+   light palette was designed). Still centralized as semantic custom properties rather than
+   hardcoded hex, per the same discipline `light-dark()` usage would otherwise buy — swapping the
+   whole app's palette later is a one-file edit, not a grep-and-replace. */
+
+:root {
+  color-scheme: dark;
+  /* --- Hue anchors -------------------------------------------------------------------------- */
+  --hue-neutral: 220; /* cool-blue tint for every "gray" below */
+  --hue-warm: 75; /* warm tint for text — keeps "off-white" from reading blue-white */
+  --hue-accent: 200; /* cyan-teal */
+
+  /* --- Surfaces (dark charcoal, tinted toward --hue-neutral, never pure black) --------------- */
+  --color-ground: oklch(16% 0.02 var(--hue-neutral));
+  --color-surface: oklch(20% 0.021 var(--hue-neutral));
+  --color-surface-raised: oklch(24.5% 0.022 var(--hue-neutral));
+  --color-surface-sunken: oklch(13.5% 0.018 var(--hue-neutral));
+  --color-border: oklch(32% 0.024 var(--hue-neutral));
+  /* 54% (was 42%): 42% measured ~1.93:1 against --color-surface-raised, under WCAG 1.4.11's 3:1
+     non-text minimum. 54% measures ~3.22:1 against --color-surface-raised (~3.6:1 against
+     --color-surface) — verified below. This is the DEFAULT border for interactive controls;
+     --color-border stays reserved for decorative/low-emphasis dividers. */
+  --color-border-strong: oklch(54% 0.026 var(--hue-neutral));
+
+  /* Semantic surface roles. Components should choose a role based on what the surface does,
+     rather than reaching for a generic raised card by habit. */
+  --color-canvas: var(--color-ground);
+  --color-chrome: oklch(18% 0.021 var(--hue-neutral));
+  --color-panel: var(--color-surface);
+  --color-inset: var(--color-surface-sunken);
+  --color-overlay: var(--color-surface-raised);
+  --color-scrim: oklch(8% 0.01 var(--hue-neutral) / 0.6);
+  --color-scrim-strong: oklch(8% 0.01 var(--hue-neutral) / 0.85);
+
+  /* --- Text (warm off-white, never pure white) ----------------------------------------------- */
+  --color-text: oklch(93% 0.02 var(--hue-warm));
+  --color-text-muted: oklch(72% 0.018 var(--hue-warm));
+  --color-text-prose: oklch(86% 0.02 var(--hue-warm));
+  /* 60% (was 52%): 52% measured ~3.27:1 against --color-surface, below WCAG AA's 4.5:1 for text.
+     60% measures ~4.56:1 (relative-luminance method, sRGB via OKLCH) — verified below. */
+  --color-text-faint: oklch(60% 0.014 var(--hue-warm));
+
+  /* --- Accent (used sparingly: active nav, focus, links, agent activity, primary actions) ----- */
+  --color-accent: oklch(74% 0.135 var(--hue-accent));
+  --color-accent-strong: oklch(82% 0.15 var(--hue-accent));
+  --color-accent-muted: oklch(28% 0.05 var(--hue-accent));
+  --color-accent-tint: oklch(21% 0.03 var(--hue-accent));
+  --color-on-accent: oklch(15% 0.03 var(--hue-accent));
+
+  /* --- Semantic state ------------------------------------------------------------------------ */
+  --color-danger: oklch(68% 0.19 27);
+  --color-danger-muted: oklch(26% 0.06 27);
+  /* Centralizes the oklch(45% 0.1 27) / oklch(78% 0.13 27) literals already repeated ad hoc
+     across app.css (chat-message-tool-error, chat-pending-revert, share-confirm-remove, etc.) —
+     same values, now named. A later pass replaces those call sites with these tokens. */
+  --color-danger-border: oklch(45% 0.1 27);
+  --color-danger-text-strong: oklch(78% 0.13 27);
+  --color-success: oklch(76% 0.15 152);
+  --color-success-muted: oklch(24% 0.05 152);
+  --color-warning: oklch(80% 0.14 85);
+  --color-warning-muted: oklch(27% 0.05 85);
+  /* Centralizes the oklch(45% 0.1 85) literal repeated in chat-model-unavailable /
+     dev-auth-banner. Same value as --color-danger-border's lightness/chroma, warm hue instead. */
+  --color-warning-border: oklch(45% 0.1 85);
+
+  /* --- Type faces (see fonts.css for provenance/rationale) ------------------------------------ */
+  --font-display: "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-data: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-prose: "Source Serif Variable", ui-serif, Georgia, serif;
+
+  /* --- Fluid type scale (clamp: min, viewport-relative preferred, max) ------------------------ */
+  --text-xs: clamp(0.72rem, 0.69rem + 0.14vw, 0.8rem);
+  --text-sm: clamp(0.82rem, 0.79rem + 0.16vw, 0.92rem);
+  --text-base: clamp(0.94rem, 0.9rem + 0.2vw, 1.02rem);
+  --text-md: clamp(1.05rem, 0.99rem + 0.3vw, 1.2rem);
+  --text-lg: clamp(1.24rem, 1.12rem + 0.55vw, 1.55rem);
+  --text-xl: clamp(1.55rem, 1.32rem + 1.05vw, 2.15rem);
+  --text-2xl: clamp(2.05rem, 1.6rem + 2vw, 3.1rem);
+
+  /* --- Spacing scale (used consistently, never ad hoc px) -------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4.5rem;
+
+  /* --- Radii / elevation ------------------------------------------------------------------------ */
+  --radius-sm: 5px;
+  --radius-md: 9px;
+  --radius-lg: 16px;
+  --shadow-raised: 0 1px 0 0 oklch(8% 0.01 var(--hue-neutral) / 0.6), 0 8px 24px -12px oklch(5% 0 0 / 0.55);
+
+  /* --- Shell layout dimensions ------------------------------------------------------------------ */
+  --shell-sidebar-w: 15.5rem;
+  --shell-chat-w: 22rem;
+  --shell-content-max: 78rem;
+  --shell-document-max: 46rem;
+  --shell-inspector-w: 20rem;
+
+  /* Semantic stacking order. */
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-drawer: 40;
+  --z-scrim: 39;
+  --z-floating: 50;
+  --z-modal: 60;
+
+  /* --- Motion (restrained by design — "confident", not showcase) --------------------------------
+     One easing curve (decisive deceleration, no bounce/elastic anywhere) and three duration steps:
+     fast = hover/press feedback, base = state changes (popover, chips, drawers), enter = one-time
+     route-content entrance. Everything animating in this app is transform/opacity (plus cheap
+     paint-only color fades on tiny elements) — never layout properties. A global
+     prefers-reduced-motion override in base.css disables all of it. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-enter: 280ms;
+}

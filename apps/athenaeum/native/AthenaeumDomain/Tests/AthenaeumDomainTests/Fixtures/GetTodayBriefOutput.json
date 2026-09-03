@@ -1,0 +1,24 @@
+{
+  "localDate": "2026-11-01",
+  "timeZone": "America/New_York",
+  "from": "2026-11-01T04:00:00.000Z",
+  "to": "2026-11-02T05:00:00.000Z",
+  "calendarHistory": {
+    "status": "found"
+  },
+  "events": [
+    {
+      "id": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e60",
+      "occurrenceKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "Planning",
+      "start": "2026-11-01T14:00:00.000Z",
+      "end": "2026-11-01T14:30:00.000Z",
+      "people": [
+        {
+          "displayName": "Alice"
+        },
+        {}
+      ]
+    }
+  ]
+}

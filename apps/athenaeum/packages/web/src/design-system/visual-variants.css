@@ -1,0 +1,251 @@
+/* Opt-in review surfaces. These selectors intentionally never target the persisted theme's
+   data-variant attribute: no query parameter means the existing application is untouched. */
+
+html[data-visual-variant="paper"] {
+  color-scheme: light;
+  --hue-paper: 85;
+  --hue-ink: 250;
+  --color-ground: oklch(97.3% 0.007 var(--hue-paper));
+  --color-surface: oklch(98.8% 0.004 var(--hue-paper));
+  --color-surface-raised: oklch(100% 0 0);
+  --color-surface-sunken: oklch(95% 0.008 var(--hue-paper));
+  --color-canvas: var(--color-ground);
+  --color-chrome: oklch(97% 0.006 var(--hue-paper));
+  --color-panel: oklch(99% 0.004 var(--hue-paper));
+  --color-inset: var(--color-surface-sunken);
+  --color-overlay: var(--color-surface-raised);
+  --color-scrim: oklch(35% 0.02 85 / 0.35);
+  --color-scrim-strong: oklch(35% 0.02 85 / 0.55);
+  --color-border: oklch(89% 0.012 var(--hue-paper));
+  --color-border-strong: oklch(58% 0.02 var(--hue-paper));
+  --color-text: oklch(30% 0.015 var(--hue-ink));
+  --color-text-muted: oklch(40% 0.015 var(--hue-ink));
+  --color-text-prose: oklch(34% 0.015 var(--hue-ink));
+  --color-text-faint: oklch(48% 0.012 var(--hue-ink));
+  --color-accent: oklch(48% 0.085 200);
+  --color-accent-strong: oklch(40% 0.095 200);
+  --color-accent-muted: oklch(92% 0.035 200);
+  --color-accent-tint: oklch(95.5% 0.02 200);
+  --color-on-accent: oklch(98.5% 0.005 200);
+  --color-danger: oklch(50% 0.18 27);
+  --color-danger-muted: oklch(94% 0.035 27);
+  --color-danger-border: oklch(70% 0.09 27);
+  --color-danger-text-strong: oklch(42% 0.16 27);
+  --color-success: oklch(46% 0.12 152);
+  --color-success-muted: oklch(94% 0.04 152);
+  --color-warning: oklch(50% 0.11 85);
+  --color-warning-muted: oklch(94% 0.05 85);
+  --color-warning-border: oklch(75% 0.08 85);
+  --shadow-raised: 0 1px 2px oklch(40% 0.02 85 / 0.08), 0 10px 28px -16px oklch(35% 0.02 85 / 0.22);
+  --font-data: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html[data-visual-variant="paper"] .shell-main-content {
+  width: min(100%, 54rem);
+}
+
+html[data-visual-variant="paper"] .daily-note-editor {
+  width: min(100%, 42rem);
+  padding-top: var(--space-6);
+}
+
+html[data-visual-variant="paper"] .daily-note-header h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+}
+
+html[data-visual-variant="paper"] .daily-note-header h1 time {
+  font-family: var(--font-data);
+}
+
+html[data-visual-variant="paper"] .daily-note-context > .today-brief {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+/* Study is deliberately complete: it wins even if a persisted paper theme also leaves the
+   legacy data-variant attribute present. */
+html[data-visual-variant="study"] {
+  color-scheme: dark;
+  --hue-neutral: 220;
+  --hue-warm: 75;
+  --hue-accent: 200;
+  --color-ground: oklch(16% 0.02 var(--hue-neutral));
+  --color-surface: oklch(20% 0.021 var(--hue-neutral));
+  --color-surface-raised: oklch(24.5% 0.022 var(--hue-neutral));
+  --color-surface-sunken: oklch(13.5% 0.018 var(--hue-neutral));
+  --color-canvas: var(--color-ground);
+  --color-chrome: oklch(18% 0.021 var(--hue-neutral));
+  --color-panel: var(--color-surface);
+  --color-inset: var(--color-surface-sunken);
+  --color-overlay: var(--color-surface-raised);
+  --color-scrim: oklch(8% 0.01 var(--hue-neutral) / 0.6);
+  --color-scrim-strong: oklch(8% 0.01 var(--hue-neutral) / 0.85);
+  --color-border: oklch(32% 0.024 var(--hue-neutral));
+  --color-border-strong: oklch(54% 0.026 var(--hue-neutral));
+  --color-text: oklch(93% 0.02 var(--hue-warm));
+  --color-text-muted: oklch(72% 0.018 var(--hue-warm));
+  --color-text-prose: oklch(86% 0.02 var(--hue-warm));
+  --color-text-faint: oklch(60% 0.014 var(--hue-warm));
+  --color-accent: oklch(74% 0.135 var(--hue-accent));
+  --color-accent-strong: oklch(82% 0.15 var(--hue-accent));
+  --color-accent-muted: oklch(28% 0.05 var(--hue-accent));
+  --color-accent-tint: oklch(21% 0.03 var(--hue-accent));
+  --color-on-accent: oklch(15% 0.03 var(--hue-accent));
+  --color-danger: oklch(68% 0.19 27);
+  --color-danger-muted: oklch(26% 0.06 27);
+  --color-danger-border: oklch(45% 0.1 27);
+  --color-danger-text-strong: oklch(78% 0.13 27);
+  --color-success: oklch(76% 0.15 152);
+  --color-success-muted: oklch(24% 0.05 152);
+  --color-warning: oklch(80% 0.14 85);
+  --color-warning-muted: oklch(27% 0.05 85);
+  --color-warning-border: oklch(45% 0.1 85);
+  --shadow-raised: 0 1px 0 0 oklch(8% 0.01 var(--hue-neutral) / 0.6), 0 8px 24px -12px oklch(5% 0 0 / 0.55);
+}
+
+html[data-visual-variant="study"] .shell-main-content {
+  width: min(100%, 64rem);
+}
+
+html[data-visual-variant="study"] .daily-note-editor {
+  width: min(100%, 46rem);
+}
+
+html[data-visual-variant="study"] .daily-note-header h1 {
+  font-family: var(--font-display);
+}
+
+/* Both review modes retain the existing document and drawer ownership, but make the writing
+   sequence legible: title, editor, then brief/backlinks as intentionally secondary material. */
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note {
+  gap: var(--space-6);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .notes-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-context {
+  position: static;
+  max-height: none;
+  overflow-y: visible;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-header {
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-header h1 time {
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Today already has a single route identity in the shell. Let its selected date carry the
+   heading so the editor starts sooner without hiding the date control or legacy warnings. */
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-header.daily-note-header-today h1 time {
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-context,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .backlinks,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-standup {
+  opacity: 0.9;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .today-brief,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .backlinks,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-standup {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-mainbar {
+  min-height: 3.5rem;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-nav-core-item,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-nav-item {
+  font-weight: 500;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .sync-status-synced {
+  opacity: 0.55;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-chat-toggle {
+  /* Neutralizes the persisted-paper prototype's floating trigger only. The actual dialog
+     remains entirely under AppShell's existing `drawer-open` lifecycle. */
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border-color: var(--color-border-strong);
+  background: var(--color-panel);
+  box-shadow: none;
+}
+
+/* The old persisted-paper stylesheet is imported before this file but carries the same selector
+   specificity as the real drawer. Re-state AppShell's current rules so the visual opt-in cannot
+   change its overlay/docked lifecycle. */
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-chat {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(92vw, var(--shell-chat-w));
+  transform: translateX(100%);
+  transition: transform var(--motion-base) var(--ease-out-quart);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-chat.drawer-open {
+  transform: translateX(0);
+}
+
+@media (min-width: 78rem) {
+  html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-chat-visible {
+    grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr) var(--shell-chat-w);
+  }
+
+  html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .shell-chat-visible .shell-chat {
+    position: relative;
+    inset: auto;
+    width: auto;
+    transform: none;
+    box-shadow: none;
+    z-index: auto;
+  }
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .workspace-switcher-create {
+  /* Never inherit the older prototype's hover-only workspace creation control. */
+  display: flex;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .rich-note-editor .ProseMirror[data-empty="true"]::before {
+  content: "Start with what matters. Use # to connect a person or project; @ to link context.";
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .today-brief {
+  border-color: var(--color-border);
+}
+
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .daily-note-body,
+html:is([data-visual-variant="paper"], [data-visual-variant="study"]) .rich-note-editor .ProseMirror {
+  color: var(--color-text-prose);
+}

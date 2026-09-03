@@ -1,0 +1,23 @@
+{
+  "name": "@athenaeum/router",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dumb path-prefix router Worker: discovers GATEKEEPER_* service bindings, forwards /api/* to backend, else static assets. Phase 0: forwards everything to backend, no gatekeepers yet.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "echo 'not for Phase 0 — do not run wrangler deploy' >&2 && exit 1",
+    "build": "tsc",
+    "clean": "rm -rf dist .wrangler",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

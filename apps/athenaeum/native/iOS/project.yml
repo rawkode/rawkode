@@ -1,0 +1,69 @@
+# Generated with `xcodegen generate` (from this directory) — produces AthenaeumiOS.xcodeproj. See
+# `native/macOS/project.yml`'s top doc comment for why xcodegen, not a hand-authored pbxproj.
+name: AthenaeumiOS
+options:
+  bundleIdPrefix: academy.rawkode.athenaeum
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  AthenaeumApp:
+    path: ../AthenaeumApp
+  AthenaeumCore:
+    path: ../AthenaeumCore
+schemes:
+  AthenaeumiOS:
+    build:
+      targets:
+        AthenaeumiOS: all
+        AthenaeumiOSTests: [test]
+    test:
+      targets:
+        - AthenaeumiOSTests
+targets:
+  AthenaeumiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: AthenaeumApp
+        product: AthenaeumAppUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: academy.rawkode.athenaeum.ios
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Simulator-only in this environment — no paid Apple Developer team available (task's
+        # hard constraints rule out real code-signing/device entitlements here). "Sign to Run
+        # Locally" (no team) is exactly what a Simulator build needs; a real device run would
+        # additionally need a development team, which is out of scope for this stage.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_REQUIRED: false
+        CODE_SIGNING_ALLOWED: true
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.0"
+  AthenaeumiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      # The package keeps platform-specific controller tests next to the shared UI tests. This
+      # generated iOS target is their executable XCTest home; SwiftPM's macOS test run correctly
+      # excludes the `#if os(iOS)` source.
+      - path: ../AthenaeumApp/Tests/AthenaeumAppUITests/LoroNativeRichTextEditorUIKitTests.swift
+    dependencies:
+      - target: AthenaeumiOS
+      - package: AthenaeumApp
+        product: AthenaeumAppUI
+      - package: AthenaeumCore
+        product: AthenaeumCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: academy.rawkode.athenaeum.ios.tests
+        SWIFT_VERSION: "5.0"
