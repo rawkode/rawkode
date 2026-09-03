@@ -1,5 +1,19 @@
 # Repository Guidelines
 
+## Repository Workflow
+
+- Use `jj` instead of Git when the Git root contains `.jj`. Before editing, inspect repository status, resolve the exact revision and requested scope, and preserve unrelated working-copy and history changes.
+- Keep small, bounded changes small: work directly and run focused checks appropriate to the files. Do not add planning, delegation, architecture review, or broad refactoring just because several related files are involved.
+- Update flake inputs with Nix tooling so `flake.nix` and `flake.lock` stay synchronized; do not hand-edit `flake.lock`.
+
+## Homebrew Declarations
+
+- Keep Homebrew resource types exact: `taps` declares tap repositories, `brews` declares formulae, and `casks` declares casks. Use the resource type published by the upstream tap, including a fully qualified cask when needed to select the intended tap.
+
+## Low-Risk Package-List Changes
+
+- A one-file Homebrew tap/formula/cask list change is low risk. For these changes, use focused status, diff, formatter, and parser checks; do not run the full architecture or adversarial-review workflow unless the change spans modules, changes architecture, or introduces a material integration risk.
+
 ## Project Structure & Module Organization
 
 - Root flake (`flake.nix`) drives everything via flake-parts; inputs are pinned in `flake.lock`. Modules are auto-imported with import-tree — no manual import lists.
