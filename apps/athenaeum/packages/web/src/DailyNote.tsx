@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import * as Effect from "effect/Effect"
 import {
@@ -39,6 +39,7 @@ import { DAILY_STANDUP_ANCHOR_ID, DailyStandup } from "./LedgerActivityPanel.js"
 import { useDailyStandup } from "./use-daily-standup.js"
 import { focusWorkforceAttentionItem } from "./EmployeeUpdates.js"
 import { WorkforceAttentionStrip } from "./WorkforceAttentionStrip.js"
+import type { DailyNoteDeparturePresentation, DailyNoteDepartureState } from "./daily-note-route-transition.js"
 
 // `resolveDailyNote` is the "resolve or create" half
 // (deterministic id from `daily-note-id.ts`, so a reload resolves the *same* node/page rather than
@@ -232,12 +233,20 @@ export function DailyNote({
   date,
   onNavigateDate,
   onPrepareMeetingReady,
+  onDepartureRegistration,
+  departurePresentation = "idle",
   todayBriefTargetId,
   dailyContext
 }: {
   readonly date: Date
   readonly onNavigateDate: (stamp: string) => void
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
+  /** NotesRoute owns the route boundary; this component only reports its active save authority. */
+  readonly onDepartureRegistration?: (registration: {
+    readonly state: DailyNoteDepartureState
+    readonly checkpoint?: () => Promise<boolean>
+  } | undefined) => void
+  readonly departurePresentation?: DailyNoteDeparturePresentation
   /** Fragment target for the current day's secondary context, shown as a quiet mobile affordance. */
   readonly todayBriefTargetId?: string
   /** The single live context projection for this note. It stays beside the prose on wide layouts
@@ -430,6 +439,19 @@ export function DailyNote({
   useEffect(() => {
     if (state.status === "success" && state.value.format === "automerge-v1") onPrepareMeetingReady?.(undefined)
   }, [onPrepareMeetingReady, state.status === "success" ? state.value.format : undefined])
+  // The route guard owns ordering and the editor owns custody. A resolved Loro note begins
+  // fail-closed until its exact attachment generation offers a navigation checkpoint; legacy
+  // Automerge has no live web writer and therefore remains immediately navigable.
+  useLayoutEffect(() => {
+    if (state.status !== "success") {
+      onDepartureRegistration?.(undefined)
+      return
+    }
+    onDepartureRegistration?.({
+      state: state.value.format === "automerge-v1" ? "legacy-automerge" : "loro-awaiting-attachment"
+    })
+    return () => onDepartureRegistration?.(undefined)
+  }, [onDepartureRegistration, state.status === "success" ? state.value.format : undefined])
 
   const fullDateLabel = date.toLocaleDateString(undefined, {
     weekday: "long",
@@ -467,6 +489,9 @@ export function DailyNote({
     ? dailyNotePageFormatPresentation(state.value.format)
     : undefined
   const showSyncStatus = syncStatus === "syncing" || syncStatus === "error" || syncStatus === "conflict"
+  // Keep navigation available after a failed checkpoint so the user can retry once the
+  // editor's recovery action has made custody clean; only an in-progress save needs a hard gate.
+  const departureBlocked = departurePresentation === "saving"
 
   return (
     <section className="daily-note">
@@ -497,6 +522,7 @@ export function DailyNote({
               type="button"
               className="daily-note-day-nav-step"
               onClick={() => onNavigateDate(shiftDateStamp(dateStamp, -1))}
+              disabled={departureBlocked}
               aria-label="Previous day"
               title="Previous day"
             >
@@ -512,11 +538,13 @@ export function DailyNote({
                 if (parseDateStamp(event.target.value) !== undefined) onNavigateDate(event.target.value)
               }}
               aria-label="Jump to date"
+              disabled={departureBlocked}
             />
             <button
               type="button"
               className="daily-note-day-nav-step"
               onClick={() => onNavigateDate(shiftDateStamp(dateStamp, 1))}
+              disabled={departureBlocked}
               aria-label="Next day"
               title="Next day"
             >
@@ -527,6 +555,7 @@ export function DailyNote({
                 type="button"
                 className="daily-note-day-nav-today"
                 onClick={() => onNavigateDate(todayStamp)}
+                disabled={departureBlocked}
               >
                 Today
               </button>
@@ -592,6 +621,9 @@ export function DailyNote({
                   onOpenEntityRef={(refNodeId) => navigate(`/node/${refNodeId}`)}
                   offerPlanToday={isToday && state.value.descriptor.storageVersion === 1}
                   onPrepareMeetingReady={onPrepareMeetingReady}
+                  onNavigationCheckpointReady={(checkpoint) => onDepartureRegistration?.(
+                    checkpoint === undefined ? { state: "loro-awaiting-attachment" } : { state: "loro-ready", checkpoint }
+                  )}
                   onPreparationCompleted={() => setPreparationNotice("Meeting prepared in this daily note.")}
                   onAcceptedHumanEdit={() => setPreparationNotice(undefined)}
                 />
@@ -628,6 +660,12 @@ export function DailyNote({
                 </section>
               )}
               {preparationNotice !== undefined && <p className="sync-status" role="status" aria-live="polite">{preparationNotice}</p>}
+              {departurePresentation === "saving" && (
+                <p className="sync-status" role="status" aria-live="polite">Saving this note before changing days…</p>
+              )}
+              {departurePresentation === "blocked" && (
+                <p className="sync-status sync-status-error" role="alert">This daily note needs recovery before it can be changed.</p>
+              )}
               {showSyncStatus && (
                 <p
                   className={`sync-status sync-status-${syncStatus}`}

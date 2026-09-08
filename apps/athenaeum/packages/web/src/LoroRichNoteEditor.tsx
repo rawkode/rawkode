@@ -287,6 +287,8 @@ export interface LoroRichNoteEditorProps {
   readonly onBindingReady?: (binding: ReturnType<typeof createLoroEditorBinding> | undefined) => void
   /** Registers a server-owned meeting-preparation command while this Loro attachment is live. */
   readonly onPrepareMeetingReady?: (prepare: PrepareMeetingHandler | undefined) => void
+  /** Registers the exact live attachment's route-departure checkpoint; cleanup clears it. */
+  readonly onNavigationCheckpointReady?: (checkpoint: (() => Promise<boolean>) | undefined) => void
   /** Called only after a matching receipt has been reconciled through current authority. */
   readonly onPreparationCompleted?: (receipt: PrepareMeetingInDailyNoteOutput) => void
   readonly onAcceptedHumanEdit?: () => void
@@ -664,6 +666,7 @@ export function LoroRichNoteEditor({
   onOpenEntityRef,
   onBindingReady,
   onPrepareMeetingReady,
+  onNavigationCheckpointReady,
   onPreparationCompleted,
   onAcceptedHumanEdit,
   offerPlanToday = false
@@ -697,6 +700,7 @@ export function LoroRichNoteEditor({
     const retryRegistration = onSyncRetryReady
     const bindingReady = onBindingReady
     const preparationReady = onPrepareMeetingReady
+    const navigationCheckpointReady = onNavigationCheckpointReady
     const preparationCompleted = onPreparationCompleted
     const acceptedHumanEdit = onAcceptedHumanEdit
     // Never reread the mutable runtime export here: a workspace/auth switch between render and
@@ -715,6 +719,7 @@ export function LoroRichNoteEditor({
         if (attachmentGenerationRef.current === generation) attachmentGenerationRef.current += 1
         retryRegistration?.(undefined)
         preparationReady?.(undefined)
+        navigationCheckpointReady?.(undefined)
         setConflictState("none")
         setPlanTodayAvailable(false)
         planTodayApplyRef.current = undefined
@@ -951,6 +956,7 @@ export function LoroRichNoteEditor({
         if (presentationTimer !== undefined) clearTimeout(presentationTimer)
         retryRegistration?.(undefined)
         preparationReady?.(undefined)
+        navigationCheckpointReady?.(undefined)
         if (resolveConflictRef.current === resolveConflict) resolveConflictRef.current = undefined
         if (reloadExternalCommitRef.current === retryExternalCommit) reloadExternalCommitRef.current = undefined
         setConflictState("none")
@@ -991,6 +997,10 @@ export function LoroRichNoteEditor({
     if (isAttachmentUiLive()) {
       bindingReady?.(binding)
       preparationReady?.(prepareMeeting)
+      navigationCheckpointReady?.(() => {
+        const snapshot = attachment.snapshot()
+        return isCurrentUiAttachment(snapshot) ? attachment.flushForNavigation() : Promise.resolve(false)
+      })
       reloadExternalCommitRef.current = retryExternalCommit
     }
     planTodayApplyRef.current = () => {
@@ -1030,6 +1040,7 @@ export function LoroRichNoteEditor({
       }
       retryRegistration?.(undefined)
       preparationReady?.(undefined)
+      navigationCheckpointReady?.(undefined)
       if (resolveConflictRef.current === resolveConflict) resolveConflictRef.current = undefined
       if (reloadExternalCommitRef.current === retryExternalCommit) reloadExternalCommitRef.current = undefined
       setConflictState("none")

@@ -183,6 +183,16 @@ export class LoroSemanticCustodyAttachment {
     this.#active = false
     this.#owner?.detach(this)
   }
+
+  /**
+   * Establishes the existing owner as the only save authority at a route boundary.  This does
+   * not create a second writer: it either drives the owner's queued A immediately or observes
+   * its A/B state transitions until the attachment is clean or terminally retained.
+   */
+  flushForNavigation(): Promise<boolean> {
+    if (!this.active || this.#owner === undefined) return Promise.resolve(false)
+    return this.#owner.flushForNavigation(this)
+  }
 }
 
 class LoroSemanticCustodyOwner {
@@ -207,6 +217,7 @@ class LoroSemanticCustodyOwner {
   #hasPostFreezeDraft = false
   #lastError: unknown
   #recoverySequence = 0
+  #navigationWaiters: Array<{ readonly attachment: LoroSemanticCustodyAttachment; readonly resolve: (clean: boolean) => void }> = []
 
   constructor(
     readonly runtime: object,
@@ -287,7 +298,24 @@ class LoroSemanticCustodyOwner {
 
   detach(attachment: LoroSemanticCustodyAttachment): void {
     this.#attachments.delete(attachment)
+    this.#bump()
     this.#maybeRetire()
+  }
+
+  flushForNavigation(attachment: LoroSemanticCustodyAttachment): Promise<boolean> {
+    if (!this.isCurrentAttachment(attachment)) return Promise.resolve(false)
+    if (this.#state === "clean") return Promise.resolve(true)
+    if (this.#state === "retainedRetry" || this.#state === "retainedConflict" || this.#state === "retainedRequestIdentity" || this.#state === "externalCommitFailed") return Promise.resolve(false)
+    return new Promise((resolve) => {
+      this.#navigationWaiters.push({ attachment, resolve })
+      // Navigation shortens the ordinary debounce but never changes intent construction, A/B
+      // ordering, retry policy, or receipt validation.
+      if (this.#state === "queued") {
+        this.#clearQueuedTimer()
+        this.#beginFrozenBatch()
+      }
+      this.#settleNavigationWaiters()
+    })
   }
 
   noteHumanEdit(attachment: LoroSemanticCustodyAttachment): boolean {
@@ -580,6 +608,29 @@ class LoroSemanticCustodyOwner {
 
   #bump(): void {
     this.#revision += 1
+    this.#settleNavigationWaiters()
+  }
+
+  #settleNavigationWaiters(): void {
+    if (this.#navigationWaiters.length === 0) return
+    if (this.#state === "queued") {
+      this.#clearQueuedTimer()
+      this.#beginFrozenBatch()
+      return
+    }
+    const pending = this.#navigationWaiters
+    this.#navigationWaiters = []
+    for (const waiter of pending) {
+      if (!this.isCurrentAttachment(waiter.attachment)) {
+        waiter.resolve(false)
+      } else if (this.#state === "clean") {
+        waiter.resolve(true)
+      } else if (this.#state === "retainedRetry" || this.#state === "retainedConflict" || this.#state === "retainedRequestIdentity" || this.#state === "externalCommitFailed") {
+        waiter.resolve(false)
+      } else {
+        this.#navigationWaiters.push(waiter)
+      }
+    }
   }
 
   #maybeRetire(): void {

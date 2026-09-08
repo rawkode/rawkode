@@ -20,10 +20,14 @@ const rendered = vi.hoisted(() => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => rendered.navigate,
+  useLocation: () => ({ pathname: "/notes", search: rendered.search.length === 0 ? "" : `?${rendered.search}`, hash: "" }),
   useSearchParams: () => [
     new URLSearchParams(rendered.search),
     (next: Record<string, string>) => { rendered.search = new URLSearchParams(next).toString() }
   ]
+}))
+vi.mock("../daily-note-route-transition.js", () => ({
+  useDailyNoteRouteTransition: () => ({ register: () => () => undefined, presentation: "idle" })
 }))
 
 vi.mock("../DailyNote.js", () => ({

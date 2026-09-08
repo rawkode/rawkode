@@ -1,6 +1,6 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { BrowserRouter } from "react-router"
+import { createBrowserRouter, RouterProvider } from "react-router"
 import { App } from "./App.js"
 import "./design-system/tokens.css"
 import "./design-system/fonts.css"
@@ -13,7 +13,10 @@ import "./design-system/visual-variants.css"
 
 import { applyTheme, getInitialTheme } from "./theme.js"
 import { bootstrapVisualVariant } from "./visual-variant.js"
-import { VisualVariantSynchronizer } from "./VisualVariantSynchronizer.js"
+
+// A data router is the single navigation boundary for daily-note custody. Keep the existing
+// nested <Routes> in App so this changes routing ownership, not the route composition itself.
+const router = createBrowserRouter([{ path: "*", element: <App /> }])
 
 // Apply the persisted/system choice before React paints the shell. This avoids a dark-to-paper
 // flash on launch and keeps the paper treatment an intentional, reversible mode rather than a
@@ -26,9 +29,6 @@ if (!rootEl) throw new Error("#root element not found")
 
 createRoot(rootEl).render(
   <StrictMode>
-    <BrowserRouter>
-      <VisualVariantSynchronizer />
-      <App />
-    </BrowserRouter>
+    <RouterProvider router={router} />
   </StrictMode>
 )

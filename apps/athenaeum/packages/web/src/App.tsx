@@ -12,6 +12,8 @@ import { SignIn } from "./SignIn.js"
 import { AppShell } from "./AppShell.js"
 import { CalendarOAuthCallback } from "./CalendarOAuthCallback.js"
 import { catchUpSyncFeed, loadSyncFeedCursor, saveSyncFeedCursor } from "./sync-feed-client.js"
+import { VisualVariantSynchronizer } from "./VisualVariantSynchronizer.js"
+import { DailyNoteRouteTransitionProvider } from "./daily-note-route-transition.js"
 
 // Perf pass (audit finding "Zero code-splitting", src/App.tsx:15-21 + vite.config.ts): every route
 // used to be a synchronous top-level import, so visiting any one of the seven routes downloaded
@@ -136,7 +138,9 @@ function Workspace({
   }, [])
 
   return (
+    <DailyNoteRouteTransitionProvider>
     <>
+      <VisualVariantSynchronizer />
       {/* Handles its own `window.location.pathname` check and renders a full-screen overlay only
           on the OAuth callback path (see its own header comment) — deliberately not a `<Route>`,
           so it works identically regardless of which route is "underneath" it. */}
@@ -281,6 +285,7 @@ function Workspace({
         </Route>
       </Routes>
     </>
+    </DailyNoteRouteTransitionProvider>
   )
 }
 

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { useNavigate, useSearchParams } from "react-router"
+import { useLocation, useNavigate, useSearchParams } from "react-router"
 import { DailyNote } from "../DailyNote.js"
 import { TodayBrief, type TodayBriefEvent, type TodayBriefPrepareMeeting } from "../TodayBrief.js"
 import type { LocalDate } from "@athenaeum/domain"
 import type { PrepareMeetingHandler } from "../LoroRichNoteEditor.js"
 import { localDateStamp, parseDateStamp } from "../daily-note-id.js"
+import {
+  useDailyNoteRouteTransition,
+  type DailyNoteDepartureRegistration
+} from "../daily-note-route-transition.js"
 
 // One file per routed section (task item 3), so a later restyling pass can rework exactly this
 // view without touching `router.tsx`/`AppShell.tsx`/any other route. Wraps the existing, fully
@@ -24,7 +28,9 @@ import { localDateStamp, parseDateStamp } from "../daily-note-id.js"
 // re-resolve. Past days are read-write in the same editor — same deterministic-id resolve-or-create
 // + sync mechanism, different day.
 export function NotesRoute() {
+  const location = useLocation()
   const navigate = useNavigate()
+  const { register: registerDeparture, presentation: departurePresentation } = useDailyNoteRouteTransition()
   const onOpenPerson = useCallback((personNodeId: string) => navigate(`/node/${personNodeId}`), [navigate])
   const [searchParams, setSearchParams] = useSearchParams()
   const rawDate = searchParams.get("date")
@@ -57,6 +63,8 @@ export function NotesRoute() {
     presentationKey: `${stamp}:${routeGenerationRef.current.generation}`
   }), [stamp])
   const activeRouteIdentityRef = useRef<typeof routeIdentity | undefined>(undefined)
+  const activeRouteKeyRef = useRef<string | undefined>(undefined)
+  const departureCleanupRef = useRef<(() => void) | undefined>(undefined)
   const [prepareMeetingRegistration, setPrepareMeetingRegistration] = useState<{
     readonly routeIdentity: typeof routeIdentity
     readonly prepareMeeting: TodayBriefPrepareMeeting
@@ -68,7 +76,15 @@ export function NotesRoute() {
   useLayoutEffect(() => {
     activeRouteIdentityRef.current = routeIdentity
     setPrepareMeetingRegistration((current) => current?.routeIdentity === routeIdentity ? current : undefined)
+    // A render for the next logical note must never retain the prior attachment checkpoint.
+    departureCleanupRef.current?.()
+    departureCleanupRef.current = undefined
+    return () => {
+      if (activeRouteIdentityRef.current === routeIdentity) activeRouteIdentityRef.current = undefined
+    }
   }, [routeIdentity])
+
+  useEffect(() => () => departureCleanupRef.current?.(), [])
 
   const registerPrepareMeeting = useCallback((identity: typeof routeIdentity) => (prepare: PrepareMeetingHandler | undefined) => {
     if (activeRouteIdentityRef.current !== identity) return
@@ -91,6 +107,22 @@ export function NotesRoute() {
   }, [])
 
   const onPrepareMeetingReady = useMemo(() => registerPrepareMeeting(routeIdentity), [registerPrepareMeeting, routeIdentity])
+  const routeKey = `${location.pathname}${location.search}${location.hash}`
+  useLayoutEffect(() => {
+    activeRouteKeyRef.current = routeKey
+    return () => {
+      if (activeRouteKeyRef.current === routeKey) activeRouteKeyRef.current = undefined
+    }
+  }, [routeKey])
+  const registerDailyNoteDeparture = useCallback((registration: Omit<DailyNoteDepartureRegistration, "routeKey" | "routeGeneration" | "todayStamp"> | undefined) => {
+    // Loro cleanup and completion callbacks are asynchronous relative to React. The current
+    // NotesRoute generation is the only one allowed to publish or clear the route checkpoint.
+    if (activeRouteIdentityRef.current !== routeIdentity || activeRouteKeyRef.current !== routeKey) return
+    departureCleanupRef.current?.()
+    departureCleanupRef.current = undefined
+    if (registration === undefined) return
+    departureCleanupRef.current = registerDeparture({ ...registration, routeKey, routeGeneration: routeIdentity.generation, todayStamp })
+  }, [registerDeparture, routeIdentity, routeKey, todayStamp])
 
   const navigateToDate = (nextStamp: string) => {
     if (nextStamp !== stamp) {
@@ -114,6 +146,8 @@ export function NotesRoute() {
           date={date}
           onNavigateDate={navigateToDate}
           onPrepareMeetingReady={onPrepareMeetingReady}
+          onDepartureRegistration={registerDailyNoteDeparture}
+          departurePresentation={departurePresentation}
           todayBriefTargetId={isToday ? "today-brief" : undefined}
           dailyContext={
             <TodayBrief

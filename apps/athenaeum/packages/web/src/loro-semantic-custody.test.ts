@@ -61,6 +61,69 @@ const injectedClock = {
 }
 
 describe("runtime-scoped Loro semantic custody", () => {
+  it("drains the frozen A checkpoint and a post-freeze B before a live attachment may depart", async () => {
+    vi.useFakeTimers()
+    try {
+      const registry = new LoroSemanticCustodyRegistry()
+      const runtime = Object.freeze({})
+      const connection = Object.freeze({})
+      const page = createLoroPage()
+      const first = deferred<LoroCheckpointTransportResult>()
+      const second = deferred<LoroCheckpointTransportResult>()
+      const flights: FrozenLoroIntent[] = []
+      let attachment: ReturnType<typeof registry.attach>
+      attachment = registry.attach({
+        runtime, runtimeConnectionIdentity: connection, workspaceId: workspaceA, nodeId: nodeA,
+        initial: { doc: page.doc, descriptor: descriptor(nodeA) },
+        makeIntent: () => ({ requestId: `departure-${flights.length + 1}`, commitMessage: "Edit daily note", attribution: { kind: "humanUi", surface: "rich-text-editor" } } as never),
+        transport: (flight) => {
+          flights.push(flight)
+          return flights.length === 1 ? first.promise : second.promise
+        },
+        loadAuthority: async () => { throw new Error("not used") },
+        debounceMs: 1000,
+        clock: injectedClock
+      })
+
+      edit(attachment.snapshot().workingDraft!, "A", "one")
+      expect(attachment.noteHumanEdit()).toBe(true)
+      const departure = attachment.flushForNavigation()
+      await flush()
+      expect(flights).toHaveLength(1)
+
+      edit(attachment.snapshot().workingDraft!, "B", "two")
+      expect(attachment.noteHumanEdit()).toBe(true)
+      first.resolve(resultFor(attachment.snapshot().acceptedBase!.doc, flights[0]!, 2, "b"))
+      await flush()
+      expect(flights).toHaveLength(2)
+      second.resolve(resultFor(attachment.snapshot().acceptedBase!.doc, flights[1]!, 3, "c"))
+
+      await expect(departure).resolves.toBe(true)
+      expect(attachment.snapshot().state).toBe("clean")
+      attachment.detach()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("fails a live navigation checkpoint closed when its attachment detaches", async () => {
+    const registry = new LoroSemanticCustodyRegistry()
+    const runtime = Object.freeze({})
+    const connection = Object.freeze({})
+    const page = createLoroPage()
+    const attachment = registry.attach({
+      runtime, runtimeConnectionIdentity: connection, workspaceId: workspaceA, nodeId: nodeA,
+      initial: { doc: page.doc, descriptor: descriptor(nodeA) },
+      makeIntent: () => ({ requestId: "detached-departure", commitMessage: "Edit daily note", attribution: { kind: "humanUi", surface: "rich-text-editor" } } as never),
+      transport: async () => { throw new Error("not used") },
+      loadAuthority: async () => { throw new Error("not used") }
+    })
+    expect(attachment.beginExternalCommit()).toBe(true)
+    const departure = attachment.flushForNavigation()
+    attachment.detach()
+    await expect(departure).resolves.toBe(false)
+  })
+
   it("locks human edits while an external mutation is in flight and unlocks only after verified reload", async () => {
     const registry = new LoroSemanticCustodyRegistry()
     const runtime = Object.freeze({})

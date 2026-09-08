@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import mainSource from "../main.tsx?raw"
+import appSource from "../App.tsx?raw"
 import appShellSource from "../AppShell.tsx?raw"
 import drawerSource from "./Drawer.tsx?raw"
 import visualVariantSource from "../visual-variant.ts?raw"
@@ -35,7 +36,7 @@ describe("visual variant CSS boundary", () => {
   it("is loaded last and leaves the no-query shell contract untouched", () => {
     expect(mainSource.lastIndexOf('import "./design-system/visual-variants.css"')).toBeGreaterThan(mainSource.lastIndexOf('import "./design-system/variant-paper.css"'))
     expect(mainSource).toContain("applyTheme(getInitialTheme())\nbootstrapVisualVariant()")
-    expect(mainSource).toContain("<VisualVariantSynchronizer />")
+    expect(appSource).toContain("<VisualVariantSynchronizer />")
     expect(appShellSource).toContain("<Drawer")
     expect(appShellSource).toContain('className="ds-disclosure shell-account-menu"')
     expect(appShellSource).toContain('className="shell-account-actions"')
