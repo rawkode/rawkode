@@ -22,7 +22,18 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        brews = [ "bun" ];
+        taps = [
+          {
+            name = "oven-sh/bun";
+            trusted = true;
+          }
+        ];
+        brews = [
+          {
+            name = "oven-sh/bun/bun";
+            trusted = true;
+          }
+        ];
       };
     };
 }
