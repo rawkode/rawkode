@@ -252,10 +252,13 @@ final class FocusEngine {
         }
 
         eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        if let runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            eventTap = nil
+            return false
         }
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         return true
     }
@@ -528,7 +531,7 @@ final class FocusEngine {
         guard lifecycle.isCurrent(expectedInputToken) else { return }
 
         // Window IDs are recyclable. Validate the owner before reserving an
-        // attempt; SkyLight repeats the exact (window ID, PID, bounds) check
+        // attempt; SkyLight repeats the (window ID, PID) identity check
         // immediately before its first mutation.
         guard isCurrentWindowTarget(target) else {
             logger.debug("Window target \(target.windowID) is no longer owned by PID \(target.ownerPID)")
@@ -599,9 +602,13 @@ final class FocusEngine {
                 self.lifecycle.isCurrent(expectedInputToken),
                 let point = CGEvent(source: nil)?.location,
                 case .target(let currentTarget) = self.hitTester.hitTest(at: point),
-                currentTarget == target
+                currentTarget.hasSameIdentity(as: target),
+                !self.isAlreadyFocused(target: currentTarget)
             else { return }
 
+            // The window may have moved or its coverage may have changed during
+            // the cooldown. Dispatch the fresh target so the raise decision
+            // reflects the current window stack.
             self.dispatchFocus(target: currentTarget, expectedInputToken: expectedInputToken)
         }
     }

@@ -114,9 +114,12 @@ internal final class SkyLightFocus {
             : .recordFailures(firstFailure, secondFailure)
     }
 
+    // Identity is (window ID, owner PID). Bounds are deliberately not compared:
+    // a window that moved or resized since the hit test is still the same
+    // window, and rejecting it here would drop focus until the next pointer
+    // move.
     private static func matches(snapshot: SkyLightWindowSnapshot, target: WindowTarget) -> Bool {
         snapshot.windowID == target.windowID && snapshot.ownerPID == target.ownerPID
-            && snapshot.bounds == target.bounds
     }
 }
 
