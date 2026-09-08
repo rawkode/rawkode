@@ -4,6 +4,7 @@ import type { CalendarApi } from "@enchiridion/oauth-client/calendar";
 declare global {
   namespace Cloudflare {
     interface Env {
+      DOCUMENTS: import('@enchiridion/documents').DocumentsBinding & { fetch(request: Request): Promise<Response> };
       OAUTH_ADMIN: OAuthAdminBinding;
       OAUTH_CALLBACK: { fetch(request: Request): Promise<Response> };
       CALENDAR_ADMIN: { fetch(request: Request): Promise<Response>; admin(ownerId: string): Promise<CalendarApi & Disposable> };

@@ -11,7 +11,7 @@ const vars = Bun.file(new URL("../services/oauth/.dev.vars", import.meta.url));
 if (!await vars.exists()) await run(["scripts/setup.ts", ...(realGoogle ? ["--google"] : [])]);
 const configuredMock = (await vars.text()).includes("LOCAL_PROVIDER_ORIGIN=");
 if (configuredMock === realGoogle) throw new Error(`Run bun run dev:setup${realGoogle ? " -- --google" : ""} to select the requested provider first.`);
-for (const port of [4321, 8787, 8788, ...(realGoogle ? [] : [8790])]) {
+for (const port of [4321, 8787, 8788, 8789, ...(realGoogle ? [] : [8790])]) {
   for (const hostname of ["127.0.0.1", "::1"]) {
     try { const probe = Bun.listen({ hostname, port, socket: { data() {} } }); probe.stop(true); }
     catch { throw new Error(`Port ${port} is already in use. Stop the existing local stack before starting another.`); }
@@ -41,10 +41,10 @@ async function ready(url: string) {
   throw new Error(`Service did not become ready: ${url}`);
 }
 try {
-  for (const service of ["oauth", "google-calendar"]) {
+  for (const service of ["oauth", "google-calendar", "documents"]) {
     children.push(Bun.spawn([bun, "run", "dev"], { cwd: `${root}services/${service}`, stdout: "inherit", stderr: "inherit", stdin: "ignore", env: { ...process.env, WRANGLER_SEND_METRICS: "false" } }));
   }
-  await Promise.all([ready("http://localhost:8787/health"), ready("http://localhost:8788/health")]);
+  await Promise.all([ready("http://localhost:8787/health"), ready("http://localhost:8788/health"), ready("http://localhost:8789/health")]);
   await run(["run", "--cwd", "website", "dev"]); websiteStarted = true;
   await ready("http://localhost:4321/api/health");
   console.log(`\nLocal stack ready: http://localhost:4321/admin/oauth\nProvider: ${realGoogle ? "Google" : "local test provider (use any non-empty client ID and secret)"}\nRun bun run test:e2e in another terminal. Press Ctrl+C to stop the stack.`);

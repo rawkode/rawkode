@@ -16,11 +16,27 @@
         "ws": "^8.21.0",
       },
     },
+    "packages/documents": {
+      "name": "@enchiridion/documents",
+      "version": "0.1.0",
+    },
     "packages/oauth-client": {
       "name": "@enchiridion/oauth-client",
       "version": "0.1.0",
       "dependencies": {
         "capnweb": "^0.12.0",
+      },
+    },
+    "services/documents": {
+      "name": "@enchiridion/documents-service",
+      "version": "0.1.0",
+      "dependencies": {
+        "@enchiridion/documents": "workspace:*",
+        "capnweb": "^0.12.0",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "latest",
+        "wrangler": "^4.130.0",
       },
     },
     "services/google-calendar": {
@@ -55,6 +71,7 @@
       "dependencies": {
         "@astrojs/cloudflare": "^14.3.1",
         "@d2lang/d2": "0.1.34",
+        "@enchiridion/documents": "workspace:*",
         "@enchiridion/oauth-client": "workspace:*",
         "@excalidraw/excalidraw": "0.18.1",
         "@tiptap/core": "3.31.3",
@@ -212,6 +229,10 @@
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
+
+    "@enchiridion/documents": ["@enchiridion/documents@workspace:packages/documents"],
+
+    "@enchiridion/documents-service": ["@enchiridion/documents-service@workspace:services/documents"],
 
     "@enchiridion/google-calendar": ["@enchiridion/google-calendar@workspace:services/google-calendar"],
 

@@ -10,11 +10,11 @@
     "dev:google": "bun scripts/setup.ts --google && bun scripts/dev.ts --google",
     "dev:website": "bun run --cwd website dev",
     "dev:oauth": "bun run --cwd services/oauth dev",
-    "build": "bun run --cwd website build && bun run --cwd services/oauth build && bun run --cwd services/google-calendar build",
-    "check": "bun x --bun tsc --noEmit && bun run --cwd packages/oauth-client check && bun run --cwd services/oauth check && bun run --cwd services/google-calendar check && bun run --cwd website check",
+    "build": "bun run --cwd website build && bun run --cwd services/oauth build && bun run --cwd services/google-calendar build && bun run --cwd services/documents build",
+    "check": "bun x --bun tsc --noEmit && bun run --cwd packages/oauth-client check && bun run --cwd services/oauth check && bun run --cwd services/google-calendar check && bun run --cwd services/documents check && bun run --cwd website check",
     "test": "bun test",
     "test:e2e": "bun scripts/e2e.ts",
-    "db:migrate": "bun run --cwd services/oauth db:migrate && bun run --cwd services/google-calendar db:migrate"
+    "db:migrate": "bun run --cwd services/oauth db:migrate && bun run --cwd services/google-calendar db:migrate && bun run --cwd services/documents db:migrate"
   },
   "devDependencies": {
     "@types/bun": "^1.3.8",

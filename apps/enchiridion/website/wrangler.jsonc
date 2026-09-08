@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "assets": { "directory": "./dist", "binding": "ASSETS" },
   "services": [
+    { "binding": "DOCUMENTS", "service": "enchiridion-documents", "entrypoint": "Documents" },
     { "binding": "OAUTH_ADMIN", "service": "enchiridion-oauth", "entrypoint": "OAuthAdmin" },
     { "binding": "OAUTH_CALLBACK", "service": "enchiridion-oauth" },
     { "binding": "CALENDAR_ADMIN", "service": "enchiridion-google-calendar", "entrypoint": "CalendarAdmin" }
