@@ -54,7 +54,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = [ "visual-studio-code@insiders" ];
+        casks = [ "visual-studio-code" ];
       };
     };
 }
