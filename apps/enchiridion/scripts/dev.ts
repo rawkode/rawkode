@@ -48,7 +48,7 @@ try {
   await Promise.all([ready("http://localhost:8787/health"), ready("http://localhost:8788/health"), ready("http://localhost:8789/health")]);
   await run(["run", "--cwd", "website", "dev"]); websiteStarted = true;
   await ready("http://localhost:4321/api/health");
-  console.log(`\nLocal stack ready: http://localhost:4321/admin/oauth\nProvider: ${realGoogle ? "Google" : "local test provider (use any non-empty client ID and secret)"}\nRun bun run test:e2e in another terminal. Press Ctrl+C to stop the stack.`);
+  console.log(`\nLocal stack ready: http://localhost:4321\nConnections: http://localhost:4321/admin/oauth\nProvider: ${realGoogle ? "Google" : "local test provider (use any non-empty client ID and secret)"}\nRun bun run test:e2e or bun run test:today in another terminal. Press Ctrl+C to stop the stack.`);
   const exitCode = await Promise.race(children.map((child) => child.exited));
   if (!stopping) throw new Error(`A service stopped unexpectedly (${exitCode}).`);
 } finally { await stop(); }

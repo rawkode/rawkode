@@ -4,7 +4,7 @@ import { authenticate, sameOriginPost } from "./lib/auth";
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const path = context.url.pathname;
-  const protectedRoute = path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/");
+  const protectedRoute = path === '/' || path === '/today' || path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/");
   if (protectedRoute) {
     const admin = await authenticate(context.request, env, import.meta.env.DEV);
     if (!admin) return new Response("Admin access is required. Configure Cloudflare Access, or run the local setup with Bun.", { status: 401, headers: { "Cache-Control": "no-store" } });
@@ -21,6 +21,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
   response.headers.set("Referrer-Policy", path.startsWith("/oauth/") ? "no-referrer" : "same-origin");
   response.headers.set("X-Frame-Options", "DENY");
   if (protectedRoute || path.startsWith("/oauth/")) response.headers.set("Cache-Control", "no-store");
-  if (!import.meta.env.DEV) response.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  if (!import.meta.env.DEV) response.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   return response;
 });

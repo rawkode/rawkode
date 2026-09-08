@@ -4,6 +4,28 @@ import type { CalendarEnv } from './env';
 import { authorized, endpoint, googleRequest, scopes } from './google';
 
 const keys = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+export async function mailPeople(env: CalendarEnv, oauth: OAuthIntegrationApi, connection: Connection, from: string, to: string) {
+  const start = Date.parse(from), end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 172800000) throw new Error('Invalid email window');
+  const found = await searchMail(env, oauth, connection, `after:${Math.floor(start / 1000)} before:${Math.floor(end / 1000)}`);
+  const people = new Map<string, { email: string; name: string }>();
+  for (const message of found.messages.slice(0, 5)) {
+    const url = endpoint(env, `/gmail/v1/users/me/messages/${encodeURIComponent(message.id)}`);
+    url.searchParams.set('format', 'metadata');
+    for (const header of ['From', 'To', 'Cc']) url.searchParams.append('metadataHeaders', header);
+    const response = await googleRequest(oauth, connection, scopes.gmail, url);
+    if (!response.ok) throw new Error('Mail participants unavailable');
+    const body = await response.json() as { payload?: { headers?: { name: string; value: string }[] } };
+    for (const header of body.payload?.headers ?? []) if (['from', 'to', 'cc'].includes(header.name.toLowerCase())) {
+      for (const match of header.value.matchAll(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)) {
+        const email = match[0].toLowerCase();
+        if (email !== connection.accountLabel.toLowerCase()) people.set(email, { email, name: email });
+      }
+    }
+  }
+  await authorized(oauth, connection, scopes.gmail);
+  return { people: [...people.values()], partial: found.messages.length > 5 || Boolean(found.nextPageToken) };
+}
 export async function searchMail(env: CalendarEnv, oauth: OAuthIntegrationApi, connection: Connection, query: string, pageToken?: string) {
   if (typeof query !== 'string' || query.length > 2000 || (pageToken !== undefined && (typeof pageToken !== 'string' || pageToken.length > 4096))) throw new Error('Invalid Gmail search');
   const url = endpoint(env, '/gmail/v1/users/me/messages');

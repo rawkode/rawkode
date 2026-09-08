@@ -85,6 +85,7 @@ export async function startMockGoogle(port = 8790) {
       return json({ connections: [{ resourceName: 'people/alex', names: [{ displayName: revision >= 2 ? 'Alex Updated' : 'Alex' }], emailAddresses: [{ value: 'alex@example.test' }] }, { resourceName: 'people/deleted', metadata: { deleted: revision >= 2 }, names: [{ displayName: 'Former contact' }] }], nextSyncToken: `people-${revision}` });
     }
     if (url.pathname === '/gmail/v1/users/me/profile') return json({ emailAddress: 'alex@example.test' });
+    if (url.pathname === '/gmail/v1/users/me/messages/message-1') return json({ payload: { headers: [{ name: 'From', value: 'Sam <sam@example.test>' }] } });
     if (url.pathname === '/gmail/v1/users/me/watch') return json({ historyId: '12345678901234567890', expiration: String(Date.now() + 604800000) });
     if (url.pathname === '/gmail/v1/users/me/messages') return json({ messages: [{ id: 'message-1', threadId: 'thread-1' }], resultSizeEstimate: 1 });
     if (url.pathname === "/calendar/v3/calendars/primary/events") {

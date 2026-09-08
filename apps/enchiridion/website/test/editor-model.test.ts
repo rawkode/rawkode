@@ -1,3 +1,4 @@
+/// <reference types="bun" />
 import { test, expect } from 'bun:test';
 import { getSchema } from '@tiptap/core';
 import { EditorState } from '@tiptap/pm/state';

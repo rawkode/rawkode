@@ -5,8 +5,8 @@ import type { CalendarApi, CalendarEvent } from "@enchiridion/oauth-client/calen
 import type { CalendarEnv } from "./env";
 import { CalendarError, syncCalendar } from "./sync";
 import { syncGoogle } from './mirror';
-import { scopes } from './google';
-import { searchMail, watchMail, receiveMailNotification } from './gmail';
+import { scopes, endpoint, googleRequest, authorized } from './google';
+import { searchMail, watchMail, receiveMailNotification, mailPeople } from './gmail';
 export { GoogleAccount } from './account';
 
 export class CalendarAdminApi extends RpcTarget implements CalendarApi {
@@ -70,11 +70,42 @@ export class CalendarAdminApi extends RpcTarget implements CalendarApi {
       return await searchMail(this.#env, oauth, connection, query, pageToken);
     });
   }
+  upcoming(connectionId: string, from: string, to: string) {
+    return this.#run(async () => {
+      const connection = await this.#connection(connectionId);
+      if (typeof from !== 'string' || typeof to !== 'string' || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(to) <= Date.parse(from) || Date.parse(to) - Date.parse(from) > 2 * 86400000) throw new CalendarError('Invalid event window');
+      using oauth = await connectOAuth(this.#env.OAUTH, this.#env.OAUTH_SERVICE_CREDENTIAL);
+      const calendars = await this.#env.DB.prepare("SELECT resource_id, data FROM google_records WHERE connection_id = ? AND collection = 'calendars' AND deleted = 0 AND json_extract(data, '$.accessRole') IN ('reader','writer','owner') ORDER BY resource_id LIMIT 11").bind(connectionId).all<{ resource_id: string; data: string }>();
+      const events: (CalendarEvent & { calendarId: string; calendarName: string })[] = [];
+      let partial = calendars.results.length > 10;
+      for (const calendar of calendars.results.slice(0, 10)) {
+        try {
+          // Bounded live expansion handles recurring and moved instances correctly.
+          const url = endpoint(this.#env, `/calendar/v3/calendars/${encodeURIComponent(calendar.resource_id)}/events`);
+          for (const [key, value] of Object.entries({ timeMin: from, timeMax: to, singleEvents: 'true', orderBy: 'startTime', maxResults: '100' })) url.searchParams.set(key, value);
+          const response = await googleRequest(oauth, connection, scopes.calendars, url);
+          if (!response.ok) { partial = true; continue; }
+          const body = await response.json() as { items?: CalendarEvent[]; nextPageToken?: string };
+          partial ||= Boolean(body.nextPageToken);
+          for (const event of body.items ?? []) if (event.status !== 'cancelled') events.push({ ...event, calendarId: calendar.resource_id, calendarName: JSON.parse(calendar.data).summary || calendar.resource_id });
+        } catch { partial = true; }
+      }
+      await authorized(oauth, connection, scopes.calendars);
+      return { events, partial };
+    });
+  }
   watchMail(connectionId: string) {
     return this.#run(async () => {
       const connection = await this.#connection(connectionId);
       using oauth = await connectOAuth(this.#env.OAUTH, this.#env.OAUTH_SERVICE_CREDENTIAL);
       return await watchMail(this.#env, oauth, connection);
+    });
+  }
+  mailPeople(connectionId: string, from: string, to: string) {
+    return this.#run(async () => {
+      const connection = await this.#connection(connectionId);
+      using oauth = await connectOAuth(this.#env.OAUTH, this.#env.OAUTH_SERVICE_CREDENTIAL);
+      return await mailPeople(this.#env, oauth, connection, from, to);
     });
   }
   mailStatus(connectionId: string) {

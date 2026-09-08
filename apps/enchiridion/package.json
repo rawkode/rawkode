@@ -14,6 +14,7 @@
     "check": "bun x --bun tsc --noEmit && bun run --cwd packages/oauth-client check && bun run --cwd services/oauth check && bun run --cwd services/google-calendar check && bun run --cwd services/documents check && bun run --cwd website check",
     "test": "bun test",
     "test:e2e": "bun scripts/e2e.ts",
+    "test:today": "bun scripts/today-e2e.ts",
     "db:migrate": "bun run --cwd services/oauth db:migrate && bun run --cwd services/google-calendar db:migrate && bun run --cwd services/documents db:migrate"
   },
   "devDependencies": {

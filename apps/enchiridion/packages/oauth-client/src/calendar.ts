@@ -11,6 +11,8 @@ export interface CalendarEvent {
 }
 
 export interface CalendarApi {
+  mailPeople(connectionId: string, from: string, to: string): Promise<{ people: { email: string; name: string }[]; partial: boolean }>;
+  upcoming(connectionId: string, from: string, to: string): Promise<{ events: (CalendarEvent & { calendarId: string; calendarName: string })[]; partial: boolean }>;
   syncGoogle(connectionId: string): Promise<{ changed: number; pending: boolean; syncedAt: number }>;
   listRecords(connectionId: string, collection: string, after?: string): Promise<{ records: { id: string; data: Record<string, unknown> }[]; nextCursor?: string }>;
   searchMail(connectionId: string, query: string, pageToken?: string): Promise<{ messages: { id: string; threadId: string }[]; nextPageToken?: string; resultSizeEstimate: number }>;

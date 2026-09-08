@@ -104,12 +104,12 @@ Calendar, Mail, and Drive have presets; Google custom scopes are supported. New 
 
 Local commands and `bun run build` create no remote resources. Before deployment:
 
-- Create two D1 databases and replace each service's placeholder `database_id`. Apply remote migrations with `bun run db:migrate:remote` from each service directory.
+- Create three D1 databases (OAuth, Google, Documents) and replace each service's placeholder `database_id`. Apply remote migrations with `bun run db:migrate:remote` from each service directory.
 - Set `WEBSITE_ORIGIN` to the same exact HTTPS website origin in website and OAuth configuration.
-- Protect `/admin`, `/admin/*`, and `/api/*` with Cloudflare Access. Set website `ACCESS_TEAM_DOMAIN`, `ACCESS_AUDIENCE`, and comma-separated `ADMIN_EMAILS`. The website verifies JWT signatures, issuer, audience, expiry, and admin allowlist. Keep the OAuth callback publicly reachable.
+- Protect the website, including `/`, `/today`, `/admin/*`, and `/api/*`, with Cloudflare Access. Set website `ACCESS_TEAM_DOMAIN`, `ACCESS_AUDIENCE`, and comma-separated `ADMIN_EMAILS`. The website verifies JWT signatures, issuer, audience, expiry, and admin allowlist. Keep the OAuth callback publicly reachable.
 - Set OAuth secrets `TOKEN_ENCRYPTION_KEYS` (JSON key ID to base64-encoded 32-byte key), `TOKEN_ENCRYPTION_KEY_ID` (active ID), and `SERVICE_CREDENTIALS` (JSON service ID to SHA-256 hash). Keep old encryption keys while ciphertext references them. Set Calendar's `OAUTH_SERVICE_CREDENTIAL`. Use `bun x --bun wrangler secret put NAME` in each service directory.
 - Never configure `LOCAL_PROVIDER_ORIGIN` or `LOCAL_ADMIN_EMAIL` in production. Local admin also requires an Astro development build and a matching HTTP loopback origin, so production builds reject the bypass.
-- Deploy OAuth, Calendar, then the website using their Bun `deploy` scripts. Only trusted admin servers receive `OAuthAdmin` and `CalendarAdmin` bindings; integrations receive `OAuthIntegrations`.
+- Deploy OAuth, Calendar, Documents, then the website using their Bun `deploy` scripts. Only trusted servers receive `OAuthAdmin`, `CalendarAdmin`, and `Documents` bindings; integrations receive `OAuthIntegrations`.
 
 Secrets and tokens use AES-256-GCM with row/field identity as authenticated data. D1 leases and version fencing protect refresh concurrency. Disconnect deletes OAuth credentials and grants and blocks new token requests. Issued tokens remain valid until expiry. Disconnect does not revoke at Google or delete an integration's independently owned data. Calendar hides cached data immediately after its grant is removed. Revoke provider access through Google account permissions when needed.
 
@@ -117,6 +117,14 @@ Calendar syncs the primary calendar, storing recurring series and exceptions rat
 
 Multi-calendar selection, push notifications, provider-side revocation, credential editing, and retained-calendar deletion policies are outside this initial implementation.
 # Google worker: contacts, calendars, and live Gmail
+
+## Today and documents
+
+The default website page is a writing-first Today workspace with a persistent Loro/TipTap daily note, upcoming events, people, and an honest unconfigured weather slot. Documents live in their own Worker and D1. Trusted, versioned extension adapters supply lazy-loaded D2 and Excalidraw editors; unknown blocks preserve their payloads when an adapter is unavailable.
+
+See [Documents and Today architecture](docs/documents-and-today.md) for extension registration, slot composition, conflict/recovery semantics, and current limits. With `bun run dev` running, use `bun run test:today` for browser acceptance. Layout customization UI, weather integration, and real-time multi-user merging are not implemented yet.
+
+## Google synchronization
 
 Open `/admin/google` to browse saved contacts and calendars, schedule background sync, search Gmail, or enable notifications. Choose the **Google Workspace** preset when creating an OAuth app, connect the account, and grant `google-calendar` access. Existing apps need a new app/consent with contacts and Gmail scopes to use those features.
 
