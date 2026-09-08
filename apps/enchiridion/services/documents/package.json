@@ -1,0 +1,16 @@
+{
+  "name": "@enchiridion/documents-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --preload ../../scripts/cloudflare-bun.ts ./node_modules/wrangler/bin/wrangler.js dev --port 8789 --inspector-port 9232",
+    "check": "bun x --bun tsc --noEmit",
+    "build": "bun --preload ../../scripts/cloudflare-bun.ts ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
+    "deploy": "bun --preload ../../scripts/cloudflare-bun.ts ./node_modules/wrangler/bin/wrangler.js deploy",
+    "db:migrate": "bun x --bun wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "bun x --bun wrangler d1 migrations apply DB --remote"
+  },
+  "dependencies": { "@enchiridion/documents": "workspace:*", "capnweb": "^0.12.0" },
+  "devDependencies": { "@cloudflare/workers-types": "latest", "wrangler": "^4.130.0" }
+}

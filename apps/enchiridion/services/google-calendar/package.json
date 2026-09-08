@@ -1,0 +1,13 @@
+{
+  "name": "@enchiridion/google-calendar", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": {
+    "dev": "bun --preload ../../scripts/cloudflare-bun.ts ./node_modules/wrangler/bin/wrangler.js dev --port 8788 --inspector-port 9231",
+    "build": "bun --preload ../../scripts/cloudflare-bun.ts ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
+    "check": "bun x --bun tsc --noEmit",
+    "db:migrate": "bun x --bun wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "bun x --bun wrangler d1 migrations apply DB --remote",
+    "deploy": "bun x --bun wrangler deploy"
+  },
+  "dependencies": { "@enchiridion/oauth-client": "workspace:*", "capnweb": "^0.12.0", "jose": "^6.2.12" },
+  "devDependencies": { "@cloudflare/workers-types": "latest", "wrangler": "^4.130.0" }
+}
