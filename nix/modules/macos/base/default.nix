@@ -66,6 +66,16 @@
           mail = {
             personalizedSmartReplies = true;
           };
+          menuBar.clock = {
+            analog = false;
+            use24Hour = false;
+            showAMPM = true;
+            showDate = "never";
+            showDayOfMonth = false;
+            showDayOfWeek = false;
+            showSeconds = false;
+            flashDateSeparators = false;
+          };
           trackpad = {
             tapToClick = true;
             forceClick = false;
