@@ -1,6 +1,0 @@
-.build/
-.DS_Store
-WebEditor/node_modules/
-DerivedData/
-*.xcuserstate
-xcuserdata/
