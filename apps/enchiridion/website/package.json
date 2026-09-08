@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs dev --background",
-    "build": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs build",
+    "build": "bun ../scripts/editor-assets.ts && bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs build",
     "check": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs check",
     "preview": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs preview",
     "astro": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs",

@@ -9,3 +9,4 @@ dist/
 .env.*
 !.env.example
 test-results/
+website/public/diagram-assets/

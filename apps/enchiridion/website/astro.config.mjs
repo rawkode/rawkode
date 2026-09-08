@@ -7,4 +7,5 @@ export default defineConfig({
   output: 'server',
   adapter: cloudflare(),
   server: { host: 'localhost', port: 4321 },
+  vite: { resolve: { alias: { 'loro-crdt': 'loro-crdt/base64' } } },
 });

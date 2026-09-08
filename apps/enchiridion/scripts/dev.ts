@@ -18,6 +18,7 @@ for (const port of [4321, 8787, 8788, 8789, ...(realGoogle ? [] : [8790])]) {
   }
 }
 await run(["run", "db:migrate"]);
+await run(['scripts/editor-assets.ts']);
 const mock = realGoogle ? undefined : await startMockGoogle();
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let websiteStarted = false;
