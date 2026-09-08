@@ -50,15 +50,6 @@ final class SkyLightFocusTests: XCTestCase {
         XCTAssertEqual(fake.records.map { $0[0x08] }, [0x01, 0x02])
     }
 
-    func testBothSetterSpellingsAreRepresentedByInjectedOperation() {
-        for spelling in ["SLPSSetFrontProcessWithOptions", "_SLPSSetFrontProcessWithOptions"] {
-            let fake = configuredFake()
-            fake.setterSpelling = spelling
-            XCTAssertEqual(SkyLightFocus(operations: fake).activate(target: makeTarget(), raise: true), .requestAccepted)
-            XCTAssertEqual(fake.usedSetterSpelling, spelling)
-        }
-    }
-
     func testSetterFailurePostsNoRecords() {
         let fake = configuredFake()
         fake.setterResult = .failure(.failed(step: "setter", status: 17))
@@ -100,16 +91,18 @@ final class SkyLightFocusTests: XCTestCase {
         )
     }
 
-    func testRejectsRecycledWindowIDOwnerMismatchAndBoundsMismatch() {
+    func testRejectsRecycledWindowIDOwnerMismatch() {
         let ownerMismatch = configuredFake()
         ownerMismatch.snapshot = .success(SkyLightWindowSnapshot(windowID: 123, ownerPID: 99, bounds: makeTarget().bounds))
         XCTAssertEqual(SkyLightFocus(operations: ownerMismatch).activate(target: makeTarget(), raise: false), .noMutation(reason: .staleTarget))
         XCTAssertFalse(ownerMismatch.calls.contains("setter"))
+    }
 
-        let boundsMismatch = configuredFake()
-        boundsMismatch.snapshot = .success(SkyLightWindowSnapshot(windowID: 123, ownerPID: 42, bounds: CGRect(x: 0, y: 0, width: 80.25, height: 80)))
-        XCTAssertEqual(SkyLightFocus(operations: boundsMismatch).activate(target: makeTarget(), raise: false), .noMutation(reason: .staleTarget))
-        XCTAssertFalse(boundsMismatch.calls.contains("setter"))
+    func testMovedWindowWithSameIdentityIsStillActivated() {
+        let moved = configuredFake()
+        moved.snapshot = .success(SkyLightWindowSnapshot(windowID: 123, ownerPID: 42, bounds: CGRect(x: 10, y: 20, width: 80.25, height: 80)))
+        XCTAssertEqual(SkyLightFocus(operations: moved).activate(target: makeTarget(), raise: false), .requestAccepted)
+        XCTAssertTrue(moved.calls.contains("setter"))
     }
 
     private func makeTarget() -> WindowTarget {
@@ -136,8 +129,6 @@ private final class FakeSkyLightOperations: SkyLightOperations {
     var setterProcess: SkyLightProcessSerialNumber?
     var postProcesses: [SkyLightProcessSerialNumber] = []
     var records: [[UInt8]] = []
-    var setterSpelling = "SLPSSetFrontProcessWithOptions"
-    var usedSetterSpelling: String?
     var calls: [String] = []
 
     func windowSnapshot(for windowID: CGWindowID) -> Result<SkyLightWindowSnapshot, SkyLightOperationError> {
@@ -156,7 +147,6 @@ private final class FakeSkyLightOperations: SkyLightOperations {
         setterWindowIDs.append(windowID)
         setterWindowID = windowID
         setterProcess = process
-        usedSetterSpelling = setterSpelling
         return setterResult
     }
 

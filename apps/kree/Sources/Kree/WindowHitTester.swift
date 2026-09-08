@@ -13,6 +13,12 @@ internal struct WindowTarget: Equatable {
     /// focused window.
     let requiresNoRaise: Bool
 
+    /// Window identity is the (window ID, owner PID) pair. Bounds and coverage
+    /// describe the window's current state, not which window it is.
+    func hasSameIdentity(as other: WindowTarget) -> Bool {
+        windowID == other.windowID && ownerPID == other.ownerPID
+    }
+
     init(
         windowID: CGWindowID,
         ownerPID: pid_t,
