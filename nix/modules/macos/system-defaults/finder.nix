@@ -46,6 +46,16 @@
           default = false;
           description = "Allow quitting Finder with Cmd+Q";
         };
+        avoidNetworkDSStore = lib.mkOption {
+          type = lib.types.nullOr lib.types.bool;
+          default = null;
+          description = "Avoid writing .DS_Store files on network volumes";
+        };
+        avoidUSBDSStore = lib.mkOption {
+          type = lib.types.nullOr lib.types.bool;
+          default = null;
+          description = "Avoid writing .DS_Store files on USB volumes";
+        };
         suggestFileNames = lib.mkOption {
           type = lib.types.bool;
           default = true;
@@ -69,6 +79,14 @@
             AppleShowAllExtensions = cfg.finder.showExtensions;
             AppleShowAllFiles = cfg.finder.showHiddenFiles;
           };
+
+          CustomUserPreferences."com.apple.desktopservices" =
+            lib.optionalAttrs (cfg.finder.avoidNetworkDSStore != null) {
+              DSDontWriteNetworkStores = cfg.finder.avoidNetworkDSStore;
+            }
+            // lib.optionalAttrs (cfg.finder.avoidUSBDSStore != null) {
+              DSDontWriteUSBStores = cfg.finder.avoidUSBDSStore;
+            };
 
           CustomUserPreferences."com.apple.finder".NSSmartNamingDisabled = !cfg.finder.suggestFileNames;
         };

@@ -37,6 +37,8 @@
             autohideTimeModifier = 0.15;
             orientation = "bottom";
             tilesize = 44;
+            magnification = true;
+            magnifiedSize = 128;
             launchanim = false;
             minimizeToApplication = true;
             showProcessIndicators = true;
@@ -58,18 +60,26 @@
             showStatusBar = true;
             defaultView = "Nlsv";
             suggestFileNames = true;
+            avoidNetworkDSStore = true;
+            avoidUSBDSStore = true;
           };
           mail = {
             personalizedSmartReplies = true;
           };
           trackpad = {
             tapToClick = true;
+            forceClick = false;
             naturalScrolling = true;
             threeFingerDrag = false;
             swipeNavigateWithScrolls = true;
             actuationStrength = 1;
             showAppExposeGesture = true;
             showMissionControlGesture = true;
+          };
+          windowManager = {
+            stageManager = true;
+            hideDesktopItems = true;
+            showAllAppWindows = true;
           };
           keyboard = {
             keyRepeat = 2;

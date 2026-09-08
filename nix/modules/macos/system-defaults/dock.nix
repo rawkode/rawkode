@@ -35,6 +35,16 @@
           default = 44;
           description = "Dock icon size in pixels";
         };
+        magnification = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = "Magnify Dock icons on hover";
+        };
+        magnifiedSize = lib.mkOption {
+          type = lib.types.ints.between 16 128;
+          default = 128;
+          description = "Magnified Dock icon size in pixels";
+        };
         launchanim = lib.mkOption {
           type = lib.types.bool;
           default = false;
@@ -109,6 +119,8 @@
           autohide-time-modifier = cfg.dock.autohideTimeModifier;
           inherit (cfg.dock) orientation;
           inherit (cfg.dock) tilesize;
+          inherit (cfg.dock) magnification;
+          largesize = cfg.dock.magnifiedSize;
           inherit (cfg.dock) launchanim;
           minimize-to-application = cfg.dock.minimizeToApplication;
           show-process-indicators = cfg.dock.showProcessIndicators;

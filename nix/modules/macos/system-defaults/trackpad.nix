@@ -11,6 +11,11 @@
           default = true;
           description = "Enable tap to click";
         };
+        forceClick = lib.mkOption {
+          type = lib.types.nullOr lib.types.bool;
+          default = null;
+          description = "Enable Force Click, or leave the current setting unmanaged";
+        };
         naturalScrolling = lib.mkOption {
           type = lib.types.bool;
           default = true;
@@ -63,6 +68,7 @@
 
           NSGlobalDomain = {
             "com.apple.swipescrolldirection" = cfg.trackpad.naturalScrolling;
+            "com.apple.trackpad.forceClick" = cfg.trackpad.forceClick;
             AppleEnableSwipeNavigateWithScrolls = cfg.trackpad.swipeNavigateWithScrolls;
           };
 
