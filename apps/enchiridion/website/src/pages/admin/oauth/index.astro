@@ -1,0 +1,63 @@
+---
+import { env } from 'cloudflare:workers';
+import type { OAuthAdminApi, OAuthApp, Connection } from '@enchiridion/oauth-client';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+let apps: OAuthApp[] = [];
+let connections: Connection[] = [];
+let config: Awaited<ReturnType<OAuthAdminApi['getConfiguration']>> | undefined;
+let unavailable = false;
+try {
+  using api = await env.OAUTH_ADMIN.admin(Astro.locals.admin!.ownerId);
+  [apps, connections, config] = await Promise.all([api.listApps(), api.listConnections(), api.getConfiguration()]);
+} catch { unavailable = true; }
+const messages: Record<string, string> = {
+  connected: 'Account connected. Choose which integrations can use it below.',
+  cancelled: 'Connection cancelled. You can try again whenever you are ready.',
+  scopes: 'Google did not grant the requested permissions. Connect again and approve all the app’s permissions.',
+  offline: 'Google did not provide offline access. Remove the app from your Google account permissions, then connect again.',
+  failed: 'The account could not be connected. Check the app credentials and callback URL, then try again.',
+  created: 'OAuth app created. You can now connect an account.',
+};
+const result = Astro.url.searchParams.get('result') || '';
+---
+<AdminLayout title="OAuth & accounts" active="oauth">
+  <div class="page-heading"><div><h1>OAuth & accounts</h1><p class="muted">Register your apps, connect accounts, and choose which integrations have access.</p></div><a class="button primary" href="/admin/oauth/new">Create OAuth app</a></div>
+  {messages[result] && <div class:list={['notice', { error: ['failed', 'offline', 'scopes'].includes(result) }]} role="status">{messages[result]}</div>}
+  {unavailable ? <div class="notice error" role="alert"><h2>OAuth service unavailable</h2><p>Check that the OAuth service is running and its database migrations have been applied.</p><a href="/admin/oauth">Retry loading</a></div> : <>
+    <section aria-labelledby="apps-heading">
+      <div class="section-heading"><h2 id="apps-heading">OAuth apps <span class="badge">{apps.length}</span></h2></div>
+      {apps.length === 0 ? <div class="empty"><h3>Add your first OAuth app</h3><p>Create a Google OAuth client, then register its credentials here. You can use separate apps for Calendar, Mail, and other integrations.</p><a class="button" href="/admin/oauth/new">Create OAuth app</a></div> :
+      <div class="table-scroll"><table><thead><tr><th>App</th><th>Permissions</th><th><span class="muted">Account connection</span></th></tr></thead><tbody>
+        {apps.map((app) => <tr><td><strong>{app.name}</strong><p class="muted">Google</p><details><summary>App details</summary><p>Client ID: <code>{app.clientId}</code></p><p>Callback: <code>{app.redirectUri}</code></p></details></td><td><span>{app.scopes.filter((scope) => !['openid', 'email'].includes(scope)).length} requested permission(s)</span><details><summary>View scopes</summary><ul>{app.scopes.map((scope) => <li><code>{scope}</code></li>)}</ul></details></td><td><form method="post" action="/admin/oauth/connect"><input type="hidden" name="appId" value={app.id} /><button type="submit">Connect account</button></form></td></tr>)}
+      </tbody></table></div>}
+    </section>
+    <section aria-labelledby="accounts-heading">
+      <div class="section-heading"><h2 id="accounts-heading">Connected accounts <span class="badge">{connections.length}</span></h2><p class="muted">An integration can use an account only after you grant access.</p></div>
+      {connections.length === 0 ? <div class="empty"><h3>No accounts connected yet</h3><p>Choose “Connect account” on an app above to sign in and approve its permissions.</p></div> : connections.map((connection) => <article class="account-row">
+        <div class="account-heading"><div><h3>{connection.accountLabel}</h3><p class="muted">{connection.appName}</p><span class:list={['status', { warning: connection.status === 'reconnect_required' }]}>{connection.status === 'connected' ? 'Connected' : 'Reconnect required'}</span></div><button class="danger" data-action="disconnect" data-connection={connection.id}>Disconnect account</button></div>
+        <ul class="grants">{connection.services.map((service) => <li>{service}<button class="text-button" data-action="revoke" data-connection={connection.id} data-service={service} aria-label={`Remove ${service} access for ${connection.accountLabel}`}>Remove access</button></li>)}</ul>
+        {config!.serviceIds.some((id) => !connection.services.includes(id)) && <form class="inline-form" data-grant data-connection={connection.id}><div><label for={`service-${connection.id}`}>Allow an integration</label><select id={`service-${connection.id}`} name="serviceId">{config!.serviceIds.filter((id) => !connection.services.includes(id)).map((id) => <option value={id}>{id}</option>)}</select></div><button type="submit">Grant access</button></form>}
+        <p class="hint">Access includes all permissions granted to this app. Removing access stops new token requests; issued tokens remain valid until they expire.</p>
+        <p class="error-message" role="alert" data-error hidden></p>
+      </article>)}
+    </section>
+  </>}
+</AdminLayout>
+<script>
+  import { createOAuthAdminClient } from '@enchiridion/oauth-client';
+  async function run(button: HTMLButtonElement, action: () => Promise<unknown>) {
+    const row = button.closest('article')!;
+    const error = row.querySelector<HTMLElement>('[data-error]')!;
+    error.hidden = true; button.disabled = true;
+    try { await action(); window.location.reload(); }
+    catch (failure) { error.textContent = failure instanceof Error ? failure.message : 'The change could not be saved.'; error.hidden = false; button.disabled = false; }
+  }
+  document.querySelectorAll<HTMLFormElement>('[data-grant]').forEach((form) => form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void run(form.querySelector('button')!, async () => { using api = createOAuthAdminClient(); await api.grantService(form.dataset.connection!, String(new FormData(form).get('serviceId'))); });
+  }));
+  document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => button.addEventListener('click', () => {
+    if (button.dataset.action === 'disconnect' && !confirm('Disconnect this account and remove access for all integrations? You can connect it again later.')) return;
+    void run(button, async () => { using api = createOAuthAdminClient(); if (button.dataset.action === 'disconnect') await api.disconnect(button.dataset.connection!); else await api.revokeService(button.dataset.connection!, button.dataset.service!); });
+  }));
+</script>

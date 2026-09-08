@@ -1,0 +1,41 @@
+---
+import { env } from 'cloudflare:workers';
+import type { Connection } from '@enchiridion/oauth-client';
+import type { CalendarEvent } from '@enchiridion/oauth-client/calendar';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+let connections: Connection[] = [];
+let events: CalendarEvent[] = [];
+let syncedAt: number | null = null;
+let selected = Astro.url.searchParams.get('connection') || '';
+let unavailable = false;
+try {
+  using api = await env.CALENDAR_ADMIN.admin(Astro.locals.admin!.ownerId);
+  connections = await api.listConnections();
+  if (!connections.some((item) => item.id === selected)) selected = connections[0]?.id || '';
+  if (selected) ({ events, syncedAt } = await api.listEvents(selected));
+} catch { unavailable = true; }
+const eventDate = (event: CalendarEvent) => event.start?.dateTime ? new Date(event.start.dateTime).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC' : event.start?.date || 'No date';
+---
+<AdminLayout title="Google Calendar" active="calendar">
+  <div class="page-heading"><div><h1>Google Calendar</h1><p class="muted">Sync events from your connected Google account’s primary calendar.</p></div>{selected && <button class="primary" id="sync-calendar" data-connection={selected}>Sync calendar</button>}</div>
+  {unavailable ? <div class="notice error" role="alert">Calendar service unavailable. Check that both services are running and Calendar has an OAuth service credential. <a href="/admin/calendar">Retry loading</a></div> : connections.length === 0 ?
+    <div class="empty"><h2>Connect a calendar to get started</h2><p>Create a Google Calendar OAuth app, connect your account, then grant access to the google-calendar integration.</p><a class="button" href="/admin/oauth">Manage connected accounts</a></div> : <>
+      <form method="get" class="inline-form"><div><label for="connection">Google account</label><select name="connection" id="connection">{connections.map((item) => <option value={item.id} selected={item.id === selected}>{item.accountLabel} · {item.appName}</option>)}</select></div><button type="submit">View calendar</button></form>
+      <p class="hint">{syncedAt ? `Last synced ${new Date(syncedAt).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC. Showing up to 500 events, including recurring series.` : 'This calendar has not been synced yet.'}</p>
+      <p id="sync-result" class="notice" role="status" hidden></p>
+      {events.length === 0 ? <div class="empty"><h2>{syncedAt ? 'No events in this calendar' : 'Ready for your first sync'}</h2><p>{syncedAt ? 'Sync again to check for new events.' : 'Choose “Sync calendar” to import events.'}</p></div> :
+        <div class="table-scroll"><table><thead><tr><th>Event</th><th>Starts</th><th>Status</th></tr></thead><tbody>{events.map((event) => <tr><td><strong>{event.summary || '(Untitled event)'}</strong></td><td>{eventDate(event)}</td><td>{event.status || 'confirmed'}</td></tr>)}</tbody></table></div>}
+    </>}
+</AdminLayout>
+<script>
+  import { newHttpBatchRpcSession } from 'capnweb';
+  import type { CalendarApi } from '@enchiridion/oauth-client/calendar';
+  const button = document.querySelector<HTMLButtonElement>('#sync-calendar');
+  button?.addEventListener('click', async () => {
+    button.disabled = true; button.textContent = 'Syncing calendar…';
+    const result = document.querySelector<HTMLElement>('#sync-result')!;
+    result.hidden = true;
+    try { using api = newHttpBatchRpcSession<CalendarApi>('/api/calendar/rpc'); await api.sync(button.dataset.connection!); window.location.reload(); }
+    catch (error) { result.textContent = error instanceof Error ? error.message : 'The calendar could not be synced.'; result.hidden = false; result.classList.add('error'); button.disabled = false; button.textContent = 'Retry sync'; }
+  });
+</script>

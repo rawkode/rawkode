@@ -1,0 +1,46 @@
+{
+  "name": "@enchiridion/website",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "dev": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs dev --background",
+    "build": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs build",
+    "check": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs check",
+    "preview": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs preview",
+    "astro": "bun --preload ../scripts/cloudflare-bun.ts ./node_modules/astro/bin/astro.mjs",
+    "deploy": "bun run build && bun x --bun wrangler deploy"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^14.3.1",
+    "@d2lang/d2": "0.1.34",
+    "@enchiridion/oauth-client": "workspace:*",
+    "@excalidraw/excalidraw": "0.18.1",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extension-task-item": "3.31.3",
+    "@tiptap/extension-task-list": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "@types/react": "18",
+    "@types/react-dom": "18",
+    "astro": "^7.3.2",
+    "capnweb": "^0.12.0",
+    "jose": "^6.2.12",
+    "loro-crdt": "1.16.0",
+    "loro-prosemirror": "0.4.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@cloudflare/workers-types": "latest",
+    "wrangler": "^4.130.0"
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
+}
