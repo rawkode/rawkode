@@ -57,6 +57,10 @@
             showPathBar = true;
             showStatusBar = true;
             defaultView = "Nlsv";
+            suggestFileNames = true;
+          };
+          mail = {
+            personalizedSmartReplies = true;
           };
           trackpad = {
             tapToClick = true;
