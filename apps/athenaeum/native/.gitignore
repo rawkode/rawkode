@@ -1,0 +1,14 @@
+.build/
+.swiftpm/
+
+# macOS/iOS: xcodegen-generated Xcode projects (native/macOS/AthenaeumMac.xcodeproj,
+# native/iOS/AthenaeumiOS.xcodeproj) are committed — see each directory's project.yml top doc
+# comment — but per-user/per-machine cruft Xcode itself adds on open is not.
+xcuserdata/
+DerivedData/
+
+# AthenaeumDomain/scripts/generate-fixtures.ts and schema-diff.ts import "effect" — since these
+# scripts live outside packages/domain's own directory, Node's ESM bare-specifier resolution
+# can't find "effect" without this symlink into packages/domain's already-installed
+# node_modules (see AthenaeumDomain/README.md). Not a real install of its own, so not committed.
+AthenaeumDomain/scripts/node_modules

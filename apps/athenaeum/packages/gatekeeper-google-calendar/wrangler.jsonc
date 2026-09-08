@@ -1,0 +1,83 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "athenaeum-gatekeeper-google-calendar",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-02-02",
+  "compatibility_flags": [
+    // Same rationale as athenaeum-backend's wrangler.jsonc: this Worker makes outbound fetches
+    // (Google's OAuth2 + Calendar API v3 endpoints), so SSRF protection on global fetch() applies
+    // here too.
+    "global_fetch_strictly_public",
+    "nodejs_compat"
+  ],
+
+  // Adversarial-review fix, defense-in-depth: this Worker has no legitimate caller other than
+  // `athenaeum-backend`'s own service binding (`calendar-gatekeeper-client.ts`) — `worker.ts`'s
+  // own `fetch()` handler now enforces that with a real shared-secret/HMAC check
+  // (`GATEKEEPER_CALLER_HMAC_SECRET` below, `service-caller-auth.ts`) on every route, which is the
+  // PRIMARY control. This `workers_dev: false` is the second, independent layer: Cloudflare
+  // defaults `workers_dev` to `true`, which would otherwise give this exact checked-in config its
+  // own public `*.workers.dev` URL on deploy — a second unauthenticated-sounding path in even
+  // though the HMAC check above would still reject anything arriving on it. Belt AND suspenders,
+  // deliberately not "either one alone is enough."
+  "workers_dev": false,
+
+  // Deployment topology (plan §"Repo/package layout", "Deployment topology (v1)"): this
+  // gatekeeper is its OWN Worker, following cloudflare-os's one-Worker-per-gatekeeper pattern —
+  // NOT folded into athenaeum-backend. `packages/router` now discovers it via the real
+  // `GATEKEEPER_*` service-binding scan this stage adds (see `packages/router/src/index.ts`,
+  // ported from `cloudflare-os/packages/router/src/index.ts` verbatim) — this stage's own
+  // service binding is named `GATEKEEPER_GOOGLE_CALENDAR` on `athenaeum-router`'s own
+  // `wrangler.jsonc`, pointed at `athenaeum-gatekeeper-google-calendar`, and forwards
+  // `/gatekeeper/google-calendar/*`. `athenaeum-backend`'s own `WorkspaceDurableObject` reaches this
+  // Worker via its OWN separate `GATEKEEPER_GOOGLE_CALENDAR` service binding (see
+  // `athenaeum-backend`'s wrangler.jsonc) — a plain HTTP `Fetcher` call, not a second hop through
+  // the router (see `calendar-gatekeeper-client.ts`'s own header comment for why).
+
+  // GatekeeperAccountDurableObject ("GatekeeperUser" — one per connected Google account, keyed by
+  // the connecting Athenaeum user's email; see `src/gatekeeper-account-durable-object.ts`'s
+  // header comment). Reached via `ctx.exports`, same no-explicit-`durable_objects`-binding
+  // pattern as `athenaeum-backend`'s own DOs.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GatekeeperAccountDurableObject"]
+    }
+  ],
+
+  // Real OAuth client credentials — genuinely unset in this environment (hard constraint: no real
+  // Google OAuth client id/secret exists here, and none is fabricated). A real deployment would
+  // set these via `wrangler secret put GOOGLE_OAUTH_CLIENT_ID` / `wrangler secret put
+  // GOOGLE_OAUTH_CLIENT_SECRET` (never plaintext `vars`, unlike athenaeum-backend's dev-only
+  // DEV_AUTH_HMAC_SECRET carve-out — these are real third-party credentials, not a local dev
+  // convenience). The redirect URI is minted by the OAuth-flow orchestrator (`athenaeum-backend`'s
+  // own `connectGoogleCalendar` RPC — see `calendar-gatekeeper-client.ts`) and passed per-call to
+  // `POST .../connect`, not configured here as a fixed var, so this Worker never hardcodes a
+  // deployment-specific URL. See `google-calendar-client-real.ts`'s own doc comment for exactly
+  // how unset client credentials are handled: every method that needs one fails closed with
+  // `GoogleCalendarNotConfigured` before attempting any network I/O.
+  //
+  // `GATEKEEPER_VERIFIER_HMAC_SECRET` — same "plaintext dev-only var, real deployment uses
+  // `wrangler secret put`" discipline as `athenaeum-backend`'s `DEV_AUTH_HMAC_SECRET` (see that
+  // package's own wrangler.jsonc comment). Unconfigured (as here) means every `getVerifier`/
+  // `addObserver` call fails closed with `GatekeeperAccountNotConnected` — ordinary calendar CRUD
+  // is completely unaffected (see `gatekeeper-account-durable-object.ts`'s
+  // `#requireVerifierSecretConfigured`).
+  //
+  // `GATEKEEPER_CALLER_HMAC_SECRET` (adversarial-review fix) — same plaintext-dev-only/`wrangler
+  // secret put`-for-real-deployments discipline as the other two secrets on this page. MUST be
+  // the exact same value as `athenaeum-backend`'s own `GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_
+  // SECRET` (two `wrangler secret put`s, one value) — `worker.ts`'s `fetch()` handler verifies
+  // every incoming request against it (`service-caller-auth.ts`) and fails EVERY route closed
+  // with 401 when it's unconfigured, unlike the other two secrets above, which only gate their
+  // own specific operations. Genuinely unset in this environment: no real deployment exists here
+  // for two Workers to share a secret between (see this package's own `.dev.vars.example` for the
+  // local-dev/test shape, and `worker-auth.test.ts` for the real end-to-end proof this check
+  // works, all mocked no further than a hand-built `Request`/`Env`).
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}

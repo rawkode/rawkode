@@ -1,0 +1,137 @@
+/* Reset + base typography, layered on the tokens in tokens.css (loaded first, see main.tsx). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-data);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Native scrollbars, styled dark-theme-consistent (Firefox: scrollbar-color, inherited by every
+   scroll container — .chat-messages, mobile drawers, etc; WebKit/Blink: explicit pseudo-elements,
+   since scrollbar-width/-color's WebKit equivalents don't inherit the same way). */
+:root {
+  scrollbar-color: var(--color-border-strong) var(--color-surface);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-surface);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-accent);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0 0 var(--space-3);
+  color: var(--color-text);
+}
+
+h1 {
+  font-size: var(--text-2xl);
+  font-weight: 500;
+}
+h2 {
+  font-size: var(--text-lg);
+}
+h3 {
+  font-size: var(--text-md);
+}
+h4 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+p {
+  margin: 0 0 var(--space-3);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular, aligned numerals anywhere data-dense — ids, timestamps, counts, table cells. */
+table,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: var(--color-accent);
+  transition: color var(--motion-fast) ease;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+/* Shared entrance keyframe (scrims, overlays) — keyframes are global once any sheet loads, so
+   AppShell.css/app.css reference this by name rather than redeclaring it. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* All motion in this app is decorative-or-feedback, never load-bearing (no state is communicated
+   ONLY by an animation — the sync dot also changes color, drawers also change position, etc.), so
+   reduced-motion can flatten everything to effectively-instant rather than needing per-animation
+   alternatives. 0.01ms instead of 0s/`animation: none` keeps animation/transition end events
+   firing for any code listening to them. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

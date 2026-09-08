@@ -1,0 +1,23 @@
+{
+  "name": "@athenaeum/infra",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deploy-time IaC (Alchemy): provisions the Cloudflare AI Gateway that packages/backend's ai-gateway-route.ts routes inference through. NOT a replacement for the packages' wrangler.jsonc files, which remain the operative local-dev configs.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc",
+    "build": "tsc",
+    "clean": "rm -rf .alchemy",
+    "deploy": "alchemy deploy --stage prod",
+    "plan": "alchemy plan --stage prod"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.111",
+    "alchemy": "2.0.0-beta.74",
+    "effect": "4.0.0-rc.111"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "catalog:"
+  }
+}

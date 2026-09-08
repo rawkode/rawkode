@@ -1,0 +1,568 @@
+{
+  "format": "athenaeum-native-plain-loro-v1-corpus",
+  "corpusVersion": 1,
+  "scalarUnit": "provisional-unicode-scalar",
+  "generator": {
+    "loroCrdt": "1.14.1",
+    "loroProsemirror": "0.4.4",
+    "schema": "athenaeum-rich-text-v1",
+    "peerId": "424242"
+  },
+  "cases": [
+    {
+      "id": "empty-to-text",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJNocxEAA0ABAABMT1JPAAALAAsBEAEyeQYAAAAAAAEBAAAAAAAFAQAAAQAfBgQBAAAMBAEAAA4EAAAABAQAAQAKBAAAAAwEAAAAEHMNc2NoZW1hVmVyc2lvbghub2RlTmFtZQphdHRyaWJ1dGVzCmlzQW1nQmxvY2sMdW5rbm93bkF0dHJzCGNoaWxkcmVuFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxACQBBAwVAAIAAgABBAIAAgEKAQAKAgEJBgIBBAYICwEIDAsCFgEAIAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaAkAAgkBAAIAZnIBsvIZFAACAHZ2AbLyGRYAAPgAAgEDAFPPYLYBAAAABQAAAAwAAAAAAAAGeTIAAAAAAAIAdnY7TVx9HQEAAIwBAABMT1JPAAQiTRhgQII4AQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAEfQAAJgAAjQBHGACAFjIB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgPTAF8AABoAgG0BBj0AAQA2ARcENgFKA2RvYzABGApdAPAGAgAFAAEAAEcAngDIABIBMgFtAQcAAAAAAHwGTTABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeVABAAAAAAAA",
+      "acceptedBaseVVBase64": "AbLyGRY=",
+      "originalText": "",
+      "replacement": {
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "hello"
+      },
+      "expectedText": "hello",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": ""
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "6c8dd2c859ca40c6b06f9bcdee63c2feed7be10b535dd9cd963281777bc67bdc",
+      "acceptedBaseVVSHA256": "011518409b338e4a4bb21f18791293ddcf9159aae813a50e8169b10ad565657b"
+    },
+    {
+      "id": "text-to-empty",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAIgIEewAA1sBAABMT1JPAAQiTRhgQIIgAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQUAKgMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AcCBWhlbGxvAAIAZnIBsvIZIAACAHZ2CgCQIgAAFAEeAQMAAAAAAN2Z5l4BAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYOAEAALoBAABMT1JPAAQiTRhgQIJmAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgCFFAIFaGVsbG9oACEDBGgAERgGAABeAEcYAIAWfwH4D2FnZS1tZXRhLXYxAAEAAQ1zY2hlbWFWZXJzaW9uAyABXwAAGgCAugEGPQABAIMBFwSDAUoDZG9jfQEYCl0A8AgCAAUAAQAARwCeAMgAEgFHAX8BugEIAAAAAADkKV28AQAAAAUAAAANAAAyeQYAAAAAAAIAAAABGgCAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MbQX1Hl+AQAAAAAAAA==",
+      "acceptedBaseVVBase64": "AbLyGSI=",
+      "originalText": "hello",
+      "replacement": {
+        "rangeStart": 0,
+        "rangeLength": 5,
+        "value": ""
+      },
+      "expectedText": "",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": ""
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "a357e59e904dfcf331c350667fbf7964417da8811908c0d529d5775702ef0dfe",
+      "acceptedBaseVVSHA256": "16e00c69452567da4fc3ae6999dacaec1a6d0b832fa7a99f45d642569ecdc76f"
+    },
+    {
+      "id": "prefix-replacement",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAN2xgFsAA2EBAABMT1JPAAQiTRhgQIImAQAAsAAXABcBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQsAMAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8A0CC2hlbGxvIHdvcmxkAAIAZnIBsvIZLAACAHZ2CgCQLgAAGgEkAQMAAAAAAOOX/rsBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYPgEAAMEBAABMT1JPAAQiTRhgQIJtAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgDlFAILaGVsbG8gd29ybGRuACEDBG4AERgGAIcWAAAAGACAFoUB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMmAV8AABoAgMABBj0AAQCJARcEiQFKA2RvY4MBGApdAPAIAgAFAAEAAEcAngDIABIBRwGFAcABCAAAAAAARtiCYAEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5hQEAAAAAAAA=",
+      "acceptedBaseVVBase64": "AbLyGS4=",
+      "originalText": "hello world",
+      "replacement": {
+        "rangeStart": 0,
+        "rangeLength": 5,
+        "value": "goodbye"
+      },
+      "expectedText": "goodbye world",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello world"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "goodbye world"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "2e890262c145edd036c9e05367a2fa7e16a0aa211ec0195dab7de13d59e5d880",
+      "acceptedBaseVVSHA256": "960664b98ef280f0849d84dc40882454813c753596ab1e7341fe034814bac2b0"
+    },
+    {
+      "id": "middle-replacement",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAN2xgFsAA2EBAABMT1JPAAQiTRhgQIImAQAAsAAXABcBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQsAMAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8A0CC2hlbGxvIHdvcmxkAAIAZnIBsvIZLAACAHZ2CgCQLgAAGgEkAQMAAAAAAOOX/rsBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYPgEAAMEBAABMT1JPAAQiTRhgQIJtAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgDlFAILaGVsbG8gd29ybGRuACEDBG4AERgGAIcWAAAAGACAFoUB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMmAV8AABoAgMABBj0AAQCJARcEiQFKA2RvY4MBGApdAPAIAgAFAAEAAEcAngDIABIBRwGFAcABCAAAAAAARtiCYAEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5hQEAAAAAAAA=",
+      "acceptedBaseVVBase64": "AbLyGS4=",
+      "originalText": "hello world",
+      "replacement": {
+        "rangeStart": 6,
+        "rangeLength": 5,
+        "value": "Loro"
+      },
+      "expectedText": "hello Loro",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello world"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello Loro"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "2e890262c145edd036c9e05367a2fa7e16a0aa211ec0195dab7de13d59e5d880",
+      "acceptedBaseVVSHA256": "960664b98ef280f0849d84dc40882454813c753596ab1e7341fe034814bac2b0"
+    },
+    {
+      "id": "suffix-replacement",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAN2xgFsAA2EBAABMT1JPAAQiTRhgQIImAQAAsAAXABcBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQsAMAMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8A0CC2hlbGxvIHdvcmxkAAIAZnIBsvIZLAACAHZ2CgCQLgAAGgEkAQMAAAAAAOOX/rsBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYPgEAAMEBAABMT1JPAAQiTRhgQIJtAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgDlFAILaGVsbG8gd29ybGRuACEDBG4AERgGAIcWAAAAGACAFoUB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMmAV8AABoAgMABBj0AAQCJARcEiQFKA2RvY4MBGApdAPAIAgAFAAEAAEcAngDIABIBRwGFAcABCAAAAAAARtiCYAEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5hQEAAAAAAAA=",
+      "acceptedBaseVVBase64": "AbLyGS4=",
+      "originalText": "hello world",
+      "replacement": {
+        "rangeStart": 6,
+        "rangeLength": 5,
+        "value": "there"
+      },
+      "expectedText": "hello there",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello world"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "hello there"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "2e890262c145edd036c9e05367a2fa7e16a0aa211ec0195dab7de13d59e5d880",
+      "acceptedBaseVVSHA256": "960664b98ef280f0849d84dc40882454813c753596ab1e7341fe034814bac2b0"
+    },
+    {
+      "id": "ascii",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAMA+J+cAA2ABAABMT1JPAAQiTRhgQIIlAQAAsAAWABYBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQoALwMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AwCCnBsYWluIHRleHQAAgBmcgGy8hkqAAIAdnYKAJAsAAAZASMBAwAAAAAAMJFefQEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5g9AQAAwAEAAExPUk8ABCJNGGBAgmwBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyANUUAgpwbGFpbiB0ZXh0bQAhAwRtABEYBgCHFAAAABgAgBaEAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DJQFfAAAaAIC/AQY9AAEAiAEXBIgBSgNkb2OCARgKXQDwCAIABQABAABHAJ4AyAASAUcBhAG/AQgAAAAAAFznFMwBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeYQBAAAAAAAA",
+      "acceptedBaseVVBase64": "AbLyGSw=",
+      "originalText": "plain text",
+      "replacement": {
+        "rangeStart": 5,
+        "rangeLength": 4,
+        "value": "Loro"
+      },
+      "expectedText": "plainLorot",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "plain text"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "plainLorot"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "9c4404a03fd6245e279333344886b94154f266eaea54b4b5402e854693e60c2d",
+      "acceptedBaseVVSHA256": "9a64dfe84af4d2180e81afd5fd9ea745d151c92cef542a810e842494c063648e"
+    },
+    {
+      "id": "emoji-surrogate-boundary",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAADsax64AA1wBAABMT1JPAAQiTRhgQIIhAQAAsAAPAA8BEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQMAKwMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AgCBkHwn6acQgACAGZyAbLyGRwAAgB2dgoAkB4AABUBHwEDAAAAAADWwL3oAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmDkBAAC7AQAATE9STwAEIk0YYECCZwEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAlRQCBkHwn6acQmkAIQMEaQARGAYAAEABRxgAgBaAAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DIQFfAAAaAIC7AQY9AAEAhAEXBIQBSgNkb2N+ARgKXQDwCAIABQABAABHAJ4AyAASAUcBgAG7AQgAAAAAABIL5UABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeX8BAAAAAAAA",
+      "acceptedBaseVVBase64": "AbLyGR4=",
+      "originalText": "A🦜B",
+      "replacement": {
+        "rangeStart": 1,
+        "rangeLength": 1,
+        "value": "X"
+      },
+      "expectedText": "AXB",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "A🦜B"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "AXB"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "02d67d7a375cfd74205a1bab09b5ba0bbc34e2510dcdfd5307c21c6f1ec90d3c",
+      "acceptedBaseVVSHA256": "b19fac9a5c9a87d7a49c7332a31ccd793bd8c3405bd30114fdac0ff0fee24eed"
+    },
+    {
+      "id": "combining-sequence",
+      "valid": true,
+      "initialSnapshotBase64": "bG9ybwAAAAAAAAAAAAAAAPwqgZkAA1wBAABMT1JPAAQiTRhgQIIhAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQUAKwMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AgCBmNhZmXMgQACAGZyAbLyGSAAAgB2dgoAkCIAABUBHwEDAAAAAADCVETpAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmDkBAAC7AQAATE9STwAEIk0YYECCZwEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAlRQCBmNhZmXMgWkAIQMEaQARGAYAAF8ARxgAgBaAAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DIQFfAAAaAIC7AQY9AAEAhAEXBIQBSgNkb2N+ARgKXQDwCAIABQABAABHAJ4AyAASAUcBgAG7AQgAAAAAAPCuLwkBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeX8BAAAAAAAA",
+      "acceptedBaseVVBase64": "AbLyGSI=",
+      "originalText": "café",
+      "replacement": {
+        "rangeStart": 4,
+        "rangeLength": 1,
+        "value": "X"
+      },
+      "expectedText": "cafeX",
+      "initialShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "café"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "expectedFinalShape": {
+        "rootAttributes": {
+          "isAmgBlock": false
+        },
+        "blocks": [
+          {
+            "nodeName": "paragraph",
+            "attributes": {
+              "isAmgBlock": false
+            },
+            "text": "cafeX"
+          }
+        ],
+        "namedRootContainers": [
+          "athenaeum-page-meta-v1",
+          "athenaeum-prosemirror-v1"
+        ]
+      },
+      "initialSnapshotSHA256": "f36b973564b78e4b92d4d04526df024afb736769dcd8a169e2e1724c49a29796",
+      "acceptedBaseVVSHA256": "16e00c69452567da4fc3ae6999dacaec1a6d0b832fa7a99f45d642569ecdc76f"
+    }
+  ],
+  "eligibility": {
+    "id": "canonical-empty-document",
+    "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAPhcSKMAA20BAABMT1JPAAQiTRhgQIIyAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRfcm9zZW1pcnJvci12MQA3AQQSIQACAAIAAQQCAAIBBAIJBgQJEAEACgIBCQYCDQQJAAgABwgNCAsBCA4LAQUECAMJCAIiAQsBAwIBAAIBGAIBAiYDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPADAgFfAAIAZnIBsvIZIAACAHZ2CgCQIgAAJgEwAQMAAAAAANSZsXQBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYSgEAAK8BAABMT1JPAAQiTRhgQIJbAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMAEAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAfDJAAFFYJAA4ADUsAXwUAAAAB5wALAX8AJQwBfgC4AQMCAQACAQwCAQBKABAKSgAFjAABNQAWFmgAAzUAEhY1ABQCygBhCwAAAAIFwQBgFAIAAAME0QB3AAAAGACAFnkB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMaAV8AABoAgLQBBj0AAQB9ARcEfQFKA2RvY3cBGApdAPAIAgAFAAEAAEcAngDXACEBVgF5AbQBCAAAAAAAfXFjPQEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5cwEAAAAAAAA=",
+    "expectedShape": {
+      "rootAttributes": {
+        "isAmgBlock": false
+      },
+      "blocks": [
+        {
+          "nodeName": "paragraph",
+          "attributes": {
+            "isAmgBlock": false
+          },
+          "text": ""
+        }
+      ],
+      "namedRootContainers": [
+        "athenaeum-page-meta-v1",
+        "athenaeum-prosemirror-v1"
+      ]
+    }
+  },
+  "negatives": [
+    {
+      "id": "negative-newline-rejected",
+      "valid": false,
+      "capability": "rejected-newline",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAPtjgqIAA1sBAABMT1JPAAQiTRhgQIIgAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRJcm9zZW1pcnJvci12MQAsAQQOGQACAAIAAQQCAAIBBAIMAQAKAgEJBgIFBAkACAgLAQgOCwEFBBgBAQUAKgMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AcCBXBsYWluAAIAZnIBsvIZIAACAHZ2CgCQIgAAFAEeAQMAAAAAAJGQ+XIBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYOAEAALoBAABMT1JPAAQiTRhgQIJmAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgCFFAIFcGxhaW5oACEDBGgAERgGAABeAEcYAIAWfwH4D2FnZS1tZXRhLXYxAAEAAQ1zY2hlbWFWZXJzaW9uAyABXwAAGgCAugEGPQABAIMBFwSDAUoDZG9jfQEYCl0A8AgCAAUAAQAARwCeAMgAEgFHAX8BugEIAAAAAAC5XcJoAQAAAAUAAAANAAAyeQYAAAAAAAIAAAABGgCAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MbQX1Hl+AQAAAAAAAA==",
+      "probeReplacement": {
+        "originalText": "plain",
+        "rangeStart": 5,
+        "rangeLength": 0,
+        "value": "line\nbreak"
+      },
+      "replacement": {
+        "originalText": "plain",
+        "rangeStart": 5,
+        "rangeLength": 0,
+        "value": "line\nbreak"
+      }
+    },
+    {
+      "id": "negative-missing-is-amg-block",
+      "valid": false,
+      "capability": "missing-attribute",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAM0t1AIAA14BAABMT1JPAAQiTRhgQIIjAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRNcm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAIJDQEACgIBCQYCBwQJAAYJCAsBCA4LAwUIBRgBAwQBACkDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPAGAgRzZWVkAAIAZnIBsvIZIAACAHZ2CgCQIgAAFwEhAQMAAAAAAPuw5CABAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYOwEAALwBAABMT1JPAAQiTRhgQIJoAQAA8DoAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEAAgppc0FtZ0Jsb2NrDHVua25vd25BdHRycwEyeQYAAAAAAAAQAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcANwwBAY0AJwEALgA2CQANDgBfBQAAAAHWAAoRAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgB1FAIEc2VlZGcAIQMEZwARGAYAANoARxgAgBZ8AfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DHwFfAAAaAIC3AQY9AAEAggEXBIIBSgNkb2N8ARgKXQDwCAIABQABAABFAJwAxgAQAUUBfAG3AQgAAAAAAOPiFXABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeYABAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-true-is-amg-block",
+      "valid": false,
+      "capability": "true-attribute",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAADN3aJcAA18BAABMT1JPAAQiTRhgQIIkAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRNcm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAIJDQEACgIBCQYCBwQJAAYJCAsBCA4LAwULBRgBAwQBACoDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPAHAgRzZWVkAQACAGZyAbLyGSAAAgB2dgoAkCIAABgBIgEDAAAAAADETn7hAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmDwBAAC6AQAATE9STwAEIk0YYECCZgEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQEBDHVua25vd25BdHRycwEyeQYAAAAAAAAQAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGgyQABcALgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFn4B+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMfAV8AABoAgLkBBj0AAQCCARcEggFKA2RvY3wBGApdAPAIAgAFAAEAAEcAngDIABIBRwF+AbkBCAAAAAAAJ+EPFQEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5fgEAAAAAAAA=",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-extra-attribute",
+      "valid": false,
+      "capability": "extra-attribute",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAABp2Q40AA2UBAABMT1JPAAQiTRhgQIIqAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPdZFAQAAgAWeQ1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4FZXh0cmEWYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRNcm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAIJDQEACgIBCQYCBwQJAAwJCAsBCA4LAwULBRgBAwQBACoDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPAHAgRzZWVkAQACAGZyAbLyGSAAAgB2dgoAkCIAAB4BKAEDAAAAAACDTxjqAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmEIBAADEAQAATE9STwAEIk0YYECCcAEAAPBGAAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAgVleHRyYQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAABAAAwAECQQABg4A8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFcAkAgACgAHCQQACFcAEQRXABsMkgAHLgA2CQANDgBfBQAAAAHiAAoRAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgB1FAIEc2VlZGcAIQMEZwARGAYAANoARxgAgBaIAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DHwFfAAAaAIDDAQY9AAEAggEXBIIBSgNkb2N8ARgKXQDwCAIABQABAABRAKgA0gAcAVEBiAHDAQgAAAAAAD6CQmMBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeYgBAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-extra-root-property",
+      "valid": false,
+      "capability": "extra-container",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAJnB18oAA2UBAABMT1JPAAQiTRhgQIIqAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPdZFAQAAgAWeQ1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4FZXh0cmEWYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRNcm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAILDQEACgIBCQYCBwQJAAwJCAsBCA4LAwULBRgBAwQBACoDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPAHAgRzZWVkAQACAGZyAbLyGSAAAgB2dgoAkCIAAB4BKAEDAAAAAACl7bEyAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmEIBAADEAQAATE9STwAEIk0YYECCcAEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwBgMBAbLyGQoCAwphdHRyaWJ1dGVzBxMA8RAQAQhub2RlTmFtZQQJcGFyYWdyYXBoCGNoaWxkcmVuJAA2FAIAVQCQCAAKAAcJBAAIVwARBFcAGwyQAAcuADYJAA0OAF8FAAAAAdgACwFwACUMAW8AuAEDAgEAAgEMAgEASgAQCkoABX0AATUAFhZoAAM1ABIWNQAUArsAYQsAAAACBbIAdRQCBHNlZWRnACEDBGcAERgGAADaAEcYAIAWfgH4D2FnZS1tZXRhLXYxAAEAAQ1zY2hlbWFWZXJzaW9uAx8BXwAAGgCAuQEGzAABAAQFZXh0cmEBAYoBFwSKAUoDZG9jhAEYCmUA8AoCAAUAEAABAABHAJ4AyAASAUcBfgG5AQgAAAAAAF0Jo1gBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeYgBAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-extra-paragraph-property",
+      "valid": false,
+      "capability": "extra-attribute",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAADcHh8YAA2UBAABMT1JPAAQiTRhgQIIqAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPdZFAQAAgAWeQ1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4FZXh0cmEWYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPRNcm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAIFDQEACgIBCQYCBwQJAAwJCAsBCA4LAwULBRgBAwQBACoDAQUDZG9jCQACCQEHAQkABQlwYXJhZ3JhcGgUAPAHAgRzZWVkAQACAGZyAbLyGSAAAgB2dgoAkCIAAB4BKAEDAAAAAAAfBjIkAQAAAAUAAAAMAAAAAAAABnkyAAAAAAECAHZ2qC5zmEIBAADEAQAATE9STwAEIk0YYECCcAEAAPA8AAIBABhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjEBAQppc0FtZ0Jsb2NrAQABDHVua25vd25BdHRycwEyeQYAAAAAAAADAAQJBAAGDADwDgMBAbLyGQoCBAVleHRyYQEBCmF0dHJpYnV0ZXMHGwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBdALAIAAoAEAAHCQQACGEAEQRhABsMmgAHMAA2CQANDgBfBQAAAAHiAAsBcgAlDAFxALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK9AGELAAAAAgWyAHUUAgRzZWVkZwAhAwRnABEYBgAA2gBHGACAFogB+A9hZ2UtbWV0YS12MQABAAENc2NoZW1hVmVyc2lvbgMhAV8AABoAgMMBBkwAAQADhAEXBIQBSgNkb2N+ARgKXQDwCAIABQABAABHAKgA0gAcAVEBiAHDAQgAAAAAAIgkkGoBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeYgBAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-mark",
+      "valid": false,
+      "capability": "mark",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAELjgOsAA2wBAABMT1JPAAQiTRhgQIIxAQAAsAASABIBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAPdaFAQAAgAWeg1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4Gc3Ryb25nFmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYFwD0UHJvc2VtaXJyb3ItdjEAMwEEEBkAAgACAAEEAgACAQQCBAANAQAKAgEJBgIDBAkGAAoICwEIDgsFBQwABhgBAQQEAQAtAwEFA2RvYwkAAgkBBwEJAAUJcGFyYWdyYXBoFADwCgIEc2VlZIQBBgEAAgBmcgGy8hkiAAIAdnYKAJAkAAAlAS8BAwAAAAAAcceGPAEAAAAFAAAADAAAAAAAAAZ5MgAAAAABAgB2dqguc5hJAQAAzwEAAExPUk8ABCJNGGBAgnsBAADwPAACAQAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxAQEKaXNBbWdCbG9jawEAAQx1bmtub3duQXR0cnMBMnkGAAAAAAAAAwAECQQABgwA8AYDAQGy8hkKAgMKYXR0cmlidXRlcwcTAPEQEAEIbm9kZU5hbWUECXBhcmFncmFwaAhjaGlsZHJlbiQANhQCAFUAkAgACgAHCQQACFcAEQRXABsMkAAHLgA2CQANDgBfBQAAAAHYAAsBcAAlDAFvALgBAwIBAAIBDAIBAEoAEApKAAV9AAE1ABYWaAADNQASFjUAFAK7AGELAAAAAgWyAHUUAgRzZWVkZwCxAwQCCAAFByAHCgcJAPcIAAIDCAEGc3Ryb25nAQMAAQGEABgAgBaQAfgPYWdlLW1ldGEtdjEAAQABDXNjaGVtYVZlcnNpb24DMQFfAAAaAIDLAQY9AAEAlAEXBJQBSgNkb2OOARgKXQDwCAIABQABAABHAJ4AyAASAUcBkAHLAQgAAAAAAIrm3dABAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeZMBAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-extra-block",
+      "valid": false,
+      "capability": "extra-block",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAOo0mz0AA2EBAABMT1JPAAQiTRhgQIImAQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEAKQgEAQAADAUAsA4EAAAABAQAAQAKCgAQDAUAEBAPAPdTFAQAAgAWcw1zY2hlbWFWZXJzaW9uCG5vZGVOYW1lCmF0dHJpYnV0ZXMKaXNBbWdCbG9jawx1bmtub3duQXR0cnMIY2hpbGRyZW4WYXRoZW5hZXVtLXBhZ2UtbWV0YS12MRgXAPA5cm9zZW1pcnJvci12MQAwAQQPGwACAAIAAQQCAAIBBAIHDQEACgIBCQYCBwQJAAIJCAsBCA4LAwULBRgBAwQBAC0DAQUDZG9jHAD0AQEHAQkABQlwYXJhZ3JhcGgUAGACBHNlZWQdAPAAAAIAZnIBsvIZIAACAHZ2CgCQIgAAGwElAQMAAAAAAEeJlRUBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYPgEAANQBAABMT1JPAAQiTRhgQIKAAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4AUAkJBAAQKgAEgQAADAAWDSEAXwUAAAAB6wAKEQKDACEMAQcAJSABiQC5AQMCBAADAwwUAgRSABAKUgAFmAABNgAWFnAAoAEDAgEAAgEWAgE1ABQC1gBhCwAAAAIFzQCEFAIEc2VlZAEbACEDBDIAERgGAAD1AEcYAIAWmQH4D2FnZS1tZXRhLXYxAAEAAQ1zY2hlbWFWZXJzaW9uAzoBXwAAGgCA1AEGPQABAJ0BFwSdAUoDZG9jlwEYCl0A8AoCAAUAAQAARwCeAMgA2wAtAWIBmQHUAQkAAAAAABjr5VMBAAAABQAAAA0AADJ5BgAAAAAAAgAAAAEaAIAYYXRoZW5hZXVtLXByb3NlbWlycm9yLXYxtBfUeZgBAAAAAAAA",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    },
+    {
+      "id": "negative-extra-container",
+      "valid": false,
+      "capability": "extra-container",
+      "expectedFailure": "closed-world-plain-loro-v1",
+      "snapshotBase64": "bG9ybwAAAAAAAAAAAAAAAIj+luoAA3YBAABMT1JPAAQiTRhgQII7AQAAsAARABEBEAEyeQYAAQAgAQEGAOAABQEAAAEALgkEAQAADgUAsBAEAAAABAQAAQAKCgAQDAUAEBAPAGAUBAACABYjAPdREoUBDXNjaGVtYVZlcnNpb24Ibm9kZU5hbWUKYXR0cmlidXRlcwppc0FtZ0Jsb2NrDHVua25vd25BdHRycwhjaGlsZHJlbgF4FmF0aGVuYWV1bS1wYWdlLW1ldGEtdjEYFwD0XXJvc2VtaXJyb3ItdjEPdW5leHBlY3RlZC1yb290ADABBA8XAAIAAgABBAIAAgEEBAINAQAKAgEJBgIHBAkADAkICwEIDgsDBQsFGAEDBAEAKgMBBQNkb2MJAAIJAQcBCQAFCXBhcmFncmFwaBQA8AcCBHNlZWQBAAIAZnIBsvIZIAACAHZ2CgCQIgAAMAE6AQMAAAAAACki8PwBAAAABQAAAAwAAAAAAAAGeTIAAAAAAQIAdnaoLnOYUwEAANwBAABMT1JPAAQiTRhgQIKIAQAA8DwAAgEAGGF0aGVuYWV1bS1wcm9zZW1pcnJvci12MQEBCmlzQW1nQmxvY2sBAAEMdW5rbm93bkF0dHJzATJ5BgAAAAAAAAMABAkEAAYMAPAGAwEBsvIZCgIDCmF0dHJpYnV0ZXMHEwDxEBABCG5vZGVOYW1lBAlwYXJhZ3JhcGgIY2hpbGRyZW4kADYUAgBVAJAIAAoABwkEAAhXABEEVwAbDJAABy4ANgkADQ4AXwUAAAAB2AALAXAAJQwBbwC4AQMCAQACAQwCAQBKABAKSgAFfQABNQAWFmgAAzUAEhY1ABQCuwBhCwAAAAIFsgB1FAIEc2VlZGcAIQMEZwARGAYAANoA9gwRAIAPdW5leHBlY3RlZC1yb290AAEAAQF4AQFoAHcAEAAYAIAWpgGwYWdlLW1ldGEtdjEvAPgADXNjaGVtYVZlcnNpb24DRwFfAAAaAIDhAQY9AAEAqgEXBKoBSgNkb2OkARgKXQDwCgIABQABAABHAJ4AyAASAUcBfgGmAeEBCQAAAAAAnOR9ewEAAAAFAAAADQAAMnkGAAAAAAACAAAAARoAgBhhdGhlbmFldW0tcHJvc2VtaXJyb3ItdjG0F9R5oAEAAAAAAAA=",
+      "probeReplacement": {
+        "originalText": "seed",
+        "rangeStart": 0,
+        "rangeLength": 0,
+        "value": "!"
+      }
+    }
+  ]
+}

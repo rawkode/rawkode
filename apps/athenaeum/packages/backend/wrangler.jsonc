@@ -1,0 +1,183 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "athenaeum-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-02",
+  "compatibility_flags": [
+    // Matches cloudflare-os/packages/workshop-backend: protects the global fetch() function
+    // against SSRF once any Worker-initiated fetch exists (agent tools, gatekeeper calls).
+    "global_fetch_strictly_public",
+    "nodejs_compat"
+  ],
+
+  // App Library backend-execution stage: the real Worker Loader binding — the SAME mechanism
+  // cloudflare-os's own gadgets run on (`packages/workshop-backend/src/overseer.ts`'s
+  // `loadGadgetWorker`: `this.env.LOADER.get(key, async () => workerDef)`, and that package's own
+  // `worker_loaders: [{ "binding": "LOADER" }]`). This is what lets `AppRuntimeService`
+  // (`src/app-runtime-service-live.ts`) load and run an App's agent-authored `server` code inside
+  // a genuinely separate, dynamically-loaded Worker isolate — capability-scoped by construction:
+  // the `env` that `AppRuntimeService` hands to a loaded App Worker is a bare `{}` (see that
+  // file's own header comment), so an App's sandboxed code has NO ambient binding to this
+  // deployment's own `WorkspaceDurableObject` storage, `MEETING_AUDIO` bucket, or any other App's
+  // code, unless a future stage explicitly, narrowly grants one.
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+
+  // WorkspaceDurableObject (one per workspace: nodes/tags/facts/edges, tasks, calendar, bookmarks,
+  // meetings, workouts, chats/changes, sharing, sync feed — see plan §"Storage & domain model")
+  // and UserDurableObject (account identity, workspace catalog, cross-workspace settings) are both
+  // reached via ctx.exports and need no explicit durable_objects binding, matching
+  // cloudflare-os/packages/workshop-backend's UserDurableObject/OverseerDurableObject pattern.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WorkspaceDurableObject", "UserDurableObject"]
+    },
+    {
+      // Scratch DO for the Phase 1 FTS5-capability probe (see
+      // `src/fts-probe-durable-object.ts`) — its own migration tag/class rather than folding it
+      // into "v1" so it stays obviously separate from the two production DOs.
+      "tag": "v2",
+      "new_sqlite_classes": ["FtsSearchProbeDurableObject"]
+    },
+    {
+      // Scratch DO for the Phase 1 Automerge-in-workerd capability probe (see
+      // `src/automerge-probe-durable-object.ts`).
+      "tag": "v3",
+      "new_sqlite_classes": ["AutomergeProbeDurableObject"]
+    },
+    {
+      // One globally named, private OAuth coordinator. HTTP/RPC mounting is separate.
+      "tag": "v4",
+      "new_sqlite_classes": ["CalendarOAuthCoordinatorDurableObject"]
+    }
+  ],
+
+  // Phase 4 prerequisite ("Minimal real dev-auth / identity scheme" — see src/dev-auth.ts's and
+  // src/index.ts's Env.DEV_AUTH_ENABLED/Env.DEV_AUTH_HMAC_SECRET doc comments for the full
+  // rationale).
+  //
+  // **Adversarial-review fix:** `DEV_AUTH_ENABLED`/`DEV_AUTH_HMAC_SECRET` used to live directly in
+  // THIS file's `vars` block — the config `wrangler deploy` reads by default, with no separate
+  // prod overlay turning them off. That meant an as-checked-in deploy would expose
+  // `POST /api/dev/sign-in` live, signed with a secret that was already public in source control.
+  // Deliberately correct now: this base/default config carries NEITHER key, so a real deployment
+  // (`wrangler deploy` against this file, unmodified) has the dev sign-in route off — `env
+  // .DEV_AUTH_ENABLED` is `undefined`, `handleDevSignIn` 404s it — with no secret checked in
+  // either. Local dev and this package's own vitest-pool-workers suite (which needs the real
+  // credential mint/verify round trip against a real running Worker, not a mock) get both vars
+  // from a git-ignored `.dev.vars` file instead (see `.dev.vars.example` in this directory for the
+  // exact shape to copy) — wrangler's own standard mechanism for local-only vars, loaded by
+  // `wrangler dev` and by `@cloudflare/vitest-pool-workers`'s `unstable_readConfig`, but never by
+  // `wrangler deploy`. If a real dev/staging deployment ever needs this route reachable over the
+  // network (not just local `wrangler dev`/tests), the correct move is `wrangler secret put
+  // DEV_AUTH_HMAC_SECRET` plus a `DEV_AUTH_ENABLED` override on that deployment's own env block —
+  // still never a plaintext entry in this shared base file. Rotating the secret invalidates every
+  // outstanding dev credential immediately (they're stateless and self-verifying — see
+  // dev-auth.ts) — the correct/expected behavior, not a bug.
+
+  // Phase 5 (`CalendarService`, `src/calendar-gatekeeper-client.ts`): the service binding to
+  // `athenaeum-gatekeeper-google-calendar`, per the plan's deployment topology ("one Worker per
+  // gatekeeper is added as gatekeepers ship... wired to the router via a service binding" — this
+  // is that same relationship, one hop earlier: `WorkspaceDurableObject` -> gatekeeper Worker
+  // directly, not routed back through `athenaeum-router`). Deliberately commented out, not
+  // wired in as a real `services` entry: this hard-constrained environment has no real Google
+  // OAuth client id/secret for the gatekeeper Worker to do anything useful with even if bound, so
+  // adding the binding here would be a no-op stub with no way to verify it's correct. Uncomment
+  // once a real deployment configures the gatekeeper Worker's own secrets:
+  //
+  //   "services": [
+  //     { "binding": "GATEKEEPER_GOOGLE_CALENDAR", "service": "athenaeum-gatekeeper-google-calendar" }
+  //   ],
+  //
+  // Until then, `env.GATEKEEPER_GOOGLE_CALENDAR` is `undefined` and every `CalendarService`
+  // method that needs it runs against `CalendarGatekeeperClientUnconfigured` (fails closed per
+  // call, same "real client, cleanly unconfigured" pattern as `ANTHROPIC_API_KEY` above) — every
+  // OTHER RPC method on this DO is completely unaffected. Local dev/tests instead install a
+  // scripted double live (`calendarGatekeeperClientTestHook`, see `workspace-durable-object.ts`'s own
+  // doc comment) — no binding needed for that path either.
+  //
+  // `CALENDAR_OAUTH_STATE_SECRET`/`CALENDAR_OAUTH_REDIRECT_URI` — same `.dev.vars`-only
+  // discipline as `DEV_AUTH_HMAC_SECRET` above (see `.dev.vars.example` for the exact shape).
+  //
+  // `GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_SECRET` (adversarial-review fix) — same `.dev.vars`-
+  // only discipline as the other secrets above; real deployment uses `wrangler secret put`. Must
+  // be uncommented/configured together with the `services` binding above, never one without the
+  // other: `workspace-durable-object.ts`'s own construction site falls back to
+  // `CalendarGatekeeperClientUnconfigured` unless BOTH are present, and the gatekeeper Worker's
+  // own `fetch()` handler 401s every route unless ITS matching `GATEKEEPER_CALLER_HMAC_SECRET` is
+  // also set to the exact same value (`athenaeum-gatekeeper-google-calendar`'s own `wrangler.jsonc`
+  // comment). See `gatekeeper-service-credential.ts`'s header comment for the full "why" — this is
+  // what closes the "any caller who knows a connected user's email could reach this Worker
+  // unauthenticated via the router or its own default `*.workers.dev` URL" gap.
+
+  // Phase 6 (`MeetingsService`, `src/meetings-service-live.ts`): raw meeting audio storage, per
+  // the plan's own storage-tier split ("R2 holds Automerge binary snapshots... meeting audio +
+  // transcripts... large workout payloads" — §"Storage & domain model") and this stage's own hard
+  // constraint ("keep audio blobs out of DO SQLite directly"). Unlike `GATEKEEPER_GOOGLE_CALENDAR`
+  // above, an R2 bucket needs no external Worker/OAuth client to be real and usable — it's bound
+  // unconditionally here, and `@cloudflare/vitest-pool-workers` (via miniflare) backs it with a
+  // real, locally-simulated R2 implementation for this package's own test suite
+  // (`test/meetings.test.ts`), the same way DO SQLite itself is real-but-locally-simulated in
+  // every other test in this suite. A real deployment needs the bucket to actually exist first
+  // (`wrangler r2 bucket create athenaeum-meeting-audio`) — ordinary R2 infra provisioning, not a
+  // secret, and out of scope for this stage per its own "no wrangler deploy" hard constraint.
+  "r2_buckets": [
+    {
+      "binding": "MEETING_AUDIO",
+      "bucket_name": "athenaeum-meeting-audio"
+    }
+  ],
+
+  // Phase 6 (`CloudTranscriptionClient`/`RealtimeVoiceClient`, docs/meetings-voice-decisions.md
+  // §2): real OpenAI API keys, read from Worker secret bindings once configured (`wrangler secret
+  // put OPENAI_TRANSCRIPTION_API_KEY` / `wrangler secret put OPENAI_REALTIME_API_KEY`) — per this
+  // task's hard constraint, no real key is available in this environment, so both are `undefined`
+  // here and `CloudTranscriptionClientOpenAI`/`RealtimeVoiceClientOpenAI` (workspace-durable-object.ts)
+  // fail every call with `TranscriptionUnavailable`/`RealtimeVoiceUnavailable` before any network
+  // I/O — same "real client, cleanly unconfigured" pattern as `ANTHROPIC_API_KEY` above.
+  // Deliberately two SEPARATE secret names (not one shared `OPENAI_API_KEY`), so each provider
+  // capability can be scoped/rotated independently — same reasoning
+  // `GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_SECRET`'s own comment gives.
+
+  // AI Gateway routing (docs/ai-gateway-decisions.md): optional, shared by every real inference
+  // client in this package (ModelClientAnthropic/CloudTranscriptionClientOpenAI/
+  // RealtimeVoiceClientOpenAI — see src/ai-gateway-route.ts's header comment). Deliberately
+  // narrower than cloudflare-os's multi-tenant AiGatewayConfig: one configured gateway, one
+  // account, routing this deployment's existing pass-through provider keys through it for
+  // observability/caching, not a per-user OAuth-connected-account billing system.
+  //
+  // Unset here (this environment's default): every client stays in DIRECT mode, calling its
+  // provider's own API host exactly as before this existed — no behavior change until both vars
+  // below are configured together. To enable for real on a live deployment:
+  //   1. Create (or use the auto-created default) AI Gateway in the Cloudflare dashboard — or
+  //      provision it as code via this repo's IaC package (`infra/alchemy.run.ts`, whose stack
+  //      outputs map 1:1 onto the two vars below — see infra/README.md).
+  //   2. Uncomment and set CF_AI_GATEWAY_ACCOUNT_ID/CF_AI_GATEWAY_NAME below (plain vars — an
+  //      account ID and gateway name are not sensitive, same category as this file's other plain
+  //      `vars`... note this file currently has no top-level `vars` block; add one, or set them
+  //      as a real deployment's own environment-specific overlay).
+  //   3. Leave "Authenticated Gateway" off in the dashboard (simplest), or if turned on, mint a
+  //      Run token there and `wrangler secret put CF_AI_GATEWAY_TOKEN`.
+  // Setting exactly one of CF_AI_GATEWAY_ACCOUNT_ID/CF_AI_GATEWAY_NAME (not both) is a
+  // misconfiguration `resolveAiGatewayRoute` throws on at DO construction, rather than silently
+  // falling back to DIRECT mode.
+  //
+  //   "vars": {
+  //     "CF_AI_GATEWAY_ACCOUNT_ID": "...",
+  //     "CF_AI_GATEWAY_NAME": "..."
+  //   },
+  //
+  // CF_AI_GATEWAY_TOKEN (optional, only if Authenticated Gateway is on) is a secret, set the same
+  // "wrangler secret put" way as ANTHROPIC_API_KEY/OPENAI_TRANSCRIPTION_API_KEY above — never a
+  // plaintext `vars` entry.
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}

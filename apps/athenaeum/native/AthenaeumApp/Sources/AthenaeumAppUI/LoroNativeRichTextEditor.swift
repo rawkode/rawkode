@@ -1,0 +1,1470 @@
+#if os(macOS)
+import AppKit
+import SwiftUI
+import AthenaeumCore
+
+/// A deliberately value-only TextKit boundary for the native rich editor.  It does not know how
+/// a document is submitted; its sole output is a canonical semantic document.
+struct LoroNativeRichTextEditor: NSViewRepresentable {
+    let state: LoroNativeRichEditorState
+    let isEditable: Bool
+    /// Monotonic SwiftUI-owned focus requests. The controller consumes each generation only
+    /// after its own NSTextView is attached to a window and remains editable.
+    let focusRequestGeneration: Int
+    /// Optional scalar selection captured before an editor-adjacent command moved focus. It is
+    /// consumed only with the matching focus generation, never on ordinary SwiftUI updates.
+    let focusRequestSelection: LoroNativeRichTextSelection?
+    /// Picker results are one-shot commands keyed by a trigger generation. The controller
+    /// validates the captured range against its current semantic document before admitting them.
+    let mentionInsertion: LoroNativeRichTextMentionInsertion?
+    let supertagInsertion: LoroNativeRichTextSupertagInsertion?
+    /// Checklist toggles are a separate acknowledged-adoption lane; they never enter the
+    /// ordinary rich draft callback.
+    let taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?
+    let taskListInsertionRequestGeneration: Int
+    let taskListInsertionAcknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?
+    let taskListInsertionCancellation: LoroNativeRichTaskListInsertionCancellation?
+    let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
+    let onTaskListInsertion: (LoroNativeRichTaskListInsertionCommand) -> Void
+    let onSelectionChange: (LoroNativeRichTextSelection) -> Void
+    let onRejectedInput: (LoroNativeRichTextEditorRejection) -> Void
+    /// Presentation-only responder state. Durable editing semantics stay in the engine.
+    let onFocusChange: (Bool) -> Void
+    /// Semantic activation stays typed; routing belongs to the parent workspace surface.
+    let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
+    /// The host owns the SwiftUI picker; the adapter only reports an immutable trigger snapshot.
+    let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
+    let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
+    /// A picker follow-up must wait until the command has been rendered and surfaced through
+    /// `onDocumentChange`; observing a trigger or a pending command is not sufficient.
+    let onInlineReferenceInserted: (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void
+
+    init(
+        state: LoroNativeRichEditorState,
+        isEditable: Bool,
+        focusRequestGeneration: Int,
+        focusRequestSelection: LoroNativeRichTextSelection?,
+        mentionInsertion: LoroNativeRichTextMentionInsertion? = nil,
+        supertagInsertion: LoroNativeRichTextSupertagInsertion? = nil,
+        taskToggleAcknowledgement: LoroNativeRichTaskItemToggleAcknowledgement? = nil,
+        taskListInsertionRequestGeneration: Int = 0,
+        taskListInsertionAcknowledgement: LoroNativeRichTaskListInsertionAcknowledgement? = nil,
+        taskListInsertionCancellation: LoroNativeRichTaskListInsertionCancellation? = nil,
+        onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void,
+        onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
+        onTaskListInsertion: @escaping (LoroNativeRichTaskListInsertionCommand) -> Void = { _ in },
+        onSelectionChange: @escaping (LoroNativeRichTextSelection) -> Void,
+        onRejectedInput: @escaping (LoroNativeRichTextEditorRejection) -> Void,
+        onFocusChange: @escaping (Bool) -> Void,
+        onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void,
+        onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
+        onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in },
+        onInlineReferenceInserted: @escaping (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void = { _ in }
+    ) {
+        self.state = state
+        self.isEditable = isEditable
+        self.focusRequestGeneration = focusRequestGeneration
+        self.focusRequestSelection = focusRequestSelection
+        self.mentionInsertion = mentionInsertion
+        self.supertagInsertion = supertagInsertion
+        self.taskToggleAcknowledgement = taskToggleAcknowledgement
+        self.taskListInsertionRequestGeneration = taskListInsertionRequestGeneration
+        self.taskListInsertionAcknowledgement = taskListInsertionAcknowledgement
+        self.taskListInsertionCancellation = taskListInsertionCancellation
+        self.onDocumentChange = onDocumentChange
+        self.onTaskToggle = onTaskToggle
+        self.onTaskListInsertion = onTaskListInsertion
+        self.onSelectionChange = onSelectionChange
+        self.onRejectedInput = onRejectedInput
+        self.onFocusChange = onFocusChange
+        self.onOpenReference = onOpenReference
+        self.onMentionQueryChange = onMentionQueryChange
+        self.onSupertagQueryChange = onSupertagQueryChange
+        self.onInlineReferenceInserted = onInlineReferenceInserted
+    }
+
+    func makeCoordinator() -> LoroNativeRichTextEditorController {
+        LoroNativeRichTextEditorController(document: state.document, isEditable: isEditable,
+                                           onDocumentChange: onDocumentChange,
+                                           onTaskToggle: onTaskToggle,
+                                           onTaskListInsertion: onTaskListInsertion,
+                                           onSelectionChange: onSelectionChange,
+                                           onRejectedInput: onRejectedInput,
+                                           onFocusChange: onFocusChange,
+                                           onOpenReference: onOpenReference,
+                                           onMentionQueryChange: onMentionQueryChange,
+                                           onSupertagQueryChange: onSupertagQueryChange,
+                                           onInlineReferenceInserted: onInlineReferenceInserted)
+    }
+
+    func makeNSView(context: Context) -> LoroNativeRichTextEditorHostView { context.coordinator.makeHostView() }
+
+    func updateNSView(_ view: LoroNativeRichTextEditorHostView, context: Context) {
+        context.coordinator.applyTaskToggleAcknowledgement(taskToggleAcknowledgement)
+        context.coordinator.applyTaskListInsertionCancellation(taskListInsertionCancellation)
+        context.coordinator.applyTaskListInsertionAcknowledgement(taskListInsertionAcknowledgement)
+        context.coordinator.requestTaskListInsertion(generation: taskListInsertionRequestGeneration)
+        context.coordinator.update(document: state.document, isEditable: isEditable)
+        view.updateStyleState(context.coordinator.blockStyleState())
+        context.coordinator.requestFocus(generation: focusRequestGeneration, selection: focusRequestSelection)
+        context.coordinator.applyMentionInsertion(mentionInsertion)
+        context.coordinator.applySupertagInsertion(supertagInsertion)
+    }
+}
+
+/// Kept separate from the representable so its editing boundary can be exercised without a
+/// SwiftUI host.  Storage only ever contains the codec's private marker attributes.
+final class LoroNativeRichTextEditorController: NSObject, NSTextViewDelegate {
+    typealias Rejection = LoroNativeRichTextEditorRejection
+
+    private enum Marker {
+        static let marks = NSAttributedString.Key("dev.athenaeum.rich.marks.v1")
+        static let reference = NSAttributedString.Key("dev.athenaeum.rich.reference.v1")
+        static let block = NSAttributedString.Key("dev.athenaeum.rich.block.v1")
+        static let separatorBefore = NSAttributedString.Key("dev.athenaeum.rich.separator-before.v1")
+        static let separatorAfter = NSAttributedString.Key("dev.athenaeum.rich.separator-after.v1")
+    }
+
+    private let textView: GuardedRichTextView
+    private weak var styleHost: LoroNativeRichTextEditorHostView?
+    /// Authoritative semantic storage. AppKit may synthesize font defaults for display; this
+    /// value is what is decoded, validated, and rendered, and contains marker attrs only.
+    private var semanticStorage = NSMutableAttributedString()
+    private var engine: LoroNativeRichEditingEngine
+    private var rendering = false
+    private var pendingComposition = false
+    private var hostCompositionGeneration = 0
+    private var scheduledFlushGeneration: Int?
+    /// Appearance/accessibility changes only rebuild temporary layout attributes. If TextKit is
+    /// holding marked text, the refresh waits until the semantic composition has settled.
+    private var presentationRefreshPending = false
+    /// A parent refresh received during IME is applied only after the shared engine has either
+    /// committed or cancelled the captured semantic composition. This prevents date navigation
+    /// from silently destroying marked text while still converging on the requested document.
+    private var deferredParentDocument: LoroNativeRichDocumentV1?
+    private var isEditableInput: Bool
+    private var completedFocusGeneration = 0
+    private var pendingFocusGeneration: Int?
+    private var pendingFocusSelection: LoroNativeRichTextSelection?
+    private var pendingTaskToggle: LoroNativeRichTaskItemToggleCommand?
+    private var lastAppliedTaskToggleID: UUID?
+    private var nextTaskListInsertionRequestToken = 0
+    private var lastTaskListInsertionRequestGeneration = 0
+    private var pendingTaskListInsertion: (token: Int, command: LoroNativeRichTaskListInsertionCommand)?
+    private var lastAppliedTaskListInsertionID: UUID?
+    private var pendingMarkdownShortcutWitness: (token: Int, range: NSRange, selection: LoroNativeRichTextSelection)?
+    private var nextMarkdownShortcutRequestToken = 0
+    private var lastAppliedTaskListInsertionCancellationID: UUID?
+    private var nextBlockStyleRequestToken = 0
+    private var nextInlineMarkRequestToken = 0
+    private var pendingInlineMark: LoroNativeRichInlineMarkCommand?
+    #if DEBUG
+    /// Test-only responder result seam. Production always asks this controller's own window.
+    private var testingFocusAttempt: (() -> Bool)?
+    #endif
+    private let onDocumentChange: (LoroNativeRichDocumentV1) -> Void
+    private let onTaskToggle: (LoroNativeRichTaskItemToggleCommand) -> Void
+    private let onTaskListInsertion: (LoroNativeRichTaskListInsertionCommand) -> Void
+    private let onSelectionChange: (LoroNativeRichTextSelection) -> Void
+    private let onRejectedInput: (Rejection) -> Void
+    private let onFocusChange: (Bool) -> Void
+    private let onOpenReference: (LoroCanonicalSemanticValueV1.InlineReference) -> Void
+    private let onMentionQueryChange: (LoroNativeRichTextMentionContext?) -> Void
+    private let onSupertagQueryChange: (LoroNativeRichTextSupertagContext?) -> Void
+    private let onInlineReferenceInserted: (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void
+    private var nextReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
+    private var lastReferenceContexts: [LoroNativeRichTextReferenceTrigger: LoroNativeRichTextInlineReferenceContext] = [:]
+    private var lastAppliedReferenceGenerations: [LoroNativeRichTextReferenceTrigger: Int] = [:]
+
+    init(document: LoroNativeRichDocumentV1, isEditable: Bool,
+         onDocumentChange: @escaping (LoroNativeRichDocumentV1) -> Void = { _ in },
+         onTaskToggle: @escaping (LoroNativeRichTaskItemToggleCommand) -> Void = { _ in },
+         onTaskListInsertion: @escaping (LoroNativeRichTaskListInsertionCommand) -> Void = { _ in },
+         onSelectionChange: @escaping (LoroNativeRichTextCodec.ScalarSelection) -> Void = { _ in },
+         onRejectedInput: @escaping (Rejection) -> Void = { _ in },
+         onFocusChange: @escaping (Bool) -> Void = { _ in },
+         onOpenReference: @escaping (LoroCanonicalSemanticValueV1.InlineReference) -> Void = { _ in },
+         onMentionQueryChange: @escaping (LoroNativeRichTextMentionContext?) -> Void = { _ in },
+         onSupertagQueryChange: @escaping (LoroNativeRichTextSupertagContext?) -> Void = { _ in },
+         onInlineReferenceInserted: @escaping (LoroNativeRichTextInlineReferenceInsertionAcknowledgement) -> Void = { _ in }) {
+        engine = .init(document: document); isEditableInput = isEditable
+        self.onDocumentChange = onDocumentChange; self.onSelectionChange = onSelectionChange; self.onRejectedInput = onRejectedInput; self.onFocusChange = onFocusChange; self.onOpenReference = onOpenReference; self.onMentionQueryChange = onMentionQueryChange; self.onSupertagQueryChange = onSupertagQueryChange; self.onInlineReferenceInserted = onInlineReferenceInserted
+        self.onTaskToggle = onTaskToggle
+        self.onTaskListInsertion = onTaskListInsertion
+        textView = GuardedRichTextView(frame: .zero)
+        super.init()
+        textView.controller = self
+        textView.delegate = self
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.allowsImageEditing = false
+        textView.setAccessibilityLabel("Rich text editor. Command-click a linked label to open it.")
+        textView.setAccessibilityCustomActions([
+            .init(name: "Open linked reference") { [weak self] in self?.openReferenceAtCurrentSelection() ?? false },
+            .init(name: "Toggle checklist item") { [weak self] in self?.requestTaskToggleAtCurrentSelection() ?? false },
+            .init(name: "Add checklist") { [weak self] in self?.requestTaskListInsertion() ?? false }
+        ])
+        render(document, preserving: nil)
+        textView.isEditable = isEditable
+    }
+
+    func makeScrollView() -> NSScrollView {
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.documentView = textView
+        textView.minSize = NSSize(width: 0, height: 0); textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true; textView.isHorizontallyResizable = false
+        return scroll
+    }
+
+    func makeHostView() -> LoroNativeRichTextEditorHostView {
+        let host = LoroNativeRichTextEditorHostView(controller: self, scrollView: makeScrollView())
+        styleHost = host
+        host.updateStyleState(blockStyleState())
+        return host
+    }
+
+    func update(document: LoroNativeRichDocumentV1, isEditable: Bool) {
+        let wasEditable = isEditableInput
+        isEditableInput = isEditable; textView.isEditable = isEditable
+        if !isEditable { invalidateAllReferenceContexts() }
+        if !wasEditable, isEditable { fulfillFocusRequestIfPossible() }
+        if wasEditable, !isEditable, (engine.compositionState != .idle || pendingComposition || textView.hasMarkedText()) {
+            deferredParentDocument = document
+            cancelComposition()
+            return
+        }
+        // Parent refreshes are deliberately inert during IME and while a local proposal remains
+        // admitted locally; otherwise a SwiftUI update can destroy marked text or the caret.
+        if let selection = scalarSelection() { engine.setSelection(selection) }
+        switch engine.receiveParentDocument(document) {
+        case let .adopted(document, selection):
+            // A remote replacement may happen to contain the same visible trigger. It still
+            // needs a new generation so a picker result from the prior document cannot apply.
+            invalidateAllReferenceContexts()
+            pendingInlineMark = nil
+            render(document, preserving: selection)
+        case let .acknowledged(document, selection):
+            invalidateAllReferenceContexts()
+            pendingInlineMark = nil
+            render(document, preserving: selection)
+        case .deferredForComposition:
+            deferredParentDocument = document
+        case .deferredForLocalProposal, .unchanged:
+            publishReferenceContexts()
+            return
+        }
+        publishReferenceContexts()
+    }
+
+    /// Stores a SwiftUI request until this editor has an actual window. The controller owns no
+    /// global window state, and it never makes a disabled editor first responder.
+    func requestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
+        guard generation > completedFocusGeneration else { return }
+        pendingFocusGeneration = max(pendingFocusGeneration ?? 0, generation)
+        pendingFocusSelection = selection
+        fulfillFocusRequestIfPossible()
+    }
+
+    @discardableResult
+    func requestTaskListInsertion() -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection(), selection.length == 0,
+              let command = engine.makeTaskListInsertionCommand(atScalarOffset: selection.location) else { return false }
+        nextTaskListInsertionRequestToken &+= 1
+        pendingTaskListInsertion = (nextTaskListInsertionRequestToken, command)
+        onTaskListInsertion(command)
+        return true
+    }
+
+    func requestTaskListInsertion(generation: Int) {
+        guard generation > lastTaskListInsertionRequestGeneration else { return }
+        lastTaskListInsertionRequestGeneration = generation
+        _ = requestTaskListInsertion()
+    }
+
+    /// Captures selection from this NSTextView at request time; the SwiftUI host only supplies a
+    /// monotonic button generation and never supplies a mirrored selection.
+    @discardableResult
+    func requestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool {
+        guard let target = captureBlockStyleTarget() else { return false }
+        return requestBlockStyle(style, target: target)
+    }
+
+    func captureBlockStyleTarget() -> LoroNativeRichBlockStyleTarget? {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection()
+        else { return nil }
+        return engine.makeBlockStyleTarget(selection: selection)
+    }
+
+    @discardableResult
+    func requestBlockStyle(_ style: LoroNativeRichBlockStyle, target: LoroNativeRichBlockStyleTarget) -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil
+        else { return false }
+        let requestToken = nextBlockStyleRequestToken &+ 1
+        let command = engine.makeBlockStyleCommand(style: style, target: target,
+                                                    requestToken: requestToken)
+        nextBlockStyleRequestToken = requestToken
+        let effect = engine.applyBlockStyle(command)
+        guard case .publish = effect else { _ = apply(effect); return true }
+        _ = apply(effect)
+        return true
+    }
+
+    func blockStyleState() -> LoroNativeRichBlockStyleState {
+        guard isEditableInput, let selection = scalarSelection()
+        else { return .disabled }
+        let state = engine.blockStyleState(for: selection)
+        guard pendingTaskToggle == nil, pendingTaskListInsertion == nil,
+              pendingInlineMark == nil,
+              !pendingComposition, !textView.hasMarkedText() else {
+            return .init(current: state.current, isEnabled: false)
+        }
+        return state
+    }
+
+    @discardableResult
+    fileprivate func armMarkdownShortcutForTypedSpace() -> Int? {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, let selection = scalarSelection(),
+              pendingTaskToggle == nil, pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let range = Optional(textView.selectedRange()), range.length == 0 else { return nil }
+        nextMarkdownShortcutRequestToken &+= 1
+        let token = nextMarkdownShortcutRequestToken
+        pendingMarkdownShortcutWitness = (token, range, selection)
+        return token
+    }
+
+    fileprivate func clearMarkdownShortcutWitness(token: Int) {
+        guard pendingMarkdownShortcutWitness?.token == token else { return }
+        pendingMarkdownShortcutWitness = nil
+    }
+
+    private func consumeMarkdownShortcutIfEligible(range: NSRange, replacement: String) -> Bool {
+        guard replacement == " ", let witness = pendingMarkdownShortcutWitness, witness.range == range else { return false }
+        pendingMarkdownShortcutWitness = nil
+        guard let command = engine.makeMarkdownShortcutCommand(selection: witness.selection, requestToken: witness.token) else { return false }
+        invalidateReferenceContext(.supertag)
+        _ = apply(engine.applyMarkdownShortcut(command))
+        return true
+    }
+
+    func captureInlineMarkTarget() -> LoroNativeRichInlineMarkTarget? {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil,
+              let selection = scalarSelection() else { return nil }
+        return engine.makeInlineMarkTarget(selection: selection)
+    }
+
+    @discardableResult
+    func requestInlineMark(_ mark: LoroCanonicalSemanticValueV1.Mark, target: LoroNativeRichInlineMarkTarget) -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil, pendingTaskToggle == nil,
+              pendingTaskListInsertion == nil, pendingInlineMark == nil else { return false }
+        let token = nextInlineMarkRequestToken &+ 1
+        let command = engine.makeInlineMarkCommand(mark: mark, target: target, requestToken: token)
+        nextInlineMarkRequestToken = token
+        pendingInlineMark = command
+        let didPublish = apply(engine.applyInlineMark(command))
+        if !didPublish { pendingInlineMark = nil }
+        return didPublish
+    }
+
+    func applyTaskListInsertionAcknowledgement(_ acknowledgement: LoroNativeRichTaskListInsertionAcknowledgement?) {
+        guard let acknowledgement, acknowledgement.commandID != lastAppliedTaskListInsertionID else { return }
+        guard let pending = pendingTaskListInsertion,
+              pending.command.commandID == acknowledgement.commandID,
+              engine.isValidTaskListInsertionWitness(pending.command),
+              let expected = insertedTaskListDocument(for: pending.command, in: engine.admittedDocument),
+              expected == acknowledgement.document,
+              let expectedAcknowledgement = LoroNativeRichTaskListInsertionAcknowledgement(command: pending.command, document: acknowledgement.document),
+              expectedAcknowledgement == acknowledgement else {
+            if pendingTaskListInsertion != nil { pendingTaskListInsertion = nil; onRejectedInput(.invalidEdit) }
+            return
+        }
+        pendingTaskListInsertion = nil
+        lastAppliedTaskListInsertionID = acknowledgement.commandID
+        let selection = LoroNativeRichTextSelection(location: acknowledgement.postInsertionScalarOffset, length: 0)
+        switch engine.receiveParentDocument(acknowledgement.document) {
+        case let .adopted(document, _), let .acknowledged(document, _):
+            engine.setSelection(selection)
+            render(document, preserving: selection)
+        case .unchanged, .deferredForComposition, .deferredForLocalProposal: onRejectedInput(.invalidEdit)
+        }
+    }
+
+    @discardableResult
+    func applyTaskListInsertionCancellation(_ cancellation: LoroNativeRichTaskListInsertionCancellation?) -> Bool {
+        guard let cancellation,
+              cancellation.commandID != lastAppliedTaskListInsertionCancellationID,
+              let pending = pendingTaskListInsertion,
+              pending.command.commandID == cancellation.commandID else { return false }
+        pendingTaskListInsertion = nil
+        lastAppliedTaskListInsertionCancellationID = cancellation.commandID
+        onRejectedInput(.disabled)
+        return true
+    }
+
+    private func insertedTaskListDocument(for command: LoroNativeRichTaskListInsertionCommand, in document: LoroNativeRichDocumentV1) -> LoroNativeRichDocumentV1? {
+        guard command.topLevelBlockIndex >= 0, command.topLevelBlockIndex < document.semantic.blocks.count,
+              document.semantic.blocks[command.topLevelBlockIndex] == command.expectedBlock else { return nil }
+        switch command.expectedBlock {
+        case .paragraph, .heading: break
+        case .taskList: return nil
+        }
+        var blocks = document.semantic.blocks
+        blocks.insert(.taskList([.init(checked: false, runs: [])]), at: command.topLevelBlockIndex + 1)
+        return .init(semantic: .init(blocks: blocks))
+    }
+
+    fileprivate func didMoveToWindow() { fulfillFocusRequestIfPossible() }
+
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard !rendering else { return false }
+        guard isEditableInput else { reject(.disabled); return false }
+        // While an input method owns marked text, TextKit must be allowed to mutate its
+        // transient display buffer. `unmarkText` subsequently commits from our marker-only
+        // snapshot, never from those display attributes.
+        guard !pendingComposition, !textView.hasMarkedText() else { return true }
+        guard let replacementString else { reject(.invalidEdit); return false }
+        if consumeMarkdownShortcutIfEligible(range: affectedCharRange, replacement: replacementString) { return false }
+        // The semantic engine has already rendered the admitted document. Returning `true`
+        // would let TextKit apply the original native edit a second time.
+        replace(range: affectedCharRange, withPlainText: replacementString)
+        return false
+    }
+
+    func textDidChange(_ notification: Notification) { guard !rendering else { return }; flushAfterCompositionIfNeeded() }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard !rendering, let selection = scalarSelection() else { return }
+        engine.setSelection(selection); onSelectionChange(selection)
+        styleHost?.updateStyleState(blockStyleState())
+        publishReferenceContexts()
+    }
+
+    fileprivate func didChangeFocus(_ isFocused: Bool) { onFocusChange(isFocused) }
+
+    @discardableResult
+    private func requestTaskToggleAtCurrentSelection() -> Bool {
+        let range = textView.selectedRange()
+        guard range.location != NSNotFound else { return false }
+        let offset = range.location < semanticStorage.length ? range.location : max(0, range.location - 1)
+        return requestTaskToggle(atUTF16Offset: offset)
+    }
+
+    fileprivate func paste(_ pasteboard: NSPasteboard) {
+        guard isEditableInput, !pendingComposition else { reject(.disabled); return }
+        // Anything other than a lone plain string is rejected before TextKit or its undo manager
+        // can touch storage (RTF, attachments, links and services all take this path).
+        let types = Set(pasteboard.types ?? [])
+        let plainTypes: Set<NSPasteboard.PasteboardType> = [.string, .init("public.utf8-plain-text"), .init("public.text")]
+        guard types.isSubset(of: plainTypes), let string = pasteboard.string(forType: .string) else { reject(.attributedPaste); return }
+        replace(range: textView.selectedRange(), withPlainText: string)
+    }
+
+    fileprivate func reject(_ reason: Rejection) {
+        guard !rendering else { return }
+        render(engine.admittedDocument, preserving: engine.admittedSelection)
+        onRejectedInput(reason)
+    }
+
+    /// Formatting is semantic-marker-only: visual font traits never enter `textStorage`.
+    func toggle(mark: LoroCanonicalSemanticValueV1.Mark) {
+        guard isEditableInput else { reject(.disabled); return }
+        // A formatting command during an IME composition must not rebuild or decode the marked
+        // display buffer. It is consumed by the shortcut handler until the composition commits.
+        guard !pendingComposition, !textView.hasMarkedText() else { return }
+        guard let target = captureInlineMarkTarget() else { return }
+        _ = requestInlineMark(mark, target: target)
+    }
+
+    /// Inserts an already-resolved semantic reference without exposing AppKit's attributed-text
+    /// mutation path. A future SwiftUI picker can call this after it captures its trigger range.
+    @discardableResult
+    func insert(
+        reference: LoroCanonicalSemanticValueV1.InlineReference,
+        replacingUTF16Range range: NSRange
+    ) -> Bool {
+        guard isEditableInput, !pendingComposition, !textView.hasMarkedText() else {
+            reject(.disabled)
+            return false
+        }
+        return apply(engine.insert(reference: reference, replacingUTF16Range: range))
+    }
+
+    /// Requests a store-owned checklist toggle without changing local semantic state. The parent
+    /// must return an exact acknowledgement through `applyTaskToggleAcknowledgement` before the
+    /// checkbox can visually change.
+    @discardableResult
+    func requestTaskToggle(atUTF16Offset offset: Int) -> Bool {
+        guard isEditableInput,
+              !pendingComposition,
+              !textView.hasMarkedText(),
+              engine.pendingLocalDocument == nil,
+              pendingTaskToggle == nil,
+              pendingInlineMark == nil,
+              let command = engine.makeTaskToggleCommand(atUTF16Offset: offset)
+        else {
+            if !isEditableInput { reject(.disabled) }
+            return false
+        }
+        pendingTaskToggle = command
+        onTaskToggle(command)
+        return true
+    }
+
+    /// Applies the store's exact post-toggle result through a parent adoption path. This method
+    /// intentionally never calls `onDocumentChange`, avoiding the generic rich-draft debounce.
+    func applyTaskToggleAcknowledgement(_ acknowledgement: LoroNativeRichTaskItemToggleAcknowledgement?) {
+        guard let acknowledgement, acknowledgement.commandID != lastAppliedTaskToggleID else { return }
+        guard let pending = pendingTaskToggle, pending.commandID == acknowledgement.commandID,
+              pending.editorGeneration == engine.documentGeneration,
+              let expected = toggledDocument(for: pending, in: engine.admittedDocument),
+              expected == acknowledgement.document
+        else {
+            if pendingTaskToggle != nil { pendingTaskToggle = nil; onRejectedInput(.invalidEdit) }
+            return
+        }
+        pendingTaskToggle = nil
+        lastAppliedTaskToggleID = acknowledgement.commandID
+        let requestedSelection = acknowledgement.selection
+        switch engine.receiveParentDocument(acknowledgement.document) {
+        case let .adopted(document, adoptedSelection), let .acknowledged(document, adoptedSelection):
+            render(document, preserving: requestedSelection ?? adoptedSelection)
+        case .unchanged, .deferredForComposition, .deferredForLocalProposal:
+            onRejectedInput(.invalidEdit)
+        }
+        publishReferenceContexts()
+    }
+
+    func testingTaskToggle(atUTF16Offset offset: Int) -> LoroNativeRichTaskItemToggleCommand? {
+        guard requestTaskToggle(atUTF16Offset: offset) else { return nil }
+        return pendingTaskToggle
+    }
+    func testingTaskListInsertion() -> LoroNativeRichTaskListInsertionCommand? {
+        guard requestTaskListInsertion() else { return nil }
+        return pendingTaskListInsertion?.command
+    }
+    @discardableResult
+    func testingRequestBlockStyle(_ style: LoroNativeRichBlockStyle) -> Bool { requestBlockStyle(style) }
+
+    private func toggledDocument(
+        for command: LoroNativeRichTaskItemToggleCommand,
+        in document: LoroNativeRichDocumentV1
+    ) -> LoroNativeRichDocumentV1? {
+        guard command.taskListIndex >= 0,
+              command.taskListIndex < document.semantic.blocks.count,
+              case let .taskList(items) = document.semantic.blocks[command.taskListIndex],
+              command.itemIndex >= 0,
+              command.itemIndex < items.count,
+              items[command.itemIndex] == command.expectedItem else { return nil }
+        var updated = document.semantic.blocks
+        var nextItems = items
+        nextItems[command.itemIndex] = .init(checked: !command.expectedItem.checked, runs: command.expectedItem.runs)
+        updated[command.taskListIndex] = .taskList(nextItems)
+        return .init(semantic: .init(blocks: updated))
+    }
+
+    /// Consumes only the standard rich-writing shortcuts that this editor can represent
+    /// losslessly. Unsupported shortcuts continue through AppKit unchanged.
+    fileprivate func handleFormattingShortcut(
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        let modifiers = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if (charactersIgnoringModifiers == "\r" || charactersIgnoringModifiers == "\n"), modifiers == .command {
+            return openReferenceAtCurrentSelection()
+        }
+        let mark: LoroCanonicalSemanticValueV1.Mark?
+        switch (charactersIgnoringModifiers?.lowercased(), modifiers) {
+        case ("b", .command): mark = .strong
+        case ("i", .command): mark = .emphasis
+        case ("e", .command): mark = .code
+        default: mark = nil
+        }
+        guard let mark else { return false }
+        guard isEditableInput else { reject(.disabled); return true }
+        guard !pendingComposition, !textView.hasMarkedText() else { return true }
+        // The canonical value has no typing-attributes state. Without a selection, leave the
+        // event to AppKit rather than inventing a latent format that cannot be persisted.
+        guard let target = captureInlineMarkTarget() else { return false }
+        return requestInlineMark(mark, target: target)
+    }
+
+    // Internal inspection points keep the AppKit contract directly testable without a live window.
+    func testingDocument() -> LoroNativeRichDocumentV1 { engine.admittedDocument }
+    func testingSelection() -> LoroNativeRichTextSelection { engine.admittedSelection }
+    func testingStorage() -> NSAttributedString { semanticStorage.copy() as! NSAttributedString }
+    func testingTemporaryAttributes(atUTF16Offset offset: Int) -> [NSAttributedString.Key: Any] {
+        guard offset >= 0, offset < semanticStorage.length,
+              let layout = textView.layoutManager else { return [:] }
+        return layout.temporaryAttributes(atCharacterIndex: offset, effectiveRange: nil)
+    }
+    func testingRefreshPresentation() { refreshPresentation() }
+    func testingReplace(_ range: NSRange, with string: String) { replace(range: range, withPlainText: string) }
+    func testingInsert(reference: LoroCanonicalSemanticValueV1.InlineReference, replacingUTF16Range range: NSRange) {
+        insert(reference: reference, replacingUTF16Range: range)
+    }
+    /// Exercises the same plain-text-only admission path as `paste(_:)` without a global pasteboard.
+    func testingPastePlainText(_ string: String, at range: NSRange) { replace(range: range, withPlainText: string) }
+    func testingOpenReference(_ reference: LoroCanonicalSemanticValueV1.InlineReference) { onOpenReference(reference) }
+    @discardableResult
+    func testingOpenReference(atUTF16Offset offset: Int) -> Bool { openReference(atUTF16Offset: offset) }
+    func testingSelect(_ range: NSRange) {
+        textView.setSelectedRange(range)
+        if let selection = scalarSelection() { engine.setSelection(selection) }
+        publishReferenceContexts()
+    }
+    func testingApplyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+        applyMentionInsertion(insertion)
+    }
+    func testingApplySupertagInsertion(_ insertion: LoroNativeRichTextSupertagInsertion?) {
+        applySupertagInsertion(insertion)
+    }
+    func testingDismissMentionContext() { dismissMentionContext() }
+    func testingDismissSupertagContext() { dismissSupertagContext() }
+    func testingHandleFormattingShortcut(
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        handleFormattingShortcut(
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            modifierFlags: modifierFlags
+        )
+    }
+    func testingBeginComposition(range: NSRange) {
+        guard isEditableInput, !pendingComposition else { reject(.disabled); return }
+        let effect = engine.beginComposition(utf16Range: range)
+        guard case .noChange = effect else { _ = apply(effect); return }
+        hostCompositionGeneration &+= 1
+        scheduledFlushGeneration = nil
+        pendingComposition = true
+        invalidateAllReferenceContexts()
+    }
+    func testingChangeComposition(_ replacement: String) {
+        engine.updateComposition(replacement)
+    }
+    func testingEndComposition() {
+        guard engine.compositionState != .idle else { return }
+        pendingComposition = false
+        scheduleCompositionFlush()
+    }
+    func testingSetMarkedText(_ value: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        textView.setMarkedText(value, selectedRange: selectedRange, replacementRange: replacementRange)
+    }
+    func testingUnmarkText() { textView.unmarkText() }
+    func testingInsertText(_ value: Any, replacementRange: NSRange) { textView.insertText(value, replacementRange: replacementRange) }
+    func testingArmMarkdownShortcutForTypedSpace() -> Int? { armMarkdownShortcutForTypedSpace() }
+    func testingCompositionReplacement() -> String? { engine.compositionReplacement() }
+    func testingDisplayedString() -> String { textView.attributedString().string }
+    func testingRequestFocus(generation: Int, selection: LoroNativeRichTextSelection? = nil) {
+        requestFocus(generation: generation, selection: selection)
+    }
+    func testingSelection() -> LoroNativeRichTextSelection? { scalarSelection() }
+    func testingSetFocusAttempt(_ attempt: @escaping () -> Bool) {
+        #if DEBUG
+        testingFocusAttempt = attempt
+        #endif
+    }
+    func testingNotifyViewDidMoveToWindow() { didMoveToWindow() }
+    func testingNotifyFocusChanged(_ isFocused: Bool) { didChangeFocus(isFocused) }
+    func testingCompletedFocusGeneration() -> Int { completedFocusGeneration }
+    fileprivate func beginComposition(range: NSRange) { testingBeginComposition(range: range) }
+    fileprivate func updateComposition(_ replacement: String) { testingChangeComposition(replacement) }
+    fileprivate func endComposition() { testingEndComposition() }
+    fileprivate var hasPendingComposition: Bool { engine.compositionState != .idle }
+    fileprivate func finalizeComposition(with replacement: String) {
+        engine.finalizeComposition(replacement)
+    }
+
+    private func fulfillFocusRequestIfPossible() {
+        guard isEditableInput, let generation = pendingFocusGeneration else { return }
+        let didFocus: Bool
+        #if DEBUG
+        if let testingFocusAttempt {
+            didFocus = testingFocusAttempt()
+        } else {
+            didFocus = textView.window?.makeFirstResponder(textView) ?? false
+        }
+        #else
+        didFocus = textView.window?.makeFirstResponder(textView) ?? false
+        #endif
+        guard didFocus else { return }
+        if let selection = pendingFocusSelection,
+           let range = try? LoroNativeRichTextCodec.utf16Range(forScalarSelection: selection, in: semanticStorage) {
+            textView.setSelectedRange(range)
+            engine.setSelection(selection)
+        }
+        completedFocusGeneration = generation
+        pendingFocusGeneration = nil
+        pendingFocusSelection = nil
+    }
+
+    private func replace(range: NSRange, withPlainText replacement: String) {
+        _ = apply(engine.replace(utf16Range: range, withPlainText: replacement))
+    }
+
+    /// Consumes only the command for the exact context still visible at the current caret. This
+    /// prevents a delayed picker result from applying after a query, caret, document, or trigger
+    /// change.
+    private func applyInlineReferenceInsertion(
+        _ insertion: LoroNativeRichTextInlineReferenceInsertion?,
+        trigger: LoroNativeRichTextReferenceTrigger
+    ) {
+        guard let insertion else { return }
+        guard isEditableInput else { reject(.disabled); return }
+        guard !pendingComposition, !textView.hasMarkedText() else { reject(.invalidEdit); return }
+        guard insertion.trigger == trigger,
+              insertion.reference.kind == trigger.referenceKind,
+              insertion.generation > (lastAppliedReferenceGenerations[trigger] ?? 0),
+              let published = lastReferenceContexts[trigger],
+              insertion.generation == published.generation,
+              insertion.trigger == published.trigger,
+              insertion.utf16Range == published.utf16Range,
+              scalarSelection() == published.selection,
+              let current = LoroNativeRichTextInlineReferenceContext.detect(
+                  in: semanticStorage,
+                  selection: textView.selectedRange(),
+                  trigger: trigger
+              ),
+              current.trigger == published.trigger,
+              current.query == published.query,
+              current.utf16Range == published.utf16Range,
+              current.selection == published.selection
+        else { reject(.invalidEdit); return }
+        guard insert(reference: insertion.reference, replacingUTF16Range: insertion.utf16Range) else { return }
+        lastAppliedReferenceGenerations[trigger] = insertion.generation
+        onInlineReferenceInserted(.init(insertion))
+    }
+
+    func applyMentionInsertion(_ insertion: LoroNativeRichTextMentionInsertion?) {
+        applyInlineReferenceInsertion(insertion, trigger: .mention)
+    }
+
+    func applySupertagInsertion(_ insertion: LoroNativeRichTextSupertagInsertion?) {
+        applyInlineReferenceInsertion(insertion, trigger: .supertag)
+    }
+
+    /// The host calls this when a picker is dismissed without a selection.
+    func dismissMentionContext() { invalidateReferenceContext(.mention) }
+    func dismissSupertagContext() { invalidateReferenceContext(.supertag) }
+
+    private func publishReferenceContexts() {
+        for trigger in LoroNativeRichTextReferenceTrigger.allCases {
+            guard isEditableInput, !pendingComposition, !textView.hasMarkedText(),
+                  let context = LoroNativeRichTextInlineReferenceContext.detect(
+                      in: semanticStorage,
+                      selection: textView.selectedRange(),
+                      trigger: trigger
+                  ) else {
+                invalidateReferenceContext(trigger)
+                continue
+            }
+
+            if let previous = lastReferenceContexts[trigger],
+               previous.query == context.query,
+               previous.utf16Range == context.utf16Range,
+               previous.selection == context.selection {
+                continue
+            }
+            let nextGeneration = (nextReferenceGenerations[trigger] ?? 0) &+ 1
+            nextReferenceGenerations[trigger] = nextGeneration
+            let published = LoroNativeRichTextInlineReferenceContext(
+                generation: nextGeneration,
+                query: context.query,
+                utf16Range: context.utf16Range,
+                selection: context.selection,
+                trigger: trigger
+            )
+            lastReferenceContexts[trigger] = published
+            switch trigger {
+            case .mention:
+                onMentionQueryChange(published)
+            case .supertag:
+                onSupertagQueryChange(published)
+            }
+        }
+    }
+
+    private func invalidateAllReferenceContexts() {
+        for trigger in LoroNativeRichTextReferenceTrigger.allCases {
+            invalidateReferenceContext(trigger)
+        }
+    }
+
+    private func invalidateReferenceContext(_ trigger: LoroNativeRichTextReferenceTrigger) {
+        guard lastReferenceContexts.removeValue(forKey: trigger) != nil else { return }
+        switch trigger {
+        case .mention:
+            onMentionQueryChange(nil)
+        case .supertag:
+            onSupertagQueryChange(nil)
+        }
+    }
+
+    @discardableResult
+    fileprivate func openReference(atUTF16Offset offset: Int) -> Bool {
+        guard !pendingComposition,
+              let reference = LoroNativeRichTextCodec.reference(atUTF16Offset: offset, in: semanticStorage)
+        else { return false }
+        onOpenReference(reference)
+        return true
+    }
+
+    @discardableResult
+    fileprivate func openReferenceAtCurrentSelection() -> Bool {
+        let range = textView.selectedRange()
+        guard range.location != NSNotFound else { return false }
+        let offset = range.location < semanticStorage.length ? range.location : range.location - 1
+        return openReference(atUTF16Offset: offset)
+    }
+
+    /// Draws checklist affordances outside semantic storage. TextKit remains a plain text host;
+    /// the square/checkmark is presentation-only and is positioned from the exact line fragment
+    /// carrying this codec's opaque task marker.
+    fileprivate func drawChecklist(in view: GuardedRichTextView) {
+        guard let layoutManager = view.layoutManager,
+              semanticStorage.length > 0 else { return }
+
+        var drawn: Set<String> = []
+        let origin = view.textContainerOrigin
+        for offset in 0..<semanticStorage.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: semanticStorage) else { continue }
+            let key = "\(location.taskListIndex):\(location.itemIndex)"
+            guard drawn.insert(key).inserted else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: offset, length: 1),
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound else { continue }
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            guard !lineRect.isEmpty else { continue }
+            let size: CGFloat = 14
+            let checkbox = CGRect(
+                x: origin.x + max(2, lineRect.minX - 22),
+                y: origin.y + lineRect.midY - size / 2,
+                width: size,
+                height: size
+            )
+            let path = NSBezierPath(roundedRect: checkbox, xRadius: 3, yRadius: 3)
+            if location.checked {
+                NSColor.controlAccentColor.setFill()
+                path.fill()
+                NSColor.white.setStroke()
+                let check = NSBezierPath()
+                check.lineWidth = 1.7
+                check.move(to: CGPoint(x: checkbox.minX + 3.1, y: checkbox.midY))
+                check.line(to: CGPoint(x: checkbox.minX + 6.0, y: checkbox.minY + 3.4))
+                check.line(to: CGPoint(x: checkbox.maxX - 2.8, y: checkbox.maxY - 3.2))
+                check.stroke()
+            } else {
+                NSColor.separatorColor.setStroke()
+                path.lineWidth = 1.2
+                path.stroke()
+            }
+        }
+    }
+
+    /// Returns a semantic offset only when the pointer is inside the presentation checkbox. A
+    /// click on the prose still follows TextKit's ordinary caret/mouse behaviour.
+    fileprivate func taskToggleOffset(atViewPoint viewPoint: CGPoint, in view: GuardedRichTextView) -> Int? {
+        guard isEditableInput,
+              let layoutManager = view.layoutManager,
+              let textContainer = view.textContainer,
+              semanticStorage.length > 0 else { return nil }
+        let origin = view.textContainerOrigin
+        let point = LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: origin)
+        var seen: Set<String> = []
+        for offset in 0..<semanticStorage.length {
+            guard let location = LoroNativeRichTextCodec.taskItem(atUTF16Offset: offset, in: semanticStorage) else { continue }
+            let key = "\(location.taskListIndex):\(location.itemIndex)"
+            guard seen.insert(key).inserted else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: offset, length: 1),
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound else { continue }
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let size: CGFloat = 14
+            let checkbox = CGRect(
+                x: max(2, lineRect.minX - 22),
+                y: lineRect.midY - size / 2,
+                width: size,
+                height: size
+            )
+            if checkbox.insetBy(dx: -5, dy: -5).contains(point) { return offset }
+        }
+        _ = textContainer
+        return nil
+    }
+
+    @discardableResult
+    private func apply(_ effect: LoroNativeRichEditingEffect) -> Bool {
+        var didPublish = false
+        switch effect {
+        case let .publish(document, selection):
+            render(document, preserving: selection)
+            onDocumentChange(document)
+            didPublish = true
+        case let .restore(document, selection):
+            render(document, preserving: selection)
+        case let .rejected(reason):
+            reject(reason)
+        case .noChange:
+            break
+        }
+        publishReferenceContexts()
+        styleHost?.updateStyleState(blockStyleState())
+        return didPublish
+    }
+
+    private func render(_ document: LoroNativeRichDocumentV1, preserving selection: LoroNativeRichTextCodec.ScalarSelection?) {
+        guard let rendered = try? LoroNativeRichTextCodec.attributedString(for: document) else { return }
+        rendering = true; defer { rendering = false }
+        semanticStorage = NSMutableAttributedString(attributedString: rendered)
+        textView.textStorage?.setAttributedString(rendered)
+        presentationRefreshPending = false
+        applyTemporaryPresentation()
+        // NSTextView can install a default `NSOriginalFont` while it lays out a temporary font.
+        // It is presentation residue, never an admitted semantic attribute.
+        textView.textStorage?.removeAttribute(.font, range: NSRange(location: 0, length: rendered.length))
+        textView.textStorage?.removeAttribute(NSAttributedString.Key("NSOriginalFont"), range: NSRange(location: 0, length: rendered.length))
+        if let scalar = selection, let range = try? LoroNativeRichTextCodec.utf16Range(forScalarSelection: scalar, in: rendered) { textView.setSelectedRange(range) }
+    }
+
+    private func applyTemporaryPresentation() {
+        guard let layout = textView.layoutManager, let storage = textView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: storage.length)
+        layout.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.obliqueness, forCharacterRange: fullRange)
+        layout.removeTemporaryAttribute(.paragraphStyle, forCharacterRange: fullRange)
+        guard let plan = LoroNativeRichTextPresentation.make(for: engine.admittedDocument) else {
+            textView.setNeedsDisplay(textView.bounds)
+            return
+        }
+
+        for block in plan.blocks {
+            guard block.presentationRange.length > 0 else { continue }
+            let font = nativeFont(for: block.role, marks: [])
+            layout.addTemporaryAttribute(.font, value: font, forCharacterRange: block.presentationRange)
+            layout.addTemporaryAttribute(
+                .paragraphStyle,
+                value: paragraphStyle(for: block.role, font: font),
+                forCharacterRange: block.presentationRange
+            )
+        }
+        for span in plan.spans {
+            guard let block = plan.blocks.first(where: { NSIntersectionRange($0.contentRange, span.range).length == span.range.length }) else { continue }
+            let font = nativeFont(for: block.role, marks: span.marks)
+            layout.addTemporaryAttribute(.font, value: font, forCharacterRange: span.range)
+            if span.marks.contains(.emphasis) {
+                layout.addTemporaryAttribute(.obliqueness, value: 0.18, forCharacterRange: span.range)
+            }
+            if let reference = span.reference {
+                layout.addTemporaryAttribute(.foregroundColor, value: referenceColor(reference), forCharacterRange: span.range)
+                layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: span.range)
+            }
+        }
+        textView.layoutManager?.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        textView.setNeedsDisplay(textView.bounds)
+    }
+
+    private func nativeFont(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        marks: [LoroCanonicalSemanticValueV1.Mark]
+    ) -> NSFont {
+        let textStyle: NSFont.TextStyle
+        switch role {
+        case .paragraph, .task: textStyle = .body
+        case .heading(1): textStyle = .title1
+        case .heading(2): textStyle = .title2
+        case .heading: textStyle = .title3
+        }
+        let base = NSFont.preferredFont(forTextStyle: textStyle)
+        if marks.contains(.code) {
+            let code = NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: marks.contains(.strong) ? .bold : .regular)
+            var traits = code.fontDescriptor.symbolicTraits
+            if marks.contains(.emphasis) { traits.insert(.italic) }
+            if traits != code.fontDescriptor.symbolicTraits {
+                let descriptor = code.fontDescriptor.withSymbolicTraits(traits)
+                if let italic = NSFont(descriptor: descriptor, size: base.pointSize) {
+                    return italic
+                }
+            }
+            return code
+        }
+        var traits = base.fontDescriptor.symbolicTraits
+        if marks.contains(.strong) { traits.insert(.bold) }
+        if marks.contains(.emphasis) { traits.insert(.italic) }
+        let descriptor = base.fontDescriptor.withSymbolicTraits(traits)
+        if let resolved = NSFont(descriptor: descriptor, size: base.pointSize) {
+            return resolved
+        }
+        return base
+    }
+
+    private func paragraphStyle(
+        for role: LoroNativeRichTextPresentation.BlockRole,
+        font: NSFont
+    ) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        let scale = max(1, font.pointSize / max(1, NSFont.preferredFont(forTextStyle: .body).pointSize))
+        switch role {
+        case .paragraph, .task:
+            style.paragraphSpacing = 4 * scale
+        case .heading(1):
+            style.paragraphSpacingBefore = 14 * scale
+            style.paragraphSpacing = 8 * scale
+        case .heading(2):
+            style.paragraphSpacingBefore = 10 * scale
+            style.paragraphSpacing = 6 * scale
+        case .heading:
+            style.paragraphSpacingBefore = 8 * scale
+            style.paragraphSpacing = 4 * scale
+        }
+        return style
+    }
+
+    private func referenceColor(_ reference: LoroNativeRichTextPresentation.ReferenceKind) -> NSColor {
+        switch reference {
+        case .entity: return .systemBlue
+        case .supertag: return .systemPurple
+        }
+    }
+
+    /// Presentation refreshes are deliberately generation-neutral and never publish a document.
+    func refreshPresentation() {
+        guard !rendering else { return }
+        guard engine.compositionState == .idle, !pendingComposition, !textView.hasMarkedText() else {
+            presentationRefreshPending = true
+            return
+        }
+        presentationRefreshPending = false
+        applyTemporaryPresentation()
+    }
+
+    private func flushPresentationRefreshIfNeeded() {
+        guard presentationRefreshPending else { return }
+        refreshPresentation()
+    }
+
+    private func scalarSelection() -> LoroNativeRichTextCodec.ScalarSelection? {
+        try? LoroNativeRichTextCodec.scalarSelection(forUTF16Range: textView.selectedRange(), in: textView.attributedString())
+    }
+
+    private func flushAfterCompositionIfNeeded() {
+        pendingComposition = textView.hasMarkedText()
+        guard !pendingComposition, engine.compositionState != .idle else { return }
+        scheduleCompositionFlush()
+    }
+
+    private func scheduleCompositionFlush() {
+        let generation = hostCompositionGeneration
+        guard scheduledFlushGeneration != generation else { return }
+        scheduledFlushGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.scheduledFlushGeneration == generation else { return }
+            self.scheduledFlushGeneration = nil
+            guard generation == self.hostCompositionGeneration else { return }
+            guard !self.textView.hasMarkedText() else { self.pendingComposition = true; return }
+            self.commitComposition()
+        }
+    }
+
+    private func commitComposition() {
+        guard isEditableInput else { cancelComposition(); return }
+        pendingComposition = false
+        // Never decode AppKit's marked/presentation attributed storage. The engine commits from
+        // its captured semantic base and final plain string instead.
+        _ = apply(engine.commitComposition())
+        reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
+    }
+
+    private func cancelComposition() {
+        hostCompositionGeneration &+= 1
+        scheduledFlushGeneration = nil
+        pendingComposition = false
+        textView.cancelMarkedText()
+        _ = apply(engine.cancelComposition())
+        reconcileDeferredParentIfPossible()
+        flushPresentationRefreshIfNeeded()
+    }
+
+    private func reconcileDeferredParentIfPossible() {
+        guard engine.compositionState == .idle, let document = deferredParentDocument else { return }
+        deferredParentDocument = nil
+        switch engine.receiveParentDocument(document) {
+        case let .adopted(document, selection), let .acknowledged(document, selection):
+            pendingInlineMark = nil
+            render(document, preserving: selection)
+        case .deferredForComposition:
+            deferredParentDocument = document
+        case .deferredForLocalProposal, .unchanged:
+            return
+        }
+    }
+}
+
+/// AppKit-owned accessory control. Keeping the menu beside the editor (and routing the action
+/// directly to its controller) preserves the live NSTextView selection before AppKit moves focus
+/// to the popup. The SwiftUI parent only owns the document; it never reconstructs a style target.
+final class LoroNativeRichTextEditorHostView: NSView {
+    private weak var controller: LoroNativeRichTextEditorController?
+    private let scrollView: NSScrollView
+    private let styleControl: LoroNativeRichBlockStyleControl
+
+    init(controller: LoroNativeRichTextEditorController, scrollView: NSScrollView) {
+        self.controller = controller
+        self.scrollView = scrollView
+        styleControl = LoroNativeRichBlockStyleControl(controller: controller)
+        super.init(frame: .zero)
+
+        styleControl.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(styleControl)
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            styleControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            styleControl.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            styleControl.heightAnchor.constraint(equalToConstant: 24),
+            styleControl.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            scrollView.topAnchor.constraint(equalTo: styleControl.bottomAnchor, constant: 6),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
+        styleControl.updateStyleState(state)
+    }
+}
+
+/// A lightweight AppKit menu view keeps the editor's style affordance out of the generic
+/// `NSButton` tree used by hosted picker tests while capturing the live selection before menu
+/// focus moves. The menu is presentation-only; the controller and shared engine own admission.
+final class LoroNativeRichBlockStyleControl: NSView {
+    private weak var controller: LoroNativeRichTextEditorController?
+    private var current: LoroNativeRichBlockStyle?
+    private var controlEnabled = false
+    private var pendingTarget: LoroNativeRichBlockStyleTarget?
+#if DEBUG
+    var testingMenuPresentation: ((LoroNativeRichBlockStyleTarget) -> Void)?
+#endif
+
+    init(controller: LoroNativeRichTextEditorController) {
+        self.controller = controller
+        super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityLabel("Text style")
+        setAccessibilityHelp("Changes the current paragraph or heading without changing its content.")
+        setAccessibilityRole(.button)
+        focusRingType = .exterior
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 108, height: 24) }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome { needsDisplay = true }
+        return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { needsDisplay = true }
+        return didResign
+    }
+
+    func updateStyleState(_ state: LoroNativeRichBlockStyleState) {
+        current = state.current
+        controlEnabled = state.isEnabled
+        setAccessibilityEnabled(state.isEnabled)
+        setAccessibilityValue(state.current?.title ?? "Unavailable")
+        needsDisplay = true
+    }
+
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        (controlEnabled ? NSColor.controlBackgroundColor : NSColor.windowBackgroundColor).setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.stroke()
+
+        if window?.firstResponder === self {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let focusPath = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
+            focusPath.lineWidth = 2
+            focusPath.stroke()
+        }
+
+        let title = current?.title ?? "Text style"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: controlEnabled ? NSColor.labelColor : NSColor.disabledControlTextColor
+        ]
+        let titleRect = NSRect(x: 9, y: (bounds.height - 16) / 2, width: max(0, bounds.width - 26), height: 16)
+        title.draw(in: titleRect, withAttributes: attributes)
+        let chevron = NSBezierPath()
+        chevron.move(to: NSPoint(x: bounds.width - 14, y: bounds.midY + 2))
+        chevron.line(to: NSPoint(x: bounds.width - 10, y: bounds.midY - 2))
+        chevron.line(to: NSPoint(x: bounds.width - 6, y: bounds.midY + 2))
+        chevron.lineWidth = 1.5
+        (controlEnabled ? NSColor.secondaryLabelColor : NSColor.disabledControlTextColor).setStroke()
+        chevron.stroke()
+    }
+
+    override func mouseDown(with _: NSEvent) {
+        _ = window?.makeFirstResponder(self)
+        showMenu()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 36 || event.keyCode == 49 else {
+            super.keyDown(with: event)
+            return
+        }
+        showMenu()
+    }
+
+    @objc override func accessibilityPerformPress() -> Bool {
+        guard controlEnabled else { return false }
+        showMenu()
+        return true
+    }
+
+    private func showMenu() {
+        guard controlEnabled, let target = controller?.captureBlockStyleTarget() else { return }
+        pendingTarget = target
+#if DEBUG
+        if let testingMenuPresentation {
+            testingMenuPresentation(target)
+            return
+        }
+#endif
+        let menu = NSMenu(title: "Text style")
+        for style in LoroNativeRichBlockStyle.allCases {
+            let item = NSMenuItem(title: style.title, action: #selector(applyStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = style == current ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height), in: self)
+    }
+
+    @objc private func applyStyle(_ sender: NSMenuItem) {
+        defer { pendingTarget = nil }
+        guard let raw = sender.representedObject as? String,
+              let style = LoroNativeRichBlockStyle(rawValue: raw),
+              let target = pendingTarget else { return }
+        _ = controller?.requestBlockStyle(style, target: target)
+        updateStyleState(controller?.blockStyleState() ?? .disabled)
+    }
+}
+
+private final class GuardedRichTextView: NSTextView {
+    weak var controller: LoroNativeRichTextEditorController?
+    private var pendingInlineMarkTarget: LoroNativeRichInlineMarkTarget?
+    private var isUnmarking = false
+    private var suppressCompositionCallbacks = false
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        controller?.didMoveToWindow()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        controller?.refreshPresentation()
+    }
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome { controller?.didChangeFocus(true) }
+        return didBecome
+    }
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { controller?.didChangeFocus(false) }
+        return didResign
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if controller?.handleFormattingShortcut(
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags
+        ) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        // Capture before AppKit has a chance to transfer menu focus away from the editor.
+        let capturedInlineMarkTarget = controller?.captureInlineMarkTarget()
+        let menu = super.menu(for: event) ?? NSMenu()
+        pendingInlineMarkTarget = capturedInlineMarkTarget
+        if let capturedInlineMarkTarget {
+            let formatMenu = NSMenu(title: "Format")
+            for mark in LoroCanonicalSemanticValueV1.Mark.allCases {
+                let item = NSMenuItem(title: mark.editorTitle, action: #selector(applyInlineMark(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = mark.rawValue
+                item.toolTip = "Command-\(mark.editorShortcut)"
+                switch capturedInlineMarkTarget.state(for: mark) {
+                case .on: item.state = .on
+                case .mixed: item.state = .mixed
+                case .off: item.state = .off
+                }
+                formatMenu.addItem(item)
+            }
+            let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+            formatItem.submenu = formatMenu
+            menu.addItem(formatItem)
+        }
+        let styleMenu = NSMenu(title: "Block Style")
+        for style in LoroNativeRichBlockStyle.allCases {
+            let item = NSMenuItem(title: style.title, action: #selector(applyBlockStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.isEnabled = isEditable && selectedRange().location >= 0
+            styleMenu.addItem(item)
+        }
+        let item = NSMenuItem(title: "Block Style", action: nil, keyEquivalent: "")
+        item.submenu = styleMenu
+        menu.addItem(.separator())
+        menu.addItem(item)
+        return menu
+    }
+    @objc private func applyInlineMark(_ sender: NSMenuItem) {
+        defer { pendingInlineMarkTarget = nil }
+        guard let raw = sender.representedObject as? String,
+              let mark = LoroCanonicalSemanticValueV1.Mark(rawValue: raw),
+              let target = pendingInlineMarkTarget else { return }
+        _ = controller?.requestInlineMark(mark, target: target)
+    }
+    @objc private func applyBlockStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = LoroNativeRichBlockStyle(rawValue: raw) else { return }
+        _ = controller?.requestBlockStyle(style)
+    }
+    override func keyDown(with event: NSEvent) {
+        if controller?.handleFormattingShortcut(
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags
+        ) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        controller?.drawChecklist(in: self)
+    }
+    override func mouseDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers.isEmpty {
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            if let controller, let offset = controller.taskToggleOffset(atViewPoint: viewPoint, in: self),
+               controller.requestTaskToggle(atUTF16Offset: offset) {
+                return
+            }
+        }
+        if modifiers == .command,
+           let layoutManager,
+           let textContainer {
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            let point = LoroNativeRichTextCodec.textContainerPoint(viewPoint, origin: textContainerOrigin)
+            let index = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+            guard index >= 0, index < string.utf16.count else { super.mouseDown(with: event); return }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            if LoroNativeRichTextCodec.admitsReferenceHit(characterIndex: index, textLength: string.utf16.count, textContainerPoint: point, glyphRect: glyphRect),
+               controller?.openReference(atUTF16Offset: index) == true { return }
+        }
+        super.mouseDown(with: event)
+    }
+    override func paste(_ sender: Any?) { controller?.paste(.general) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.reject(.attributedPaste); return false }
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool { controller?.reject(.attributedPaste); return false }
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? { nil }
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard !suppressCompositionCallbacks else {
+            super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+            return
+        }
+        // `setMarkedText` bypasses normal key editing. Reject before calling AppKit so a disabled
+        // editor cannot even acquire transient marked display text.
+        guard isEditable else { controller?.reject(.disabled); return }
+        let range = replacementRange.location == NSNotFound ? self.selectedRange() : replacementRange
+        if !hasMarkedText() { controller?.beginComposition(range: range) }
+        if !isUnmarking {
+            controller?.updateComposition(plainString(from: string))
+        }
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+    }
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard !suppressCompositionCallbacks else { super.insertText(string, replacementRange: replacementRange); return }
+        guard isEditable else { controller?.reject(.disabled); return }
+        if controller?.hasPendingComposition == true {
+            controller?.finalizeComposition(with: plainString(from: string))
+            super.insertText(string, replacementRange: replacementRange)
+            // `insertText` can precede or follow `unmarkText`; the controller's guarded scheduler
+            // de-duplicates both paths and commits the final plain string exactly once.
+            controller?.endComposition()
+            return
+        }
+        var markdownWitnessToken: Int?
+        if (string as? String) == " " {
+            markdownWitnessToken = controller?.armMarkdownShortcutForTypedSpace()
+        }
+        defer {
+            if let markdownWitnessToken {
+                controller?.clearMarkdownShortcutWitness(token: markdownWitnessToken)
+            }
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+    override func unmarkText() {
+        guard !suppressCompositionCallbacks else { super.unmarkText(); return }
+        isUnmarking = true
+        defer { isUnmarking = false }
+        super.unmarkText()
+        controller?.endComposition()
+    }
+    func cancelMarkedText() {
+        suppressCompositionCallbacks = true
+        defer { suppressCompositionCallbacks = false }
+        super.unmarkText()
+    }
+
+    private func plainString(from value: Any) -> String {
+        (value as? NSAttributedString)?.string
+            ?? (value as? String)
+            ?? (value as? NSString).map { $0 as String }
+            ?? ""
+    }
+}
+#endif

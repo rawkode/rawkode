@@ -1,0 +1,12 @@
+{
+  "workspaceId": "01912f8a-7b3e-7c3e-8b3e-0a1b2c3d4e5f",
+  "url": "https://example.com/fixture?token=exact",
+  "title": "Fixture bookmark",
+  "requestId": "fixture-create-bookmark",
+  "commitMessage": "Capture the fixture bookmark.",
+  "attribution": {
+    "version": "athenaeum.mutation-attribution.v1",
+    "kind": "humanUi",
+    "surface": "web-bookmarks"
+  }
+}

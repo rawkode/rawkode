@@ -1,0 +1,40 @@
+# Generated with `xcodegen generate` (from this directory) — produces AthenaeumMac.xcodeproj.
+# Not hand-written/committed pbxproj: xcodegen (https://github.com/yonaskolb/XcodeGen) turns this
+# declarative spec into a real Xcode project deterministically, which is both easier to review in
+# a PR (a YAML diff, not a pbxproj diff) and safer to produce headlessly than hand-authoring
+# Xcode's plist-based project format directly. Regenerate after editing this file:
+#   cd apps/athenaeum/native/macOS && xcodegen generate
+name: AthenaeumMac
+options:
+  bundleIdPrefix: academy.rawkode.athenaeum
+  deploymentTarget:
+    macOS: "13.0"
+packages:
+  AthenaeumApp:
+    path: ../AthenaeumApp
+targets:
+  AthenaeumMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: AthenaeumApp
+        product: AthenaeumAppUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: academy.rawkode.athenaeum.mac
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: true
+        ENABLE_HARDENED_RUNTIME: false
+        # No paid Apple Developer team available in this environment (see task's hard
+        # constraints — real code-signing/entitlements are explicitly out of scope here).
+        # "Sign to Run Locally" needs no team/account and produces a real, launchable,
+        # ad-hoc-signed local .app — the correct unsigned-local-run target for this stage.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_REQUIRED: false
+        CODE_SIGNING_ALLOWED: true
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.0"

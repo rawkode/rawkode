@@ -1,0 +1,21 @@
+# Copy this file to `.dev.vars` (git-ignored) for local `wrangler dev` against this Worker. This
+# package's own `vitest run` test suite does NOT need this file — every test (including
+# `worker-auth.test.ts`, which exercises the real auth check this file's secrets configure) mints
+# its own hand-rolled Env objects directly; `.dev.vars` only matters for a real `wrangler dev`
+# process. See `wrangler.jsonc`'s own comments on each of these for the full rationale.
+
+# No real Google OAuth client exists in this environment (hard constraint) — leave unset, or set
+# to any placeholder if you're testing `wrangler dev` locally against a real Google Cloud Console
+# OAuth client you registered yourself (see `google-calendar-client-real.ts`'s doc comment for
+# exactly what to register).
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+
+# Any non-empty string works locally — it's a dev-only HMAC signing key, not a real secret.
+# Generate one with: openssl rand -hex 32
+GATEKEEPER_VERIFIER_HMAC_SECRET=replace-with-any-random-hex-string
+
+# Adversarial-review fix — MUST be the exact same value as athenaeum-backend's own
+# `GATEKEEPER_GOOGLE_CALENDAR_CALLER_HMAC_SECRET` (see that package's own `.dev.vars.example`).
+# Every route on this Worker 401s without a valid credential signed with this secret.
+GATEKEEPER_CALLER_HMAC_SECRET=replace-with-any-random-hex-string

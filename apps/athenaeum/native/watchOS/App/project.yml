@@ -1,0 +1,75 @@
+# Generated with `xcodegen generate` (from this directory) — produces AthenaeumWatch.xcodeproj.
+# See `native/macOS/project.yml`'s top doc comment for why xcodegen, not a hand-authored pbxproj.
+#
+# One real structural difference from `native/iOS`/`native/macOS`: a watchOS app is normally a
+# *companion* app bundled inside an iOS host app (an `WKCompanionAppBundleIdentifier` pairing).
+# This target is instead configured as a **standalone watchOS app** (`SUPPORTS_RUNNING_WITHOUT_
+# IOS_APP_INSTALL: true`, no `WKCompanionAppBundleIdentifier` companion pairing to `native/iOS`'s
+# `AthenaeumiOS` target) — deliberately, since this stage's own hard constraints rule out managing
+# a paired-app / Watch Connectivity / App Store companion relationship (that plumbing is real
+# Apple-Developer-account/entitlement territory), and a standalone app is both a real, launchable
+# watchOS app target on its own and the simplest thing that actually builds and runs in the
+# watchOS Simulator without a paired phone. Pairing this with `AthenaeumiOS` as a true companion
+# app is a reasonable follow-up for whichever later stage has a paid account to test the pairing
+# entitlement with — not attempted here.
+name: AthenaeumWatch
+options:
+  bundleIdPrefix: academy.rawkode.athenaeum
+  deploymentTarget:
+    watchOS: "9.0"
+packages:
+  AthenaeumWatchUI:
+    path: ../AthenaeumWatchUI
+targets:
+  AthenaeumWatch:
+    # `application`, not `application.watchapp2` — xcodegen's `.watchapp2` target type models the
+    # legacy two-target "WatchKit App + WatchKit Extension" bundle format. Since watchOS 7, a
+    # single-target watch app (what `INFOPLIST_KEY_WKApplication`/`WKRunsIndependentlyOfCompanion
+    # App` + `SUPPORTS_RUNNING_WITHOUT_IOS_APP_INSTALL` below all assume) is a plain `application`
+    # target on `platform: watchOS` — using `.watchapp2` here produced a real, reproduced build
+    # failure ("Multiple commands produce .../AthenaeumWatch.app/AthenaeumWatch": xcodegen wired
+    # both a `CopyAndPreserveArchs` step for the old watch-app-stub format *and* this target's own
+    # `Ld` step into the same output path), fixed by switching to `application` like this, verified
+    # with a clean `xcodebuild build -destination 'platform=watchOS Simulator,...'` afterwards.
+    type: application
+    platform: watchOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: AthenaeumWatchUI
+        product: AthenaeumWatchUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: academy.rawkode.athenaeum.watch
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_WKApplication: true
+        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: true
+        # A real Simulator install of a standalone-format watch app failed without this key even
+        # with `SUPPORTS_RUNNING_WITHOUT_IOS_APP_INSTALL` set ("Missing WKCompanionAppBundleIdentifier
+        # key in WatchKit 2.0 app's Info.plist" — confirmed empirically via `simctl install`, not
+        # assumed from docs). A first attempt pointing this at `native/iOS`'s real
+        # `academy.rawkode.athenaeum.ios` bundle id also failed install validation ("WatchKit 2.0
+        # app's bundle ID ...watch is not prefixed by the parent app's bundle ID followed by a
+        # '.'") — `simctl`'s installer requires this value be a literal string-prefix of this
+        # target's own `PRODUCT_BUNDLE_IDENTIFIER` (`academy.rawkode.athenaeum.watch`), which only
+        # `academy.rawkode.athenaeum` (this repo's shared bundle-id root, not the iOS app's own
+        # leaf id) satisfies. The pairing itself is never exercised either way (no phone/watch
+        # pairing flow is attempted here — standalone-run is what's actually tested) — this is
+        # purely satisfying the Simulator's install-time bundle-id-shape validation, confirmed by
+        # a real successful `simctl install` afterwards.
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: academy.rawkode.athenaeum
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        SUPPORTS_RUNNING_WITHOUT_IOS_APP_INSTALL: true
+        SKIP_INSTALL: false
+        TARGETED_DEVICE_FAMILY: "4"
+        # Simulator-only in this environment — no paid Apple Developer team available (task's
+        # hard constraints rule out real code-signing/device entitlements, CarPlay/companion-app
+        # pairing here). "Sign to Run Locally" (no team) is exactly what a Simulator build needs.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_REQUIRED: false
+        CODE_SIGNING_ALLOWED: true
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.0"

@@ -1,0 +1,27 @@
+{
+  "name": "@athenaeum/gatekeeper-google-calendar",
+  "version": "0.0.0",
+  "private": true,
+  "description": "First external gatekeeper (plan Phase 5): OAuth + Calendar API v3 client, calendar-merge/observer-verification skeleton. Own Cloudflare Worker package, per cloudflare-os's one-Worker-per-gatekeeper pattern — not folded into @athenaeum/backend.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "echo 'not for this stage — do not run wrangler deploy' >&2 && exit 1",
+    "build": "tsc",
+    "clean": "rm -rf dist .wrangler",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@athenaeum/domain": "workspace:*",
+    "@athenaeum/typed-storage-effect": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
