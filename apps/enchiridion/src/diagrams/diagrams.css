@@ -1,0 +1,79 @@
+.diagram-dialog {
+  width: min(1120px, calc(100vw - 48px));
+  height: min(800px, calc(100dvh - 64px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid #dededc;
+  border-radius: 12px;
+  background: #fff;
+  color: #252525;
+  color-scheme: light;
+  box-shadow: 0 8px 32px #0002;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.diagram-dialog[open] { display: flex; flex-direction: column; }
+.diagram-dialog::backdrop { background: #0003; }
+.diagram-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 20px;
+  min-height: 58px;
+  padding: 0 18px;
+  border-bottom: 1px solid #e8e8e5;
+}
+.diagram-dialog-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.diagram-dialog-header button {
+  min-width: 70px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid #d8d8d5;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.diagram-dialog-header button:disabled { opacity: .45; cursor: default; }
+.diagram-dialog-header .diagram-done { background: #2b5145; color: #fff; border-color: #2b5145; }
+.diagram-dialog-header button:focus-visible { outline: 2px solid #527965; outline-offset: 3px; }
+.diagram-dialog-content { flex: 1; min-height: 0; overflow: hidden; }
+.diagram-drawing { width: 100%; height: 100%; }
+.diagram-drawing .excalidraw .layer-ui__wrapper__footer-right { display: none; }
+.diagram-loading { padding: 24px; color: #696963; font-size: 14px; }
+.diagram-save-error { margin: 0; padding: 14px 20px; border-top: 1px solid #e8e8e5; color: #a32b20; font-size: 13px; }
+.diagram-d2 { display: grid; grid-template-columns: minmax(240px, 40%) 1fr; height: 100%; }
+.diagram-source { display: flex; flex-direction: column; gap: 16px; padding: 20px; border-right: 1px solid #e8e8e5; min-height: 0; }
+.diagram-source label { font-size: 13px; font-weight: 600; }
+.diagram-source textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  font: 14px/1.65 ui-monospace, SFMono-Regular, monospace;
+  color: inherit;
+  background: transparent;
+  tab-size: 2;
+}
+.diagram-source textarea:focus-visible { outline: 2px solid #52796566; outline-offset: 5px; border-radius: 2px; }
+.diagram-source p { margin: 0; font-size: 12px; color: #73736d; }
+.diagram-preview { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; overflow: auto; padding: 24px; background: #fafaf8; }
+.diagram-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.diagram-render-error { white-space: pre-wrap; color: #a32b20; font-size: 13px; line-height: 1.5; }
+.diagram-placeholder { font-size: 14px; color: #73736d; }
+.diagram-rendering { position: absolute; bottom: 12px; right: 16px; color: #73736d; font-size: 12px; }
+
+@media (max-width: 640px) {
+  .diagram-dialog { width: calc(100vw - 16px); height: calc(100dvh - 24px); border-radius: 10px; }
+  .diagram-d2 { grid-template-columns: 1fr; grid-template-rows: 45% 55%; }
+  .diagram-source { border-right: 0; border-bottom: 1px solid #e8e8e5; padding: 16px; }
+}
