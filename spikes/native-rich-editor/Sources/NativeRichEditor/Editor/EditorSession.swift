@@ -43,7 +43,10 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
             })
         }
         if FileManager.default.fileExists(atPath: saveURL.path) {
-            do { document = try JSONDecoder().decode(NoteDocument.self, from: Data(contentsOf: saveURL)) }
+            do {
+                let data = try Data(contentsOf: saveURL)
+                document = try JSONDecoder().decode(NoteDocument.self, from: data)
+            }
             catch { loadFailed = true; self.error = "Could not open saved note: \(error.localizedDescription). The original file has been preserved." }
         }
     }
@@ -95,8 +98,9 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
 
     private func writeDocument() throws {
         guard let document else { throw CocoaError(.fileWriteUnknown) }
+        let data = try JSONEncoder().encode(document)
         try FileManager.default.createDirectory(at: saveURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(document).write(to: saveURL, options: .atomic)
+        try data.write(to: saveURL, options: .atomic)
     }
 
     func replace(_ range: NSRange, with replacement: NSAttributedString, action: String) {
@@ -193,17 +197,28 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
     func toggleFont(_ trait: NSFontTraitMask) {
         guard let textView, let storage = textView.textStorage else { return }
         let range = textView.selectedRange()
-        let current = (range.length == 0 ? textView.typingAttributes[.font] : storage.attribute(.font, at: range.location, effectiveRange: nil)) as? NSFont ?? .systemFont(ofSize: 17)
-        let remove = NSFontManager.shared.traits(of: current).contains(trait)
+        let currentAttributes = range.length == 0 ? textView.typingAttributes : storage.attributes(at: range.location, effectiveRange: nil)
+        let current = currentAttributes[.font] as? NSFont ?? .systemFont(ofSize: 17)
+        let semanticKey: NSAttributedString.Key = trait == .boldFontMask ? .portableBold : .portableItalic
+        let remove = currentAttributes[semanticKey] as? Bool ?? NSFontManager.shared.traits(of: current).contains(trait)
+        func changedFont(_ font: NSFont, attributes: [NSAttributedString.Key: Any]) -> NSFont {
+            if remove, trait == .boldFontMask, attributes[.portableInlineCode] as? Bool != true,
+               let kind = attributes[.portableBlockKind] as? String, ["heading1", "heading2", "heading3"].contains(kind) {
+                let base = NSFont.systemFont(ofSize: font.pointSize, weight: kind == "heading1" ? .bold : .semibold)
+                return NSFontManager.shared.traits(of: font).contains(.italicFontMask) ? NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask) : base
+            }
+            return remove ? NSFontManager.shared.convert(font, toNotHaveTrait: trait) : NSFontManager.shared.convert(font, toHaveTrait: trait)
+        }
         if range.length == 0 {
             var attributes = textView.typingAttributes
-            attributes[.font] = remove ? NSFontManager.shared.convert(current, toNotHaveTrait: trait) : NSFontManager.shared.convert(current, toHaveTrait: trait)
+            attributes[.font] = changedFont(current, attributes: attributes)
+            attributes[semanticKey] = !remove
             textView.typingAttributes = attributes
         } else {
             let value = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
-            value.enumerateAttribute(.font, in: NSRange(location: 0, length: value.length)) { font, span, _ in
-                let font = font as? NSFont ?? .systemFont(ofSize: 17)
-                value.addAttribute(.font, value: remove ? NSFontManager.shared.convert(font, toNotHaveTrait: trait) : NSFontManager.shared.convert(font, toHaveTrait: trait), range: span)
+            value.enumerateAttributes(in: NSRange(location: 0, length: value.length)) { attributes, span, _ in
+                let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 17)
+                value.addAttributes([.font: changedFont(font, attributes: attributes), semanticKey: !remove], range: span)
             }
             replace(range, with: value, action: "Format text")
             textView.setSelectedRange(range)
@@ -247,8 +262,11 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let loaded = try JSONDecoder().decode(NoteDocument.self, from: Data(contentsOf: url))
+            let data = try Data(contentsOf: url)
+            let loaded = try JSONDecoder().decode(NoteDocument.self, from: data)
             let value = try loaded.attributedString()
+            // Validate portability before replacing the current editable note.
+            _ = try NoteDocument(attributedString: value)
             document = loaded
             saveURL = url
             loadFailed = false
@@ -261,24 +279,26 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
 
     static func sample() -> NSAttributedString {
         let result = NSMutableAttributedString(string: "")
-        func paragraph(_ text: String, size: CGFloat = 17, weight: NSFont.Weight = .regular) {
+        func paragraph(_ text: String, size: CGFloat = 17, weight: NSFont.Weight = .regular, kind: PortableText.Paragraph.Kind = .paragraph) {
             var attributes = bodyAttributes
             attributes[.font] = NSFont.systemFont(ofSize: size, weight: weight)
+            attributes[.portableBlockKind] = kind.rawValue
+            attributes[.portableBold] = false
             result.append(NSAttributedString(string: text + "\n", attributes: attributes))
         }
         func component(_ component: Component) {
             result.append(NSAttributedString(attachment: ComponentAttachment(component)))
             paragraph("")
         }
-        paragraph("Room to think.", size: 38, weight: .bold)
+        paragraph("Room to think.", size: 38, weight: .bold, kind: .heading1)
         paragraph("Words, diagrams, drawings, and the web — in one note.")
-        paragraph("Start with a connection", size: 24, weight: .semibold)
+        paragraph("Start with a connection", size: 24, weight: .semibold, kind: .heading2)
         let svg = Bundle.main.url(forResource: "sample", withExtension: "svg").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         component(Component(kind: .diagram, title: "From idea to diagram", source: Component.diagramSource, svg: svg))
         paragraph("Click the diagram to change its D2 source. Keep writing here; everything above and below belongs to the same document.")
-        paragraph("Make space for a sketch", size: 24, weight: .semibold)
+        paragraph("Make space for a sketch", size: 24, weight: .semibold, kind: .heading2)
         component(Component(kind: .drawing, title: "A little room to explore", drawing: .sample))
-        paragraph("Collect something worth watching", size: 24, weight: .semibold)
+        paragraph("Collect something worth watching", size: 24, weight: .semibold, kind: .heading2)
         paragraph("Use Insert → Link to paste a URL. Available page metadata supplies its title, preview, and inline player.")
         component(Component(kind: .link, title: "Big Buck Bunny", source: "https://www.youtube.com/watch?v=aqz-KE-bpKQ"))
         paragraph("And carry on writing…")

@@ -2,6 +2,7 @@ import AppKit
 
 extension NSAttributedString.Key {
     static let codeLanguage = NSAttributedString.Key("dev.rawkode.code-language")
+    static let codeBlockID = NSAttributedString.Key("dev.rawkode.code-block-id")
 }
 
 enum CodeBlockStyle {
@@ -14,6 +15,8 @@ enum CodeBlockStyle {
         paragraph.tailIndent = -14
         return NSAttributedString(string: source.isEmpty ? "\n" : source, attributes: [
             .codeLanguage: language,
+            .codeBlockID: UUID().uuidString,
+            .emptyCode: source.isEmpty,
             .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
             .foregroundColor: NSColor.textColor,
             .backgroundColor: NSColor.quaternaryLabelColor,

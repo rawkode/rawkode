@@ -1,0 +1,399 @@
+{
+  "segments" : [
+    {
+      "fontFamily" : "system-ui",
+      "fontSize" : 32,
+      "paragraph" : {
+        "kind" : "heading1"
+      },
+      "text" : "Portable notes 👩🏽‍💻\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "Plain\ttext\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "secondary",
+      "paragraph" : {
+        "kind" : "quote"
+      },
+      "text" : "A quoted thought.\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "marks" : {
+        "bold" : true
+      },
+      "paragraph" : {
+        "kind" : "paragraph",
+        "list" : {
+          "path" : [
+            "bullet"
+          ]
+        }
+      },
+      "text" : "bold",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph",
+        "list" : {
+          "path" : [
+            "bullet"
+          ]
+        }
+      },
+      "text" : " and normal\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph",
+        "list" : {
+          "path" : [
+            "bullet",
+            "numbered"
+          ],
+          "start" : 3
+        }
+      },
+      "text" : "Nested numbered\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph",
+        "list" : {
+          "checked" : true,
+          "path" : [
+            "bullet",
+            "numbered",
+            "task"
+          ]
+        }
+      },
+      "text" : "Checked\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph",
+        "list" : {
+          "checked" : false,
+          "path" : [
+            "task"
+          ]
+        }
+      },
+      "text" : "Pending\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 19,
+      "foreground" : "#1A4DB3CC",
+      "marks" : {
+        "italic" : true,
+        "link" : "https://example.com",
+        "strike" : true,
+        "underline" : true
+      },
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "styled link",
+      "type" : "text"
+    },
+    {
+      "background" : "muted",
+      "fontFamily" : "system-ui",
+      "fontSize" : 16,
+      "marks" : {
+        "inlineCode" : true
+      },
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "\n",
+      "type" : "text"
+    },
+    {
+      "background" : "muted",
+      "fontFamily" : "system-ui",
+      "fontSize" : 16,
+      "marks" : {
+        "inlineCode" : true
+      },
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "code span\n",
+      "type" : "text"
+    },
+    {
+      "language" : "swift",
+      "source" : "let π = 3.14\r\nprint(π)",
+      "type" : "code"
+    },
+    {
+      "language" : "text",
+      "source" : "",
+      "type" : "code"
+    },
+    {
+      "component" : {
+        "id" : "11111111-1111-4111-8111-111111111111",
+        "kind" : "diagram",
+        "source" : "a -> b",
+        "svg" : "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+        "title" : "D2"
+      },
+      "type" : "component"
+    },
+    {
+      "component" : {
+        "id" : "22222222-2222-4222-8222-222222222222",
+        "kind" : "mermaid",
+        "source" : "flowchart LR\nA --> B",
+        "title" : "Mermaid"
+      },
+      "type" : "component"
+    },
+    {
+      "component" : {
+        "drawing" : {
+          "elements" : [
+            {
+              "id" : "55555555-5555-4555-8555-000000000000",
+              "ink" : "blue",
+              "kind" : "rectangle",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 92,
+                  "y" : 120
+                },
+                {
+                  "x" : 310,
+                  "y" : 265
+                }
+              ],
+              "text" : ""
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000001",
+              "ink" : "graphite",
+              "kind" : "text",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 133,
+                  "y" : 178
+                }
+              ],
+              "text" : "A small idea"
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000002",
+              "ink" : "graphite",
+              "kind" : "arrow",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 328,
+                  "y" : 190
+                },
+                {
+                  "x" : 540,
+                  "y" : 190
+                }
+              ],
+              "text" : ""
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000003",
+              "ink" : "graphite",
+              "kind" : "text",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 369,
+                  "y" : 148
+                }
+              ],
+              "text" : "make room"
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000004",
+              "ink" : "orange",
+              "kind" : "ellipse",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 560,
+                  "y" : 105
+                },
+                {
+                  "x" : 812,
+                  "y" : 285
+                }
+              ],
+              "text" : ""
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000005",
+              "ink" : "graphite",
+              "kind" : "text",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 614,
+                  "y" : 178
+                }
+              ],
+              "text" : "Something new"
+            },
+            {
+              "id" : "55555555-5555-4555-8555-000000000006",
+              "ink" : "purple",
+              "kind" : "pen",
+              "lineWidth" : 3,
+              "points" : [
+                {
+                  "x" : 144,
+                  "y" : 295
+                },
+                {
+                  "x" : 165,
+                  "y" : 301
+                },
+                {
+                  "x" : 195,
+                  "y" : 297
+                },
+                {
+                  "x" : 222,
+                  "y" : 303
+                },
+                {
+                  "x" : 249,
+                  "y" : 297
+                },
+                {
+                  "x" : 276,
+                  "y" : 302
+                }
+              ],
+              "text" : ""
+            }
+          ]
+        },
+        "id" : "33333333-3333-4333-8333-333333333333",
+        "kind" : "drawing",
+        "source" : "",
+        "title" : "Drawing"
+      },
+      "type" : "component"
+    },
+    {
+      "component" : {
+        "id" : "44444444-4444-4444-8444-444444444444",
+        "kind" : "link",
+        "metadata" : {
+          "playback" : {
+            "directVideo" : {
+              "_0" : "https://example.com/film.mp4"
+            }
+          },
+          "title" : "Video"
+        },
+        "source" : "https://example.com/watch",
+        "title" : "Video"
+      },
+      "type" : "component"
+    },
+    {
+      "component" : {
+        "id" : "66666666-6666-4666-8666-666666666666",
+        "kind" : "link",
+        "metadata" : {
+          "playback" : {
+            "embedURL" : {
+              "_0" : "https://player.example.com/watch"
+            }
+          },
+          "title" : "Embedded video"
+        },
+        "source" : "https://example.com/embedded",
+        "title" : "Embedded video"
+      },
+      "type" : "component"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "\n",
+      "type" : "text"
+    },
+    {
+      "fontFamily" : "Helvetica Neue",
+      "fontSize" : 17,
+      "foreground" : "text",
+      "paragraph" : {
+        "kind" : "paragraph"
+      },
+      "text" : "End.\n",
+      "type" : "text"
+    }
+  ],
+  "version" : 2
+}

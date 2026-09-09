@@ -58,10 +58,17 @@ enum MarkdownEditing {
             var attributes = text.typingAttributes
             let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 17)
             switch style {
-            case "bold": attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
-            case "italic": attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+            case "bold":
+                attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                attributes[.portableBold] = true
+            case "italic":
+                attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                attributes[.portableItalic] = true
             case "strike": attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-            default: attributes[.font] = NSFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular); attributes[.backgroundColor] = NSColor.quaternaryLabelColor
+            default:
+                attributes[.font] = NSFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular)
+                attributes[.backgroundColor] = NSColor.quaternaryLabelColor
+                attributes[.portableInlineCode] = true
             }
             session.replace(matchedRange, with: NSAttributedString(string: source, attributes: attributes), action: "Format \(style)")
             return
@@ -80,6 +87,17 @@ extension EditorSession {
         let range = (storage.string as NSString).paragraphRange(for: selection)
         var attributes = Self.bodyAttributes
         attributes[.font] = style.font
+        let semantic: String
+        switch style {
+        case .paragraph: semantic = "paragraph"
+        case .heading1: semantic = "heading1"
+        case .heading2: semantic = "heading2"
+        case .heading3: semantic = "heading3"
+        case .quote: semantic = "quote"
+        }
+        attributes[.portableBlockKind] = semantic
+        attributes[.portableBold] = false
+        attributes[.portableItalic] = false
         if style == .quote {
             let paragraph = (attributes[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
             paragraph.headIndent = 24
@@ -89,9 +107,28 @@ extension EditorSession {
         }
         if range.length > 0 {
             let replacement = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
-            replacement.removeAttribute(.codeLanguage, range: NSRange(location: 0, length: replacement.length))
-            replacement.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: replacement.length))
-            replacement.addAttributes(attributes, range: NSRange(location: 0, length: replacement.length))
+            replacement.enumerateAttributes(in: NSRange(location: 0, length: replacement.length)) { original, span, _ in
+                let oldFont = original[.font] as? NSFont ?? NSFont.systemFont(ofSize: 17)
+                let traits = NSFontManager.shared.traits(of: oldFont)
+                let bold = original[.portableBold] as? Bool ?? traits.contains(.boldFontMask)
+                let italic = original[.portableItalic] as? Bool ?? traits.contains(.italicFontMask)
+                let inlineCode = original[.codeLanguage] == nil && original[.portableInlineCode] as? Bool == true
+                var converted = attributes
+                var font = inlineCode ? NSFont.monospacedSystemFont(ofSize: style.font.pointSize - 1, weight: .regular) : style.font
+                if bold { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+                if italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+                converted[.font] = font
+                converted[.portableBold] = bold
+                converted[.portableItalic] = italic
+                converted[.portableInlineCode] = inlineCode
+                if inlineCode { converted[.backgroundColor] = original[.backgroundColor] ?? NSColor.quaternaryLabelColor }
+                if let color = original[.foregroundColor] as? NSColor, color != .textColor, color != .secondaryLabelColor { converted[.foregroundColor] = color }
+                replacement.removeAttribute(.codeLanguage, range: span)
+                replacement.removeAttribute(.codeBlockID, range: span)
+                replacement.removeAttribute(.emptyCode, range: span)
+                if original[.codeLanguage] != nil { replacement.removeAttribute(.backgroundColor, range: span) }
+                replacement.addAttributes(converted, range: span)
+            }
             replace(range, with: replacement, action: "Turn into \(style.rawValue)")
             text.setSelectedRange(selection)
         }

@@ -1,6 +1,6 @@
 # Astro + Vue companion
 
-Status: architecture reviewed; implementation pending. This document records the next spike, not completed support.
+Status: implemented in `spikes/web-rich-editor`. One shared portable format; no legacy migration.
 
 ## Outcome
 
@@ -10,17 +10,17 @@ Use Vue 3 with Tiptap/ProseMirror as the editable projection. Keep the portable 
 
 ## Compatibility decision
 
-Version 1 is not browser-portable: its richText segments contain base64 Apple RTFD. Segment boundaries are attributed-run boundaries, not paragraph boundaries. The candidate version 2 format replaces opaque supported text with portable attributed runs and explicit paragraph/list metadata. Retain typed code and component payloads with stable IDs.
+The shared version 2 format uses portable attributed runs and explicit paragraph/list metadata. Typed code and component payloads retain stable IDs. Old Apple RTFD notes are deliberately unsupported in this spike.
 
 Define the contract and fixtures before changing persistence. Preserve exact separators, blank lines, tabs, trailing newlines, adjacent components, and mixed inline formatting. A block adapter must not add a newline around every component.
 
-Native list state combines NSTextList nesting with explicit visible marker characters. The portable representation must retain the full list-kind path and task check state, while each editor owns rendering its markers. Newly authored headings, quotes, and inline code need semantic attributes; legacy visual inference must be conservative.
+Native list state combines NSTextList nesting with explicit visible marker characters. The portable representation retains the full list-kind path and task check state, while each editor owns rendering its markers. Headings, quotes, and inline code use semantic attributes.
 
 Keep drawing coordinates in the current 900 by 420 world. Preserve all drawing elements, colors, source, diagram caches, link metadata, and component IDs. Treat stored SVG and URLs as untrusted in the browser. Never execute arbitrary saved embed HTML.
 
-## Migration and storage boundaries
+## Storage boundaries
 
-- No implicit overwrite of version 1 on launch. Native attach currently autosaves, so migration must preserve original bytes before the first upgraded write or require explicit Save As.
+- No migration, old-format backups or compatibility bridge. Both editors use the same current format.
 - Unsupported versions or native rich content must fail safely or remain opaque. Do not silently discard unsupported attachments or formatting.
 - Import/export is the initial shared-note workflow. Live sync and simultaneous native/web edits require a separately designed conflict protocol; neither is implied by this spike.
 - Browser draft persistence, import, export, and load errors must be visible. A failed import must not replace the current draft.
@@ -30,7 +30,7 @@ Keep drawing coordinates in the current 900 by 420 world. Preserve all drawing e
 
 1. Tested native baseline, already published.
 2. Architecture and interoperability acceptance gates, this document.
-3. Portable schema, native migration/adapter, and cross-runtime fixtures.
+3. Portable schema, native adapter, and cross-runtime fixture.
 4. Astro/Vue shell and continuous rich-text editing with file import/export.
 5. Vue component editing/rendering for diagrams, drawings, and generic embeds.
 6. Browser/native round-trip verification and remaining fixes, with evidence recorded in the PR.
@@ -39,7 +39,7 @@ Keep additions scoped to the spike. Do not move or include the unrelated Enchiri
 
 ## Acceptance gates
 
-- Native version 1 to portable note to browser edit to native reopen retains text, marks, list paths/check states, code source/language, component IDs, and payloads.
+- Native portable note to browser edit to native reopen retains text, marks, list paths/check states, code source/language, component IDs, and payloads.
 - An untouched fixture round-tripped twice stabilizes without added blank lines or regenerated IDs.
 - Cover mixed nested lists, bold text within list items, emoji, empty paragraphs/code, CRLF code, adjacent components, unknown versions, unsupported native content, and failed writes.
 - Verify actual browser typing, list continuation/exit, nesting, undo, slash commands, component editing, persistence/reopening, and native interchange. Build and unit tests alone do not establish this.

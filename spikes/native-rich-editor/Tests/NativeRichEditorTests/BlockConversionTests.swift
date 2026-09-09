@@ -4,6 +4,56 @@ import XCTest
 
 final class BlockConversionTests: XCTestCase {
     @MainActor
+    func testBlockStyleChangesPreserveInlineMarksAndCodeThroughReopen() throws {
+        let value = NSMutableAttributedString(string: "bold italic code plain", attributes: EditorSession.bodyAttributes)
+        value.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 17), range: NSRange(location: 0, length: 4))
+        value.addAttribute(.font, value: NSFontManager.shared.convert(NSFont.systemFont(ofSize: 17), toHaveTrait: .italicFontMask), range: NSRange(location: 5, length: 6))
+        value.addAttributes([.portableInlineCode: true, .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: NSRange(location: 12, length: 4))
+        try withEditor(value) { session, text in
+            for style in [TextBlockStyle.heading2, .paragraph, .quote, .heading3, .paragraph] {
+                text.setSelectedRange(NSRange(location: 0, length: value.length))
+                session.applyTextStyle(style)
+                let note = try XCTUnwrap(session.document)
+                let runs = note.segments.compactMap { if case .text(let run) = $0 { return run }; return nil }
+                XCTAssertEqual(runs.first(where: { $0.text.contains("bold") })?.marks?.bold, true)
+                XCTAssertEqual(runs.first(where: { $0.text.contains("italic") })?.marks?.italic, true)
+                XCTAssertEqual(runs.first(where: { $0.text.contains("code") })?.marks?.inlineCode, true)
+                XCTAssertNil(runs.first(where: { $0.text.contains("plain") })?.marks?.bold, "Structural heading weight must not become an inline bold mark")
+                let reopened = try note.attributedString()
+                XCTAssertEqual(reopened.string, value.string)
+                XCTAssertEqual((reopened.attribute(.font, at: 12, effectiveRange: nil) as? NSFont)?.isFixedPitch, true)
+                XCTAssertEqual(reopened.attribute(.backgroundColor, at: 12, effectiveRange: nil) as? NSColor, .quaternaryLabelColor)
+                // Exercise the next conversion from the actual persisted projection.
+                text.textStorage?.setAttributedString(reopened)
+            }
+        }
+    }
+
+    @MainActor
+    func testHeadingDefaultsStayStructuralAndExplicitBoldSurvivesStyleConversion() throws {
+        try withEditor(NSAttributedString(string: "Heading", attributes: EditorSession.bodyAttributes)) { session, text in
+            for style in [TextBlockStyle.heading1, .heading2, .heading3] {
+                session.applyTextStyle(style)
+                let saved = try XCTUnwrap(session.document).attributedString()
+                XCTAssertEqual((saved.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.fontName, style.font.fontName)
+                let note = try XCTUnwrap(session.document)
+                guard case .text(let run) = note.segments.first else { return XCTFail("Expected text") }
+                XCTAssertNil(run.marks?.bold)
+                session.applyTextStyle(.paragraph)
+                XCTAssertFalse(NSFontManager.shared.traits(of: text.textStorage!.attribute(.font, at: 0, effectiveRange: nil) as! NSFont).contains(.boldFontMask))
+            }
+            session.applyTextStyle(.heading1)
+            text.setSelectedRange(NSRange(location: 0, length: 7))
+            session.toggleFont(.boldFontMask)
+            session.applyTextStyle(.paragraph)
+            guard case .text(let bold) = session.document?.segments.first else { return XCTFail("Expected text") }
+            XCTAssertEqual(bold.marks?.bold, true)
+        }
+        let imported = NoteDocument(segments: [.text(.init(text: "Browser heading", paragraph: .init(kind: .heading2)))])
+        XCTAssertEqual((try imported.attributedString().attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.fontName, TextBlockStyle.heading2.font.fontName)
+    }
+
+    @MainActor
     func testListToHeadingOrBodyRemovesMarkersAndUndoesAsOneAction() throws {
         for (kind, style) in [(ListEditing.Kind.bullet, TextBlockStyle.heading1),
                               (.bullet, .paragraph), (.numbered, .paragraph), (.task, .paragraph)] {
