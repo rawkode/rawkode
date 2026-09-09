@@ -20,8 +20,7 @@ final class DocumentTests: XCTestCase {
         XCTAssertEqual(projected.string, content.string)
         XCTAssertEqual((projected.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize, 23)
         XCTAssertEqual(projected.attribute(.codeLanguage, at: ("Hello 👋\n" as NSString).length, effectiveRange: nil) as? String, "swift")
-        let components = decoded.segments.compactMap { if case .component(let value) = $0 { return value }; return nil }
-        XCTAssertEqual(components, [diagram, mermaid, drawing, link])
+        XCTAssertEqual(decoded.components, [diagram, mermaid, drawing, link])
     }
 
     @MainActor
@@ -39,8 +38,8 @@ final class DocumentTests: XCTestCase {
         XCTAssertNotNil(text.textLayoutManager)
         XCTAssertFalse(text.string.contains("```"))
         let snapshot = try XCTUnwrap(session.document)
-        XCTAssertTrue(snapshot.segments.contains { if case .component(let c) = $0 { return c.source == "a -> b" }; return false })
-        XCTAssertTrue(snapshot.segments.contains { if case .code(let language, let source) = $0 { return language == "swift" && source == "let x = 1" }; return false })
+        XCTAssertTrue(snapshot.components.contains { $0.source == "a -> b" })
+        XCTAssertTrue(snapshot.codeBlocks.contains { $0.attrs?.language == "swift" && $0.textContent == "let x = 1" })
         let saved = EditorSession(dataDirectory: directory)
         XCTAssertEqual(saved.document, snapshot)
     }

@@ -8,21 +8,24 @@ final class BlockConversionTests: XCTestCase {
         let value = NSMutableAttributedString(string: "bold italic code plain", attributes: EditorSession.bodyAttributes)
         value.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 17), range: NSRange(location: 0, length: 4))
         value.addAttribute(.font, value: NSFontManager.shared.convert(NSFont.systemFont(ofSize: 17), toHaveTrait: .italicFontMask), range: NSRange(location: 5, length: 6))
-        value.addAttributes([.portableInlineCode: true, .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: NSRange(location: 12, length: 4))
+        value.addAttributes([.nativeInlineCode: true, .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: NSRange(location: 12, length: 4))
         try withEditor(value) { session, text in
             for style in [TextBlockStyle.heading2, .paragraph, .quote, .heading3, .paragraph] {
                 text.setSelectedRange(NSRange(location: 0, length: value.length))
                 session.applyTextStyle(style)
                 let note = try XCTUnwrap(session.document)
-                let runs = note.segments.compactMap { if case .text(let run) = $0 { return run }; return nil }
-                XCTAssertEqual(runs.first(where: { $0.text.contains("bold") })?.marks?.bold, true)
-                XCTAssertEqual(runs.first(where: { $0.text.contains("italic") })?.marks?.italic, true)
-                XCTAssertEqual(runs.first(where: { $0.text.contains("code") })?.marks?.inlineCode, true)
-                XCTAssertNil(runs.first(where: { $0.text.contains("plain") })?.marks?.bold, "Structural heading weight must not become an inline bold mark")
+                let runs = note.textNodes
+                XCTAssertEqual(runs.first(where: { $0.textContent.contains("bold") })?.hasMark(.bold), true)
+                XCTAssertEqual(runs.first(where: { $0.textContent.contains("italic") })?.hasMark(.italic), true)
+                XCTAssertEqual(runs.first(where: { $0.textContent.contains("code") })?.hasMark(.code), true)
+                XCTAssertEqual(runs.first(where: { $0.textContent.contains("plain") })?.hasMark(.bold), false, "Structural heading weight must not become an inline bold mark")
                 let reopened = try note.attributedString()
                 XCTAssertEqual(reopened.string, value.string)
                 XCTAssertEqual((reopened.attribute(.font, at: 12, effectiveRange: nil) as? NSFont)?.isFixedPitch, true)
-                XCTAssertEqual(reopened.attribute(.backgroundColor, at: 12, effectiveRange: nil) as? NSColor, .quaternaryLabelColor)
+                let background = try XCTUnwrap((reopened.attribute(.backgroundColor, at: 12, effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB))
+                let expected = try XCTUnwrap(NSColor.quaternaryLabelColor.usingColorSpace(.sRGB))
+                XCTAssertEqual(background.redComponent, expected.redComponent, accuracy: 0.005)
+                XCTAssertEqual(background.alphaComponent, expected.alphaComponent, accuracy: 0.005)
                 // Exercise the next conversion from the actual persisted projection.
                 text.textStorage?.setAttributedString(reopened)
             }
@@ -37,8 +40,8 @@ final class BlockConversionTests: XCTestCase {
                 let saved = try XCTUnwrap(session.document).attributedString()
                 XCTAssertEqual((saved.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.fontName, style.font.fontName)
                 let note = try XCTUnwrap(session.document)
-                guard case .text(let run) = note.segments.first else { return XCTFail("Expected text") }
-                XCTAssertNil(run.marks?.bold)
+                let run = try XCTUnwrap(note.textNodes.first)
+                XCTAssertFalse(run.hasMark(.bold))
                 session.applyTextStyle(.paragraph)
                 XCTAssertFalse(NSFontManager.shared.traits(of: text.textStorage!.attribute(.font, at: 0, effectiveRange: nil) as! NSFont).contains(.boldFontMask))
             }
@@ -46,10 +49,10 @@ final class BlockConversionTests: XCTestCase {
             text.setSelectedRange(NSRange(location: 0, length: 7))
             session.toggleFont(.boldFontMask)
             session.applyTextStyle(.paragraph)
-            guard case .text(let bold) = session.document?.segments.first else { return XCTFail("Expected text") }
-            XCTAssertEqual(bold.marks?.bold, true)
+            let bold = try XCTUnwrap(session.document?.textNodes.first)
+            XCTAssertTrue(bold.hasMark(.bold))
         }
-        let imported = NoteDocument(segments: [.text(.init(text: "Browser heading", paragraph: .init(kind: .heading2)))])
+        let imported = NoteDocument(content: [.init(type: .heading, attrs: .init(level: 2), content: [.init(type: .text, text: "Browser heading")])])
         XCTAssertEqual((try imported.attributedString().attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.fontName, TextBlockStyle.heading2.font.fontName)
     }
 
@@ -132,7 +135,7 @@ final class BlockConversionTests: XCTestCase {
                 let attachment = try XCTUnwrap(text.textStorage?.attribute(.attachment, at: delimiter.utf16.count, effectiveRange: nil) as? ComponentAttachment)
                 XCTAssertEqual(attachment.component, component)
                 let snapshot = try XCTUnwrap(session.document)
-                XCTAssertTrue(snapshot.segments.contains { if case .component(let value) = $0 { return value == component }; return false })
+                XCTAssertTrue(snapshot.components.contains(component))
             }
         }
     }

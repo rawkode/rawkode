@@ -60,15 +60,15 @@ enum MarkdownEditing {
             switch style {
             case "bold":
                 attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
-                attributes[.portableBold] = true
+                attributes[.nativeBold] = true
             case "italic":
                 attributes[.font] = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-                attributes[.portableItalic] = true
+                attributes[.nativeItalic] = true
             case "strike": attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             default:
                 attributes[.font] = NSFont.monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular)
                 attributes[.backgroundColor] = NSColor.quaternaryLabelColor
-                attributes[.portableInlineCode] = true
+                attributes[.nativeInlineCode] = true
             }
             session.replace(matchedRange, with: NSAttributedString(string: source, attributes: attributes), action: "Format \(style)")
             return
@@ -95,9 +95,9 @@ extension EditorSession {
         case .heading3: semantic = "heading3"
         case .quote: semantic = "quote"
         }
-        attributes[.portableBlockKind] = semantic
-        attributes[.portableBold] = false
-        attributes[.portableItalic] = false
+        attributes[.nativeBlockKind] = semantic
+        attributes[.nativeBold] = false
+        attributes[.nativeItalic] = false
         if style == .quote {
             let paragraph = (attributes[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
             paragraph.headIndent = 24
@@ -110,22 +110,25 @@ extension EditorSession {
             replacement.enumerateAttributes(in: NSRange(location: 0, length: replacement.length)) { original, span, _ in
                 let oldFont = original[.font] as? NSFont ?? NSFont.systemFont(ofSize: 17)
                 let traits = NSFontManager.shared.traits(of: oldFont)
-                let bold = original[.portableBold] as? Bool ?? traits.contains(.boldFontMask)
-                let italic = original[.portableItalic] as? Bool ?? traits.contains(.italicFontMask)
-                let inlineCode = original[.codeLanguage] == nil && original[.portableInlineCode] as? Bool == true
+                let bold = original[.nativeBold] as? Bool ?? traits.contains(.boldFontMask)
+                let italic = original[.nativeItalic] as? Bool ?? traits.contains(.italicFontMask)
+                let inlineCode = original[.codeLanguage] == nil && original[.nativeInlineCode] as? Bool == true
                 var converted = attributes
                 var font = inlineCode ? NSFont.monospacedSystemFont(ofSize: style.font.pointSize - 1, weight: .regular) : style.font
                 if bold { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
                 if italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
                 converted[.font] = font
-                converted[.portableBold] = bold
-                converted[.portableItalic] = italic
-                converted[.portableInlineCode] = inlineCode
+                converted[.nativeBold] = bold
+                converted[.nativeItalic] = italic
+                converted[.nativeInlineCode] = inlineCode
                 if inlineCode { converted[.backgroundColor] = original[.backgroundColor] ?? NSColor.quaternaryLabelColor }
                 if let color = original[.foregroundColor] as? NSColor, color != .textColor, color != .secondaryLabelColor { converted[.foregroundColor] = color }
                 replacement.removeAttribute(.codeLanguage, range: span)
                 replacement.removeAttribute(.codeBlockID, range: span)
                 replacement.removeAttribute(.emptyCode, range: span)
+                replacement.removeAttribute(.nativeTreeContext, range: span)
+                replacement.removeAttribute(.nativeFollowingBlock, range: span)
+                replacement.removeAttribute(.nativeInlineState, range: span)
                 if original[.codeLanguage] != nil { replacement.removeAttribute(.backgroundColor, range: span) }
                 replacement.addAttributes(converted, range: span)
             }

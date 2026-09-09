@@ -1,25 +1,22 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { Editor, EditorContent, VueNodeViewRenderer } from "@tiptap/vue-3";
-import { Node } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
-import { EditorState } from "@tiptap/pm/state";
 import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import ComponentView from "./ComponentView.vue";
 import { defaultComponent } from "../lib/component";
-import { parseComponent, parseNote } from "../lib/note";
-import { toEditorJSON, fromEditorJSON } from "../editor/adapter";
-import { portableExtensions } from "../editor/portableExtensions";
+import { NOTE_LIMITS, parseNote, type NoteDocument } from "../lib/note";
+import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
-import { applyBlockStyle } from "../editor/blockStyle";
+import { draftSchema, loadDocument, saveDocument } from '../editor/persistence';
 
-const STORAGE = "fieldnotes.web.note.v2";
+const STORAGE = "fieldnotes.web.tiptap";
 const editor = shallowRef<Editor>();
 const fileInput = ref<HTMLInputElement>();
-const newNoteDialog = ref<HTMLDialogElement>();
+const replaceNoteDialog = ref<HTMLDialogElement>();
+const pendingReplacement = shallowRef<
+	{ kind: "new" } | { kind: "import"; note: NoteDocument; filename: string }
+>();
 const filename = ref("Untitled.native-note");
 const status = ref("Stored only in this browser");
 const error = ref("");
@@ -120,34 +117,7 @@ const activeStyle = computed(() => {
 	if (editor.value.isActive("codeBlock")) return "code";
 	return "paragraph";
 });
-const componentExtension = Node.create({
-	name: "component",
-	group: "inline",
-	inline: true,
-	atom: true,
-	draggable: true,
-	addAttributes: () => ({ component: { default: null } }),
-	parseHTML: () => [
-		{
-			tag: "span[data-fieldnotes-component]",
-			getAttrs: (element) => {
-				try {
-					return {
-						component: parseComponent(
-							JSON.parse((element as HTMLElement).dataset.fieldnotesComponent!),
-						),
-					};
-				} catch {
-					return false;
-				}
-			},
-		},
-	],
-	renderHTML: ({ node }) => [
-		"span",
-		{ "data-fieldnotes-component": JSON.stringify(node.attrs.component) },
-		node.attrs.component?.title ?? "Component",
-	],
+const componentExtension = ComponentNode.extend({
 	addNodeView: () =>
 		VueNodeViewRenderer(ComponentView, {
 			stopEvent: ({ event }) =>
@@ -230,10 +200,10 @@ function updateSlash() {
 function saveDraft() {
 	if (!editor.value || saveBlocked.value) return;
 	try {
-		const note = fromEditorJSON(editor.value.getJSON());
+		const note = parseNote(editor.value.getJSON());
 		localStorage.setItem(
 			STORAGE,
-			JSON.stringify({ filename: filename.value, note }),
+			JSON.stringify(draftSchema.parse({ filename: filename.value, note })),
 		);
 		status.value = "Saved in this browser";
 		error.value = "";
@@ -255,19 +225,10 @@ function download(contents: string, name: string) {
 	link.click();
 	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function replaceDocument(content: ReturnType<typeof toEditorJSON>) {
+function replaceDocument(content: NoteDocument) {
 	const current = editor.value;
 	if (!current) return;
-	const doc = current.schema.nodeFromJSON(content);
-	doc.check();
-	// A different file is a new undo scope, not another edit of the previous note.
-	current.view.updateState(
-		EditorState.create({
-			schema: current.schema,
-			doc,
-			plugins: current.state.plugins,
-		}),
-	);
+	loadDocument(current, content);
 	slash.value = undefined;
 	revision.value++;
 }
@@ -295,7 +256,7 @@ function exportNote() {
 	try {
 		if (!editor.value) return;
 		download(
-			JSON.stringify(fromEditorJSON(editor.value.getJSON()), null, 2),
+			saveDocument(editor.value),
 			filename.value.replace(/(?:\.native-note)?$/, ".native-note"),
 		);
 		status.value = "Exported a portable copy";
@@ -312,12 +273,9 @@ async function importNote(event: Event) {
 	const previousDocument = editor.value?.state.doc;
 	importing.value = true;
 	try {
-		if (file.size > 8 * 1024 * 1024)
-			throw new Error("Notes must be smaller than 8 MB.");
+		if (file.size > NOTE_LIMITS.bytes)
+			throw new Error(`Notes must be smaller than ${NOTE_LIMITS.bytes / 1024 / 1024} MiB.`);
 		const note = parseNote(JSON.parse(await file.text()));
-		const content = toEditorJSON(note);
-		// Validate the projection before replacing either the visible draft or saved copy.
-		fromEditorJSON(content);
 		if (
 			generation !== importGeneration ||
 			editor.value?.state.doc !== previousDocument
@@ -326,10 +284,8 @@ async function importNote(event: Event) {
 				"Your note changed while this file was opening. Nothing was replaced. Open the file again when you are ready.",
 			);
 		}
-		replaceDocument(content);
-		filename.value = file.name;
-		saveBlocked.value = false;
-		saveDraft();
+		pendingReplacement.value = { kind: "import", note, filename: file.name };
+		replaceNoteDialog.value?.showModal();
 	} catch (failure) {
 		error.value =
 			failure instanceof Error
@@ -340,12 +296,29 @@ async function importNote(event: Event) {
 		input.value = "";
 	}
 }
-function newNote() {
+function requestNewNote() {
 	importGeneration++;
-	newNoteDialog.value?.close();
+	pendingReplacement.value = { kind: "new" };
+	replaceNoteDialog.value?.showModal();
+}
+function confirmReplacement() {
+	const replacement = pendingReplacement.value;
+	if (!replacement || !editor.value) return;
+	// Retain the current draft, filename, and undo history until validation and
+	// replacement have succeeded. Opening the dialog alone never changes them.
+	try {
+		replaceDocument(replacement.kind === "import"
+			? replacement.note
+			: { type: "doc", content: [{ type: "paragraph" }] });
+	} catch (failure) {
+		error.value = failure instanceof Error ? failure.message : "Could not open note. Your current draft is unchanged.";
+		return;
+	}
+	importGeneration++;
+	pendingReplacement.value = undefined;
+	replaceNoteDialog.value?.close();
 	saveBlocked.value = false;
-	filename.value = "Untitled.native-note";
-	replaceDocument({ type: "doc", content: [{ type: "paragraph" }] });
+	filename.value = replacement.kind === "import" ? replacement.filename : "Untitled.native-note";
 	saveDraft();
 	editor.value?.commands.focus();
 }
@@ -355,35 +328,18 @@ function recover() {
 }
 
 onMounted(() => {
-	let initial = toEditorJSON(
-		parseNote({
-			version: 2,
-			segments: [
-				{
-					type: "text",
-					text: "Room to think.\n",
-					paragraph: { kind: "heading1" },
-				},
-				{
-					type: "text",
-					text: "The same note, a different window. Write here, or open a note from the native app.\n",
-					paragraph: { kind: "paragraph" },
-				},
-				{
-					type: "text",
-					text: "\nType / for a block. Use - and space for a list.\n",
-					paragraph: { kind: "paragraph" },
-				},
-			],
-		}),
-	);
+	let initial = parseNote({ type: "doc", content: [
+		{ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Room to think." }] },
+		{ type: "paragraph", content: [{ type: "text", text: "The same note, a different window. Write here, or open a note from the native app." }] },
+		{ type: "paragraph" },
+		{ type: "paragraph", content: [{ type: "text", text: "Type / for a block. Use - and space for a list." }] },
+	] });
 	try {
 		const raw = localStorage.getItem(STORAGE);
 		if (raw) {
-			const saved = JSON.parse(raw);
-			initial = toEditorJSON(parseNote(saved.note));
-			filename.value =
-				typeof saved.filename === "string" ? saved.filename : filename.value;
+			const saved = draftSchema.parse(JSON.parse(raw));
+			initial = saved.note;
+			filename.value = saved.filename;
 		}
 	} catch (failure) {
 		saveBlocked.value = true;
@@ -392,27 +348,11 @@ onMounted(() => {
 	}
 	editor.value = new Editor({
 		extensions: [
-			StarterKit.configure({
-				heading: { levels: [1, 2, 3] },
-				code: false,
-				codeBlock: false,
-				horizontalRule: false,
-				trailingNode: false,
-				link: {
-					openOnClick: false,
-					autolink: false,
-					linkOnPaste: false,
-					protocols: ["http", "https", "mailto"],
-				},
-			}),
-			TaskList,
-			TaskItem.configure({ nested: true }),
+			...documentExtensions(componentExtension),
 			Placeholder.configure({
 				placeholder: "Write something, or type / for blocks…",
 			}),
-			...portableExtensions(),
 			FencedCodeAuthoring,
-			componentExtension,
 		],
 		content: initial,
 		editorProps: {
@@ -506,7 +446,7 @@ onBeforeUnmount(() => editor.value?.destroy());
 				>Fieldnotes <span>Web</span></a
 			>
 			<div class="file-actions">
-				<button @click="newNoteDialog?.showModal()">New note</button>
+				<button @click="requestNewNote">New note</button>
 				<button :disabled="importing" @click="fileInput?.click()">
 					{{ importing ? "Opening…" : "Open note" }}
 				</button>
@@ -637,16 +577,18 @@ onBeforeUnmount(() => editor.value?.destroy());
 			><span>Portable notes. No account or cloud sync.</span>
 		</footer>
 		<dialog
-			ref="newNoteDialog"
+			ref="replaceNoteDialog"
 			class="new-note-dialog"
 			aria-labelledby="new-note-heading"
+			@close="pendingReplacement = undefined"
 		>
-			<h2 id="new-note-heading">Start a new note?</h2>
-			<p>Export the current note first if you want to keep a separate copy.</p>
+			<h2 id="new-note-heading">{{ pendingReplacement?.kind === 'import' ? 'Open this note?' : 'Start a new note?' }}</h2>
+			<p v-if="pendingReplacement?.kind === 'import'">Opening {{ pendingReplacement.filename }} will replace the current browser draft.</p>
+			<p>Export the current note first to keep a copy. Replacing it clears its undo history.</p>
 			<div>
-				<button @click="newNoteDialog?.close()">Keep editing</button
+				<button @click="replaceNoteDialog?.close()">Keep editing</button
 				><button @click="exportNote">Export current note</button
-				><button class="primary" @click="newNote">Start new note</button>
+				><button class="primary" @click="confirmReplacement">{{ pendingReplacement?.kind === 'import' ? 'Open note' : 'Start new note' }}</button>
 			</div>
 		</dialog>
 		<div

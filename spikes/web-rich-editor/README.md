@@ -1,6 +1,6 @@
 # Fieldnotes — Astro + Vue spike
 
-A continuous rich-text editor for the same `.native-note` files as the [native companion](../native-rich-editor). One shared format, no legacy migration.
+A continuous rich-text editor for the same `.native-note` files as the [native companion](../native-rich-editor). Saved content is Tiptap/ProseMirror JSON, validated by Zod. No second document model or legacy migration.
 
 ## Run
 
@@ -31,9 +31,31 @@ HOST=127.0.0.1 PORT=4327 node dist/server/entry.mjs
 npm test
 npm run check
 npm run build
+# On macOS with Swift installed:
+npm run test:interop
 ```
 
-Tests use the actual editor schema and shared native fixture, including joins/splits, nesting, exact source/separators, stable component IDs, code fences, undo, safe block conversion, and metadata URL guards.
+Tests use the running editor's extensions and a shared native fixture: nested/multi-paragraph lists, code source, stable component IDs, fences, undo, safe block conversion, malformed-document rejection, and metadata URL guards.
+
+The interop check runs a real web → Swift → Zod → Tiptap round trip and compares the whole document, allowing only standard editor defaults, mark ordering and UUID case normalization. It leaves both generated notes in a temporary directory for inspection.
+
+## Document format
+
+`src/lib/note.ts` defines the Zod contract and inferred TypeScript types. The saved file is the result of validating `editor.getJSON()`:
+
+```json
+{
+  "type": "doc",
+  "content": [
+    { "type": "heading", "attrs": { "level": 1 }, "content": [{ "type": "text", "text": "A note" }] },
+    { "type": "paragraph", "content": [{ "type": "text", "text": "Hello", "marks": [{ "type": "bold" }] }] }
+  ]
+}
+```
+
+Paragraphs, lists, list items and code blocks are real nodes. Built-in marks carry formatting; optional `textStyle` and `textAlign` use Tiptap's standard extensions. The custom inline `component` node holds diagram, drawing or link attributes, including a stable UUID. Playback metadata is `{ "type": "directVideo", "url": "https://…" }` or `embedURL`.
+
+Both import and save validate before replacing data. Local browser drafts add a Zod-validated `{ filename, note }` wrapper; exported files contain only the document. Swift uses a native codec for the same node tree, verified with shared fixtures. Zod runs in the TypeScript application and tests, not inside AppKit.
 
 ## Spike boundaries
 
@@ -41,4 +63,4 @@ No cloud sync, accounts, concurrent-writer conflict handling or legacy migration
 
 Publishers may disallow embedding or require login; a discovered player URL is not a guarantee of playback. MP4 uses the browser player, HLS uses native support or hls.js. D2/Mermaid render locally using lazily loaded engines; their bundles are large.
 
-The portable format supports one paragraph per list item plus nested items. Use Shift-Enter for a line break inside an item; unsupported imported structures fail visibly instead of being silently discarded. Unsupported old note files are rejected.
+This is the application's selected Tiptap schema, not support for every third-party Tiptap extension. Unknown nodes/marks/attributes and old segment files are rejected. Paragraph boundaries are structural; prose line-ending byte fidelity is not a goal. Code source retains its exact text.

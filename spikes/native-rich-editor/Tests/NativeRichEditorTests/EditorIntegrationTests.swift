@@ -101,12 +101,12 @@ final class EditorIntegrationTests: XCTestCase {
 
         undo.undo()
         XCTAssertEqual(text.string, source, "Undo must restore authored fences and surrounding Unicode text")
-        XCTAssertFalse(try XCTUnwrap(session.document).segments.contains { if case .component = $0 { return true }; return false })
+        XCTAssertTrue(try XCTUnwrap(session.document).components.isEmpty)
         XCTAssertEqual(EditorSession(dataDirectory: directory).document, session.document, "Undo must update the saved note")
         XCTAssertTrue(undo.canRedo)
         undo.redo()
         XCTAssertEqual(text.string, converted)
-        XCTAssertTrue(try XCTUnwrap(session.document).segments.contains { if case .component = $0 { return true }; return false })
+        XCTAssertFalse(try XCTUnwrap(session.document).components.isEmpty)
         XCTAssertNotNil(text.textLayoutManager)
         XCTAssertEqual(EditorSession(dataDirectory: directory).document, session.document)
     }

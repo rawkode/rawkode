@@ -13,6 +13,7 @@ import {
 	type NoteComponent,
 } from "../lib/component";
 import { renderDiagram } from "../lib/diagram";
+import { linkMetadataSchema, parseComponent } from "../lib/note";
 
 const props = defineProps(nodeViewProps);
 const component = computed(() => props.node.attrs.component as NoteComponent);
@@ -128,8 +129,12 @@ async function closeEditor() {
 	editButton.value?.focus();
 }
 function saveComponent(update: Partial<NoteComponent>) {
-	props.updateAttributes({ component: { ...component.value, ...update } });
-	closeEditor();
+	try {
+		props.updateAttributes({ component: parseComponent({ ...component.value, ...update }) });
+		closeEditor();
+	} catch (cause) {
+		error.value = message(cause);
+	}
 }
 async function renderDraft() {
 	if (!isDiagram.value) return;
@@ -194,12 +199,12 @@ async function fetchMetadata() {
 				result.error || `Metadata request failed (${response.status}).`,
 			);
 		if (metadataAbort !== controller || !editing.value) return;
-		const metadata = result.metadata ?? result;
-		if (typeof metadata.title !== "string")
-			throw new Error("The site did not return readable link metadata.");
-		draftMetadata.value = metadata;
+		const metadata = linkMetadataSchema.safeParse(result);
+		if (!metadata.success)
+			throw new Error("The site did not return valid link metadata.");
+		draftMetadata.value = metadata.data;
 		if (!title.value.trim() || title.value === component.value.title)
-			title.value = metadata.title;
+			title.value = metadata.data.title;
 	} catch (cause) {
 		if (metadataAbort === controller && editing.value)
 			error.value = controller.signal.aborted
@@ -259,7 +264,7 @@ async function play() {
 			element.canPlayType("application/vnd.apple.mpegurl"),
 		);
 		let isHLS = new URL(item.url).pathname.toLowerCase().endsWith(".m3u8");
-		// Discovery preserves the native metadata shape, which has no MIME field.
+		// The shared playback union has no MIME field.
 		// Probe extensionless streams after Play, without making CORS a prerequisite
 		// for ordinary video URLs that the browser can play directly.
 		if (!nativeHLS && !isHLS) {
@@ -456,6 +461,7 @@ onBeforeUnmount(() => {
 					</button></span
 				>
 			</template>
+			<p v-if="error && component.kind === 'drawing'" class="component-error" role="alert">{{ error }}</p>
 		</span>
 		<template v-else-if="isDiagram || component.kind === 'drawing'">
 			<button

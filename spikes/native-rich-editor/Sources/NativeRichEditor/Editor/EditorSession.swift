@@ -45,7 +45,7 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
         if FileManager.default.fileExists(atPath: saveURL.path) {
             do {
                 let data = try Data(contentsOf: saveURL)
-                document = try JSONDecoder().decode(NoteDocument.self, from: data)
+                document = try NoteDocument.decode(data)
             }
             catch { loadFailed = true; self.error = "Could not open saved note: \(error.localizedDescription). The original file has been preserved." }
         }
@@ -199,11 +199,11 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
         let range = textView.selectedRange()
         let currentAttributes = range.length == 0 ? textView.typingAttributes : storage.attributes(at: range.location, effectiveRange: nil)
         let current = currentAttributes[.font] as? NSFont ?? .systemFont(ofSize: 17)
-        let semanticKey: NSAttributedString.Key = trait == .boldFontMask ? .portableBold : .portableItalic
+        let semanticKey: NSAttributedString.Key = trait == .boldFontMask ? .nativeBold : .nativeItalic
         let remove = currentAttributes[semanticKey] as? Bool ?? NSFontManager.shared.traits(of: current).contains(trait)
         func changedFont(_ font: NSFont, attributes: [NSAttributedString.Key: Any]) -> NSFont {
-            if remove, trait == .boldFontMask, attributes[.portableInlineCode] as? Bool != true,
-               let kind = attributes[.portableBlockKind] as? String, ["heading1", "heading2", "heading3"].contains(kind) {
+            if remove, trait == .boldFontMask, attributes[.nativeInlineCode] as? Bool != true,
+               let kind = attributes[.nativeBlockKind] as? String, ["heading1", "heading2", "heading3"].contains(kind) {
                 let base = NSFont.systemFont(ofSize: font.pointSize, weight: kind == "heading1" ? .bold : .semibold)
                 return NSFontManager.shared.traits(of: font).contains(.italicFontMask) ? NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask) : base
             }
@@ -263,7 +263,7 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try Data(contentsOf: url)
-            let loaded = try JSONDecoder().decode(NoteDocument.self, from: data)
+            let loaded = try NoteDocument.decode(data)
             let value = try loaded.attributedString()
             // Validate portability before replacing the current editable note.
             _ = try NoteDocument(attributedString: value)
@@ -279,11 +279,11 @@ final class EditorSession: NSObject, ObservableObject, NSTextViewDelegate {
 
     static func sample() -> NSAttributedString {
         let result = NSMutableAttributedString(string: "")
-        func paragraph(_ text: String, size: CGFloat = 17, weight: NSFont.Weight = .regular, kind: PortableText.Paragraph.Kind = .paragraph) {
+        func paragraph(_ text: String, size: CGFloat = 17, weight: NSFont.Weight = .regular, kind: NativeBlockKind = .paragraph) {
             var attributes = bodyAttributes
             attributes[.font] = NSFont.systemFont(ofSize: size, weight: weight)
-            attributes[.portableBlockKind] = kind.rawValue
-            attributes[.portableBold] = false
+            attributes[.nativeBlockKind] = kind.rawValue
+            attributes[.nativeBold] = false
             result.append(NSAttributedString(string: text + "\n", attributes: attributes))
         }
         func component(_ component: Component) {

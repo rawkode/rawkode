@@ -71,7 +71,7 @@ final class NativeVideoPlayerTests: XCTestCase {
 
 final class CodeAttachmentPersistenceTests: XCTestCase {
     @MainActor
-    func testAttachmentInsideSharedCodeStyleSurvivesRoundTrip() throws {
+    func testMixedCodeAndAttachmentBecomesSeparateBlocksWithoutLosingPayload() throws {
         ComponentAttachment.register()
         let component = Component(kind: .diagram, title: "Inside code", source: "a -> b", svg: "<svg/>")
         let text = NSMutableAttributedString(string: "before ")
@@ -83,8 +83,9 @@ final class CodeAttachmentPersistenceTests: XCTestCase {
         let encoded = try JSONEncoder().encode(document)
         let restored = try JSONDecoder().decode(NoteDocument.self, from: encoded).attributedString()
 
-        XCTAssertEqual(restored.string, text.string)
-        let attachment = try XCTUnwrap(restored.attribute(.attachment, at: 7, effectiveRange: nil) as? ComponentAttachment)
+        XCTAssertEqual(document.content.map(\.type), [.codeBlock, .paragraph, .codeBlock])
+        XCTAssertEqual(restored.string, "before \n\u{fffc}\n after")
+        let attachment = try XCTUnwrap(restored.attribute(.attachment, at: 8, effectiveRange: nil) as? ComponentAttachment)
         XCTAssertEqual(attachment.component, component)
         XCTAssertEqual(restored.attribute(.codeLanguage, at: 0, effectiveRange: nil) as? String, "swift")
         XCTAssertEqual(restored.attribute(.codeLanguage, at: restored.length - 1, effectiveRange: nil) as? String, "swift")

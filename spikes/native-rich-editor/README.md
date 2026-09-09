@@ -57,7 +57,7 @@ Click a diagram or **Edit source**, change the source, choose **Render preview**
 - SwiftUI owns the window, toolbar, and temporary editing sheets.
 - One long-lived `NSTextView` using TextKit 2 owns native editing behavior, hosted through `NSViewRepresentable`.
 - `EditorSession` accepts completed native changes into the canonical `NoteDocument` value and writes it atomically. It never replaces the whole attributed string on a keystroke.
-- `NoteDocument` version 2 contains portable text runs with marks and paragraph/list semantics, language-tagged code, and typed components with stable UUIDs. No view objects or RTFD are written in new notes.
+- `NoteDocument` is the shared Tiptap/ProseMirror JSON tree: paragraphs, headings, lists, quotes, code blocks, inline marks, and component nodes with stable UUIDs. Swift Codable mirrors the web Zod schema. No view objects are persisted.
 - `NSTextAttachmentViewProvider` hosts SwiftUI component views. View recreation does not own or mutate source data.
 - Component edits replace the current attachment found by UUID, through the native `shouldChangeText` / storage mutation / `didChangeText` undo bracket. Pasted components receive new IDs.
 
@@ -67,7 +67,7 @@ This is an adapter seam, not a CRDT integration. There are no collaborative tran
 
 The app autosaves to `~/Library/Application Support/Rawkode Native Rich Editor/note.native-note`, independently of Enchiridion. **File → Save As** writes a portable JSON note; **Open** opens one. A failed load leaves the original file intact. Set `NATIVE_EDITOR_DATA_DIR` when launching a test instance to isolate its autosave.
 
-The spike supports only the shared version 2 format. Other versions are rejected without changing the file. Unsupported attachments, tables, and unsupported visual formatting fail explicitly instead of being silently flattened. The shared fixture is in `Tests/Fixtures`; the schema is documented in [portable-format.md](docs/portable-format.md).
+The spike supports only the shared Tiptap document format. Other shapes are rejected without changing the file. Unsupported attachments, tables, and unsupported visual formatting fail explicitly instead of being silently flattened. The shared fixture is `Tests/Fixtures/tiptap.native-note`; the schema is documented in [portable-format.md](docs/portable-format.md).
 
 Spike limits: one note/window; synchronous full-note serialization suitable for small notes; no CRDT, live native/web synchronization, syntax highlighting, block dragging, fuzzy slash-menu search, or Excalidraw file compatibility. Lists support six nesting levels; Backspace-to-outdent is not implemented. The canvas is a fixed 900×420 vector surface. Direct-video codecs and publisher embedding restrictions can prevent playback; a discovered player is not a playback guarantee. Metadata parsing covers common HTML tags and iframe-based oEmbed, not all HTML or script-based embeds. Video position is transient when TextKit recycles views. D2 runs as a local process, not in an OS security sandbox; use trusted diagram source and notes.
 

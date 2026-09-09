@@ -101,10 +101,7 @@ final class EditorKeyboardTests: XCTestCase {
             XCTAssertEqual(text.textStorage?.attribute(.codeLanguage, at: position, effectiveRange: nil) as? String, "swift")
             let document = try XCTUnwrap(session.document)
             XCTAssertEqual(try document.attributedString().string, text.string)
-            let code = document.segments.compactMap { segment -> String? in
-                guard case .code(let language, let source) = segment, language == "swift" else { return nil }
-                return source
-            }.joined()
+            let code = document.codeBlocks.filter { $0.attrs?.language == "swift" }.map(\.textContent).joined()
             XCTAssertEqual(code, "let answer = 24")
             XCTAssertNil(text.textStorage?.attribute(.codeLanguage, at: ("let answer = 24\n" as NSString).length, effectiveRange: nil))
         }
@@ -153,10 +150,7 @@ final class EditorKeyboardTests: XCTestCase {
             text.insertText("```", replacementRange: text.selectedRange())
             XCTAssertEqual(text.string, "# comment")
             let document = try XCTUnwrap(session.document)
-            XCTAssertTrue(document.segments.contains {
-                if case .code(let language, let source) = $0 { return language == "python" && source == "# comment" }
-                return false
-            })
+            XCTAssertTrue(document.codeBlocks.contains { $0.attrs?.language == "python" && $0.textContent == "# comment" })
         }
     }
 

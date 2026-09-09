@@ -107,6 +107,9 @@ enum ListEditing {
                 let insertion = NSRange(location: max(selection.location, bodyStart), length: selection.length)
                 var attributes = typing
                 attributes.removeValue(forKey: .attachment)
+                attributes.removeValue(forKey: .nativeTreeContext)
+                attributes.removeValue(forKey: .nativeBlockSeparator)
+                attributes.removeValue(forKey: .nativeFollowingBlock)
                 attributes[.paragraphStyle] = styled(style, lists: style.textLists)
                 let next = NSAttributedString(string: "\n" + markerText(kind), attributes: attributes)
                 value.replaceCharacters(in: insertion, with: next)
@@ -188,7 +191,11 @@ enum ListEditing {
         value.replaceCharacters(in: replaced, with: NSAttributedString(string: prefix, attributes: attributes))
         selection = adjusted(selection, replacing: replaced, length: prefix.utf16.count)
         let newRange = NSRange(location: range.location, length: range.length - replacingPrefixLength + prefix.utf16.count)
-        if newRange.length > 0 { value.addAttribute(.paragraphStyle, value: style, range: newRange) }
+        if newRange.length > 0 {
+            value.addAttribute(.paragraphStyle, value: style, range: newRange)
+            value.removeAttribute(.nativeTreeContext, range: newRange)
+            value.removeAttribute(.nativeFollowingBlock, range: newRange)
+        }
     }
 
     private static func styled(_ original: NSParagraphStyle, lists: [NSTextList]) -> NSParagraphStyle {

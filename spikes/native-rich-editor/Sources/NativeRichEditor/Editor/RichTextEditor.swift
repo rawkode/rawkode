@@ -58,7 +58,7 @@ final class DocumentTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         if let data = NSPasteboard.general.data(forType: Self.documentPasteboard),
-           let fragment = try? JSONDecoder().decode(NoteDocument.self, from: data),
+           let fragment = try? NoteDocument.decode(data),
            let attributed = try? fragment.attributedString() {
             // A paste creates new component identities, even within the same note.
             let value = NSMutableAttributedString(attributedString: attributed)
@@ -79,6 +79,10 @@ final class DocumentTextView: NSTextView {
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         var attributes = typingAttributes
         attributes.removeValue(forKey: .attachment)
+        attributes.removeValue(forKey: .nativeLiteralSeparator)
+        attributes.removeValue(forKey: .nativeEmptyBlock)
+        attributes.removeValue(forKey: .nativeBlockSeparator)
+        attributes.removeValue(forKey: .nativeFollowingBlock)
         typingAttributes = attributes
         super.insertText(insertString, replacementRange: replacementRange)
         let inserted = (insertString as? String) ?? (insertString as? NSAttributedString)?.string ?? ""
@@ -87,6 +91,10 @@ final class DocumentTextView: NSTextView {
     }
 
     override func insertNewline(_ sender: Any?) {
+        typingAttributes.removeValue(forKey: .nativeLiteralSeparator)
+        typingAttributes.removeValue(forKey: .nativeEmptyBlock)
+        typingAttributes.removeValue(forKey: .nativeBlockSeparator)
+        typingAttributes.removeValue(forKey: .nativeFollowingBlock)
         if !FencedCode.isInsideOpenFence(in: string, at: selectedRange().location), ListEditing.handleNewline(in: self) { return }
         let font = typingAttributes[.font] as? NSFont
         let wasHeading = (font?.pointSize ?? 17) >= 20 && typingAttributes[.codeLanguage] == nil

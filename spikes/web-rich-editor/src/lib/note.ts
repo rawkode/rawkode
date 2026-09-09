@@ -1,77 +1,40 @@
-/** The file format is independent of both ProseMirror and AppKit. */
-export type ListKind = "bullet" | "numbered" | "task";
-export type ParagraphKind =
-	"paragraph" | "heading1" | "heading2" | "heading3" | "quote";
-export interface ParagraphStyle {
-	kind: ParagraphKind;
-	list?: { path: ListKind[]; checked?: boolean; start?: number };
-	alignment?: "left" | "center" | "right" | "justified" | "natural";
-}
-export interface TextStyle {
-	marks?: {
-		bold?: boolean;
-		italic?: boolean;
-		underline?: boolean;
-		strike?: boolean;
-		inlineCode?: boolean;
-		link?: string;
-	};
-	fontSize?: number;
-	fontFamily?: string;
-	foreground?: string;
-	background?: string;
-	paragraph?: ParagraphStyle;
-}
-export interface DrawingPoint {
-	x: number;
-	y: number;
-}
-export type DrawingInk =
-	"graphite" | "blue" | "purple" | "orange" | "green" | "red";
-export interface DrawingElement {
-	id: string;
-	kind: "pen" | "rectangle" | "ellipse" | "arrow" | "text";
-	ink: DrawingInk;
-	points: DrawingPoint[];
-	text: string;
-	lineWidth: number;
-}
-export interface DrawingDocument {
-	elements: DrawingElement[];
-}
-export type Playback =
-	{ directVideo: { _0: string } } | { embedURL: { _0: string } };
-export interface LinkMetadata {
-	title: string;
-	summary?: string;
-	imageURL?: string;
-	playback?: Playback;
-	discoveryNote?: string;
-}
-export interface Component {
-	id: string;
-	kind: "diagram" | "mermaid" | "drawing" | "link";
-	title: string;
-	source: string;
-	svg?: string;
-	drawing?: DrawingDocument;
-	metadata?: LinkMetadata;
-}
-export type Segment =
-	| ({ type: "text"; text: string } & TextStyle)
-	| { type: "code"; language: string; source: string }
-	| { type: "component"; component: Component };
-export interface PortableNote {
-	version: 2;
-	segments: Segment[];
-}
+import { z } from "zod";
 
+/** The persisted note is the editor document itself, not another projection. */
 export const NOTE_LIMITS = {
 	bytes: 16 * 1024 * 1024,
-	segments: 20_000,
 	text: 4 * 1024 * 1024,
+	nodes: 20_000,
+	depth: 32,
 	components: 1_000,
 } as const;
+const validText = (max: number) =>
+	z
+		.string()
+		.max(max)
+		.refine(
+			(value) => !/[\uD800-\uDFFF]/u.test(value),
+			"Unpaired UTF-16 surrogates are not valid Unicode",
+		);
+const uuid = z.guid();
+const noControls = /^[^\u0000-\u0020\u007f]+$/u;
+const httpURLSchema = validText(8_192)
+	.regex(noControls, "URLs cannot contain whitespace or control characters")
+	.pipe(z.url({ protocol: /^https?$/ }))
+	.refine((value) => {
+		try {
+			const url = new URL(value);
+			return /^https?:\/\//i.test(value) && !url.username && !url.password;
+		} catch {
+			return false;
+		}
+	}, "Use an absolute HTTP(S) URL without credentials");
+const linkURLSchema = z.union([
+	httpURLSchema,
+	validText(8_192)
+		.regex(noControls)
+		.pipe(z.url({ protocol: /^mailto$/ })),
+]);
 
 export class NoteFormatError extends Error {
 	constructor(message: string) {
@@ -79,416 +42,464 @@ export class NoteFormatError extends Error {
 		this.name = "NoteFormatError";
 	}
 }
-
-const fail = (path: string, message: string): never => {
-	throw new NoteFormatError(`${path}: ${message}`);
-};
-const object = (value: unknown, path: string): Record<string, unknown> => {
-	if (!value || typeof value !== "object" || Array.isArray(value))
-		return fail(path, "expected an object");
-	const prototype = Object.getPrototypeOf(value);
-	if (prototype !== Object.prototype && prototype !== null)
-		return fail(path, "expected plain JSON");
-	return value as Record<string, unknown>;
-};
-const keys = (
-	value: Record<string, unknown>,
-	allowed: string[],
-	path: string,
-) => {
-	for (const key of Object.keys(value))
-		if (!allowed.includes(key)) fail(path, `unsupported field “${key}”`);
-};
-const string = (
-	value: unknown,
-	path: string,
-	max = NOTE_LIMITS.text,
-): string => {
-	if (typeof value !== "string") return fail(path, "expected text");
-	if (value.length > max) return fail(path, `text exceeds ${max} characters`);
-	if (/[\uD800-\uDFFF]/u.test(value))
-		return fail(path, "unpaired UTF-16 surrogates are not portable Unicode");
-	return value;
-};
-const number = (
-	value: unknown,
-	path: string,
-	min: number,
-	max: number,
-): number => {
-	if (
-		typeof value !== "number" ||
-		!Number.isFinite(value) ||
-		value < min ||
-		value > max
-	)
-		return fail(path, `expected a number from ${min} to ${max}`);
-	return value;
-};
-const boolean = (value: unknown, path: string): boolean =>
-	typeof value === "boolean" ? value : fail(path, "expected true or false");
-const choice = <T extends string>(
-	value: unknown,
-	allowed: readonly T[],
-	path: string,
-): T => {
-	if (typeof value !== "string" || !allowed.includes(value as T))
-		return fail(path, `expected ${allowed.join(", ")}`);
-	return value as T;
-};
-const uuid = (value: unknown, path: string): string => {
-	const result = string(value, path, 36);
-	if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(result))
-		return fail(path, "expected a component UUID");
-	return result;
-};
-
-/** Validation, not URL rewriting: signed media URLs must retain their exact bytes. */
+function result<T>(schema: z.ZodType<T>, value: unknown): T {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success)
+		throw new NoteFormatError(
+			parsed.error.issues
+				.slice(0, 3)
+				.map((issue) => `${issue.path.join(".") || "note"}: ${issue.message}`)
+				.join("; "),
+		);
+	return parsed.data;
+}
 export function safeURL(value: unknown, allowMailto = false): string {
-	const result = string(value, "URL", 8_192);
-	if (/[\u0000-\u0020\u007f]/u.test(result))
-		return fail("URL", "whitespace and control characters are not allowed");
-	let parsed: URL;
-	try {
-		parsed = new URL(result);
-	} catch {
-		return fail("URL", "expected an absolute URL");
-	}
-	if (allowMailto && parsed.protocol === "mailto:") return result;
-	if (
-		!["https:", "http:"].includes(parsed.protocol) ||
-		!parsed.hostname ||
-		parsed.username ||
-		parsed.password
-	)
-		return fail("URL", "only HTTP(S) URLs without credentials are supported");
-	return result;
+	return result(allowMailto ? linkURLSchema : httpURLSchema, value);
 }
 
-function paragraph(value: unknown, path: string): ParagraphStyle {
-	const input = object(value, path);
-	keys(input, ["kind", "list", "alignment"], path);
-	const result: ParagraphStyle = {
-		kind: choice(
-			input.kind,
-			["paragraph", "heading1", "heading2", "heading3", "quote"],
-			`${path}.kind`,
-		),
-	};
-	if (input.alignment !== undefined)
-		result.alignment = choice(
-			input.alignment,
-			["left", "center", "right", "justified", "natural"] as const,
-			`${path}.alignment`,
-		);
-	if (input.list !== undefined) {
-		const list = object(input.list, `${path}.list`);
-		keys(list, ["path", "checked", "start"], `${path}.list`);
+export const drawingPointSchema = z.strictObject({
+	x: z.number().min(-100_000).max(100_000),
+	y: z.number().min(-100_000).max(100_000),
+});
+export const drawingInkSchema = z.enum([
+	"graphite",
+	"blue",
+	"purple",
+	"orange",
+	"green",
+	"red",
+]);
+export const drawingElementSchema = z.strictObject({
+	id: uuid,
+	kind: z.enum(["pen", "rectangle", "ellipse", "arrow", "text"]),
+	ink: drawingInkSchema,
+	points: z.array(drawingPointSchema).max(100_000),
+	text: validText(100_000),
+	lineWidth: z.number().min(0.1).max(100),
+});
+export const drawingDocumentSchema = z
+	.strictObject({ elements: z.array(drawingElementSchema).max(2_000) })
+	.superRefine((drawing, context) => {
 		if (
-			!Array.isArray(list.path) ||
-			list.path.length < 1 ||
-			list.path.length > 6
+			drawing.elements.reduce(
+				(sum, element) => sum + element.points.length,
+				0,
+			) > 100_000
 		)
-			return fail(`${path}.list.path`, "expected one to six nesting levels");
-		result.list = {
-			path: list.path.map((kind, index) =>
-				choice(
-					kind,
-					["bullet", "numbered", "task"],
-					`${path}.list.path[${index}]`,
-				),
+			context.addIssue({
+				code: "custom",
+				message: "Drawing exceeds 100,000 points",
+			});
+		const ids = new Set<string>();
+		drawing.elements.forEach((element, index) => {
+			const id = element.id.toLowerCase();
+			if (ids.has(id))
+				context.addIssue({
+					code: "custom",
+					path: ["elements", index, "id"],
+					message: "Duplicate drawing element ID",
+				});
+			ids.add(id);
+		});
+	});
+export const playbackSchema = z.discriminatedUnion("type", [
+	z.strictObject({ type: z.literal("directVideo"), url: httpURLSchema }),
+	z.strictObject({ type: z.literal("embedURL"), url: httpURLSchema }),
+]);
+export const linkMetadataSchema = z.strictObject({
+	title: validText(10_000),
+	summary: validText(100_000).optional(),
+	imageURL: httpURLSchema.optional(),
+	playback: playbackSchema.optional(),
+	discoveryNote: validText(10_000).optional(),
+});
+export const componentSchema = z
+	.strictObject({
+		id: uuid,
+		kind: z.enum(["diagram", "mermaid", "drawing", "link"]),
+		title: validText(10_000),
+		source: validText(200_000),
+		svg: validText(8 * 1024 * 1024).optional(),
+		drawing: drawingDocumentSchema.optional(),
+		metadata: linkMetadataSchema.optional(),
+	})
+	.superRefine((component, context) => {
+		if (
+			component.kind === "link" &&
+			component.source &&
+			!httpURLSchema.safeParse(component.source).success
+		)
+			context.addIssue({
+				code: "custom",
+				path: ["source"],
+				message: "A link component requires an HTTP(S) URL without credentials",
+			});
+	});
+
+const namedColors = [
+	"black",
+	"silver",
+	"gray",
+	"white",
+	"maroon",
+	"red",
+	"purple",
+	"fuchsia",
+	"green",
+	"lime",
+	"olive",
+	"yellow",
+	"navy",
+	"blue",
+	"teal",
+	"aqua",
+	"transparent",
+] as const;
+const channel = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+const alpha = "(?:0(?:\\.\\d+)?|1(?:\\.0+)?)";
+export const colorSchema = z.union([
+	z.enum(namedColors),
+	z.string().regex(/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i),
+	z
+		.string()
+		.max(80)
+		.regex(
+			new RegExp(
+				`^rgb\\(\\s*${channel}\\s*,\\s*${channel}\\s*,\\s*${channel}\\s*\\)$`,
+				"i",
 			),
-		};
-		if (list.checked !== undefined)
-			result.list.checked = boolean(list.checked, `${path}.list.checked`);
-		if (list.start !== undefined) {
-			const start = number(list.start, `${path}.list.start`, 1, 1_000_000);
-			if (!Number.isInteger(start))
-				return fail(`${path}.list.start`, "expected an integer");
-			result.list.start = start;
-		}
-		if (result.list.checked !== undefined && result.list.path.at(-1) !== "task")
-			return fail(`${path}.list.checked`, "checked state requires a task list");
-		if (
-			result.list.start !== undefined &&
-			result.list.path.at(-1) !== "numbered"
-		)
-			return fail(
-				`${path}.list.start`,
-				"a starting number requires a numbered list",
-			);
-	}
-	return result;
-}
-
-export function parseTextStyle(value: unknown): TextStyle {
-	const input = object(value, "text style");
-	keys(
-		input,
-		[
-			"marks",
-			"fontSize",
-			"fontFamily",
-			"foreground",
-			"background",
-			"paragraph",
-		],
-		"text style",
-	);
-	const result: TextStyle = {};
-	if (input.marks !== undefined) {
-		const marks = object(input.marks, "marks");
-		keys(
-			marks,
-			["bold", "italic", "underline", "strike", "inlineCode", "link"],
-			"marks",
-		);
-		const output: NonNullable<TextStyle["marks"]> = {};
-		for (const key of [
-			"bold",
-			"italic",
-			"underline",
-			"strike",
-			"inlineCode",
-		] as const) {
-			if (marks[key] !== undefined && boolean(marks[key], `marks.${key}`))
-				output[key] = true;
-		}
-		if (marks.link !== undefined) output.link = safeURL(marks.link, true);
-		if (Object.keys(output).length) result.marks = output;
-	}
-	if (input.fontSize !== undefined)
-		result.fontSize = number(input.fontSize, "fontSize", 1, 512);
-	if (input.fontFamily !== undefined) {
-		const family = string(input.fontFamily, "fontFamily", 128);
-		if (!/^[\p{L}\p{N} ._+\-]+$/u.test(family))
-			return fail("fontFamily", "unsupported font family name");
-		result.fontFamily = family;
-	}
-	for (const key of ["foreground", "background"] as const) {
-		if (input[key] !== undefined) {
-			const color = string(input[key], key, 9);
-			if (
-				!/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) &&
-				!["text", "secondary", "muted"].includes(color)
-			)
-				return fail(key, "expected a hexadecimal or semantic text color");
-			result[key] = color;
-		}
-	}
-	if (input.paragraph !== undefined)
-		result.paragraph = paragraph(input.paragraph, "paragraph");
-	return result;
-}
-
-function drawing(value: unknown, path: string): DrawingDocument {
-	const input = object(value, path);
-	keys(input, ["elements"], path);
-	if (!Array.isArray(input.elements) || input.elements.length > 2_000)
-		return fail(path, "drawing must contain at most 2,000 elements");
-	let pointCount = 0;
-	const ids = new Set<string>();
-	return {
-		elements: input.elements.map((value, index) => {
-			const at = `${path}.elements[${index}]`;
-			const element = object(value, at);
-			keys(element, ["id", "kind", "ink", "points", "text", "lineWidth"], at);
-			const id = uuid(element.id, `${at}.id`);
-			if (ids.has(id.toLowerCase()))
-				return fail(at, "duplicate drawing element ID");
-			ids.add(id.toLowerCase());
-			if (
-				!Array.isArray(element.points) ||
-				(pointCount += element.points.length) > 100_000
-			)
-				return fail(at, "drawing exceeds 100,000 points");
-			return {
-				id,
-				kind: choice(
-					element.kind,
-					["pen", "rectangle", "ellipse", "arrow", "text"],
-					`${at}.kind`,
-				),
-				ink: choice(
-					element.ink,
-					["graphite", "blue", "purple", "orange", "green", "red"],
-					`${at}.ink`,
-				),
-				points: element.points.map((value, index) => {
-					const point = object(value, `${at}.points[${index}]`);
-					keys(point, ["x", "y"], `${at}.points[${index}]`);
-					return {
-						x: number(point.x, "point.x", -100_000, 100_000),
-						y: number(point.y, "point.y", -100_000, 100_000),
-					};
-				}),
-				text: string(element.text, `${at}.text`, 100_000),
-				lineWidth: number(element.lineWidth, `${at}.lineWidth`, 0.1, 100),
-			};
-		}),
-	};
-}
-
-function metadata(value: unknown): LinkMetadata {
-	const input = object(value, "metadata");
-	keys(
-		input,
-		["title", "summary", "imageURL", "playback", "discoveryNote"],
-		"metadata",
-	);
-	const result: LinkMetadata = {
-		title: string(input.title, "metadata.title", 10_000),
-	};
-	if (input.summary !== undefined)
-		result.summary = string(input.summary, "metadata.summary", 100_000);
-	if (input.discoveryNote !== undefined)
-		result.discoveryNote = string(
-			input.discoveryNote,
-			"metadata.discoveryNote",
-			10_000,
-		);
-	if (input.imageURL !== undefined) result.imageURL = safeURL(input.imageURL);
-	if (input.playback !== undefined) {
-		const playback = object(input.playback, "metadata.playback");
-		const variants = Object.keys(playback);
-		if (
-			variants.length !== 1 ||
-			!["directVideo", "embedURL"].includes(variants[0])
-		)
-			return fail("metadata.playback", "expected directVideo or embedURL");
-		const payload = object(playback[variants[0]], "metadata.playback payload");
-		keys(payload, ["_0"], "metadata.playback payload");
-		result.playback = {
-			[variants[0]]: { _0: safeURL(payload._0) },
-		} as Playback;
-	}
-	return result;
-}
-
-export function parseComponent(value: unknown): Component {
-	const input = object(value, "component");
-	keys(
-		input,
-		["id", "kind", "title", "source", "svg", "drawing", "metadata"],
-		"component",
-	);
-	const result: Component = {
-		id: uuid(input.id, "component.id"),
-		kind: choice(
-			input.kind,
-			["diagram", "mermaid", "drawing", "link"],
-			"component.kind",
 		),
-		title: string(input.title, "component.title", 10_000),
-		source: string(input.source, "component.source", 200_000),
-	};
-	if (result.kind === "link" && result.source) safeURL(result.source);
-	if (input.svg !== undefined)
-		result.svg = string(input.svg, "component.svg", 8 * 1024 * 1024);
-	if (input.drawing !== undefined)
-		result.drawing = drawing(input.drawing, "component.drawing");
-	if (input.metadata !== undefined) result.metadata = metadata(input.metadata);
-	return result;
-}
+	z
+		.string()
+		.max(100)
+		.regex(
+			new RegExp(
+				`^rgba\\(\\s*${channel}\\s*,\\s*${channel}\\s*,\\s*${channel}\\s*,\\s*${alpha}\\s*\\)$`,
+				"i",
+			),
+		),
+]);
+export const textStyleAttributesSchema = z.strictObject({
+	fontFamily: validText(128)
+		.regex(/^[\p{L}\p{N} ._+'",\-]+$/u)
+		.nullable()
+		.optional(),
+	fontSize: z
+		.string()
+		.max(16)
+		.regex(/^(?:\d+(?:\.\d+)?)px$/)
+		.refine(
+			(value) => parseFloat(value) >= 1 && parseFloat(value) <= 512,
+			"Font size must be between 1px and 512px",
+		)
+		.nullable()
+		.optional(),
+	color: colorSchema.nullable().optional(),
+	backgroundColor: colorSchema.nullable().optional(),
+});
+export const linkAttributesSchema = z.strictObject({
+	href: linkURLSchema,
+	target: z.enum(["_blank", "_self"]).nullable().optional(),
+	rel: z
+		.string()
+		.max(128)
+		.regex(/^(?:(?:noopener|noreferrer|nofollow|ugc|sponsored)(?:\s+|$))*$/)
+		.nullable()
+		.optional(),
+	class: validText(256)
+		.regex(/^[\w \-]*$/)
+		.nullable()
+		.optional(),
+	title: validText(10_000).nullable().optional(),
+});
+const emptyAttributes = z.strictObject({}).optional();
+const markSchema = z.discriminatedUnion("type", [
+	z.strictObject({ type: z.literal("bold"), attrs: emptyAttributes }),
+	z.strictObject({ type: z.literal("italic"), attrs: emptyAttributes }),
+	z.strictObject({ type: z.literal("underline"), attrs: emptyAttributes }),
+	z.strictObject({ type: z.literal("strike"), attrs: emptyAttributes }),
+	z.strictObject({ type: z.literal("code"), attrs: emptyAttributes }),
+	z.strictObject({
+		type: z.literal("textStyle"),
+		attrs: textStyleAttributesSchema,
+	}),
+	z.strictObject({
+		type: z.literal("link"),
+		attrs: linkAttributesSchema,
+	}),
+]);
+const marksSchema = z
+	.array(markSchema)
+	.max(7)
+	.superRefine((marks, context) => {
+		const seen = new Set<string>();
+		marks.forEach((mark, index) => {
+			if (seen.has(mark.type))
+				context.addIssue({
+					code: "custom",
+					path: [index],
+					message: "A node cannot repeat the same mark type",
+				});
+			seen.add(mark.type);
+		});
+	});
+export const textNodeSchema = z.strictObject({
+	type: z.literal("text"),
+	text: validText(NOTE_LIMITS.text).min(1),
+	marks: marksSchema.optional(),
+});
+const inlineNodeSchema = z.discriminatedUnion("type", [
+	textNodeSchema,
+	z.strictObject({
+		type: z.literal("hardBreak"),
+		marks: marksSchema.optional(),
+	}),
+	z.strictObject({
+		type: z.literal("component"),
+		attrs: z.strictObject({ component: componentSchema }),
+		marks: marksSchema.optional(),
+	}),
+]);
+const alignmentSchema = z
+	.enum(["left", "center", "right", "justify"])
+	.nullable()
+	.optional();
+export const paragraphSchema = z.strictObject({
+	type: z.literal("paragraph"),
+	attrs: z.strictObject({ textAlign: alignmentSchema }).optional(),
+	content: z.array(inlineNodeSchema).max(NOTE_LIMITS.nodes).optional(),
+});
+const headingSchema = z.strictObject({
+	type: z.literal("heading"),
+	attrs: z.strictObject({
+		level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+		textAlign: alignmentSchema,
+	}),
+	content: z.array(inlineNodeSchema).max(NOTE_LIMITS.nodes).optional(),
+});
+const codeBlockSchema = z.strictObject({
+	type: z.literal("codeBlock"),
+	attrs: z
+		.strictObject({ language: validText(128).nullable().optional() })
+		.optional(),
+	content: z
+		.array(
+			z.strictObject({
+				type: z.literal("text"),
+				text: validText(NOTE_LIMITS.text).min(1),
+				marks: z.array(markSchema).length(0).optional(),
+			}),
+		)
+		.max(NOTE_LIMITS.nodes)
+		.optional(),
+});
+const blockquoteSchema = z.strictObject({
+	type: z.literal("blockquote"),
+	get content(): z.ZodArray<typeof blockSchema> {
+		return z.array(blockSchema).min(1).max(NOTE_LIMITS.nodes);
+	},
+});
+const listItemSchema = z.strictObject({
+	type: z.literal("listItem"),
+	get content(): z.ZodTuple<[typeof paragraphSchema], typeof blockSchema> {
+		return z.tuple([paragraphSchema]).rest(blockSchema);
+	},
+});
+const taskItemSchema = z.strictObject({
+	type: z.literal("taskItem"),
+	attrs: z.strictObject({ checked: z.boolean() }),
+	get content(): z.ZodTuple<[typeof paragraphSchema], typeof blockSchema> {
+		return z.tuple([paragraphSchema]).rest(blockSchema);
+	},
+});
+export const orderedListAttributesSchema = z.strictObject({
+	start: z.int().min(1).max(1_000_000).optional(),
+	type: z.literal("1").nullable().optional(),
+});
+export const blockSchema = z.discriminatedUnion("type", [
+	paragraphSchema,
+	headingSchema,
+	codeBlockSchema,
+	blockquoteSchema,
+	z.strictObject({
+		type: z.literal("bulletList"),
+		content: z.array(listItemSchema).min(1).max(NOTE_LIMITS.nodes),
+	}),
+	z.strictObject({
+		type: z.literal("orderedList"),
+		attrs: orderedListAttributesSchema.optional(),
+		content: z.array(listItemSchema).min(1).max(NOTE_LIMITS.nodes),
+	}),
+	z.strictObject({
+		type: z.literal("taskList"),
+		content: z.array(taskItemSchema).min(1).max(NOTE_LIMITS.nodes),
+	}),
+]);
 
-/** Reject unsupported data before replacing a user's current draft. */
-export function parseNote(value: unknown): PortableNote {
-	if (typeof value === "string") {
-		if (new TextEncoder().encode(value).byteLength > NOTE_LIMITS.bytes)
-			return fail("note", "file exceeds 16 MiB");
-		try {
-			value = JSON.parse(value);
-		} catch {
-			return fail("note", "invalid JSON");
+// Resource guard before recursive Zod evaluation, not another document model.
+const boundedJSONSchema = z.unknown().superRefine((value, context) => {
+	const stack: { value: unknown; depth: number; leave?: boolean }[] = [
+		{ value, depth: 0 },
+	];
+	const ancestors = new Set<object>();
+	let count = 0,
+		stringUnits = 0;
+	while (stack.length) {
+		const entry = stack.pop()!;
+		if (entry.leave) {
+			ancestors.delete(entry.value as object);
+			continue;
+		}
+		if (++count > 400_000 || entry.depth > 96) {
+			context.addIssue({
+				code: "custom",
+				message: "Document JSON exceeds its size or nesting limit",
+			});
+			return;
+		}
+		if (typeof entry.value === "string") {
+			stringUnits += entry.value.length;
+			if (stringUnits > NOTE_LIMITS.bytes) {
+				context.addIssue({
+					code: "custom",
+					message: "Note exceeds the 16 MiB file limit",
+				});
+				return;
+			}
+		}
+		if (entry.value && typeof entry.value === "object") {
+			if (ancestors.has(entry.value)) {
+				context.addIssue({
+					code: "custom",
+					message: "Circular documents are not JSON",
+				});
+				return;
+			}
+			const prototype = Object.getPrototypeOf(entry.value);
+			if (
+				!Array.isArray(entry.value) &&
+				prototype !== Object.prototype &&
+				prototype !== null
+			) {
+				context.addIssue({
+					code: "custom",
+					message: "Expected plain JSON objects",
+				});
+				return;
+			}
+			ancestors.add(entry.value);
+			stack.push({ ...entry, leave: true });
+			for (const descriptor of Object.values(
+				Object.getOwnPropertyDescriptors(entry.value),
+			)) {
+				if (descriptor.get || descriptor.set) {
+					context.addIssue({
+						code: "custom",
+						message: "JSON cannot contain accessors",
+					});
+					return;
+				}
+				stack.push({ value: descriptor.value, depth: entry.depth + 1 });
+			}
+		} else if (
+			typeof entry.value === "function" ||
+			typeof entry.value === "symbol" ||
+			typeof entry.value === "bigint"
+		) {
+			context.addIssue({ code: "custom", message: "Expected JSON values" });
+			return;
 		}
 	}
-	let encoded: string;
-	try {
-		encoded = JSON.stringify(value);
-	} catch {
-		return fail("note", "expected finite, non-circular JSON");
-	}
+	const encoded = JSON.stringify(value);
 	if (
 		!encoded ||
 		new TextEncoder().encode(encoded).byteLength > NOTE_LIMITS.bytes
 	)
-		return fail("note", "file exceeds 16 MiB");
-	const input = object(value, "note");
-	if (input.version !== 2)
-		return fail("note", `unsupported note version ${String(input.version)}`);
-	keys(input, ["version", "segments"], "note");
-	if (
-		!Array.isArray(input.segments) ||
-		input.segments.length > NOTE_LIMITS.segments
-	)
-		return fail("segments", "expected at most 20,000 segments");
-	let textLength = 0;
-	let componentCount = 0;
-	const ids = new Set<string>();
-	const segments = input.segments.map((value, index): Segment => {
-		const at = `segments[${index}]`;
-		const segment = object(value, at);
-		if (segment.type === "text") {
-			keys(
-				segment,
-				[
-					"type",
-					"text",
-					"marks",
-					"fontSize",
-					"fontFamily",
-					"foreground",
-					"background",
-					"paragraph",
-				],
-				at,
-			);
-			const { type: _type, text: _text, ...style } = segment;
-			const text = string(segment.text, `${at}.text`);
-			textLength += text.length;
-			return { type: "text", text, ...parseTextStyle(style) };
-		}
-		if (segment.type === "code") {
-			keys(segment, ["type", "language", "source"], at);
-			const source = string(segment.source, `${at}.source`);
-			textLength += source.length;
-			return {
-				type: "code",
-				language: string(segment.language, `${at}.language`, 128),
-				source,
+		context.addIssue({
+			code: "custom",
+			message: "Note exceeds the 16 MiB file limit",
+		});
+});
+const documentObjectSchema = z.strictObject({
+	type: z.literal("doc"),
+	content: z.array(blockSchema).min(1).max(NOTE_LIMITS.nodes),
+});
+export const documentSchema = boundedJSONSchema
+	.pipe(documentObjectSchema)
+	.superRefine((document, context) => {
+		const stack: {
+			node: {
+				type: string;
+				text?: string;
+				content?: unknown[];
+				attrs?: Record<string, unknown>;
 			};
-		}
-		if (segment.type === "component") {
-			keys(segment, ["type", "component"], at);
-			const component = parseComponent(segment.component);
-			if (ids.has(component.id.toLowerCase()))
-				return fail(at, "duplicate component ID");
-			ids.add(component.id.toLowerCase());
-			if (++componentCount > NOTE_LIMITS.components)
-				return fail("note", "exceeds 1,000 components");
-			return { type: "component", component };
-		}
-		return fail(at, `unsupported segment type ${String(segment.type)}`);
-	});
-	if (textLength > NOTE_LIMITS.text)
-		return fail("note", "text exceeds 4 Mi characters");
-	return { version: 2, segments };
-}
-
-/** Normalize only equivalent neighboring text runs. No separators are added. */
-export function canonicalNote(note: PortableNote): PortableNote {
-	const result: Segment[] = [];
-	for (const segment of parseNote(note).segments) {
-		const previous = result.at(-1);
-		if (segment.type === "text" && previous?.type === "text") {
-			const { text: _a, ...a } = segment;
-			const { text: _b, ...b } = previous;
-			if (JSON.stringify(a) === JSON.stringify(b)) {
-				previous.text += segment.text;
-				continue;
+			depth: number;
+		}[] = [{ node: document, depth: 0 }];
+		const ids = new Set<string>();
+		let nodes = 0,
+			text = 0,
+			components = 0;
+		while (stack.length) {
+			const { node, depth } = stack.pop()!;
+			if (++nodes > NOTE_LIMITS.nodes || depth > NOTE_LIMITS.depth) {
+				context.addIssue({
+					code: "custom",
+					message: "Document exceeds 20,000 nodes or 32 nesting levels",
+				});
+				return;
 			}
+			text += node.text?.length ?? 0;
+			if (text > NOTE_LIMITS.text) {
+				context.addIssue({
+					code: "custom",
+					message: "Document text exceeds 4 Mi characters",
+				});
+				return;
+			}
+			if (node.type === "component") {
+				const component = node.attrs!.component as Component;
+				const id = component.id.toLowerCase();
+				if (ids.has(id))
+					context.addIssue({
+						code: "custom",
+						message: `Duplicate component ID ${component.id}`,
+					});
+				ids.add(id);
+				if (++components > NOTE_LIMITS.components) {
+					context.addIssue({
+						code: "custom",
+						message: "Document exceeds 1,000 components",
+					});
+					return;
+				}
+			}
+			for (const child of node.content ?? [])
+				stack.push({ node: child as typeof node, depth: depth + 1 });
 		}
-		result.push(segment);
+	});
+
+export type NoteDocument = z.infer<typeof documentSchema>;
+export type Component = z.infer<typeof componentSchema>;
+export type LinkMetadata = z.infer<typeof linkMetadataSchema>;
+export type Playback = z.infer<typeof playbackSchema>;
+export type DrawingDocument = z.infer<typeof drawingDocumentSchema>;
+export type DrawingElement = z.infer<typeof drawingElementSchema>;
+export type DrawingPoint = z.infer<typeof drawingPointSchema>;
+export type DrawingInk = z.infer<typeof drawingInkSchema>;
+export type TextStyleAttributes = z.infer<typeof textStyleAttributesSchema>;
+export function parseComponent(value: unknown): Component {
+	return result(boundedJSONSchema.pipe(componentSchema), value);
+}
+export function parseNote(value: unknown): NoteDocument {
+	if (typeof value === "string") {
+		if (new TextEncoder().encode(value).byteLength > NOTE_LIMITS.bytes)
+			throw new NoteFormatError("Note exceeds the 16 MiB file limit");
+		try {
+			value = JSON.parse(value);
+		} catch {
+			throw new NoteFormatError("The note is not valid JSON");
+		}
 	}
-	return { version: 2, segments: result };
+	return result(documentSchema, value);
 }

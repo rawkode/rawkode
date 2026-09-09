@@ -3,14 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import ipaddr from "ipaddr.js";
 import { load } from "cheerio";
-
-export interface Metadata {
-	title: string;
-	summary?: string;
-	imageURL?: string;
-	playback?: { directVideo: { _0: string } } | { embedURL: { _0: string } };
-	discoveryNote?: string;
-}
+import type { LinkMetadata as Metadata } from "../lib/note";
 
 export function webURL(value: string, base?: string): URL {
 	const url = new URL(value, base);
@@ -189,9 +182,10 @@ export function parsePage(
 	);
 	if (video) {
 		const mime = meta("og:video:type")?.toLowerCase() ?? "";
-		if (videoMIME(mime)) metadata.playback = { directVideo: { _0: video } };
+		if (videoMIME(mime))
+			metadata.playback = { type: "directVideo", url: video };
 		else if (!mime || mime === "text/html")
-			metadata.playback = { embedURL: { _0: video } };
+			metadata.playback = { type: "embedURL", url: video };
 	}
 	const endpoint = $("link")
 		.toArray()
@@ -228,7 +222,7 @@ export function mergeOEmbed(
 	) {
 		const src = load(value.html)("iframe").first().attr("src");
 		const frame = resolved(src, base);
-		if (frame) result.playback = { embedURL: { _0: frame } };
+		if (frame) result.playback = { type: "embedURL", url: frame };
 		else if (!result.playback)
 			result.discoveryNote =
 				"This provider did not advertise an iframe player. Open the link to view it.";
@@ -246,7 +240,7 @@ export async function resolveMetadata(source: string): Promise<Metadata> {
 		if (videoMIME(page.mime))
 			return {
 				title: new URL(page.url).pathname.split("/").pop() || "Video",
-				playback: { directVideo: { _0: page.url } },
+				playback: { type: "directVideo", url: page.url },
 			};
 		if (page.mime && !page.mime.includes("html"))
 			throw new Error(

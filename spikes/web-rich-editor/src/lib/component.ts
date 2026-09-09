@@ -64,15 +64,9 @@ export function playback(
 ): { kind: "video" | "embed"; url: string } | undefined {
 	const candidate = metadata?.playback;
 	if (!candidate) return undefined;
-	if ("directVideo" in candidate) {
-		const url = webURL(candidate.directVideo?._0);
-		if (url) return { kind: "video", url };
-	}
-	if ("embedURL" in candidate) {
-		const url = webURL(candidate.embedURL?._0);
-		if (url) return { kind: "embed", url };
-	}
-	return undefined;
+	const url = webURL(candidate.url);
+	if (!url) return undefined;
+	return { kind: candidate.type === "directVideo" ? "video" : "embed", url };
 }
 
 export function elementBounds(element: DrawingElement) {

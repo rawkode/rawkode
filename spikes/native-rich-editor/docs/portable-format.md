@@ -1,23 +1,23 @@
-# Portable notes, version 2
+# Shared Tiptap document
 
-The shared container is `{ "version": 2, "segments": [...] }`. Segments concatenate exactly in order; no implicit newline is inserted before or after code or components. This is an import/export format, not a concurrent editing protocol.
+Both editors persist the same Tiptap/ProseMirror JSON root:
 
-Text segments have `type: "text"`, exact `text`, and optional fields:
+```json
+{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"A note"}]}]}
+```
 
-- `marks`: boolean `bold`, `italic`, `underline`, `strike`, `inlineCode`, and string `link`.
-- `fontSize`: positive points, up to 512; `fontFamily`: a family name or `system-ui`.
-- `foreground` and `background`: `#RRGGBB`, `#RRGGBBAA`, or dynamic tokens `text`, `secondary`, `muted`. Web maps dynamic tokens to its theme; native maps them to system colors.
-- `paragraph`: `kind` (`paragraph`, `heading1`, `heading2`, `heading3`, `quote`), optional `alignment` (`left`, `center`, `right`, `justified`), and optional `list`.
-- `list`: full nesting `path` of `bullet`, `numbered`, or `task` (maximum six levels), optional task `checked`, and optional numbered `start`. `start` is the displayed number for this item; absence means 1, not implicit continuation.
+There is no versioned segment wrapper, compatibility reader, or migration path. The web application validates this tree with Zod and edits it directly with Tiptap. Native Swift Codable types read and write that same tree; `NativeDocumentBridge` projects it into the continuous AppKit text view.
 
-Paragraph semantics apply to every paragraph touched by a run. Native emits text runs split at paragraph boundaries and repeats paragraph metadata for inline style changes. Text owns exact LF, CRLF, CR, U+2029, blank lines, tabs, and trailing separators. A native generated list marker is removed only when supported native list semantics agree; literal marker-looking text is not stripped. Each editor projects its own visible list marker.
+Supported blocks are paragraphs, headings (`attrs.level` 1–3), blockquotes, bullet/ordered/task lists and their items, and code blocks (`attrs.language`). Lists contain items, each beginning with a paragraph; nested lists and multiple paragraphs in an item retain their hierarchy. Ordered lists support decimal numbering with `attrs.start`. Paragraphs/headings can have `attrs.textAlign`.
 
-Code segments are `{ "type": "code", "language": "swift", "source": "..." }`. Source can be empty and preserves internal CRLF. The native editable projection uses a tracked newline placeholder for empty code; it serializes back to empty source while untouched.
+Inline content is text, hard breaks, and the custom component node. Standard marks are `bold`, `italic`, `underline`, `strike`, `code`, `link`, and `textStyle`. Text-style attributes are CSS `fontFamily`, `fontSize` (for example `"17px"`), `color`, and `backgroundColor`. Native system defaults are omitted; semantic heading typography is not an inline bold mark.
 
-Component segments are `{ "type": "component", "component": ... }`. Component JSON retains the native payload: UUID `id`, `kind` (`diagram`, `mermaid`, `drawing`, `link`), `title`, `source`, optional SVG cache, drawing, and metadata. IDs are preserved by file interchange; copying a component into another place intentionally creates a new ID. Drawing coordinates remain in the native 900×420 world. Link playback retains the existing enum encoding: `{ "directVideo": { "_0": "https://..." } }` or `{ "embedURL": { "_0": "https://..." } }`.
+Components are inline nodes: `{ "type": "component", "attrs": { "component": { ... } } }`. The payload retains its stable UUID, kind, title, source, diagram cache, drawing, and metadata. Drawing coordinates use the existing 900×420 world. Playback is `{ "type": "directVideo", "url": "https://..." }` or `{ "type": "embedURL", "url": "https://..." }`. Component and hard-break nodes may carry marks.
 
-## Scope
+The paragraph tree owns structure. Native renders a newline between blocks and a line separator for `hardBreak`; original flat-file line-ending spellings are not part of the model. Code text remains exact, including internal CRLF. Code blocks contain text only; a native code-styled attachment is projected into a neighboring component paragraph rather than placed inside a code block.
 
-Only version 2 is supported. Other versions or unsupported native content are rejected without overwriting the file. Authoring records heading, quote, and inline-code semantics directly; heading typography is separate from explicit inline bold marks.
+Native paragraph attributes carry transient ancestor identities to retain imported quote/list structure during text edits. They are not serialized. A projection-only invisible placeholder retains the style of a sole empty block; literal text separators remain distinct from hard-break nodes. Explicit native block/list operations update or discard the affected projection context; the canonical document remains the Tiptap tree.
 
-`Tests/Fixtures/portable-v2.native-note` is the shared fixture covering split bold list runs, nested mixed lists, tasks, headings, quotes, inline marks, Unicode, code, blank lines, adjacent components, drawing elements, and both playback variants. Ordinary tests never rewrite it.
+Native validates the decoder before Swift Codable can discard fields: unknown nodes, marks, attributes, invalid hierarchy, unsafe URLs, and duplicate component/drawing IDs are rejected. Both runtimes enforce a 16 MiB file limit, 20,000 nodes, depth 32, 4 Mi UTF-16 text units, and 1,000 components, plus bounded component and drawing payloads. Explicit null attributes remain null, including link targets and relationships that would otherwise acquire different Tiptap defaults.
+
+The shared fixture is `Tests/Fixtures/tiptap.native-note`. Tests cover native editing, hierarchical round trips, exact code, inline marks, and component IDs. For cross-runtime verification only, `FIELDNOTES_ROUNDTRIP_OUTPUT=/private/tmp/new-note.json swift test --filter TiptapDocumentTests.testSharedFixtureRoundTripsAndCanExportForZodVerification` exports a native round trip to a new temporary file. There is no production conversion CLI.

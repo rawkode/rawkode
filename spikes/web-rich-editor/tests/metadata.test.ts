@@ -42,7 +42,8 @@ test("generic Open Graph discovers direct media and oEmbed", () => {
 	);
 	assert.equal(parsed.metadata.title, "A & B");
 	assert.deepEqual(parsed.metadata.playback, {
-		directVideo: { _0: "https://example.org/film.m3u8" },
+		type: "directVideo",
+		url: "https://example.org/film.m3u8",
 	});
 	assert.equal(parsed.endpoint, "https://example.org/oembed");
 });
@@ -58,7 +59,7 @@ test("only iframe URL is extracted; arbitrary scripts are never returned", () =>
 	);
 	assert.deepEqual(metadata, {
 		title: "Clip",
-		playback: { embedURL: { _0: "https://player.example.org/clip" } },
+		playback: { type: "embedURL", url: "https://player.example.org/clip" },
 	});
 	assert.equal(
 		mergeOEmbed(
