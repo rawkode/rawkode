@@ -1,0 +1,41 @@
+{
+	"name": "fieldnotes-web-spike",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "astro dev --host 127.0.0.1 --port 4327",
+		"build": "astro build",
+		"check": "astro check && vue-tsc --noEmit",
+		"test": "node --import tsx --test tests/*.test.ts",
+		"preview": "astro preview --host 127.0.0.1 --port 4327"
+	},
+	"dependencies": {
+		"@astrojs/node": "11.1.5",
+		"@astrojs/vue": "7.0.2",
+		"@terrastruct/d2": "0.1.33",
+		"@tiptap/core": "3.31.3",
+		"@tiptap/extension-code": "3.31.3",
+		"@tiptap/extension-code-block": "3.31.3",
+		"@tiptap/extension-placeholder": "3.31.3",
+		"@tiptap/extension-task-item": "3.31.3",
+		"@tiptap/extension-task-list": "3.31.3",
+		"@tiptap/pm": "3.31.3",
+		"@tiptap/starter-kit": "3.31.3",
+		"@tiptap/vue-3": "3.31.3",
+		"astro": "7.3.2",
+		"cheerio": "1.2.0",
+		"hls.js": "1.7.2",
+		"ipaddr.js": "2.5.0",
+		"mermaid": "11.17.2",
+		"vue": "3.5.42"
+	},
+	"devDependencies": {
+		"@astrojs/check": "0.9.10",
+		"@types/jsdom": "30.0.0",
+		"@types/node": "26.5.0",
+		"jsdom": "30.0.1",
+		"tsx": "4.23.13",
+		"typescript": "6.0.3",
+		"vue-tsc": "3.3.11"
+	}
+}
