@@ -71,13 +71,13 @@ export const createDocumentSaver = ({
 	let stopped = false;
 	let disposed = false;
 	let state: SaveState = "idle";
+	let activeWrite: Promise<void> | undefined;
 	const report = (next: SaveState, message?: string) => {
 		state = next;
 		if (!disposed) onState(next, message);
 	};
-	const flush = async (): Promise<void> => {
-		if (saving || stopped || disposed || !pending) return;
-		clearTimeout(timer);
+	const writePending = async (): Promise<void> => {
+		if (stopped || disposed || !pending) return;
 		const note = pending;
 		pending = undefined;
 		saving = true;
@@ -124,8 +124,17 @@ export const createDocumentSaver = ({
 			);
 		} finally {
 			saving = false;
-			if (pending && !stopped && !disposed) await flush();
 		}
+	};
+	const flush = async (): Promise<boolean> => {
+		clearTimeout(timer);
+		while (!stopped && !disposed && (activeWrite || pending)) {
+			if (!activeWrite) activeWrite = writePending();
+			const write = activeWrite;
+			await write;
+			if (activeWrite === write) activeWrite = undefined;
+		}
+		return !saving && !pending && !stopped;
 	};
 	return {
 		schedule: (note: NoteDocument) => {
@@ -140,6 +149,7 @@ export const createDocumentSaver = ({
 			stopped = false;
 			void flush();
 		},
+		flush,
 		hasUnsavedChanges: () => saving || !!pending,
 		dispose: () => {
 			disposed = true;

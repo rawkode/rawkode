@@ -353,6 +353,12 @@ const saveDraft = () => {
 	}
 	catch (failure) { invalidChanges.value = true; status.value = "Changes not saved"; error.value = failure instanceof Error ? failure.message : "Could not save this note. Export a copy before leaving."; }
 };
+const prepareForTransition = async (): Promise<boolean> => {
+	saveDraft();
+	if (invalidChanges.value) return false;
+	return await saver?.flush() ?? true;
+};
+defineExpose({ prepareForTransition });
 const download = (contents: string, name: string) => {
   const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
   const link = document.createElement("a");

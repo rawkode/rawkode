@@ -147,3 +147,57 @@ Deno.test("failed saves retain the latest edit for explicit retry", async () => 
 	expect(saver.hasUnsavedChanges()).toBe(false);
 	saver.dispose();
 });
+
+Deno.test("explicit flush saves immediately and waits for edits queued during the write", async () => {
+	const requests: { note: unknown; expectedRevision: number | null }[] = [];
+	let finish!: (response: Response) => void;
+	const saver = createDocumentSaver({
+		id: "daily:2026-09-10",
+		revision: null,
+		delay: 60_000,
+		onState: () => {},
+		request: (_input, init) => {
+			requests.push(JSON.parse(String(init?.body)));
+			return requests.length === 1
+				? new Promise((resolve) => {
+					finish = resolve;
+				})
+				: Promise.resolve(saved(2));
+		},
+	});
+	saver.schedule(note("first edit"));
+	const transition = saver.flush();
+	await tick();
+	expect(requests).toHaveLength(1);
+	saver.schedule(note("second edit"));
+	finish(saved(1));
+	expect(await transition).toBe(true);
+	expect(requests.map(({ expectedRevision }) => expectedRevision)).toEqual([
+		null,
+		1,
+	]);
+	expect(requests[1].note).toEqual(note("second edit"));
+	expect(saver.hasUnsavedChanges()).toBe(false);
+	saver.dispose();
+});
+
+Deno.test("explicit flush blocks transitions after an error or conflict", async () => {
+	for (
+		const response of [
+			() => Promise.reject(new Error("offline")),
+			() => Promise.resolve(new Response(null, { status: 409 })),
+		]
+	) {
+		const saver = createDocumentSaver({
+			id: "daily:2026-09-10",
+			revision: 1,
+			delay: 60_000,
+			onState: () => {},
+			request: response,
+		});
+		saver.schedule(note("unsaved"));
+		expect(await saver.flush()).toBe(false);
+		expect(saver.hasUnsavedChanges()).toBe(true);
+		saver.dispose();
+	}
+});
