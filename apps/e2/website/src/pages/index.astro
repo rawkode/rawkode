@@ -1,6 +1,10 @@
 ---
-import Fieldnotes from '../components/Fieldnotes.vue';
+import PaneWorkspace from '../components/PaneWorkspace.vue';
+import { parsePaneStack } from '../editor/paneStack';
 import '../styles/editor.css';
+
+const parsedPanes = parsePaneStack(Astro.url.searchParams);
+const initialPanes = parsedPanes.ok ? parsedPanes.panes : undefined;
 ---
 <!doctype html>
 <html lang="en">
@@ -14,7 +18,7 @@ import '../styles/editor.css';
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to editor</a>
-    <Fieldnotes client:only="vue"><p slot="fallback">Opening today…</p></Fieldnotes>
+    <PaneWorkspace client:only="vue" initialPanes={initialPanes}><p slot="fallback">Opening today…</p></PaneWorkspace>
     <noscript>Enable JavaScript to write your daily note.</noscript>
   </body>
 </html>

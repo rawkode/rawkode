@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 
 import { Editor, EditorContent, VueNodeViewRenderer } from "@tiptap/vue-3";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import ComponentView from "./ComponentView.vue";
 import TodaySidebar from "./TodaySidebar.vue";
 import { defaultComponent } from "../lib/component";
@@ -13,12 +14,23 @@ import { canonicalEntityReference, closeEntityComposer, createLatestEntitySearch
 import { loadDocument, saveDocument } from '../editor/persistence';
 import { createDocumentSaver, readDocument, todayBounds, todayDocumentId, type SaveState } from '../editor/documents';
 import { createCanonicalEntity, editorRegistry, listCanonicalSupertags, searchCanonicalEntities, type CanonicalEntitySummary, type CanonicalSupertag } from "../editor/registry";
+import { paneSearchParams } from "../editor/paneStack";
 
 const props = withDefaults(defineProps<{
 	documentId?: string;
 	title?: string;
 	showSidebar?: boolean;
-}>(), { title: "Today", showSidebar: true });
+	embedded?: boolean;
+	showHeading?: boolean;
+	showFileActions?: boolean;
+}>(), {
+	title: "Today",
+	showSidebar: true,
+	embedded: false,
+	showHeading: true,
+	showFileActions: false,
+});
+const emit = defineEmits<{ openEntity: [entityId: string] }>();
 
 const day = new Date();
 const documentId = props.documentId ?? todayDocumentId(day);
@@ -29,6 +41,7 @@ const loading = ref(true);
 const invalidChanges = ref(false);
 const saveState = ref<SaveState>("idle");
 const editor = shallowRef<Editor>();
+const heading = ref<HTMLHeadingElement>();
 const fileInput = ref<HTMLInputElement>();
 const replaceNoteDialog = ref<HTMLDialogElement>();
 const pendingReplacement = shallowRef<
@@ -182,6 +195,17 @@ const componentExtension = ComponentNode.extend({
 const active = (name: string) => {
 	void revision.value;
 	return !!editor.value?.isActive(name);
+};
+const activateEntity = (entityId: string) => {
+	if (props.embedded) {
+		emit("openEntity", entityId);
+		return;
+	}
+	const params = paneSearchParams(new URLSearchParams(), [
+		{ kind: "document", id: documentId },
+		{ kind: "entity", id: entityId },
+	]);
+	window.location.assign(`/?${params.toString()}`);
 };
 const setStyle = (style: Parameters<typeof applyBlockStyle>[1]) => {
 	const current = editor.value;
@@ -448,11 +472,16 @@ const saveDraft = () => {
 	catch (failure) { invalidChanges.value = true; status.value = "Changes not saved"; error.value = failure instanceof Error ? failure.message : "Could not save this note. Export a copy before leaving."; }
 };
 const prepareForTransition = async (): Promise<boolean> => {
-	saveDraft();
-	if (invalidChanges.value) return false;
+	// Do not schedule an unchanged lazy document merely because its pane closes.
+	// Composition must finish so the editor's normal update hook has captured the
+	// final DOM input before the pending save is flushed.
+	if (editor.value?.view.composing || invalidChanges.value) return false;
 	return await saver?.flush() ?? true;
 };
-defineExpose({ prepareForTransition });
+const focusHeading = () => {
+	void nextTick(() => heading.value?.focus());
+};
+defineExpose({ prepareForTransition, focusHeading });
 const download = (contents: string, name: string) => {
   const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
   const link = document.createElement("a");
@@ -622,7 +651,26 @@ const loadToday = async () => {
 							slice.openStart,
 							slice.openEnd,
 						),
+			handleClickOn: (_view, _position, node, _nodePosition, event, direct) => {
+					const entity = node.type.name === "entity" ? node.attrs.entity : null;
+					if (!direct || entity?.version !== 1) return false;
+					event.preventDefault();
+					activateEntity(entity.entityId);
+					return true;
+				},
 			handleKeyDown: (_view, event) => {
+					if (
+						event.key === "Enter" &&
+						editor.value?.state.selection instanceof NodeSelection
+					) {
+						const node = editor.value.state.selection.node;
+						const entity = node.type.name === "entity" ? node.attrs.entity : null;
+						if (entity?.version === 1) {
+							event.preventDefault();
+							activateEntity(entity.entityId);
+							return true;
+						}
+					}
 				if (
 					(event.metaKey || event.ctrlKey) &&
 					event.altKey &&
@@ -757,8 +805,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<div class="app-shell">
-		<header class="app-header">
+	<div :class="['app-shell', { 'document-editor': props.embedded }]">
+		<header v-if="!props.embedded" class="app-header">
 			<a class="wordmark" href="/" aria-label="Apsides today"
 				><svg aria-hidden="true" viewBox="0 0 24 24">
 					<path
@@ -787,6 +835,22 @@ onBeforeUnmount(() => {
 				/>
 			</div>
 		</header>
+		<div v-if="props.embedded && props.showFileActions" class="embedded-file-actions" aria-label="Document actions">
+			<button type="button" @click="openPalette">Commands <kbd>⌘K</kbd></button>
+			<button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">Clear today</button>
+			<button :disabled="importing || !editor || saveBlocked || saveState === 'conflict'" @click="fileInput?.click()">
+				{{ importing ? "Opening…" : "Open note" }}
+			</button>
+			<button class="primary" :disabled="!editor" @click="exportNote">Export note <span aria-hidden="true">↗</span></button>
+			<input
+				ref="fileInput"
+				class="file-input"
+				type="file"
+				accept=".native-note,.json,application/json"
+				aria-label="Open portable note file"
+				@change="importNote"
+			/>
+		</div>
 		<div class="document-meta">
 			<span class="filename">{{ dayLabel }}</span
 			><span role="status" aria-live="polite">{{ status }}</span>
@@ -889,8 +953,8 @@ onBeforeUnmount(() => {
       ><button v-if="editor" @click="exportNote">Export your changes</button>
 		</div>
 		<div class="today-layout">
-			<main id="main">
-				<h1 class="today-heading">{{ props.title }}</h1>
+			<main :id="props.embedded ? undefined : 'main'">
+				<h1 v-if="props.showHeading" ref="heading" class="today-heading" tabindex="-1">{{ props.title }}</h1>
         <p v-if="loading" role="status">Opening your note…</p>
 				<EditorContent v-if="editor" :editor="editor" />
 				<div v-else-if="loading" class="loading-note" aria-label="Loading editor">
@@ -901,7 +965,7 @@ onBeforeUnmount(() => {
 			</main>
 			<TodaySidebar v-if="props.showSidebar" :date="dayBounds.date" :from="dayBounds.from" :to="dayBounds.to" />
 		</div>
-		<footer>
+		<footer v-if="!props.embedded">
 			<span>Type <kbd>/</kbd> for blocks or <kbd>#</kbd> to link</span
 			><span>Your note saves after the first edit.</span>
 		</footer>
