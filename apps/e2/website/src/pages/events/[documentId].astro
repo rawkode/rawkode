@@ -1,0 +1,48 @@
+---
+import Fieldnotes from '../../components/Fieldnotes.vue';
+import EventNotesFeed from '../../components/EventNotesFeed.vue';
+import { eventSeriesDocumentPrefix, eventSeriesDocumentId } from '../../editor/eventDocuments';
+import '../../styles/editor.css';
+
+const decodeId = (value: string | undefined): string => {
+  if (typeof value !== 'string') return '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return '';
+  }
+};
+const documentId = decodeId(Astro.params.documentId);
+const instanceDocument = /^event:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)$/.exec(documentId);
+const seriesDocument = /^event-series:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)$/.exec(documentId);
+if (!instanceDocument && !seriesDocument) {
+  return new Response('Invalid event document', { status: 400 });
+}
+const connection = instanceDocument?.[1] ?? seriesDocument?.[1] ?? '';
+const calendar = instanceDocument?.[2] ?? seriesDocument?.[2] ?? '';
+const series = instanceDocument?.[3] ?? seriesDocument?.[3] ?? '';
+const title = Astro.url.searchParams.get('title') ?? (seriesDocument ? 'Event series' : 'Event notes');
+const prefix = connection && calendar && series ? eventSeriesDocumentPrefix(connection, calendar, series) : '';
+const seriesHref = instanceDocument
+  ? `/events/${encodeURIComponent(eventSeriesDocumentId(connection, calendar, series))}?connection=${encodeURIComponent(connection)}&calendar=${encodeURIComponent(calendar)}&series=${encodeURIComponent(series)}&title=${encodeURIComponent(title)}`
+  : '';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title} · Apsides</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to editor</a>
+    <div class="event-page-heading"><a href="/">← Back to Today</a><span>{seriesDocument ? 'Event series' : 'Meeting notes'}</span></div>
+    {prefix && <EventNotesFeed client:load prefix={prefix} />}
+    {seriesHref && <p class="event-series-link"><a href={seriesHref}>Open the synthetic series note →</a></p>}
+    <Fieldnotes client:only="vue" documentId={documentId} title={title} showSidebar={false}><p slot="fallback">Opening event notes…</p></Fieldnotes>
+    <noscript>Enable JavaScript to write meeting notes.</noscript>
+  </body>
+</html>

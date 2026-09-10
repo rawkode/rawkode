@@ -1,7 +1,6 @@
 import AppKit
 import AVKit
 import SwiftUI
-import WebKit
 
 struct LinkEditor: View {
     let component: Component
@@ -89,7 +88,7 @@ struct LinkEditor: View {
                 guard !Task.isCancelled, source == requestedSource else { return }
                 metadata = result
                 if title.isEmpty || title == component.title { title = result.title }
-                status = result.discoveryNote ?? (result.hasPlayableVideo ? "Player discovered. It will load only when you click Play in the note." : "Preview ready. This page does not advertise a supported inline player.")
+                status = result.discoveryNote ?? (result.hasPlayableVideo ? "Player discovered. Open the link in your browser to play it." : "Preview ready. This page does not advertise a supported player.")
             } catch {
                 guard !Task.isCancelled, source == requestedSource else { return }
                 status = "Preview unavailable: \(error.localizedDescription) You can still save the link."
@@ -102,8 +101,6 @@ struct LinkEditor: View {
 struct InlineLinkView: View {
     let component: Component
     let edit: () -> Void
-    @State private var playerLoaded = false
-    @State private var playbackError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,31 +122,10 @@ struct InlineLinkView: View {
                     .buttonStyle(.borderless).help("Open link in browser")
             }
             .padding(14)
-            if let playback = component.metadata?.playback {
+            if component.metadata?.playback != nil {
                 Divider()
-                if playerLoaded {
-                    InlinePlaybackView(playback: playback, failure: $playbackError)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ZStack {
-                        LinkThumbnail(url: component.metadata?.imageURL)
-                        Button {
-                            playbackError = nil
-                            playerLoaded = true
-                        } label: {
-                            Label("Play video", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 5)
-                        }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
-                    }
+                InlinePlaybackView(open: openLink)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                if let playbackError {
-                    HStack {
-                        Text(playbackError).font(.caption).lineLimit(2)
-                        Spacer()
-                        Button("Open Link", action: openLink).controlSize(.small)
-                    }.padding(8)
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -159,33 +135,41 @@ struct InlineLinkView: View {
     }
 
     private func openLink() {
-        if let url = LinkMetadataResolver.validatedURL(component.source) { NSWorkspace.shared.open(url) }
+        if let url = LinkMetadataResolver.validatedURL(component.source),
+           LinkMetadataResolver.publicURL(url) != nil { NSWorkspace.shared.open(url) }
     }
 }
 
 private struct LinkThumbnail: View {
     let url: URL?
+    @State private var image: NSImage?
     var body: some View {
-        AsyncImage(url: url.flatMap { LinkMetadataResolver.validatedURL($0.absoluteString) }) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
-            } else {
-                Rectangle().fill(.quaternary.opacity(0.5))
-                    .overlay { Image(systemName: "link").font(.title2).foregroundStyle(.secondary) }
-            }
+        Group {
+            if let image { Image(nsImage: image).resizable().scaledToFill() }
+            else { Rectangle().fill(.quaternary.opacity(0.5)).overlay { Image(systemName: "link").font(.title2).foregroundStyle(.secondary) } }
         }
         .clipped()
+        .task(id: url) {
+            image = nil
+            guard let url else { return }
+            do {
+                let data = try await LinkMetadataResolver.fetchImage(url)
+                guard !Task.isCancelled else { return }
+                image = NSImage(data: data)
+            } catch { image = nil }
+        }
     }
 }
 
 private struct InlinePlaybackView: View {
-    let playback: LinkMetadata.Playback
-    @Binding var failure: String?
+    let open: () -> Void
     var body: some View {
-        switch playback {
-        case .directVideo(let url): NativeVideoPlayer(url: url, failure: $failure)
-        case .embedURL(let url): EmbeddedWebPlayer(url: url, failure: $failure)
+        VStack(spacing: 8) {
+            Label("Inline playback opens in your browser", systemImage: "play.rectangle")
+                .foregroundStyle(.secondary)
+            Button("Open Link", action: open)
         }
+        .padding()
     }
 }
 
@@ -208,7 +192,7 @@ struct NativeVideoPlayer: NSViewRepresentable {
     func updateNSView(_ view: AVPlayerView, context: Context) {
         context.coordinator.failure = $failure
         guard context.coordinator.loadedURL != url,
-              LinkMetadataResolver.validatedURL(url.absoluteString) != nil else { return }
+              url.isFileURL else { return }
         context.coordinator.loadedURL = url
         context.coordinator.observation = nil
         view.player?.pause()
@@ -237,63 +221,5 @@ struct NativeVideoPlayer: NSViewRepresentable {
         var observation: NSKeyValueObservation?
         var failure: Binding<String?>
         init(failure: Binding<String?>) { self.failure = failure }
-    }
-}
-
-private struct EmbeddedWebPlayer: NSViewRepresentable {
-    let url: URL
-    @Binding var failure: String?
-
-    func makeCoordinator() -> Coordinator { Coordinator(failure: $failure) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        view.navigationDelegate = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ view: WKWebView, context: Context) {
-        guard context.coordinator.loadedURL != url,
-              LinkMetadataResolver.validatedURL(url.absoluteString) != nil else { return }
-        context.coordinator.loadedURL = url
-        var request = URLRequest(url: url)
-        if let bundleID = Bundle.main.bundleIdentifier {
-            request.setValue("https://" + bundleID.lowercased(), forHTTPHeaderField: "Referer")
-        }
-        view.load(request)
-    }
-
-    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
-        view.navigationDelegate = nil
-        view.stopLoading()
-        view.loadHTMLString("", baseURL: nil)
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        var loadedURL: URL?
-        @Binding var failure: String?
-        init(failure: Binding<String?>) { _failure = failure }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            failure = "Player could not load: \(error.localizedDescription)"
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            failure = "Player could not load: \(error.localizedDescription)"
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let url = action.request.url, LinkMetadataResolver.validatedURL(url.absoluteString) != nil else {
-                decisionHandler(.cancel)
-                return
-            }
-            if action.navigationType == .linkActivated, action.targetFrame?.isMainFrame != false {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            } else { decisionHandler(.allow) }
-        }
     }
 }

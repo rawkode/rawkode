@@ -1,0 +1,74 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { bindings } from '../../../lib/env.ts';
+import type { Connection, OAuthApp } from '@e2/oauth-client/contracts';
+
+let connections: Connection[] = [];
+let apps: OAuthApp[] = [];
+let unavailable = false;
+try {
+  using api = await bindings.OAUTH_ADMIN.admin(Astro.locals.admin.ownerId);
+  [connections, apps] = await Promise.all([api.listConnections(), api.listApps()]);
+} catch { unavailable = true; }
+const result = Astro.url.searchParams.get('result');
+const messages: Record<string, string> = {
+  connected: 'Account connected. Enable sync below to bring in its contacts and events.',
+  cancelled: 'Google sign-in was cancelled. You can add the account again when ready.',
+  failed: 'The account could not be connected. Try again and approve the requested permissions.',
+  syncing: 'Sync has been scheduled. Contacts and events will appear in Today after the local store is updated.',
+  'sync-disabled': 'Google sync is disabled for this account. Existing data remains stored and will be included again when you re-enable sync.',
+  'github-enabled': 'GitHub activity is enabled. Your Today page will include issues, pull requests, and discussions.',
+  'github-disabled': 'GitHub activity is disabled for this account.',
+  deleted: 'Account deleted. Its stored contacts, events, and connection credentials have been removed.',
+  'action-failed': 'The action could not be completed. Your account is still available; please retry.',
+};
+---
+<AdminLayout title="Accounts">
+  <div class="page-heading"><div><h1>Accounts</h1><p class="muted">Connect your accounts to bring contacts and calendar events into Apsides.</p></div></div>
+  {result && messages[result] && <div class:list={['notice', {error: result.includes('failed')}]} role="status"><p>{messages[result]}</p></div>}
+  {unavailable ? <div class="notice error" role="alert"><p>Accounts are unavailable right now. Reload this page to try again.</p></div> : <>
+    <section aria-labelledby="add-heading">
+      <h2 id="add-heading">Add an account</h2>
+      <p class="muted">Choose an account, approve access, then enable its integration. You can connect more than one account.</p>
+      {apps.length === 0 ? <div class="notice"><p>No OAuth providers are configured. Check the deployment's client credentials.</p></div> : <div class="account-actions">
+        {apps.map((app) => <form method="post" action="/admin/oauth/connect" data-pending="Opening sign-in…">
+          <input type="hidden" name="appId" value={app.id} />
+          <button type="submit" class="primary">Add {app.providerId === 'google' ? 'Google account' : app.name}</button>
+        </form>)}
+      </div>}
+    </section>
+    <section aria-labelledby="connected-heading">
+      <div class="section-heading"><div><h2 id="connected-heading">Connected accounts</h2><p class="muted">Choose which connected accounts Apsides should sync into Today.</p></div></div>
+      {connections.length === 0 ? <div class="empty"><h3>No accounts connected</h3><p>Add an account above to bring its data into Apsides. Provider data stays in its own account storage.</p></div> : connections.map((account) => <article class="account-row">
+        <div class="account-heading"><div><h3>{account.accountLabel}</h3><p class="muted">{account.providerId === 'google' ? 'Google' : 'GitHub'} · {account.appName}</p></div><span class:list={['status', {warning: account.status !== 'connected'}]}>{account.status === 'connected' ? 'Connected' : 'Reconnect required'}</span></div>
+        {account.status !== 'connected' && <p class="error-message">Access has expired or permissions have changed. Reconnect this account to continue syncing.</p>}
+        <div class="account-actions">
+          {account.providerId === 'google' && account.status === 'connected' && <>
+            <form method="post" action="/admin/accounts/action" data-pending="Scheduling sync…">
+              <input type="hidden" name="connectionId" value={account.id}/><input type="hidden" name="action" value="sync"/>
+              <button class={account.services.includes('integrations-google') ? '' : 'primary'} type="submit">{account.services.includes('integrations-google') ? 'Sync now' : 'Enable sync'}</button>
+            </form>
+            {account.services.includes('integrations-google') && <form method="post" action="/admin/accounts/action" data-pending="Disabling sync…">
+              <input type="hidden" name="connectionId" value={account.id}/><input type="hidden" name="action" value="disable-sync"/>
+              <button type="submit">Stop syncing</button>
+            </form>}
+            {account.services.includes('integrations-google') && <a class="button" href={`/admin/google?account=${encodeURIComponent(account.id)}`}>View contacts & events</a>}
+          </>}
+          {account.providerId === 'github' && account.status === 'connected' && <>
+            {!account.services.includes('integrations-github') && <form method="post" action="/admin/accounts/action" data-pending="Enabling GitHub activity…">
+              <input type="hidden" name="connectionId" value={account.id}/><input type="hidden" name="action" value="enable-github"/>
+              <button class="primary" type="submit">Enable GitHub activity</button>
+            </form>}
+            {account.services.includes('integrations-github') && <form method="post" action="/admin/accounts/action" data-pending="Disabling GitHub activity…">
+              <input type="hidden" name="connectionId" value={account.id}/><input type="hidden" name="action" value="disable-github"/>
+              <button type="submit">Stop GitHub activity</button>
+            </form>}
+          </>}
+          <form method="post" action="/admin/oauth/connect" data-pending="Opening sign-in…"><input type="hidden" name="appId" value={account.appId}/><button type="submit">Reconnect account</button></form>
+          <a class="button danger" href={`/admin/accounts/delete?account=${encodeURIComponent(account.id)}`}>Delete account</a>
+        </div>
+        <details><summary>Granted permissions</summary><ul>{account.scopes.map((scope) => <li><code>{scope.replace('https://www.googleapis.com/auth/', '')}</code></li>)}</ul></details>
+      </article>)}
+    </section>
+  </>}
+</AdminLayout>

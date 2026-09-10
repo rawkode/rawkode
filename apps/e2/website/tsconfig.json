@@ -1,0 +1,15 @@
+{
+	"extends": "astro/tsconfigs/strict",
+	"include": [".astro/types.d.ts", "src/**/*"],
+	"exclude": ["dist"],
+	"compilerOptions": {
+		"types": ["@cloudflare/workers-types"],
+		"paths": {
+			"@e2/documents/note": ["../packages/documents/src/note.ts"],
+			"@e2/oauth-client/contracts": [
+				"../packages/oauth-client/src/contracts.ts"
+			],
+			"@e2/oauth-client/calendar": ["../packages/oauth-client/src/calendar.ts"]
+		}
+	}
+}

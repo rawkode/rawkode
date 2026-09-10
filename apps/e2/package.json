@@ -1,0 +1,8 @@
+{
+	"name": "e2",
+	"private": true,
+	"type": "module",
+	"workspaces": [
+		"packages/oauth-client"
+	]
+}

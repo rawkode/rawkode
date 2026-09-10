@@ -248,6 +248,15 @@ export const textNodeSchema = z.strictObject({
 	text: validText(NOTE_LIMITS.text).min(1),
 	marks: marksSchema.optional(),
 });
+export const entityReferenceSchema = z.strictObject({
+	provider: z.enum(["google", "github"]),
+	kind: z.enum(["person", "event", "issue", "pullRequest", "discussion"]),
+	// deno-lint-ignore no-control-regex
+	id: validText(512).min(1).regex(/^[^\u0000-\u001f\u007f]+$/u),
+	label: validText(1_000).min(1),
+	avatarURL: httpURLSchema.optional(),
+	meta: validText(4_096).optional(),
+});
 const inlineNodeSchema = z.discriminatedUnion("type", [
 	textNodeSchema,
 	z.strictObject({
@@ -257,6 +266,11 @@ const inlineNodeSchema = z.discriminatedUnion("type", [
 	z.strictObject({
 		type: z.literal("component"),
 		attrs: z.strictObject({ component: componentSchema }),
+		marks: marksSchema.optional(),
+	}),
+	z.strictObject({
+		type: z.literal("entity"),
+		attrs: z.strictObject({ entity: entityReferenceSchema }),
 		marks: marksSchema.optional(),
 	}),
 ]);
@@ -481,6 +495,7 @@ export const documentSchema = boundedJSONSchema
 
 export type NoteDocument = z.infer<typeof documentSchema>;
 export type Component = z.infer<typeof componentSchema>;
+export type EntityReference = z.infer<typeof entityReferenceSchema>;
 export type LinkMetadata = z.infer<typeof linkMetadataSchema>;
 export type Playback = z.infer<typeof playbackSchema>;
 export type DrawingDocument = z.infer<typeof drawingDocumentSchema>;
@@ -490,6 +505,9 @@ export type DrawingInk = z.infer<typeof drawingInkSchema>;
 export type TextStyleAttributes = z.infer<typeof textStyleAttributesSchema>;
 export function parseComponent(value: unknown): Component {
 	return result(boundedJSONSchema.pipe(componentSchema), value);
+}
+export function parseEntity(value: unknown): EntityReference {
+	return result(boundedJSONSchema.pipe(entityReferenceSchema), value);
 }
 export function parseNote(value: unknown): NoteDocument {
 	if (typeof value === "string") {

@@ -9,7 +9,7 @@ final class LinkMetadataTests: XCTestCase {
         XCTAssertEqual(LinkMetadataResolver.validatedURL("  https://example.com/watch?v=123 \n")?.absoluteString,
                        "https://example.com/watch?v=123")
         XCTAssertNotNil(LinkMetadataResolver.validatedURL("http://example.com"))
-        for invalid in ["javascript:alert(1)", "file:///private/tmp/video.mp4", "https://user:password@example.com", "ftp://example.com", "not a link"] {
+        for invalid in ["javascript:alert(1)", "file:///private/tmp/video.mp4", "https://user:password@example.com", "ftp://example.com", "not a link", "http://127.0.0.1", "http://169.254.169.254", "http://10.0.0.1", "https://[::1]", "https://[::ffff:127.0.0.1]", "https://example.com:8080"] {
             XCTAssertNil(LinkMetadataResolver.validatedURL(invalid), invalid)
         }
     }

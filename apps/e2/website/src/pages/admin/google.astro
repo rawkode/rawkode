@@ -1,0 +1,64 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { queryApi } from '../../lib/graphql.ts';
+
+type Account = { id: string; accountLabel: string };
+type Contact = { id: string; displayName: string; emails: string[]; phones: string[] };
+type Calendar = { id: string; summary: string };
+type CalendarEvent = { id: string; summary: string; start: string | null; end: string | null };
+type Page<T> = { records: T[]; nextCursor?: string | null };
+const eventDate = (date: string | null) => {
+  if (!date || !Number.isFinite(Date.parse(date))) return 'No date';
+  return date.includes('T') ? new Intl.DateTimeFormat('en-GB', {dateStyle:'medium', timeStyle:'short', timeZone:'UTC'}).format(new Date(date)) + ' UTC' : new Intl.DateTimeFormat('en-GB', {dateStyle:'medium', timeZone:'UTC'}).format(new Date(date));
+};
+let connections: Account[] = [];
+let calendars: Calendar[] = [];
+let contacts: Contact[] = [];
+let events: CalendarEvent[] = [];
+let nextCursor: string | undefined;
+let nextCalendarCursor: string | undefined;
+let error = false;
+const kind = Astro.url.searchParams.get('view') === 'events' ? 'events' : 'contacts';
+let account = Astro.url.searchParams.get('account') ?? '';
+let calendar = Astro.url.searchParams.get('calendar') ?? '';
+const after = Astro.url.searchParams.get('after') ?? '';
+const calendarAfter = Astro.url.searchParams.get('calendarAfter') ?? '';
+try {
+  connections = (await queryApi<{ me: { googleAccounts: Account[] } }>(Astro.request, 'query { me { googleAccounts { id accountLabel } } }')).me.googleAccounts;
+  if (!account) account = connections[0]?.id ?? '';
+  if (account && !connections.some((entry) => entry.id === account)) throw new Error('Unknown account');
+  if (account) {
+    if (kind === 'events') {
+      const page = (await queryApi<{ me: { googleAccount: { calendars: Page<Calendar> } } }>(Astro.request, 'query Calendars($connectionId: ID!, $after: String) { me { googleAccount(connectionId: $connectionId) { calendars(after: $after) { records { id summary } nextCursor } } } }', {connectionId: account, after: calendarAfter})).me.googleAccount.calendars;
+      calendars = page.records;
+      nextCalendarCursor = page.nextCursor ?? undefined;
+      if (!calendar) calendar = calendars[0]?.id ?? '';
+      if (calendar && !calendars.some((entry) => entry.id === calendar)) throw new Error('Unknown calendar');
+      if (calendar) {
+        const page = (await queryApi<{ me: { googleAccount: { events: Page<CalendarEvent> } } }>(Astro.request, 'query Events($connectionId: ID!, $calendarId: ID!, $after: String) { me { googleAccount(connectionId: $connectionId) { events(calendarId: $calendarId, after: $after) { records { id summary start end } nextCursor } } } }', {connectionId: account, calendarId: calendar, after})).me.googleAccount.events;
+        events = page.records;
+        nextCursor = page.nextCursor ?? undefined;
+      }
+    } else {
+      const page = (await queryApi<{ me: { googleAccount: { contacts: Page<Contact> } } }>(Astro.request, 'query Contacts($connectionId: ID!, $after: String) { me { googleAccount(connectionId: $connectionId) { contacts(after: $after) { records { id displayName emails phones } nextCursor } } } }', {connectionId: account, after})).me.googleAccount.contacts;
+      contacts = page.records;
+      nextCursor = page.nextCursor ?? undefined;
+    }
+  }
+} catch { error = true; }
+const link = (view: string, cursor = '') => '/admin/google?' + new URLSearchParams({account, view, ...(calendar ? {calendar} : {}), ...(calendarAfter ? {calendarAfter} : {}), ...(cursor ? {after: cursor} : {})});
+---
+<AdminLayout title="Contacts & events" active="google">
+  <div class="page-heading"><div><h1>Contacts & events</h1><p class="muted">Browse the data synced from your Google accounts.</p></div><a class="button" href="/admin/oauth">Manage accounts</a></div>
+  {error ? <div class="notice error" role="alert"><p>We could not load this account's data. Check its permissions on the Accounts page, or reload to retry.</p></div> : connections.length === 0 ? <div class="empty"><h2>No accounts syncing yet</h2><p>Connect a Google account and enable sync to see contacts and events here.</p><a class="button primary" href="/admin/oauth">Connect an account</a></div> : <>
+    <form method="get" class="browse-controls">
+      <div><label for="account">Google account</label><select id="account" name="account">{connections.map((entry) => <option value={entry.id} selected={entry.id === account}>{entry.accountLabel}</option>)}</select></div>
+      <input type="hidden" name="view" value={kind}/><button type="submit">View account</button>
+    </form>
+    <div class="tabs" aria-label="Data type"><a href={link('contacts')} aria-current={kind === 'contacts' ? 'page' : undefined}>Contacts</a><a href={link('events')} aria-current={kind === 'events' ? 'page' : undefined}>Events</a></div>
+    {kind === 'events' && calendars.length > 0 && <form method="get" class="browse-controls"><input type="hidden" name="account" value={account}/><input type="hidden" name="view" value="events"/><input type="hidden" name="calendarAfter" value={calendarAfter}/><div><label for="calendar">Calendar</label><select id="calendar" name="calendar">{calendars.map((entry) => <option value={entry.id} selected={entry.id === calendar}>{entry.summary || entry.id}</option>)}</select></div><button type="submit">View calendar</button></form>}
+    {kind === 'events' && <div class="account-actions">{calendarAfter && <a href={'/admin/google?' + new URLSearchParams({account, view:'events'})}>First calendars</a>}{nextCalendarCursor && <a href={'/admin/google?' + new URLSearchParams({account, view:'events', calendarAfter:nextCalendarCursor})}>More calendars</a>}</div>}
+    {(kind === 'contacts' ? contacts.length : events.length) === 0 ? <div class="empty"><h2>{kind === 'contacts' ? 'No contacts to show' : 'No events to show'}</h2><p>Initial sync may still be running. Refresh this page in a moment, or start a sync from Accounts.</p><a class="button" href={link(kind)}>Refresh data</a></div> : <div class="table-scroll"><table><caption class="visually-hidden">{kind === 'contacts' ? 'Synced contacts' : 'Synced calendar events'}</caption><thead><tr>{kind === 'contacts' ? <><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th></> : <><th scope="col">Event</th><th scope="col">Starts</th><th scope="col">Ends</th></>}</tr></thead><tbody>{kind === 'contacts' ? contacts.map((entry) => <tr><td>{entry.displayName || 'Unnamed contact'}</td><td>{entry.emails.length ? entry.emails.join(', ') : '—'}</td><td>{entry.phones.length ? entry.phones.join(', ') : '—'}</td></tr>) : events.map((entry) => <tr><td>{entry.summary || 'Untitled event'}</td><td>{eventDate(entry.start)}</td><td>{eventDate(entry.end)}</td></tr>)}</tbody></table></div>}
+    <div class="account-actions">{after && <a class="button" href={link(kind)}>Back to first page</a>}{nextCursor && <a class="button" href={link(kind, nextCursor)}>Next page</a>}</div>
+  </>}
+</AdminLayout>

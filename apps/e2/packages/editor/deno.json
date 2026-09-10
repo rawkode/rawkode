@@ -1,0 +1,6 @@
+{
+	"name": "@e2/editor",
+	"exports": {
+		"./contracts": "./src/contracts.ts"
+	}
+}

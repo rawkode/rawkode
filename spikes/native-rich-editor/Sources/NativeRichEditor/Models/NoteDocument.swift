@@ -44,7 +44,7 @@ struct NoteDocument: Codable, Equatable {
 }
 
 struct EditorNode: Codable, Equatable {
-    enum Kind: String, Codable { case paragraph, heading, blockquote, bulletList, orderedList, listItem, taskList, taskItem, codeBlock, text, hardBreak, component }
+    enum Kind: String, Codable { case paragraph, heading, blockquote, bulletList, orderedList, listItem, taskList, taskItem, codeBlock, text, hardBreak, component, entity }
     var type: Kind
     var attrs: EditorAttributes?
     var content: [EditorNode]?
@@ -57,6 +57,15 @@ struct EditorNode: Codable, Equatable {
 
 }
 
+struct EntityReference: Codable, Equatable {
+    var provider: String
+    var kind: String
+    var id: String
+    var label: String
+    var avatarURL: URL?
+    var meta: String?
+}
+
 struct EditorAttributes: Codable, Equatable {
     var level: Int?
     var textAlign: String?
@@ -65,6 +74,7 @@ struct EditorAttributes: Codable, Equatable {
     var checked: Bool?
     var language: String?
     var component: Component?
+    var entity: EntityReference?
     var fontFamily: String?
     var fontSize: String?
     var color: String?
@@ -80,7 +90,7 @@ struct EditorAttributes: Codable, Equatable {
 
 extension EditorAttributes {
     private enum Key: String, CodingKey {
-        case level, textAlign, start, type, checked, language, component, fontFamily, fontSize, color, backgroundColor, href, target, rel, `class`, title
+        case level, textAlign, start, type, checked, language, component, entity, fontFamily, fontSize, color, backgroundColor, href, target, rel, `class`, title
     }
     private static let strings: [(Key, WritableKeyPath<EditorAttributes, String?>)] = [
         (.textAlign, \.textAlign), (.type, \.type), (.language, \.language), (.fontFamily, \.fontFamily), (.fontSize, \.fontSize),
@@ -93,6 +103,7 @@ extension EditorAttributes {
         start = try container.decodeIfPresent(Int.self, forKey: .start)
         checked = try container.decodeIfPresent(Bool.self, forKey: .checked)
         component = try container.decodeIfPresent(Component.self, forKey: .component)
+        entity = try container.decodeIfPresent(EntityReference.self, forKey: .entity)
         for (key, path) in Self.strings {
             self[keyPath: path] = try container.decodeIfPresent(String.self, forKey: key)
             if container.contains(key), try container.decodeNil(forKey: key) { nullFields.insert(key.rawValue) }
@@ -104,6 +115,7 @@ extension EditorAttributes {
         try container.encodeIfPresent(start, forKey: .start)
         try container.encodeIfPresent(checked, forKey: .checked)
         try container.encodeIfPresent(component, forKey: .component)
+        try container.encodeIfPresent(entity, forKey: .entity)
         for (key, path) in Self.strings {
             if let value = self[keyPath: path] { try container.encode(value, forKey: key) }
             else if nullFields.contains(key.rawValue) { try container.encodeNil(forKey: key) }

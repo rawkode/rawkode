@@ -143,6 +143,49 @@ final class TiptapDocumentTests: XCTestCase {
     }
 
     @MainActor
+    func testEntityEditingIsAtomicAndTypingAfterEntityStaysPlainText() throws {
+        let entity = EntityReference(provider: "google", kind: "person", id: "people/1", label: "Alice", avatarURL: nil, meta: nil)
+        let note = NoteDocument(content: [.init(type: .paragraph, content: [
+            .init(type: .entity, attrs: .init(entity: entity)),
+            .init(type: .text, text: " tail"),
+        ])])
+        let text = DocumentTextView(usingTextLayoutManager: true)
+        text.isRichText = true
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = text
+
+        text.textStorage!.setAttributedString(try note.attributedString())
+        text.setSelectedRange(NSRange(location: entity.label.utf16.count, length: 0))
+        text.typingAttributes = text.textStorage!.attributes(at: 0, effectiveRange: nil)
+        text.insertText(" hello", replacementRange: text.selectedRange())
+        var saved = try NoteDocument(attributedString: text.textStorage!)
+        XCTAssertEqual(saved.content[0].content?.first?.attrs?.entity?.label, "Alice")
+        XCTAssertEqual(saved.content[0].content?.dropFirst().first?.text, " hello tail")
+        XCTAssertEqual(saved.descendants.filter { $0.type == .entity }.count, 1)
+
+        text.textStorage!.setAttributedString(try note.attributedString())
+        text.setSelectedRange(NSRange(location: 2, length: 0))
+        text.insertText("X", replacementRange: NSRange(location: NSNotFound, length: 0))
+        saved = try NoteDocument(attributedString: text.textStorage!)
+        XCTAssertEqual(saved.content[0].content?.first?.text, "X tail")
+        XCTAssertTrue(saved.descendants.allSatisfy { $0.type != .entity })
+
+        text.textStorage!.setAttributedString(try note.attributedString())
+        text.setSelectedRange(NSRange(location: 2, length: 0))
+        text.deleteWordBackward(nil)
+        saved = try NoteDocument(attributedString: text.textStorage!)
+        XCTAssertEqual(saved.content[0].content?.first?.text, " tail")
+        XCTAssertTrue(saved.descendants.allSatisfy { $0.type != .entity })
+
+        text.textStorage!.setAttributedString(try note.attributedString())
+        text.setSelectedRange(NSRange(location: entity.label.utf16.count, length: 0))
+        text.deleteBackward(nil)
+        saved = try NoteDocument(attributedString: text.textStorage!)
+        XCTAssertEqual(saved.content[0].textContent, " tail")
+        XCTAssertTrue(saved.descendants.allSatisfy { $0.type != .entity })
+    }
+
+    @MainActor
     func testCombiningCharactersKeepDistinctMarksAndNullLinkDefaults() throws {
         let note = try NoteDocument.decode(Data(#"{"type":"doc","content":[{"type":"paragraph","attrs":{"textAlign":"left"},"content":[{"type":"text","text":"e","marks":[{"type":"bold"}]},{"type":"text","text":"\u0301","marks":[{"type":"italic"}]},{"type":"text","text":" link","marks":[{"type":"link","attrs":{"href":"https://example.com","target":null,"rel":null}},{"type":"textStyle","attrs":{"color":"RGB(1, 2, 3)"}}]}]}]}"#.utf8))
         XCTAssertEqual(try NoteDocument(attributedString: note.attributedString()).content.map(normalized), note.content.map(normalized))

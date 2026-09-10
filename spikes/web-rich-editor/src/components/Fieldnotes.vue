@@ -9,6 +9,7 @@ import { NOTE_LIMITS, parseNote, type NoteDocument } from "../lib/note";
 import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
 import { draftSchema, loadDocument, saveDocument } from '../editor/persistence';
+import { nativeHost } from '../editor/nativeHost';
 
 const STORAGE = "fieldnotes.web.tiptap";
 const editor = shallowRef<Editor>();
@@ -197,17 +198,24 @@ function updateSlash() {
 		y: Math.min(rectangle.bottom + 8, Math.max(80, innerHeight - 370)),
 	};
 }
-function saveDraft() {
+let saveRevision = 0;
+async function saveDraft() {
 	if (!editor.value || saveBlocked.value) return;
+	const revision = ++saveRevision;
 	try {
 		const note = parseNote(editor.value.getJSON());
-		localStorage.setItem(
-			STORAGE,
-			JSON.stringify(draftSchema.parse({ filename: filename.value, note })),
-		);
-		status.value = "Saved in this browser";
+		const draft = draftSchema.parse({ filename: filename.value, note });
+		if (nativeHost.available) {
+			status.value = "Saving on this Mac…";
+			await nativeHost.save(draft);
+		} else {
+			localStorage.setItem(STORAGE, JSON.stringify(draft));
+		}
+		if (revision !== saveRevision) return;
+		status.value = nativeHost.available ? "Saved on this Mac" : "Saved in this browser";
 		error.value = "";
 	} catch (failure) {
+		if (revision !== saveRevision) return;
 		status.value = "Changes not saved";
 		error.value =
 			failure instanceof Error
@@ -215,7 +223,11 @@ function saveDraft() {
 				: "Could not save this draft. Export a copy before closing.";
 	}
 }
-function download(contents: string, name: string) {
+async function download(contents: string, name: string) {
+	if (nativeHost.available) {
+		await nativeHost.export(contents, name);
+		return;
+	}
 	const url = URL.createObjectURL(
 		new Blob([contents], { type: "application/json" }),
 	);
@@ -252,10 +264,10 @@ function freshPastedIDs(fragment: Fragment): Fragment {
 	});
 	return Fragment.from(nodes);
 }
-function exportNote() {
+async function exportNote() {
 	try {
 		if (!editor.value) return;
-		download(
+		await download(
 			saveDocument(editor.value),
 			filename.value.replace(/(?:\.native-note)?$/, ".native-note"),
 		);
@@ -327,7 +339,7 @@ function recover() {
 	if (raw) download(raw, "Fieldnotes-recovered-draft.json");
 }
 
-onMounted(() => {
+onMounted(async () => {
 	let initial = parseNote({ type: "doc", content: [
 		{ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Room to think." }] },
 		{ type: "paragraph", content: [{ type: "text", text: "The same note, a different window. Write here, or open a note from the native app." }] },
@@ -335,16 +347,18 @@ onMounted(() => {
 		{ type: "paragraph", content: [{ type: "text", text: "Type / for a block. Use - and space for a list." }] },
 	] });
 	try {
-		const raw = localStorage.getItem(STORAGE);
+		const raw = nativeHost.available ? await nativeHost.load() : localStorage.getItem(STORAGE);
 		if (raw) {
-			const saved = draftSchema.parse(JSON.parse(raw));
+			const saved = draftSchema.parse(nativeHost.available ? raw : JSON.parse(raw as string));
 			initial = saved.note;
 			filename.value = saved.filename;
 		}
+		if (nativeHost.available) status.value = "Loaded from this Mac";
 	} catch (failure) {
 		saveBlocked.value = true;
-		error.value =
-			"The saved draft could not be opened. It has not been overwritten. Download it for recovery, then open a valid note or start a new one.";
+		error.value = nativeHost.available
+			? "The saved draft could not be opened. It has not been overwritten. Back up draft.json in the app’s data directory before opening a valid note or starting a new one."
+			: "The saved draft could not be opened. It has not been overwritten. Download it for recovery, then open a valid note or start a new one.";
 	}
 	editor.value = new Editor({
 		extensions: [
@@ -560,7 +574,7 @@ onBeforeUnmount(() => editor.value?.destroy());
 		</nav>
 		<div v-if="error" class="error-message" role="alert">
 			<p>{{ error }}</p>
-			<button v-if="saveBlocked" @click="recover">
+			<button v-if="saveBlocked && !nativeHost.available" @click="recover">
 				Download recovered draft</button
 			><button v-else @click="error = ''">Dismiss</button>
 		</div>
@@ -583,7 +597,7 @@ onBeforeUnmount(() => editor.value?.destroy());
 			@close="pendingReplacement = undefined"
 		>
 			<h2 id="new-note-heading">{{ pendingReplacement?.kind === 'import' ? 'Open this note?' : 'Start a new note?' }}</h2>
-			<p v-if="pendingReplacement?.kind === 'import'">Opening {{ pendingReplacement.filename }} will replace the current browser draft.</p>
+			<p v-if="pendingReplacement?.kind === 'import'">Opening {{ pendingReplacement.filename }} will replace the current draft.</p>
 			<p>Export the current note first to keep a copy. Replacing it clears its undo history.</p>
 			<div>
 				<button @click="replaceNoteDialog?.close()">Keep editing</button

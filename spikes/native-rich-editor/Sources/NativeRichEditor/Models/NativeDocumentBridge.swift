@@ -12,6 +12,7 @@ extension NSAttributedString.Key {
     static let nativeBlockSeparator = NSAttributedString.Key("dev.rawkode.block-separator")
     static let nativeFollowingBlock = NSAttributedString.Key("dev.rawkode.following-block")
     static let nativeInlineState = NSAttributedString.Key("dev.rawkode.inline-state")
+    static let nativeEntity = NSAttributedString.Key("dev.rawkode.entity")
     static let nativeLiteralSeparator = NSAttributedString.Key("dev.rawkode.literal-separator")
     static let nativeEmptyBlock = NSAttributedString.Key("dev.rawkode.empty-block")
 }
@@ -44,6 +45,11 @@ private final class NativeInlineState: NSObject {
         foreground = attributes[.foregroundColor] as? NSColor
         background = attributes[.backgroundColor] as? NSColor
     }
+}
+
+private final class NativeEntityPayload: NSObject {
+    let entity: EntityReference
+    init(_ entity: EntityReference) { self.entity = entity }
 }
 
 @MainActor
@@ -107,6 +113,13 @@ enum NativeDocumentBridge {
                     case .component:
                         let part = NSMutableAttributedString(attachment: ComponentAttachment(inline.attrs!.component!))
                         part.addAttributes(attributes, range: NSRange(location: 0, length: part.length))
+                        result.append(part)
+                    case .entity:
+                        let label = inline.attrs?.entity?.label ?? ""
+                        let part = NSMutableAttributedString(string: label, attributes: attributes)
+                        if let entity = inline.attrs?.entity, !label.isEmpty {
+                            part.addAttribute(.nativeEntity, value: NativeEntityPayload(entity), range: NSRange(location: 0, length: part.length))
+                        }
                         result.append(part)
                     default: break
                     }
@@ -269,7 +282,15 @@ enum NativeDocumentBridge {
                 continue
             }
             let marks = try readMarks(attributes, kind: (paragraphAttributes[.nativeBlockKind] as? String).flatMap(NativeBlockKind.init(rawValue:)) ?? .paragraph)
-            if let attachment = attributes[.attachment] {
+            var entityRange = NSRange(location: position, length: 0)
+            let entity = value.attribute(.nativeEntity, at: position, longestEffectiveRange: &entityRange, in: NSRange(location: 0, length: value.length)) as? NativeEntityPayload
+            if let entity {
+                guard entityRange.location == position, entityRange.length > 0 else {
+                    throw NoteDocument.DocumentError.unsupportedContent("invalid native entity range")
+                }
+                inline.append(.init(type: .entity, attrs: .init(entity: entity.entity), marks: marks.isEmpty ? nil : marks))
+                position = NSMaxRange(entityRange)
+            } else if let attachment = attributes[.attachment] {
                 guard let component = attachment as? ComponentAttachment, char == 0xfffc else { throw NoteDocument.DocumentError.unsupportedContent("native attachment") }
                 inline.append(.init(type: .component, attrs: .init(component: component.component), marks: marks.isEmpty ? nil : marks))
                 position += 1

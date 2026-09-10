@@ -59,7 +59,7 @@ enum TiptapValidation {
     }
 
     private static let blocks: Set<String> = ["paragraph", "heading", "blockquote", "bulletList", "orderedList", "taskList", "codeBlock"]
-    private static let inlines: Set<String> = ["text", "hardBreak", "component"]
+    private static let inlines: Set<String> = ["text", "hardBreak", "component", "entity"]
     private static func children(_ object: Object, allowed: Set<String>, minimum: Int = 0, depth: Int, budget: Budget, plain: Bool = false, firstParagraph: Bool = false) throws {
         guard object.has("content") else { if minimum > 0 { throw invalid("missing children") }; return }
         var content = try object.child("content").unkeyedContainer()
@@ -81,7 +81,7 @@ enum TiptapValidation {
         switch type {
         case "text": keys = ["type", "text", "marks"]
         case "hardBreak": keys = ["type", "marks"]
-        case "component": keys = ["type", "attrs", "marks"]
+        case "component", "entity": keys = ["type", "attrs", "marks"]
         case "paragraph", "heading", "codeBlock", "orderedList", "taskItem": keys = ["type", "attrs", "content"]
         default: keys = ["type", "content"]
         }
@@ -96,6 +96,9 @@ enum TiptapValidation {
         case "component":
             let attrs = try Object(object.child("attrs"), keys: ["component"])
             try component(attrs.child("component"), budget: budget)
+        case "entity":
+            let attrs = try Object(object.child("attrs"), keys: ["entity"])
+            try entity(attrs.child("entity"))
         case "paragraph", "heading":
             if type == "heading" || object.has("attrs") {
                 let attrs = try Object(object.child("attrs"), keys: type == "heading" ? ["level", "textAlign"] : ["textAlign"])
@@ -185,6 +188,19 @@ enum TiptapValidation {
                 try playback.url("url", required: true)
             }
         }
+    }
+    private static func entity(_ decoder: Decoder) throws {
+        let object = try Object(decoder, keys: ["provider", "kind", "id", "label", "avatarURL", "meta"])
+        try object.choice("provider", ["google", "github"], required: true)
+        try object.choice("kind", ["person", "event", "issue", "pullRequest", "discussion"], required: true)
+        let id = try object.string("id", max: 512, required: true)!
+        guard matches(id, "^[^\\x00-\\x1f\\x7f]+$") else { throw invalid("entity id") }
+        _ = try object.string("label", max: 1_000, required: true).flatMap { label in
+            guard !label.isEmpty else { throw invalid("entity label") }
+            return label
+        }
+        try object.url("avatarURL")
+        _ = try object.string("meta", max: 4_096)
     }
     private static func identifier(_ object: Object) throws -> String {
         let id = try object.string("id", max: 36, required: true)!

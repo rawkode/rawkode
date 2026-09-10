@@ -17,7 +17,7 @@ import {
 } from "@tiptap/extension-text-style";
 import type { EditorState } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { linkAttributesSchema, orderedListAttributesSchema, parseComponent, safeURL, textStyleAttributesSchema } from "../lib/note";
+import { entityReferenceSchema, linkAttributesSchema, orderedListAttributesSchema, parseComponent, parseEntity, safeURL, textStyleAttributesSchema } from "../lib/note";
 
 function validatedHTMLAttributes(attributes: Record<string, Attribute | undefined>, fields: Record<string, z.ZodType>, emptyToNull = false): Attributes {
 	const normalized: Attributes = {};
@@ -92,6 +92,45 @@ export const ComponentNode = Node.create({
 		{ "data-fieldnotes-component": JSON.stringify(node.attrs.component) },
 		node.attrs.component?.title ?? "Component",
 	],
+});
+
+export const EntityNode = Node.create({
+	name: "entity",
+	group: "inline",
+	inline: true,
+	atom: true,
+	draggable: true,
+	selectable: true,
+	marks: "",
+	addAttributes: () => ({ entity: { default: null } }),
+	parseHTML: () => [
+		{
+			tag: "span[data-fieldnotes-entity]",
+			getAttrs: (element) => {
+				try {
+					return {
+						entity: parseEntity(
+							JSON.parse((element as HTMLElement).dataset.fieldnotesEntity!),
+						),
+					};
+				} catch {
+					return false;
+				}
+			},
+		},
+	],
+	renderHTML: ({ node }) => {
+		const entity = entityReferenceSchema.parse(node.attrs.entity);
+		return [
+			"span",
+			{
+				"data-fieldnotes-entity": JSON.stringify(entity),
+				class: "fieldnotes-entity",
+				contenteditable: "false",
+			},
+			entity.label,
+		];
+	},
 });
 
 function containsComponent(node: PMNode): boolean {
@@ -181,6 +220,7 @@ export function documentExtensions(component = ComponentNode) {
 			defaultAlignment: null,
 		}),
 		component,
+		EntityNode,
 	];
 }
 

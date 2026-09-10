@@ -1,0 +1,20 @@
+---
+import Fieldnotes from '../components/Fieldnotes.vue';
+import '../styles/editor.css';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Today · Apsides</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to editor</a>
+    <Fieldnotes client:only="vue"><p slot="fallback">Opening today…</p></Fieldnotes>
+    <noscript>Enable JavaScript to write your daily note.</noscript>
+  </body>
+</html>

@@ -2,6 +2,10 @@
 
 A continuous rich-text editor for the same `.native-note` files as the [native companion](../native-rich-editor). Saved content is Tiptap/ProseMirror JSON, validated by Zod. No second document model or legacy migration.
 
+The [SwiftUI web wrapper](../swiftui-web-editor) bundles this exact Vue editor in
+WKWebView, with native draft persistence. Its README records platform findings
+and current limitations.
+
 ## Run
 
 ```sh

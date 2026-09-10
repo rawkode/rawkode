@@ -10,7 +10,7 @@ final class NativeVideoPlayerTests: XCTestCase {
         _ = NSApplication.shared
         // Loopback deliberately needs no external media service. This verifies
         // view/player construction, not video decoding or network playback.
-        let source = URL(string: "http://127.0.0.1:1/unused.mp4")!
+        let source = URL(fileURLWithPath: "/tmp/apsides-unused.mp4")
         let host = NSHostingView(rootView: AnyView(NativeVideoPlayer(url: source, failure: .constant(nil))))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 360)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)

@@ -41,6 +41,33 @@ final class TiptapValidationTests: XCTestCase {
         }
     }
 
+    func testEntityNodesUseTheSharedIntegrationReferenceContract() throws {
+        let entity = #"{"type":"paragraph","content":[{"type":"entity","attrs":{"entity":{"provider":"google","kind":"person","id":"people/123","label":"Alice","avatarURL":"https://example.com/avatar.png","meta":"alice@example.com"}}}]}"#
+        let note = try NoteDocument.decode(Data((#"{"type":"doc","content":["# + entity + #"]}"#).utf8))
+        XCTAssertEqual(note.content[0].content?.first?.type, .entity)
+        let invalid = entity.replacingOccurrences(of: "people/123", with: "people/\u{0001}123")
+        XCTAssertThrowsError(try NoteDocument.decode(Data((#"{"type":"doc","content":["# + invalid + #"]}"#).utf8)))
+        let emptyLabel = entity.replacingOccurrences(of: #""label":"Alice""#, with: #""label":"""#)
+        XCTAssertThrowsError(try NoteDocument.decode(Data((#"{"type":"doc","content":["# + emptyLabel + #"]}"#).utf8)))
+    }
+
+    @MainActor
+    func testEntityNodesSurviveTheNativeProjection() throws {
+        let entity = EntityReference(provider: "google", kind: "person", id: "people/123", label: "Alice", avatarURL: URL(string: "https://example.com/avatar.png"), meta: "alice@example.com")
+        let note = NoteDocument(content: [.init(type: .paragraph, content: [.init(type: .entity, attrs: .init(entity: entity))])])
+        let projected = try note.attributedString()
+        let restored = try NoteDocument(attributedString: projected)
+        XCTAssertEqual(restored.content[0].content?.first?.type, .entity)
+        XCTAssertEqual(restored.content[0].content?.first?.attrs?.entity, entity)
+        XCTAssertEqual(restored.content[0].content?.count, 1)
+        XCTAssertEqual(restored.content[0].content?.first?.attrs?.entity?.label, "Alice")
+        let styled = NSMutableAttributedString(attributedString: projected)
+        styled.addAttribute(.foregroundColor, value: NSColor.red, range: NSRange(location: 0, length: 1))
+        let styledRestored = try NoteDocument(attributedString: styled)
+        XCTAssertEqual(styledRestored.content[0].content?.count, 1)
+        XCTAssertEqual(styledRestored.content[0].content?.first?.attrs?.entity, entity)
+    }
+
     @MainActor
     func testComponentsAndDrawingPayloadsAreStrictAndIDsMustBeUnique() throws {
         let component = Component(kind: .link, title: "Video", source: "https://example.com", metadata: .init(title: "Video", playback: .embedURL(URL(string: "https://example.com/embed")!)))

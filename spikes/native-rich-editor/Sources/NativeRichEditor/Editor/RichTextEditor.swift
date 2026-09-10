@@ -41,8 +41,72 @@ final class DocumentTextView: NSTextView {
     static let documentPasteboard = NSPasteboard.PasteboardType("dev.rawkode.native-rich-editor.fragment")
     weak var session: EditorSession?
 
+    private enum EntityDeletionDirection { case backward, forward }
+
+    private func entityRange(at position: Int) -> NSRange? {
+        guard let storage = textStorage, position >= 0, position < storage.length else { return nil }
+        var range = NSRange(location: position, length: 0)
+        guard storage.attribute(.nativeEntity, at: position, longestEffectiveRange: &range,
+                                in: NSRange(location: 0, length: storage.length)) != nil else { return nil }
+        return range
+    }
+
+    /// Entity nodes are inline atoms in the portable document. Expand an edit
+    /// that touches one so AppKit cannot leave a partially labelled entity
+    /// behind while the bridge still serializes the original payload.
+    private func entityRangeForEdit(_ range: NSRange, direction: EntityDeletionDirection? = nil) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0 else { return nil }
+        if range.length == 0 {
+            switch direction {
+            case .backward:
+                return entityRange(at: range.location - 1)
+            case .forward:
+                return entityRange(at: range.location)
+            case nil:
+                guard let entity = entityRange(at: range.location),
+                      range.location > entity.location,
+                      range.location < NSMaxRange(entity) else { return nil }
+                return entity
+            }
+        }
+
+        var result: NSRange?
+        storage.enumerateAttribute(.nativeEntity, in: NSRange(location: 0, length: storage.length)) { value, candidate, _ in
+            guard value != nil, NSIntersectionRange(range, candidate).length > 0 else { return }
+            result = result.map { NSUnionRange($0, candidate) } ?? candidate
+        }
+        return result
+    }
+
+    private func rangeIncludingEntity(_ range: NSRange, direction: EntityDeletionDirection? = nil) -> NSRange {
+        guard let entity = entityRangeForEdit(range, direction: direction) else { return range }
+        return range.length == 0 && direction == nil ? entity : NSUnionRange(range, entity)
+    }
+
+    private func clearProjectionTypingAttributes() {
+        var attributes = typingAttributes
+        for key: NSAttributedString.Key in [
+            .attachment, .nativeEntity, .nativeLiteralSeparator, .nativeEmptyBlock,
+            .nativeBlockSeparator, .nativeFollowingBlock,
+        ] {
+            attributes.removeValue(forKey: key)
+        }
+        typingAttributes = attributes
+    }
+
+    private func prepareEntityDeletion(_ direction: EntityDeletionDirection) {
+        setSelectedRange(rangeIncludingEntity(selectedRange(), direction: direction))
+        clearProjectionTypingAttributes()
+    }
+
+    private func prepareCommandDeletion(_ movement: (Any?) -> Void) {
+        if selectedRange().length == 0 { movement(nil) }
+        setSelectedRange(rangeIncludingEntity(selectedRange()))
+        clearProjectionTypingAttributes()
+    }
+
     override func copy(_ sender: Any?) {
-        let range = selectedRange()
+        let range = rangeIncludingEntity(selectedRange())
         guard range.length > 0, let storage = textStorage,
               let fragment = try? NoteDocument(attributedString: storage.attributedSubstring(from: range)),
               let data = try? JSONEncoder().encode(fragment) else { super.copy(sender); return }
@@ -53,7 +117,7 @@ final class DocumentTextView: NSTextView {
 
     override func cut(_ sender: Any?) {
         copy(sender)
-        session?.replace(selectedRange(), with: NSAttributedString(string: ""), action: "Cut")
+        session?.replace(rangeIncludingEntity(selectedRange()), with: NSAttributedString(string: ""), action: "Cut")
     }
 
     override func paste(_ sender: Any?) {
@@ -69,38 +133,100 @@ final class DocumentTextView: NSTextView {
                     value.addAttribute(.attachment, value: ComponentAttachment(component), range: range)
                 }
             }
-            session?.replace(selectedRange(), with: value, action: "Paste")
+            session?.replace(rangeIncludingEntity(selectedRange()), with: value, action: "Paste")
         } else {
+            let range = rangeIncludingEntity(selectedRange())
+            if range != selectedRange() { setSelectedRange(range) }
+            clearProjectionTypingAttributes()
             super.paste(sender)
+            clearProjectionTypingAttributes()
             session?.convertCompletedFences()
         }
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
-        var attributes = typingAttributes
-        attributes.removeValue(forKey: .attachment)
-        attributes.removeValue(forKey: .nativeLiteralSeparator)
-        attributes.removeValue(forKey: .nativeEmptyBlock)
-        attributes.removeValue(forKey: .nativeBlockSeparator)
-        attributes.removeValue(forKey: .nativeFollowingBlock)
-        typingAttributes = attributes
-        super.insertText(insertString, replacementRange: replacementRange)
+        let requestedRange = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
+        let editRange = rangeIncludingEntity(requestedRange)
+        if editRange != requestedRange { setSelectedRange(editRange) }
+        clearProjectionTypingAttributes()
+        super.insertText(insertString, replacementRange: editRange)
+        clearProjectionTypingAttributes()
         let inserted = (insertString as? String) ?? (insertString as? NSAttributedString)?.string ?? ""
         if inserted.contains("\n") || inserted.contains("```") { session?.convertCompletedFences() }
         MarkdownEditing.handleInput(in: self, inserted: inserted)
     }
 
     override func insertNewline(_ sender: Any?) {
-        typingAttributes.removeValue(forKey: .nativeLiteralSeparator)
-        typingAttributes.removeValue(forKey: .nativeEmptyBlock)
-        typingAttributes.removeValue(forKey: .nativeBlockSeparator)
-        typingAttributes.removeValue(forKey: .nativeFollowingBlock)
+        if let entity = entityRangeForEdit(selectedRange()) {
+            setSelectedRange(NSUnionRange(selectedRange(), entity))
+            clearProjectionTypingAttributes()
+            super.insertNewline(sender)
+            clearProjectionTypingAttributes()
+            session?.convertCompletedFences()
+            return
+        }
+        clearProjectionTypingAttributes()
         if !FencedCode.isInsideOpenFence(in: string, at: selectedRange().location), ListEditing.handleNewline(in: self) { return }
         let font = typingAttributes[.font] as? NSFont
         let wasHeading = (font?.pointSize ?? 17) >= 20 && typingAttributes[.codeLanguage] == nil
         super.insertNewline(sender)
+        clearProjectionTypingAttributes()
         session?.convertCompletedFences()
         if wasHeading { typingAttributes = EditorSession.bodyAttributes }
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        setSelectedRange(rangeIncludingEntity(selectedRange(), direction: .backward))
+        super.deleteBackward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        prepareEntityDeletion(.forward)
+        super.deleteForward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteBackwardByDecomposingPreviousCharacter(_ sender: Any?) {
+        prepareEntityDeletion(.backward)
+        super.deleteBackwardByDecomposingPreviousCharacter(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteWordBackward(_ sender: Any?) {
+        prepareCommandDeletion(moveWordBackwardAndModifySelection)
+        super.deleteBackward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteWordForward(_ sender: Any?) {
+        prepareCommandDeletion(moveWordForwardAndModifySelection)
+        super.deleteForward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteToBeginningOfLine(_ sender: Any?) {
+        prepareCommandDeletion(moveToBeginningOfLineAndModifySelection)
+        super.deleteBackward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteToEndOfLine(_ sender: Any?) {
+        prepareCommandDeletion(moveToEndOfLineAndModifySelection)
+        super.deleteForward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteToBeginningOfParagraph(_ sender: Any?) {
+        prepareCommandDeletion(moveToBeginningOfParagraphAndModifySelection)
+        super.deleteBackward(sender)
+        clearProjectionTypingAttributes()
+    }
+
+    override func deleteToEndOfParagraph(_ sender: Any?) {
+        prepareCommandDeletion(moveToEndOfParagraphAndModifySelection)
+        super.deleteForward(sender)
+        clearProjectionTypingAttributes()
     }
 
     override func insertTab(_ sender: Any?) {
