@@ -198,6 +198,15 @@ const configs = [
 		]),
 		durableObjectNamespaces: [{ className: "Documents", sql: true }],
 	},
+	{
+		...config("website-entities", await workerModules("dist/core-entities"), [
+			DurableObjectNamespace.local({
+				binding: "ENTITIES",
+				className: "Entities",
+			}),
+		]),
+		durableObjectNamespaces: [{ className: "Entities", sql: true }],
+	},
 	config("website-fixture-services", [{
 		name: "index.js",
 		type: "ESModule",
@@ -216,6 +225,11 @@ const configs = [
 			binding: "DOCUMENTS_ADMIN",
 			scriptName: "website-documents",
 			entrypoint: "DocumentsAdmin",
+		}),
+		Service.local({
+			binding: "ENTITIES_ADMIN",
+			scriptName: "website-entities",
+			entrypoint: "EntitiesAdmin",
 		}),
 		Service.local({
 			binding: "GOOGLE_ADMIN",
@@ -263,6 +277,12 @@ const post = (path, body, headers = {}) =>
 		},
 		body: new URLSearchParams(body),
 		redirect: "manual",
+	});
+const queryGraphql = (query, variables = {}) =>
+	fetch(origin + "/api/graphql", {
+		method: "POST",
+		headers: { Origin: origin, "Content-Type": "application/json" },
+		body: JSON.stringify({ query, variables }),
 	});
 const exerciseDocuments = async () => {
 	const path = "/api/documents/" + encodeURIComponent("daily:2000-01-01");
@@ -403,7 +423,7 @@ const exerciseDocuments = async () => {
 	);
 };
 const exercise = async (urls) => {
-	workerUrl = urls[3];
+	workerUrl = urls[4];
 	await exerciseDocuments();
 	assert.equal(
 		(await get("/admin/oauth", {
@@ -418,6 +438,74 @@ const exercise = async (urls) => {
 	response = await get("/admin/supertags");
 	assert.equal(response.status, 200);
 	assert.match(await response.text(), /Extend Apsides' base entity types/);
+	const supertags = await fetch(origin + "/api/graphql", {
+		method: "POST",
+		headers: { Origin: origin, "Content-Type": "application/json" },
+		body: JSON.stringify({
+			query: "query { me { supertags { id name kind rootId } } }",
+		}),
+	});
+	assert.equal(supertags.status, 200);
+	const supertagResult = await supertags.json();
+	assert.equal(supertagResult.errors, undefined);
+	assert.equal(
+		supertagResult.data.me.supertags.filter(({ kind }) => kind === "base")
+			.length,
+		10,
+	);
+	assert.equal(
+		supertagResult.data.me.supertags.find(({ name }) => name === "Person")
+			?.kind,
+		"base",
+	);
+	const createTag = await queryGraphql(
+		`mutation RuntimeCreateTag($name: String!, $parentId: ID!) {
+			createUserTag(input: { name: $name, parentId: $parentId }) {
+				id name kind rootId revision
+			}
+		}`,
+		{ name: "Colleague", parentId: "base:person" },
+	);
+	assert.equal(createTag.status, 200);
+	const createdTag = (await createTag.json()).data.createUserTag;
+	assert.equal(createdTag.kind, "user");
+	assert.equal(createdTag.rootId, "base:person");
+	const defineField = await queryGraphql(
+		`mutation RuntimeDefineField($tagId: ID!) {
+			defineEntityField(input: {
+				tagId: $tagId
+				key: "role"
+				label: "Role"
+				type: TEXT
+				cardinality: SINGLE
+			}) { id tagId key }
+		}`,
+		{ tagId: createdTag.id },
+	);
+	assert.equal(defineField.status, 200);
+	assert.equal((await defineField.json()).data.defineEntityField.key, "role");
+	const createEntity = await queryGraphql(
+		`mutation RuntimeCreateEntity($tagId: ID!) {
+			createEntity(input: { label: "Ada Lovelace", tagIds: [$tagId] }) {
+				id label tagIds
+			}
+		}`,
+		{ tagId: createdTag.id },
+	);
+	assert.equal(createEntity.status, 200);
+	assert.equal(
+		(await createEntity.json()).data.createEntity.label,
+		"Ada Lovelace",
+	);
+	const searchEntities = await queryGraphql(
+		`query RuntimeSearchEntities {
+			me { entities(query: "Ada", rootId: "base:person", limit: 5) { label rootId } }
+		}`,
+	);
+	assert.deepEqual((await searchEntities.json()).data.me.entities, [{
+		label: "Ada Lovelace",
+		rootId: "base:person",
+	}]);
 	assert.equal(
 		(await post("/admin/accounts/action", {
 			action: "sync",
@@ -483,7 +571,7 @@ const exercise = async (urls) => {
 		/No accounts connected/,
 	);
 	console.log(
-		"Website runtime passed: signed Access JWT, owner spoof rejection, CSRF, connect cookie, enable sync, GraphQL contacts/events and proxy, delete ordering.",
+		"Website runtime passed: signed Access JWT, owner spoof rejection, CSRF, canonical Supertags/entities, connect cookie, enable sync, GraphQL contacts/events and proxy, delete ordering.",
 	);
 	if (process.argv.includes("--serve")) {
 		await post("/admin/oauth/connect", { appId: "managed-google" });
