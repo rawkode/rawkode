@@ -7,6 +7,8 @@ import { type ApiContext, type ApiEnv, createContext } from "./context.ts";
 import { enforceQueryBudget } from "./limits.ts";
 import type { CalendarApi } from "@e2/oauth-client/calendar";
 import { todayGraphql } from "./today.ts";
+import { entitiesGraphql } from "../../core/entities/graphql.ts";
+import type { EntitiesApi, MutationProvenance } from "@e2/entities";
 
 Deno.test("integration-owned schemas compose independently onto shared User", () => {
 	const google = composeSchema([googleGraphql]).schema;
@@ -18,6 +20,110 @@ Deno.test("integration-owned schemas compose independently onto shared User", ()
 	assert.equal(
 		validate(google, parse("{ me { githubAccounts { id } } }")).length,
 		1,
+	);
+});
+
+Deno.test("entities GraphQL uses authenticated owner for search and mutation provenance", async () => {
+	const owners: string[] = [],
+		searches: unknown[][] = [],
+		actors: MutationProvenance[] = [];
+	const api = {
+		listTags: () => Promise.resolve([]),
+		searchEntities: (query: string, options: unknown) => {
+			searches.push([query, options]);
+			return Promise.resolve([{
+				id: "00000000-0000-4000-8000-000000000001",
+				label: "Ada Lovelace",
+				bodyDocumentId: "entity:00000000-0000-4000-8000-000000000001",
+				tagIds: ["base:person"],
+				rootId: "base:person",
+			}]);
+		},
+		createEntity: (
+			input: { label: string; tagIds: readonly string[] },
+			provenance: MutationProvenance,
+		) => {
+			actors.push(provenance);
+			return Promise.resolve({
+				id: "00000000-0000-4000-8000-000000000002",
+				label: input.label,
+				bodyDocumentId: "entity:00000000-0000-4000-8000-000000000002",
+				tagIds: input.tagIds,
+				values: { "field:person:name": input.label },
+				aliases: [],
+				archived: false,
+				revision: 1,
+			});
+		},
+		[Symbol.dispose]: () => {},
+	} as unknown as EntitiesApi & Disposable;
+	const env = {
+		ENTITIES_ADMIN: {
+			admin: (owner: string) => {
+				owners.push(owner);
+				return Promise.resolve(api);
+			},
+		},
+	} as unknown as ApiEnv;
+	const { schema, fieldResolver } = composeSchema([entitiesGraphql]);
+	const contextValue = createContext(env, {
+		ownerId: "access:alice",
+		email: "alice@example.com",
+	});
+	const search = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`query { me { entities(query: "ada", rootId: "base:person", limit: 5) { id label rootId } } }`,
+		),
+		contextValue,
+	});
+	assert.equal(search.errors, undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(search.data)), {
+		me: {
+			entities: [{
+				id: "00000000-0000-4000-8000-000000000001",
+				label: "Ada Lovelace",
+				rootId: "base:person",
+			}],
+		},
+	});
+	const create = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`mutation { createEntity(input: { label: "Grace Hopper", tagIds: ["base:person"] }) { id label values { fieldId text } } }`,
+		),
+		contextValue,
+	});
+	assert.equal(create.errors, undefined);
+	const otherOwner = await execute({
+		schema,
+		fieldResolver,
+		document: parse(`query { me { entities(query: "ada", limit: 1) { id } } }`),
+		contextValue: createContext(env, {
+			ownerId: "access:bob",
+			email: "bob@example.com",
+		}),
+	});
+	assert.equal(otherOwner.errors, undefined);
+	assert.deepEqual(owners, ["access:alice", "access:alice", "access:bob"]);
+	assert.deepEqual(searches, [
+		["ada", { rootId: "base:person", limit: 5 }],
+		["ada", { rootId: undefined, limit: 1 }],
+	]);
+	assert.deepEqual(actors, [{
+		actor: "access:alice",
+		cause: "graphql:create-entity",
+		rationale: "Authenticated user created an entity.",
+	}]);
+	assert.ok(
+		validate(
+			schema,
+			parse(
+				`mutation { createEntity(input: { label: "Mallory", tagIds: ["base:person"], actor: "access:mallory" }) { id } }`,
+			),
+		).length > 0,
 	);
 });
 
@@ -150,9 +256,19 @@ Deno.test("expanded fragment aliases count toward complexity and cycles fail Gra
 			),
 		/Select/,
 	);
+	assert.doesNotThrow(() =>
+		enforceQueryBudget(
+			parse('mutation { mergeEntities(input:{fromId:"a",intoId:"b"}) { id } }'),
+		)
+	);
 	assert.throws(
-		() => enforceQueryBudget(parse("mutation { me { id } }")),
-		/read-only/,
+		() =>
+			enforceQueryBudget(
+				parse(
+					'mutation { first:mergeEntities(input:{fromId:"a",intoId:"b"}) { id } second:mergeEntities(input:{fromId:"c",intoId:"d"}) { id } }',
+				),
+			),
+		/exactly one root field/,
 	);
 });
 

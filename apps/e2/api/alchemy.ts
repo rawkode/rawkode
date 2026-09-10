@@ -15,6 +15,7 @@ export default (
 	google: Cloudflare.Worker,
 	github: Cloudflare.Worker,
 	documents: Cloudflare.Worker,
+	entities: Cloudflare.Worker,
 	access: {
 		teamDomain: string;
 		audience: Output.Output<string>;
@@ -36,6 +37,10 @@ export default (
 				DOCUMENTS_ADMIN: Cloudflare.WorkerEntrypoint(
 					documents,
 					"DocumentsAdmin",
+				),
+				ENTITIES_ADMIN: Cloudflare.WorkerEntrypoint(
+					entities,
+					"EntitiesAdmin",
 				),
 				GOOGLE_ADMIN: Cloudflare.WorkerEntrypoint(google, "CalendarAdmin"),
 				GITHUB_ADMIN: Cloudflare.WorkerEntrypoint(github, "GitHubAdmin"),

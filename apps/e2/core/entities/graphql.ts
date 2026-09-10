@@ -1,0 +1,344 @@
+import type {
+	CanonicalEntity,
+	Cardinality,
+	DefineFieldInput,
+	EntitiesApi,
+	EntitySource,
+	FieldType,
+	FieldValue,
+	MutationProvenance,
+} from "@e2/entities";
+import type { ApiContext, IntegrationSchema } from "../../api/src/context.ts";
+
+const read = async <T>(
+	context: ApiContext,
+	action: (api: EntitiesApi) => Promise<T>,
+): Promise<T> => {
+	context.consume();
+	if (!context.env.ENTITIES_ADMIN) throw new Error("Entities are unavailable");
+	using api = await context.env.ENTITIES_ADMIN.admin(context.identity.ownerId);
+	return await action(api);
+};
+
+const boundedString = (value: unknown, name: string, max: number): string => {
+	if (typeof value !== "string" || !value.trim() || value.length > max) {
+		throw new Error(`Invalid ${name}`);
+	}
+	return value.trim();
+};
+const boundedList = (
+	value: unknown,
+	name: string,
+	max: number,
+): unknown[] => {
+	if (!Array.isArray(value) || value.length > max) {
+		throw new Error(`Invalid ${name}`);
+	}
+	return value;
+};
+const strings = (value: unknown, name: string, max = 64): string[] =>
+	boundedList(value ?? [], name, max).map((entry) =>
+		boundedString(entry, name, 2_000)
+	);
+
+type ValueInput = {
+	fieldId?: unknown;
+	text?: unknown;
+	number?: unknown;
+	boolean?: unknown;
+	strings?: unknown;
+	numbers?: unknown;
+	booleans?: unknown;
+};
+const rawValue = (value: unknown): FieldValue => {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error("Invalid entity field value");
+	}
+	const input = value as ValueInput;
+	const arms = ["text", "number", "boolean", "strings", "numbers", "booleans"]
+		.filter((key) => (input as Record<string, unknown>)[key] !== undefined);
+	if (arms.length !== 1) {
+		throw new Error("Entity values require exactly one value");
+	}
+	const arm = arms[0]!;
+	const candidate = (input as Record<string, unknown>)[arm];
+	if (arm === "text") return boundedString(candidate, "field value", 100_000);
+	if (arm === "number") {
+		if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
+			throw new Error("Invalid numeric value");
+		}
+		return candidate;
+	}
+	if (arm === "boolean") {
+		if (typeof candidate !== "boolean") {
+			throw new Error("Invalid boolean value");
+		}
+		return candidate;
+	}
+	const items = boundedList(candidate, "field values", 1_000);
+	if (arm === "strings") {
+		return items.map((item) => boundedString(item, "field value", 100_000));
+	}
+	if (arm === "numbers") {
+		if (
+			!items.every((item) => typeof item === "number" && Number.isFinite(item))
+		) throw new Error("Invalid numeric values");
+		return items as number[];
+	}
+	if (!items.every((item) => typeof item === "boolean")) {
+		throw new Error("Invalid boolean values");
+	}
+	return items as boolean[];
+};
+const inputValue = (value: unknown): [string, FieldValue] => {
+	const input = value as ValueInput;
+	return [boundedString(input?.fieldId, "field ID", 200), rawValue(value)];
+};
+const inputValues = (value: unknown): Record<string, FieldValue> => {
+	const entries = boundedList(value ?? [], "entity values", 128).map(
+		inputValue,
+	);
+	if (new Set(entries.map(([fieldId]) => fieldId)).size !== entries.length) {
+		throw new Error("Entity field values must be unique");
+	}
+	return Object.fromEntries(entries);
+};
+
+const outputValue = ([fieldId, value]: [string, FieldValue]) => ({
+	fieldId,
+	text: typeof value === "string" ? value : null,
+	number: typeof value === "number" ? value : null,
+	boolean: typeof value === "boolean" ? value : null,
+	strings:
+		Array.isArray(value) && (value.length === 0 || typeof value[0] === "string")
+			? value
+			: null,
+	numbers:
+		Array.isArray(value) && value.length > 0 && typeof value[0] === "number"
+			? value
+			: null,
+	booleans:
+		Array.isArray(value) && value.length > 0 && typeof value[0] === "boolean"
+			? value
+			: null,
+});
+const entity = (value: CanonicalEntity) => ({
+	...value,
+	values: Object.entries(value.values).map(outputValue),
+});
+const provenance = (
+	context: ApiContext,
+	cause: string,
+	rationale: string,
+): MutationProvenance => ({
+	actor: context.identity.ownerId,
+	cause,
+	rationale,
+});
+const input = (args: Record<string, unknown>): Record<string, unknown> => {
+	if (
+		!args.input || typeof args.input !== "object" || Array.isArray(args.input)
+	) throw new Error("Invalid input");
+	return args.input as Record<string, unknown>;
+};
+
+const fieldTypes: Record<string, FieldType> = {
+	TEXT: "text",
+	NUMBER: "number",
+	BOOLEAN: "boolean",
+	DATE: "date",
+	DATETIME: "datetime",
+	URL: "url",
+	EMAIL: "email",
+	ENUM: "enum",
+	ENTITY_REFERENCE: "entityReference",
+};
+const cardinalities: Record<string, Cardinality> = {
+	SINGLE: "single",
+	MULTIPLE: "multiple",
+};
+
+export const entitiesGraphql: IntegrationSchema = {
+	typeDefs: `
+    extend type User {
+      supertags: [Supertag!]!
+      entities(query: String!, rootId: ID, limit: Int = 20): [EntitySummary!]!
+      entity(id: ID!): Entity
+    }
+    type Supertag { id: ID! name: String! kind: String! parentId: ID rootId: ID! depth: Int! revision: Int! archived: Boolean! }
+    type EntitySummary { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! rootId: ID! }
+    type Entity { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! values: [EntityValue!]! aliases: [String!]! archived: Boolean! revision: Int! redirectedTo: ID }
+    type EntityValue { fieldId: ID! text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
+    type EntityFieldDefinition { id: ID! tagId: ID! key: String! label: String! type: String! cardinality: String! required: Boolean! options: [String!] archived: Boolean! }
+    enum EntityFieldType { TEXT NUMBER BOOLEAN DATE DATETIME URL EMAIL ENUM ENTITY_REFERENCE }
+    enum EntityCardinality { SINGLE MULTIPLE }
+    input EntityRawValueInput { text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
+    input EntityValueInput { fieldId: ID! text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
+    input CreateUserTagInput { name: String! parentId: ID! }
+    input DefineEntityFieldInput { tagId: ID! key: String! label: String! type: EntityFieldType! cardinality: EntityCardinality! required: Boolean = false options: [String!] defaultValue: EntityRawValueInput }
+    input CreateEntityInput { label: String! tagIds: [ID!]! aliases: [String!] values: [EntityValueInput!] }
+    input SetEntityValuesInput { id: ID! values: [EntityValueInput!]! clearFieldIds: [ID!]! }
+    input EntitySourceInput { provider: String! connectionId: ID! resourceType: String! resourceId: ID! }
+    input SetEntityPreferredSourceInput { id: ID! fieldId: ID! source: EntitySourceInput }
+    input MergeEntitiesInput { fromId: ID! intoId: ID! }
+    type Mutation {
+      createUserTag(input: CreateUserTagInput!): Supertag!
+      defineEntityField(input: DefineEntityFieldInput!): EntityFieldDefinition!
+      createEntity(input: CreateEntityInput!): Entity!
+      setEntityValues(input: SetEntityValuesInput!): Entity!
+      setEntityPreferredSource(input: SetEntityPreferredSourceInput!): Entity!
+      mergeEntities(input: MergeEntitiesInput!): Entity!
+    }
+  `,
+	fields: {
+		"User.supertags": (_source, _args, context) =>
+			read(context, (api) => api.listTags()),
+		"User.entities": (_source, args, context) =>
+			read(context, (api) =>
+				api.searchEntities(
+					String(args.query ?? ""),
+					{
+						rootId: args.rootId === null || args.rootId === undefined
+							? undefined
+							: String(args.rootId) as never,
+						limit: args.limit === undefined ? undefined : Number(args.limit),
+					},
+				)),
+		"User.entity": async (_source, args, context) => {
+			const result = await read(
+				context,
+				(api) => api.getEntity(String(args.id)),
+			);
+			return result ? entity(result) : null;
+		},
+		"Mutation.createUserTag": (_source, args, context) => {
+			const value = input(args);
+			return read(context, (api) =>
+				api.createUserTag(
+					{
+						name: boundedString(value.name, "tag name", 100),
+						parentId: boundedString(value.parentId, "parent tag", 200),
+					},
+					provenance(
+						context,
+						"graphql:create-user-tag",
+						"Authenticated user created a Supertag.",
+					),
+				));
+		},
+		"Mutation.defineEntityField": (_source, args, context) => {
+			const value = input(args),
+				type = fieldTypes[String(value.type)],
+				cardinality = cardinalities[String(value.cardinality)];
+			if (!type || !cardinality) throw new Error("Invalid field definition");
+			const definition: DefineFieldInput = {
+				tagId: boundedString(value.tagId, "tag ID", 200),
+				key: boundedString(value.key, "field key", 64),
+				label: boundedString(value.label, "field label", 100),
+				type,
+				cardinality,
+				required: value.required === true,
+				options: strings(value.options, "field options", 100),
+			};
+			if (value.defaultValue) {
+				definition.defaultValue = rawValue(value.defaultValue);
+			}
+			return read(
+				context,
+				(api) =>
+					api.defineField(
+						definition,
+						provenance(
+							context,
+							"graphql:define-entity-field",
+							"Authenticated user defined a Supertag field.",
+						),
+					),
+			);
+		},
+		"Mutation.createEntity": async (_source, args, context) => {
+			const value = input(args);
+			const result = await read(context, (api) =>
+				api.createEntity(
+					{
+						label: boundedString(value.label, "entity label", 1_000),
+						tagIds: strings(value.tagIds, "entity tags", 64),
+						aliases: strings(value.aliases, "entity aliases", 64),
+						values: inputValues(value.values),
+					},
+					provenance(
+						context,
+						"graphql:create-entity",
+						"Authenticated user created an entity.",
+					),
+				));
+			return entity(result);
+		},
+		"Mutation.setEntityValues": async (_source, args, context) => {
+			const value = input(args);
+			const result = await read(context, (api) =>
+				api.setUserValues(
+					boundedString(value.id, "entity ID", 200),
+					inputValues(value.values),
+					strings(value.clearFieldIds, "cleared field IDs", 128),
+					provenance(
+						context,
+						"graphql:set-entity-values",
+						"Authenticated user updated entity field values.",
+					),
+				));
+			return entity(result);
+		},
+		"Mutation.setEntityPreferredSource": async (_source, args, context) => {
+			const value = input(args);
+			let source: EntitySource | null = null;
+			if (value.source) {
+				const raw = value.source as Record<string, unknown>;
+				source = {
+					provider: boundedString(raw.provider, "source provider", 100),
+					connectionId: boundedString(
+						raw.connectionId,
+						"source connection",
+						500,
+					),
+					resourceType: boundedString(
+						raw.resourceType,
+						"source resource type",
+						100,
+					),
+					resourceId: boundedString(
+						raw.resourceId,
+						"source resource ID",
+						2_000,
+					),
+				};
+			}
+			const result = await read(context, (api) =>
+				api.setPreferredSource(
+					boundedString(value.id, "entity ID", 200),
+					boundedString(value.fieldId, "field ID", 200),
+					source,
+					provenance(
+						context,
+						"graphql:set-entity-source",
+						"Authenticated user changed entity source precedence.",
+					),
+				));
+			return entity(result);
+		},
+		"Mutation.mergeEntities": async (_source, args, context) => {
+			const value = input(args);
+			const result = await read(context, (api) =>
+				api.mergeEntities(
+					boundedString(value.fromId, "source entity ID", 200),
+					boundedString(value.intoId, "target entity ID", 200),
+					provenance(
+						context,
+						"graphql:merge-entities",
+						"Authenticated user merged duplicate entities.",
+					),
+				));
+			return entity(result);
+		},
+	},
+};

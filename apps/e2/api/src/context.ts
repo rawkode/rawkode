@@ -1,9 +1,13 @@
 import type { DocumentsApi } from "../../core/documents/src/types.ts";
 import type { CalendarApi } from "@e2/oauth-client/calendar";
 import type { GitHubActivityApi, GitHubApi } from "@e2/oauth-client/github";
+import type { EntitiesApi } from "@e2/entities";
 import type { AuthConfig, Identity } from "../../website/src/lib/auth.ts";
 
 export interface ApiEnv extends AuthConfig {
+	ENTITIES_ADMIN?: {
+		admin(owner: string): Promise<EntitiesApi & Disposable>;
+	};
 	DOCUMENTS_ADMIN?: {
 		admin(owner: string): Promise<DocumentsApi & Disposable>;
 	};

@@ -25,8 +25,23 @@ export const enforceQueryBudget = (
 		: operations.length === 1
 		? operations[0]
 		: undefined;
-	if (!selected || selected.operation !== "query") {
-		throw new Error("Select one read-only query operation.");
+	if (!selected) {
+		throw new Error("Select exactly one operation.");
+	}
+	const rootFields = (selection: SelectionSetNode): number =>
+		selection.selections.reduce((count, node) => {
+			if (node.kind === Kind.FRAGMENT_SPREAD) {
+				return count + rootFields(fragments.get(node.name.value)!.selectionSet);
+			}
+			if (node.kind === Kind.INLINE_FRAGMENT) {
+				return count + rootFields(node.selectionSet);
+			}
+			return count + 1;
+		}, 0);
+	if (
+		selected.operation === "mutation" && rootFields(selected.selectionSet) !== 1
+	) {
+		throw new Error("Mutation operations must select exactly one root field.");
 	}
 	let fields = 0;
 	let cost = 0;
@@ -50,14 +65,19 @@ export const enforceQueryBudget = (
 			if (fields > 100 || cost > 5000) {
 				throw new Error("Query exceeds the complexity limit.");
 			}
-			const factor =
-				["googleAccounts", "githubAccounts"].includes(node.name.value)
-					? 20
-					: node.name.value === "records"
-					? 100
-					: node.name.value === "items"
-					? 50
-					: 1;
+			const factor = ["googleAccounts", "githubAccounts", "supertags"].includes(
+					node.name.value,
+				)
+				? 20
+				: node.name.value === "entities"
+				? 50
+				: node.name.value === "values"
+				? 128
+				: node.name.value === "records"
+				? 100
+				: node.name.value === "items"
+				? 50
+				: 1;
 			if (node.selectionSet) {
 				visit(node.selectionSet, depth + 1, multiplier * factor);
 			}

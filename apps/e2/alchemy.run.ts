@@ -35,8 +35,14 @@ export default Alchemy.Stack(
 		Effect.bind("access", () => deploymentAccess),
 		Effect.bind(
 			"api",
-			({ integrations, access, documents }) =>
-				api(integrations.google, integrations.github, documents, access),
+			({ integrations, access, documents, entities }) =>
+				api(
+					integrations.google,
+					integrations.github,
+					documents,
+					entities,
+					access,
+				),
 		),
 		Effect.bind(
 			"website",
