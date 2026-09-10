@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
 import Fieldnotes from "./Fieldnotes.vue";
-import { listCanonicalSupertags, type CanonicalSupertag } from "../editor/registry";
 import { paneSearchParams } from "../editor/paneStack";
+import {
+	createSupertagClient,
+	type EntityFieldDefinition,
+	type Supertag,
+} from "../lib/supertags";
 
 interface EntityValue {
 	fieldId: string;
@@ -35,9 +39,11 @@ const emit = defineEmits<{
 	openEntity: [entityId: string];
 	title: [title: string];
 }>();
+const supertagClient = createSupertagClient();
 const entity = ref<EntityDetail>();
 const backlinks = ref<Backlink[]>([]);
-const tags = ref<CanonicalSupertag[]>([]);
+const tags = ref<Supertag[]>([]);
+const fields = ref<EntityFieldDefinition[]>([]);
 const loading = ref(true);
 const error = ref("");
 const heading = ref<HTMLHeadingElement>();
@@ -68,12 +74,16 @@ const request = async () => {
 	entity.value = result.data.me.entity;
 	emit("title", result.data.me.entity.label);
 	backlinks.value = result.data.me.entityBacklinks;
-	try {
-		tags.value = await listCanonicalSupertags();
-	} catch {
-		// Entity content remains usable when tag display metadata is unavailable.
-		tags.value = [];
-	}
+	const [availableTags, tagDetails] = await Promise.all([
+		supertagClient.list().catch(() => []),
+		Promise.all(
+			result.data.me.entity.tagIds.map((id) =>
+				supertagClient.details(id).catch(() => null)
+			),
+		),
+	]);
+	tags.value = availableTags;
+	fields.value = tagDetails.flatMap((details) => details?.fields ?? []);
 };
 
 const tagNames = computed(() => {
@@ -95,6 +105,8 @@ const valueText = (value: EntityValue): string => {
 	}
 	return "";
 };
+const fieldLabel = (fieldId: string): string =>
+	fields.value.find((field) => field.id === fieldId)?.label ?? fieldId;
 const documentHref = (id: string): string => {
 	const params = paneSearchParams(new URLSearchParams(), [{ kind: "document", id }]);
 	return `/?${params.toString()}`;
@@ -139,7 +151,7 @@ onMounted(async () => {
 				<h3 id="entity-fields-heading">Fields</h3>
 				<dl>
 					<template v-for="value in entity.values" :key="value.fieldId">
-						<dt>{{ value.fieldId }}</dt>
+						<dt>{{ fieldLabel(value.fieldId) }}</dt>
 						<dd>{{ valueText(value) }}</dd>
 					</template>
 				</dl>

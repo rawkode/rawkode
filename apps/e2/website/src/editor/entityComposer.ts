@@ -2,7 +2,7 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
-import type { CanonicalEntityReference } from "@e2/documents/note";
+import { type CanonicalEntityReference, parseEntity } from "@e2/documents/note";
 
 export type EntityComposerTrigger = "#" | "@";
 export type EntityComposerMode = "selection" | "typed";
@@ -26,6 +26,17 @@ export const canonicalEntityReference = (
 	displayText: match.mode === "selection" ? match.displayText : entity.label,
 	presentation: match.trigger === "@" ? "mention" : "link",
 });
+
+/** Legacy provider references remain readable, but new external insertions must be canonical. */
+export const canonicalEntityInsertion = (
+	value: unknown,
+): CanonicalEntityReference => {
+	const entity = parseEntity(value);
+	if (!("version" in entity) || entity.version !== 1) {
+		throw new Error("A canonical entity is required for new links.");
+	}
+	return entity;
+};
 
 export type LatestEntitySearchResult<T> =
 	| { accepted: true; value: T }

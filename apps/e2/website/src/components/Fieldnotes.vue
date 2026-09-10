@@ -7,10 +7,10 @@ import { NodeSelection } from "@tiptap/pm/state";
 import ComponentView from "./ComponentView.vue";
 import TodaySidebar from "./TodaySidebar.vue";
 import { defaultComponent } from "../lib/component";
-import { NOTE_LIMITS, parseEntity, parseNote, type EntityReference, type NoteDocument } from "@e2/documents/note";
+import { NOTE_LIMITS, parseNote, type CanonicalEntityReference, type NoteDocument } from "@e2/documents/note";
 import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
-import { canonicalEntityReference, closeEntityComposer, createLatestEntitySearch, EntityComposer, entityComposerKey, type EntityComposerMatch } from "../editor/entityComposer";
+import { canonicalEntityInsertion, canonicalEntityReference, closeEntityComposer, createLatestEntitySearch, EntityComposer, entityComposerKey, type EntityComposerMatch } from "../editor/entityComposer";
 import { loadDocument, saveDocument } from '../editor/persistence';
 import { createDocumentSaver, readDocument, todayBounds, todayDocumentId, type SaveState } from '../editor/documents';
 import { createCanonicalEntity, editorRegistry, listCanonicalSupertags, searchCanonicalEntities, type CanonicalEntitySummary, type CanonicalSupertag } from "../editor/registry";
@@ -81,7 +81,7 @@ const paletteIndex = ref(0);
 const paletteInput = ref<HTMLInputElement>();
 const revision = ref(0);
 let importGeneration = 0;
-const pendingExternalEntities: EntityReference[] = [];
+const pendingExternalEntities: CanonicalEntityReference[] = [];
 let dismissedEntityToken: Pick<EntityComposerMatch, "from" | "trigger"> | undefined;
 const canonicalEntitySearch = createLatestEntitySearch(
 	(input: { query: string; rootId?: string }, signal) =>
@@ -345,7 +345,7 @@ const createEntityFromMenu = async () => {
 const insertExternalEntity = (event: Event) => {
 	if (!(event instanceof CustomEvent)) return;
 	try {
-		const entity = parseEntity(event.detail);
+		const entity = canonicalEntityInsertion(event.detail);
 		if (!editor.value) {
 			pendingExternalEntities.push(entity);
 			return;

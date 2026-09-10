@@ -415,6 +415,9 @@ const exercise = async (urls) => {
 	let response = await get("/admin/oauth");
 	assert.equal(response.status, 200);
 	assert.match(await response.text(), /No accounts connected/);
+	response = await get("/admin/supertags");
+	assert.equal(response.status, 200);
+	assert.match(await response.text(), /Extend Apsides' base entity types/);
 	assert.equal(
 		(await post("/admin/accounts/action", {
 			action: "sync",

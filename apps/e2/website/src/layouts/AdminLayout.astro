@@ -1,6 +1,6 @@
 ---
 import '../styles/global.css';
-interface Props { title: string; active?: 'accounts' | 'google' }
+interface Props { title: string; active?: 'accounts' | 'google' | 'supertags' }
 const { title, active = 'accounts' } = Astro.props;
 ---
 <!doctype html>
@@ -23,6 +23,7 @@ const { title, active = 'accounts' } = Astro.props;
         <a href="/">Today</a>
         <a href="/admin/oauth" aria-current={active === 'accounts' ? 'page' : undefined}>Accounts</a>
         <a href="/admin/google" aria-current={active === 'google' ? 'page' : undefined}>Contacts & events</a>
+        <a href="/admin/supertags" aria-current={active === 'supertags' ? 'page' : undefined}>Supertags</a>
       </nav>
       <main id="main"><slot /></main>
     </div>

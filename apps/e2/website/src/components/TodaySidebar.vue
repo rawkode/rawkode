@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { eventDocumentId } from "../editor/eventDocuments";
+import { searchCanonicalEntities } from "../editor/registry";
 
 interface TodayEvent {
 	connectionId: string;
@@ -34,7 +35,6 @@ interface GitHubActivity {
 interface TodayData {
 	me: {
 		today: { googleEvents: TodayEvent[]; googleEventsPartial: boolean; googlePeople: TodayPerson[]; githubActivity: GitHubActivity[] };
-		googlePeople: TodayPerson[];
 	};
 }
 
@@ -42,14 +42,11 @@ const props = defineProps<{ date: string; from: string; to: string }>();
 const events = ref<TodayEvent[]>([]);
 const partialEvents = ref(false);
 const people = ref<TodayPerson[]>([]);
-const contacts = ref<TodayPerson[]>([]);
 const activity = ref<GitHubActivity[]>([]);
-const contactQuery = ref("");
-const contactLoading = ref(false);
-const contactError = ref("");
+const activityInserting = ref("");
+const activityErrors = ref<Record<string, string>>({});
 const loading = ref(true);
 const error = ref("");
-let contactSearchGeneration = 0;
 
 const eventTime = (value: string | null): string => {
 	if (!value) return "All day";
@@ -74,7 +71,7 @@ const load = async () => {
             googleEventsPartial
             googlePeople { connectionId id displayName emails }
             githubActivity { connectionId id resourceId kind title url repository actor createdAt action }
-          } googlePeople(query: "") { connectionId id displayName emails } }
+          } }
         }`,
 				variables: { date: props.date, from: props.from, to: props.to },
 			}),
@@ -85,7 +82,6 @@ const load = async () => {
 		events.value = result.data.me.today.googleEvents;
 		partialEvents.value = result.data.me.today.googleEventsPartial;
 		people.value = result.data.me.today.googlePeople;
-		contacts.value = result.data.me.googlePeople;
 		activity.value = result.data.me.today.githubActivity;
 	} catch (failure) {
 		error.value = failure instanceof Error ? failure.message : "Today data is unavailable.";
@@ -94,70 +90,53 @@ const load = async () => {
 	}
 };
 
-const searchContacts = async () => {
-	const generation = ++contactSearchGeneration;
-	contactLoading.value = true;
-	contactError.value = "";
-	try {
-		const response = await fetch("/api/graphql", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				query: `query ContactSearch($query: String!) {
-          me { googlePeople(query: $query) { connectionId id displayName emails } }
-        }`,
-				variables: { query: contactQuery.value.trim() },
-			}),
-		});
-		if (!response.ok) throw new Error("Contacts are unavailable.");
-		const result = await response.json() as {
-			data?: { me: { googlePeople: TodayPerson[] } };
-			errors?: unknown[];
-		};
-		if (result.errors?.length || !result.data) {
-			throw new Error("Contacts are unavailable.");
-		}
-		if (generation === contactSearchGeneration) {
-			contacts.value = result.data.me.googlePeople;
-		}
-	} catch (failure) {
-		if (generation === contactSearchGeneration) {
-			contactError.value = failure instanceof Error
-				? failure.message
-				: "Contacts are unavailable.";
-		}
-	} finally {
-		if (generation === contactSearchGeneration) contactLoading.value = false;
-	}
-};
-
 const normalize = (value: string): string =>
 	value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
-const matchingPerson = (item: GitHubActivity): TodayPerson | undefined => {
-	const actor = normalize(item.actor);
-	if (!actor) return undefined;
-	return contacts.value.find((person) => {
-		const names = person.displayName.split(/\s+/).map(normalize);
-		return names.includes(actor) || person.emails.some((email) => {
-			const [local] = email.split("@");
-			return normalize(local ?? "") === actor;
-		});
-	});
-};
-const linkActivity = (item: GitHubActivity, person: TodayPerson) => {
-	window.dispatchEvent(new CustomEvent("e2-insert-entity", {
-		detail: {
-			provider: "github",
-			kind: item.kind === "pullRequest" ? "pullRequest" : item.kind,
-			id: `${item.connectionId}:${item.resourceId}`,
-			label: item.title,
-			meta: JSON.stringify({
-				contactConnectionId: person.connectionId,
-				contactId: person.id,
-				contactLabel: person.displayName,
-			}),
-		},
-	}));
+const activityRoot = (kind: string): string =>
+	kind === "discussion" ? "base:conversation" : "base:task";
+const activityTag = (kind: string): string =>
+	kind === "pullRequest"
+		? "integration:github:pull-request"
+		: kind === "discussion"
+		? "integration:github:discussion"
+		: "integration:github:issue";
+const insertActivity = async (item: GitHubActivity) => {
+	activityInserting.value = item.id;
+	activityErrors.value = { ...activityErrors.value, [item.id]: "" };
+	try {
+		const matches = await searchCanonicalEntities(
+			item.title,
+			activityRoot(item.kind),
+		);
+		const exact = matches.filter((entity) =>
+			normalize(entity.label) === normalize(item.title) &&
+			entity.tagIds.includes(activityTag(item.kind))
+		);
+		if (exact.length !== 1) {
+			throw new Error(
+				"This activity has not resolved to one canonical entity yet. Sync it, then retry.",
+			);
+		}
+		const entity = exact[0]!;
+		window.dispatchEvent(new CustomEvent("e2-insert-entity", {
+			detail: {
+				version: 1,
+				entityId: entity.id,
+				fallbackLabel: entity.label,
+				displayText: entity.label,
+				presentation: "link",
+			},
+		}));
+	} catch (failure) {
+		activityErrors.value = {
+			...activityErrors.value,
+			[item.id]: failure instanceof Error
+				? failure.message
+				: "This activity could not be linked.",
+		};
+	} finally {
+		activityInserting.value = "";
+	}
 };
 
 onMounted(() => void load());
@@ -201,22 +180,11 @@ onMounted(() => void load());
 			<section aria-labelledby="today-github-heading">
 				<div class="sidebar-section-heading"><h3 id="today-github-heading">GitHub</h3><span>{{ activity.length }}</span></div>
 				<p v-if="!activity.length" class="sidebar-muted">Issues, pull requests, and discussions from today will appear here.</p>
-				<div v-if="activity.length" class="sidebar-contact-search">
-					<label for="github-contact-search">Find a Google contact</label>
-					<input id="github-contact-search" v-model="contactQuery" type="search" placeholder="Search by name or email" @input="void searchContacts()" />
-					<p v-if="contactLoading" class="sidebar-muted">Searching contacts…</p>
-					<p v-else-if="contactError" class="sidebar-error" role="alert">{{ contactError }}</p>
-					<p v-else-if="!contacts.length" class="sidebar-muted">No matching Google contacts.</p>
-				</div>
 				<ul v-if="activity.length" class="sidebar-list">
 					<li v-for="item in activity" :key="`${item.connectionId}:${item.id}`">
 						<a :href="item.url || '#'"><strong>{{ item.title }}</strong><span>{{ item.kind }} · {{ item.repository }} · {{ item.actor }}</span></a>
-						<details v-if="contacts.length" class="sidebar-link-picker">
-							<summary>Link to a Google contact</summary>
-							<div>
-								<button v-for="person in contacts" :key="`${person.connectionId}:${person.id}`" type="button" @click="linkActivity(item, person)">{{ person.displayName || person.emails[0] || "Unnamed contact" }}<small v-if="matchingPerson(item)?.connectionId === person.connectionId && matchingPerson(item)?.id === person.id">Suggested match</small></button>
-							</div>
-						</details>
+						<button class="sidebar-link-button" type="button" :disabled="activityInserting === item.id" @click="insertActivity(item)">{{ activityInserting === item.id ? "Resolving…" : "Insert activity" }}</button>
+						<p v-if="activityErrors[item.id]" class="sidebar-error" role="alert">{{ activityErrors[item.id] }}</p>
 					</li>
 				</ul>
 			</section>

@@ -1,0 +1,13 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import SupertagManager from '../../components/SupertagManager.vue';
+---
+<AdminLayout title="Supertags" active="supertags">
+	<div class="page-heading supertag-page-heading">
+		<div>
+			<h1>Supertags</h1>
+			<p class="muted">Extend Apsides' base entity types with your own fields and specializations.</p>
+		</div>
+	</div>
+	<SupertagManager client:load />
+</AdminLayout>

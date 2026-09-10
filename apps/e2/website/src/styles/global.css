@@ -425,6 +425,7 @@ details ul {
 	}
 	nav {
 		display: flex;
+		flex-wrap: wrap;
 		padding: .65rem;
 		gap: .5rem;
 		border-right: 0;
@@ -503,4 +504,319 @@ details ul {
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+}
+.supertag-page-heading {
+	margin-bottom: 1.5rem;
+}
+.supertag-manager {
+	display: grid;
+	grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+	min-height: 38rem;
+	border-block: 1px solid var(--line);
+}
+.supertag-index {
+	padding: 1.25rem 1.25rem 2rem 0;
+	border-right: 1px solid var(--line);
+}
+.supertag-index-heading {
+	display: grid;
+	gap: .9rem;
+	padding-right: 1rem;
+}
+.supertag-index-heading > div {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+}
+.supertag-index-heading p {
+	margin: 0;
+	color: var(--muted);
+	font-size: .8rem;
+}
+.supertag-index input[type="search"] {
+	min-height: 2.4rem;
+	font-size: .88rem;
+}
+.supertag-list {
+	list-style: none;
+	margin: 1rem 0 0;
+	padding: 0 1rem 0 0;
+	max-height: 31rem;
+	overflow-y: auto;
+}
+.supertag-list li + li {
+	border-top: 1px solid var(--line);
+}
+.supertag-list button {
+	display: block;
+	width: 100%;
+	min-height: 0;
+	padding: .7rem .65rem;
+	border: 0;
+	border-radius: 0;
+	text-align: left;
+	font-weight: 600;
+}
+.supertag-list button.selected {
+	background: var(--surface);
+	color: var(--primary);
+}
+.supertag-list button span,
+.supertag-list button small {
+	display: block;
+	padding-left: calc(var(--tag-depth, 0) * .6rem);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.supertag-list button small {
+	margin-top: .15rem;
+	color: var(--muted);
+	font-size: .72rem;
+	font-weight: 450;
+}
+.supertag-create {
+	margin: 1.5rem 1rem 0 0;
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--line);
+}
+.supertag-create h3 {
+	margin-bottom: .8rem;
+}
+.supertag-create label {
+	margin-top: .7rem;
+	font-size: .8rem;
+}
+.supertag-create input,
+.supertag-create select {
+	min-height: 2.4rem;
+	font-size: .88rem;
+}
+.supertag-create button {
+	width: 100%;
+	margin-top: 1rem;
+}
+.supertag-create .error-message {
+	margin: .7rem 0 0;
+}
+.supertag-detail {
+	padding: 1.5rem 0 4rem 2rem;
+}
+.supertag-detail-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 2rem;
+}
+.supertag-detail-heading h2 {
+	margin-top: .45rem;
+	font-size: 1.55rem;
+}
+.supertag-meta {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 1rem 1.5rem;
+	margin: 0;
+	text-align: right;
+}
+.supertag-meta dt {
+	color: var(--muted);
+	font-size: .72rem;
+}
+.supertag-meta dd {
+	margin: .1rem 0 0;
+	font-size: .85rem;
+	overflow-wrap: anywhere;
+}
+.supertag-counts {
+	display: flex;
+	gap: 2rem;
+	margin-top: 2rem;
+	padding-block: 1rem;
+	border-block: 1px solid var(--line);
+}
+.supertag-counts div {
+	display: flex;
+	align-items: baseline;
+	gap: .45rem;
+}
+.supertag-counts strong {
+	font-size: 1.15rem;
+}
+.supertag-counts span {
+	color: var(--muted);
+	font-size: .8rem;
+}
+.supertag-detail section + section {
+	margin-top: 2.5rem;
+}
+.supertag-action-section,
+.supertag-fields {
+	padding-top: .25rem;
+}
+.compact-action {
+	display: flex;
+	align-items: flex-end;
+	gap: .7rem;
+	margin-top: .8rem;
+}
+.compact-action > div {
+	flex: 1;
+}
+.compact-action label {
+	font-size: .8rem;
+}
+.field-definition-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	border-top: 1px solid var(--line);
+}
+.field-definition-list > li {
+	padding: 1rem 0;
+	border-bottom: 1px solid var(--line);
+}
+.field-definition-list > li.archived {
+	opacity: .65;
+}
+.field-definition-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+}
+.field-definition-heading strong,
+.field-definition-heading code {
+	display: block;
+}
+.field-definition-heading code {
+	margin-top: .15rem;
+	color: var(--muted);
+}
+.field-badges {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: .35rem;
+}
+.field-definition-list p {
+	margin: .5rem 0 0;
+	font-size: .85rem;
+}
+.field-archive {
+	margin-top: .6rem;
+}
+.field-archive .text-button {
+	padding-left: 0;
+}
+.field-definition-form {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem;
+}
+.field-definition-form label {
+	font-size: .8rem;
+}
+.field-form-wide {
+	grid-column: 1 / -1;
+}
+.field-definition-form textarea {
+	min-height: 5rem;
+}
+.check-field {
+	display: flex;
+	align-items: center;
+	gap: .5rem;
+	margin: 0;
+	font-weight: 500;
+}
+.check-field input {
+	width: 1rem;
+	min-height: 1rem;
+	margin: 0;
+}
+.field-form-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+.archive-tag-section {
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--line);
+}
+.archive-preview {
+	margin-top: .75rem;
+	padding: .9rem 1rem;
+	background: var(--surface);
+	border-radius: 6px;
+}
+.archive-preview p {
+	margin: 0 0 .75rem;
+	font-size: .85rem;
+}
+.archive-preview > div {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .6rem;
+}
+.locked-note,
+.supertag-empty,
+.supertag-loading {
+	color: var(--muted);
+	font-size: .88rem;
+}
+.locked-note {
+	margin-top: 2rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+}
+@media (max-width: 850px) {
+	.supertag-manager {
+		grid-template-columns: 1fr;
+	}
+	.supertag-index {
+		padding-right: 0;
+		border-right: 0;
+		border-bottom: 1px solid var(--line);
+	}
+	.supertag-index-heading,
+	.supertag-list,
+	.supertag-create {
+		padding-right: 0;
+		margin-right: 0;
+	}
+	.supertag-list {
+		max-height: 18rem;
+	}
+	.supertag-detail {
+		padding: 1.5rem 0 3rem;
+	}
+}
+@media (max-width: 560px) {
+	.supertag-detail-heading,
+	.field-definition-heading {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+	.supertag-meta,
+	.field-badges {
+		justify-content: flex-start;
+		text-align: left;
+	}
+	.supertag-counts {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: .6rem;
+	}
+	.field-definition-form {
+		grid-template-columns: 1fr;
+	}
+	.field-form-wide {
+		grid-column: auto;
+	}
+	.compact-action {
+		align-items: stretch;
+		flex-direction: column;
+	}
 }

@@ -5,21 +5,24 @@ import {
 	listCanonicalSupertags,
 	searchCanonicalEntities,
 } from "../src/editor/registry.ts";
+import { canonicalEntityInsertion } from "../src/editor/entityComposer.ts";
 
-Deno.test("editor references keep provider identities within the note limit", async () => {
+Deno.test("integration registry searches return canonical references only", async () => {
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = (_input, init) => {
 		const body = JSON.parse(String(init?.body));
-		assert.match(body.query, /googlePeople/);
+		assert.match(body.query, /entities\(query: \$query, rootId: \$rootId/);
+		assert.deepEqual(body.variables, { query: "ada", rootId: "base:person" });
 		return Promise.resolve(
 			Response.json({
 				data: {
 					me: {
-						googlePeople: [{
-							id: "people/" + "x".repeat(2_048),
-							connectionId: "connection",
-							displayName: "Long identity",
-							emails: ["long@example.com"],
+						entities: [{
+							id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							label: "Ada Lovelace",
+							bodyDocumentId: "entity:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							tagIds: ["base:person", "integration:google:contact"],
+							rootId: "base:person",
 						}],
 					},
 				},
@@ -29,13 +32,36 @@ Deno.test("editor references keep provider identities within the note limit", as
 	try {
 		const people = await editorRegistry.entities.find((entry) =>
 			entry.id === "google.people"
-		)!.search("long");
+		)!.search("ada");
 		assert.equal(people.length, 1);
-		assert.ok(people[0]!.id.length <= 480);
-		assert.match(people[0]!.id, /^connection:/);
+		assert.deepEqual(people[0], {
+			version: 1,
+			entityId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			fallbackLabel: "Ada Lovelace",
+			displayText: "Ada Lovelace",
+			presentation: "mention",
+		});
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
+});
+
+Deno.test("external insertion accepts canonical references and rejects legacy provider refs", () => {
+	const canonical = {
+		version: 1 as const,
+		entityId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		fallbackLabel: "Ada Lovelace",
+		displayText: "Ada",
+		presentation: "mention" as const,
+	};
+	assert.deepEqual(canonicalEntityInsertion(canonical), canonical);
+	assert.throws(() =>
+		canonicalEntityInsertion({
+			provider: "google",
+			kind: "person",
+			id: "connection:people/1",
+			label: "Ada Lovelace",
+		}), /canonical entity/i);
 });
 
 Deno.test("canonical editor search forwards the Person scope and cancellation signal", async () => {

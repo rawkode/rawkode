@@ -3,7 +3,7 @@ import type {
 	EditorEntityDefinition,
 	EditorIntegrationManifest,
 } from "@e2/editor/contracts";
-import type { ProviderEntityReference } from "@e2/documents/note";
+import type { CanonicalEntityReference } from "@e2/documents/note";
 import { githubEditor } from "../../../integrations/github/editor.ts";
 import { googleEditor } from "../../../integrations/google/editor.ts";
 
@@ -16,7 +16,7 @@ export interface RegisteredCommand extends EditorCommandDefinition {
 }
 
 export interface RegisteredEntity extends EditorEntityDefinition {
-	search: (query: string) => Promise<ProviderEntityReference[]>;
+	search: (query: string) => Promise<CanonicalEntityReference[]>;
 }
 
 export interface EditorRegistry {
@@ -125,153 +125,42 @@ export const boundedEntityId = (...parts: string[]): string => {
 	return `${value.slice(0, 460)}:${hash.toString(36)}`;
 };
 
-const googlePeople = async (
-	query: string,
-): Promise<ProviderEntityReference[]> => {
-	const data = await request<{
-		me: {
-			googlePeople: {
-				id: string;
-				connectionId: string;
-				displayName: string;
-				emails: string[];
-			}[];
-		};
-	}>(
-		`query EditorPeople($query: String!) {
-      me { googlePeople(query: $query) { id connectionId displayName emails } }
-    }`,
-		{ query },
-	);
-	return data.me.googlePeople.map((person) => ({
-		provider: "google",
-		kind: "person",
-		id: boundedEntityId(person.connectionId, person.id),
-		label: person.displayName || person.emails[0] || "Unnamed contact",
-		meta: person.emails[0],
-	}));
+const rootByKind: Record<EditorEntityDefinition["kind"], string> = {
+	person: "base:person",
+	event: "base:event",
+	issue: "base:task",
+	pullRequest: "base:task",
+	discussion: "base:conversation",
+};
+const integrationTagByDefinition: Record<string, string> = {
+	"google.people": "integration:google:contact",
+	"google.events": "integration:google:event",
+	"github.issues": "integration:github:issue",
+	"github.pull-requests": "integration:github:pull-request",
+	"github.discussions": "integration:github:discussion",
 };
 
-const googleEvents = async (
+const canonicalSearch = async (
+	definition: EditorEntityDefinition,
 	query: string,
-): Promise<ProviderEntityReference[]> => {
-	const data = await request<{
-		me: {
-			googleEvents: {
-				id: string;
-				connectionId: string;
-				calendarId: string | null;
-				summary: string;
-				start: string | null;
-			}[];
-		};
-	}>(
-		`query EditorEvents($query: String!) {
-			me { googleEvents(query: $query) { id connectionId calendarId summary start } }
-    }`,
-		{ query },
+): Promise<CanonicalEntityReference[]> =>
+	(await searchCanonicalEntities(query, rootByKind[definition.kind])).filter(
+		(entity) =>
+			entity.tagIds.includes(integrationTagByDefinition[definition.id]!),
+	).map(
+		(entity) => ({
+			version: 1,
+			entityId: entity.id,
+			fallbackLabel: entity.label,
+			displayText: entity.label,
+			presentation: "mention",
+		}),
 	);
-	return data.me.googleEvents.map((event) => ({
-		provider: "google",
-		kind: "event",
-		id: boundedEntityId(
-			event.connectionId,
-			event.calendarId ?? "unknown",
-			event.id,
-		),
-		label: event.summary || "Untitled event",
-		meta: event.start ?? undefined,
-	}));
-};
-
-const entityKinds = new Set<ProviderEntityReference["kind"]>([
-	"person",
-	"event",
-	"issue",
-	"pullRequest",
-	"discussion",
-]);
-const githubActivityRows = async (
-	query: string,
-): Promise<ProviderEntityReference[]> => {
-	const data = await request<{
-		me: {
-			githubActivity: {
-				id: string;
-				connectionId: string;
-				resourceId: string;
-				kind: string;
-				title: string;
-				url: string;
-			}[];
-		};
-	}>(
-		`query EditorGitHub($query: String!) {
-      me { githubActivity(query: $query) { id connectionId resourceId kind title url } }
-    }`,
-		{ query },
-	);
-	return data.me.githubActivity.flatMap((item) => {
-		if (!entityKinds.has(item.kind as ProviderEntityReference["kind"])) {
-			return [];
-		}
-		const itemKind = item.kind as ProviderEntityReference["kind"];
-		return [{
-			provider: "github" as const,
-			kind: itemKind,
-			id: boundedEntityId(item.connectionId, item.resourceId),
-			label: item.title,
-			meta: item.url,
-		}];
-	});
-};
-const githubActivityCache = new Map<
-	string,
-	Promise<ProviderEntityReference[]>
->();
-const githubActivity = async (
-	query: string,
-	kind?: ProviderEntityReference["kind"],
-): Promise<ProviderEntityReference[]> => {
-	let pending = githubActivityCache.get(query);
-	if (!pending) {
-		pending = githubActivityRows(query);
-		githubActivityCache.set(query, pending);
-		pending.then(
-			() => {
-				if (githubActivityCache.get(query) === pending) {
-					githubActivityCache.delete(query);
-				}
-			},
-			() => {
-				if (githubActivityCache.get(query) === pending) {
-					githubActivityCache.delete(query);
-				}
-			},
-		);
-	}
-	try {
-		const rows = await pending;
-		return kind ? rows.filter((row) => row.kind === kind) : rows;
-	} catch (error) {
-		githubActivityCache.delete(query);
-		throw error;
-	}
-};
-
-const emptySearch = (): Promise<ProviderEntityReference[]> =>
-	Promise.resolve([]);
 
 const entities = (manifest: EditorIntegrationManifest): RegisteredEntity[] =>
 	manifest.entities.map((definition) => ({
 		...definition,
-		search: definition.id === "google.people"
-			? googlePeople
-			: definition.id === "google.events"
-			? googleEvents
-			: definition.provider === "github"
-			? (query) => githubActivity(query, definition.kind)
-			: emptySearch,
+		search: (query) => canonicalSearch(definition, query),
 	}));
 
 const commands = (manifest: EditorIntegrationManifest): RegisteredCommand[] =>
