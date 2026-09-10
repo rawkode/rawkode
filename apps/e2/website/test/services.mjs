@@ -93,6 +93,90 @@ class Google extends RpcTarget {
 				}],
 		};
 	}
+	upcoming(_id, from, to) {
+		if (!mirrored || !this.listConnections().length) {
+			return { events: [], partial: false };
+		}
+		const start = new Date((Date.parse(from) + Date.parse(to)) / 2);
+		const end = new Date(start.getTime() + 3_600_000);
+		return {
+			events: [{
+				id: "event-today",
+				calendarId: "primary",
+				calendarName: "Personal",
+				summary: "Design review",
+				start: { dateTime: start.toISOString() },
+				end: { dateTime: end.toISOString() },
+				attendees: [{
+					email: "ada@example.test",
+					displayName: "Ada Lovelace",
+					responseStatus: "accepted",
+				}],
+			}],
+			partial: false,
+		};
+	}
+}
+class GitHub extends RpcTarget {
+	constructor(owner) {
+		super();
+		this.owner = owner;
+	}
+	listConnections() {
+		return [{
+			id: "github-account",
+			appId: "github",
+			appName: "GitHub",
+			ownerId: this.owner,
+			providerId: "github",
+			accountLabel: "rawkode",
+			status: "connected",
+			services: ["integrations-github"],
+			scopes: ["read:user"],
+		}];
+	}
+	getProfile() {
+		return { login: "rawkode", id: 145816 };
+	}
+	listRepositories() {
+		return {
+			items: [{
+				id: 1,
+				name: "rawkode",
+				full_name: "rawkode/rawkode",
+				html_url: "https://github.com/rawkode/rawkode",
+				private: false,
+			}],
+			nextPage: null,
+		};
+	}
+	listIssues() {
+		return { items: [], nextPage: null };
+	}
+	listPullRequests() {
+		return { items: [], nextPage: null };
+	}
+	listActivity() {
+		return {
+			items: [{
+				id: "github-event-today",
+				type: "IssuesEvent",
+				created_at: new Date().toISOString(),
+				actor: { login: "rawkode" },
+				repo: { name: "rawkode/rawkode" },
+				payload: {
+					action: "opened",
+					issue: {
+						id: 42,
+						node_id: "I_fixture",
+						title: "Ship canonical entities",
+						html_url: "https://github.com/rawkode/rawkode/issues/42",
+					},
+				},
+			}],
+			nextPage: null,
+		};
+	}
 }
 export class OAuthAdmin extends WorkerEntrypoint {
 	admin(owner) {
@@ -102,6 +186,11 @@ export class OAuthAdmin extends WorkerEntrypoint {
 export class CalendarAdmin extends WorkerEntrypoint {
 	admin(owner) {
 		return new Google(owner);
+	}
+}
+export class GitHubAdmin extends WorkerEntrypoint {
+	admin(owner) {
+		return new GitHub(owner);
 	}
 }
 export default {

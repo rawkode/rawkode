@@ -236,6 +236,11 @@ const configs = [
 			scriptName: "website-fixture-services",
 			entrypoint: "CalendarAdmin",
 		}),
+		Service.local({
+			binding: "GITHUB_ADMIN",
+			scriptName: "website-fixture-services",
+			entrypoint: "GitHubAdmin",
+		}),
 	]),
 	config("website-fixture", [
 		{ name: "index.js", type: "ESModule", content: moduleWrapper },
@@ -486,7 +491,10 @@ const exercise = async (urls) => {
 	assert.equal((await defineField.json()).data.defineEntityField.key, "role");
 	const createEntity = await queryGraphql(
 		`mutation RuntimeCreateEntity($tagId: ID!) {
-			createEntity(input: { label: "Ada Lovelace", tagIds: [$tagId] }) {
+			createEntity(input: {
+				label: "Ada Lovelace"
+				tagIds: [$tagId, "integration:google:contact"]
+			}) {
 				id label tagIds
 			}
 		}`,
@@ -506,6 +514,19 @@ const exercise = async (urls) => {
 		label: "Ada Lovelace",
 		rootId: "base:person",
 	}]);
+	const createGitHubEntity = await queryGraphql(
+		`mutation RuntimeCreateGitHubEntity {
+			createEntity(input: {
+				label: "Ship canonical entities"
+				tagIds: ["integration:github:issue"]
+			}) { id label tagIds }
+		}`,
+	);
+	assert.equal(createGitHubEntity.status, 200);
+	assert.deepEqual(
+		(await createGitHubEntity.json()).data.createEntity.tagIds,
+		["integration:github:issue"],
+	);
 	assert.equal(
 		(await post("/admin/accounts/action", {
 			action: "sync",
@@ -529,6 +550,28 @@ const exercise = async (urls) => {
 		})).status,
 		303,
 	);
+	const today = await queryGraphql(
+		`query RuntimeToday($date: String!) {
+			me { today(date: $date) {
+				googleEvents { summary }
+				googlePeople { displayName }
+				githubActivity { title repository actor }
+			} }
+		}`,
+		{ date: new Date().toISOString().slice(0, 10) },
+	);
+	assert.equal(today.status, 200);
+	const todayResult = await today.json();
+	assert.equal(todayResult.errors, undefined);
+	assert.deepEqual(todayResult.data.me.today, {
+		googleEvents: [{ summary: "Design review" }],
+		googlePeople: [{ displayName: "Ada Lovelace" }],
+		githubActivity: [{
+			title: "Ship canonical entities",
+			repository: "rawkode/rawkode",
+			actor: "rawkode",
+		}],
+	});
 	assert.match(
 		await (await get("/admin/google?account=account")).text(),
 		/Ada Lovelace/,
@@ -571,7 +614,7 @@ const exercise = async (urls) => {
 		/No accounts connected/,
 	);
 	console.log(
-		"Website runtime passed: signed Access JWT, owner spoof rejection, CSRF, canonical Supertags/entities, connect cookie, enable sync, GraphQL contacts/events and proxy, delete ordering.",
+		"Website runtime passed: signed Access JWT, owner spoof rejection, CSRF, canonical Supertags/entities, Google and GitHub Today data, connect cookie, GraphQL proxy, and delete ordering.",
 	);
 	if (process.argv.includes("--serve")) {
 		await post("/admin/oauth/connect", { appId: "managed-google" });
