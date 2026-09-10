@@ -53,6 +53,9 @@ const urlFor = (next: readonly PaneDescriptor[]): string => {
 };
 const focusActivePane = () => {
 	void nextTick(() => {
+		if (window.matchMedia("(max-width: 700px)").matches) {
+			document.querySelector<HTMLElement>(".pane-stack")?.scrollTo({ left: 0 });
+		}
 		const active = panes.value[activeIndex.value];
 		const component = active ? paneComponents.get(paneKey(active)) : undefined;
 		if (component?.focusHeading) component.focusHeading();
