@@ -9,6 +9,7 @@ import type { deploymentAccess } from "./access.ts";
 export default (
 	oauth: Cloudflare.Worker,
 	google: Cloudflare.Worker,
+	github: Cloudflare.Worker,
 	api: Cloudflare.Worker,
 	documents: Cloudflare.Worker,
 	access: Effect.Success<typeof deploymentAccess>,
@@ -34,6 +35,8 @@ export default (
 					OAUTH: oauth,
 					OAUTH_ADMIN: Cloudflare.WorkerEntrypoint(oauth, "OAuthAdmin"),
 					GOOGLE_ADMIN: Cloudflare.WorkerEntrypoint(google, "CalendarAdmin"),
+					GITHUB: github,
+					GITHUB_ADMIN: Cloudflare.WorkerEntrypoint(github, "GitHubAdmin"),
 					API: api,
 					DOCUMENTS_ADMIN: Cloudflare.WorkerEntrypoint(
 						documents,

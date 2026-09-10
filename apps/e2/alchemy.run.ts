@@ -29,10 +29,13 @@ export default Alchemy.Stack(
 		Effect.bind("oauth", ({ store, credentials }) => oauth(store, credentials)),
 		Effect.bind(
 			"integrations",
-			({ oauth, credentials, entities }) =>
+			({ oauth, credentials, entities, store }) =>
 				Effect.all({
 					google: google(oauth, credentials.google, entities),
-					github: github(oauth, credentials.github),
+					github: github(oauth, credentials.github, {
+						entities,
+						store,
+					}),
 				}),
 		),
 		Effect.bind("access", () => deploymentAccess),
@@ -50,7 +53,14 @@ export default Alchemy.Stack(
 		Effect.bind(
 			"website",
 			({ oauth, integrations, api, access, documents }) =>
-				website(oauth, integrations.google, api, documents, access),
+				website(
+					oauth,
+					integrations.google,
+					integrations.github,
+					api,
+					documents,
+					access,
+				),
 		),
 		Effect.map((
 			{ oauth, integrations, website, api, documents, entities },

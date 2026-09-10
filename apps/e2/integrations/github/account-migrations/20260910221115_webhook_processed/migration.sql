@@ -1,0 +1,1 @@
+ALTER TABLE `github_webhook_deliveries` ADD `processed` integer DEFAULT false NOT NULL;

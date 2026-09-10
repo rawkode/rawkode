@@ -5,11 +5,16 @@ import type { Connection, OAuthApp } from '@e2/oauth-client/contracts';
 
 let connections: Connection[] = [];
 let apps: OAuthApp[] = [];
+let githubInstallations: { installationId: string; accountLogin: string; targetType: string }[] = [];
 let unavailable = false;
 try {
   using api = await bindings.OAUTH_ADMIN.admin(Astro.locals.admin.ownerId);
   [connections, apps] = await Promise.all([api.listConnections(), api.listApps()]);
 } catch { unavailable = true; }
+try {
+  using github = await bindings.GITHUB_ADMIN.admin(Astro.locals.admin.ownerId);
+  githubInstallations = await github.listAppInstallations();
+} catch { /* GitHub App configuration is optional. */ }
 const result = Astro.url.searchParams.get('result');
 const messages: Record<string, string> = {
   connected: 'Account connected. Enable sync below to bring in its contacts and events.',
@@ -19,6 +24,8 @@ const messages: Record<string, string> = {
   'sync-disabled': 'Google sync is disabled for this account. Existing data remains stored and will be included again when you re-enable sync.',
   'github-enabled': 'GitHub activity is enabled. Your Today page will include issues, pull requests, and discussions.',
   'github-disabled': 'GitHub activity is disabled for this account.',
+  'github-app-installed': 'GitHub App installed. Its selected repositories are being mirrored into canonical entities.',
+  'github-app-failed': 'The GitHub App installation could not be completed. Your existing connections are unchanged.',
   deleted: 'Account deleted. Its stored contacts, events, and connection credentials have been removed.',
   'action-failed': 'The action could not be completed. Your account is still available; please retry.',
 };
@@ -69,6 +76,11 @@ const messages: Record<string, string> = {
         </div>
         <details><summary>Granted permissions</summary><ul>{account.scopes.map((scope) => <li><code>{scope.replace('https://www.googleapis.com/auth/', '')}</code></li>)}</ul></details>
       </article>)}
+    </section>
+    <section aria-labelledby="github-app-heading">
+      <div class="section-heading"><div><h2 id="github-app-heading">GitHub repository mirror</h2><p class="muted">Install the read-only GitHub App to mirror selected repositories, issues, pull requests, discussions, people, and organizations as canonical entities.</p></div></div>
+      <div class="account-actions"><form method="post" action="/admin/github/install" data-pending="Opening GitHub…"><button type="submit" class="primary">Install GitHub App</button></form></div>
+      {githubInstallations.length > 0 && <ul>{githubInstallations.map((installation) => <li><strong>{installation.accountLogin}</strong> · {installation.targetType} · installation {installation.installationId}</li>)}</ul>}
     </section>
   </>}
 </AdminLayout>

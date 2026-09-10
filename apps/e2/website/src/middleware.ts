@@ -6,10 +6,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
 	const callback = /^\/oauth\/callback\/(google|github)$/.test(
 		context.url.pathname,
 	);
+	const webhook = context.url.pathname === "/github/webhook";
 	if (context.url.origin !== bindings.WEBSITE_ORIGIN) {
 		return new Response("Unknown website origin.", { status: 400 });
 	}
-	if (!callback) {
+	if (!callback && !webhook) {
 		const identity = await authenticate(context.request, bindings);
 		if (!identity) {
 			return new Response(
@@ -33,7 +34,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 	response.headers.set("X-Content-Type-Options", "nosniff");
 	response.headers.set(
 		"Referrer-Policy",
-		callback ? "no-referrer" : "same-origin",
+		callback || webhook ? "no-referrer" : "same-origin",
 	);
 	response.headers.set("X-Frame-Options", "DENY");
 	response.headers.set(
