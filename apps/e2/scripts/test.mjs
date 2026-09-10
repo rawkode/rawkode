@@ -11,6 +11,7 @@ const files = [
 	...testFiles("test"),
 	...testFiles("website/test"),
 	"api/src/schema.test.ts",
+	"integrations/google/graphql.test.ts",
 	"core/documents/src/storage.test.ts",
 	"core/entities/src/storage.test.ts",
 ];
