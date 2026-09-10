@@ -127,6 +127,98 @@ Deno.test("entities GraphQL uses authenticated owner for search and mutation pro
 	);
 });
 
+Deno.test("Supertag GraphQL exposes inherited field origins, impact, and revisioned admin mutations", async () => {
+	const calls: unknown[][] = [];
+	const tag = {
+		id: "00000000-0000-4000-8000-000000000010",
+		name: "Engineer",
+		kind: "user" as const,
+		parentId: "base:person",
+		rootId: "base:person" as const,
+		depth: 1,
+		revision: 2,
+		archived: false,
+	};
+	const details = {
+		tag,
+		fields: [{
+			id: "field:person:name",
+			tagId: "base:person",
+			key: "name",
+			label: "Name",
+			type: "text" as const,
+			cardinality: "single" as const,
+			required: true,
+			archived: false,
+			originTagId: "base:person",
+			inherited: true,
+		}],
+		directEntityCount: 3,
+		inheritedEntityCount: 1,
+		activeChildTagCount: 0,
+	};
+	const api = {
+		getTag: () => Promise.resolve(details),
+		getTagArchiveImpact: () =>
+			Promise.resolve({
+				allowed: false,
+				entityCount: 4,
+				descendantTagCount: 0,
+				valueCount: 0,
+			}),
+		renameUserTag: (...args: unknown[]) => {
+			calls.push(args);
+			return Promise.resolve({
+				...details,
+				tag: { ...tag, name: "Staff Engineer", revision: 3 },
+			});
+		},
+		[Symbol.dispose]: () => {},
+	} as unknown as EntitiesApi & Disposable;
+	const env = {
+		ENTITIES_ADMIN: { admin: () => Promise.resolve(api) },
+	} as unknown as ApiEnv;
+	const { schema, fieldResolver } = composeSchema([entitiesGraphql]);
+	const contextValue = createContext(env, {
+		ownerId: "access:alice",
+		email: "alice@example.com",
+	});
+	const read = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`query { me { supertag(id: "tag") { tag { name revision } fields { key originTagId inherited } directEntityCount } supertagArchiveImpact(id: "tag") { allowed entityCount } } }`,
+		),
+		contextValue,
+	});
+	assert.equal(read.errors, undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(read.data)), {
+		me: {
+			supertag: {
+				tag: { name: "Engineer", revision: 2 },
+				fields: [{ key: "name", originTagId: "base:person", inherited: true }],
+				directEntityCount: 3,
+			},
+			supertagArchiveImpact: { allowed: false, entityCount: 4 },
+		},
+	});
+	const renamed = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`mutation { renameUserTag(input: { id: "tag", name: "Staff Engineer", expectedRevision: 2 }) { tag { name revision } } }`,
+		),
+		contextValue,
+	});
+	assert.equal(renamed.errors, undefined);
+	assert.deepEqual(calls[0]?.slice(0, 3), ["tag", "Staff Engineer", 2]);
+	assert.deepEqual(calls[0]?.[3], {
+		actor: "access:alice",
+		cause: "graphql:rename-user-tag",
+		rationale: "Authenticated user renamed a Supertag.",
+	});
+});
+
 Deno.test("Today rejects impossible calendar dates without throwing", () => {
 	const resolveToday = todayGraphql.fields["User.today"] as (
 		source: unknown,

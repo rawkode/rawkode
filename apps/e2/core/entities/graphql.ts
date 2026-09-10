@@ -162,19 +162,27 @@ export const entitiesGraphql: IntegrationSchema = {
 	typeDefs: `
     extend type User {
       supertags: [Supertag!]!
+      supertag(id: ID!): SupertagDetails
+      supertagArchiveImpact(id: ID!): ArchiveImpact!
+      entityFieldArchiveImpact(id: ID!): ArchiveImpact!
       entities(query: String!, rootId: ID, limit: Int = 20): [EntitySummary!]!
       entity(id: ID!): Entity
     }
     type Supertag { id: ID! name: String! kind: String! parentId: ID rootId: ID! depth: Int! revision: Int! archived: Boolean! }
+    type SupertagDetails { tag: Supertag! fields: [EntityFieldDefinition!]! directEntityCount: Int! inheritedEntityCount: Int! activeChildTagCount: Int! }
+    type ArchiveImpact { allowed: Boolean! entityCount: Int! descendantTagCount: Int! valueCount: Int! }
     type EntitySummary { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! rootId: ID! }
     type Entity { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! values: [EntityValue!]! aliases: [String!]! archived: Boolean! revision: Int! redirectedTo: ID }
     type EntityValue { fieldId: ID! text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
-    type EntityFieldDefinition { id: ID! tagId: ID! key: String! label: String! type: String! cardinality: String! required: Boolean! options: [String!] archived: Boolean! }
+    type EntityFieldDefinition { id: ID! tagId: ID! key: String! label: String! type: String! cardinality: String! required: Boolean! options: [String!] defaultValue: EntityValue archived: Boolean! originTagId: ID! inherited: Boolean! }
     enum EntityFieldType { TEXT NUMBER BOOLEAN DATE DATETIME URL EMAIL ENUM ENTITY_REFERENCE }
     enum EntityCardinality { SINGLE MULTIPLE }
     input EntityRawValueInput { text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
     input EntityValueInput { fieldId: ID! text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
     input CreateUserTagInput { name: String! parentId: ID! }
+    input RenameUserTagInput { id: ID! name: String! expectedRevision: Int! }
+    input ArchiveUserTagInput { id: ID! expectedRevision: Int! }
+    input ArchiveEntityFieldInput { id: ID! expectedTagRevision: Int! expectedValueCount: Int! }
     input DefineEntityFieldInput { tagId: ID! key: String! label: String! type: EntityFieldType! cardinality: EntityCardinality! required: Boolean = false options: [String!] defaultValue: EntityRawValueInput }
     input CreateEntityInput { label: String! tagIds: [ID!]! aliases: [String!] values: [EntityValueInput!] }
     input SetEntityValuesInput { id: ID! values: [EntityValueInput!]! clearFieldIds: [ID!]! }
@@ -183,7 +191,10 @@ export const entitiesGraphql: IntegrationSchema = {
     input MergeEntitiesInput { fromId: ID! intoId: ID! }
     type Mutation {
       createUserTag(input: CreateUserTagInput!): Supertag!
+      renameUserTag(input: RenameUserTagInput!): SupertagDetails!
+      archiveUserTag(input: ArchiveUserTagInput!): SupertagDetails!
       defineEntityField(input: DefineEntityFieldInput!): EntityFieldDefinition!
+      archiveEntityField(input: ArchiveEntityFieldInput!): SupertagDetails!
       createEntity(input: CreateEntityInput!): Entity!
       setEntityValues(input: SetEntityValuesInput!): Entity!
       setEntityPreferredSource(input: SetEntityPreferredSourceInput!): Entity!
@@ -193,6 +204,30 @@ export const entitiesGraphql: IntegrationSchema = {
 	fields: {
 		"User.supertags": (_source, _args, context) =>
 			read(context, (api) => api.listTags()),
+		"User.supertag": (_source, args, context) =>
+			read(context, (api) => api.getTag(boundedString(args.id, "tag ID", 200))),
+		"User.supertagArchiveImpact": (_source, args, context) =>
+			read(
+				context,
+				(api) => api.getTagArchiveImpact(boundedString(args.id, "tag ID", 200)),
+			),
+		"User.entityFieldArchiveImpact": (_source, args, context) =>
+			read(
+				context,
+				(api) =>
+					api.getFieldArchiveImpact(boundedString(args.id, "field ID", 200)),
+			),
+		"EntityFieldDefinition.defaultValue": (source) => {
+			const field = source as { id: string; defaultValue?: FieldValue };
+			return field.defaultValue === undefined
+				? null
+				: outputValue([field.id, field.defaultValue]);
+		},
+		"EntityFieldDefinition.originTagId": (source) =>
+			(source as { originTagId?: string; tagId: string }).originTagId ??
+				(source as { tagId: string }).tagId,
+		"EntityFieldDefinition.inherited": (source) =>
+			(source as { inherited?: boolean }).inherited ?? false,
 		"User.entities": (_source, args, context) =>
 			read(context, (api) =>
 				api.searchEntities(
@@ -226,6 +261,33 @@ export const entitiesGraphql: IntegrationSchema = {
 					),
 				));
 		},
+		"Mutation.renameUserTag": (_source, args, context) => {
+			const value = input(args);
+			return read(context, (api) =>
+				api.renameUserTag(
+					boundedString(value.id, "tag ID", 200),
+					boundedString(value.name, "tag name", 100),
+					Number(value.expectedRevision),
+					provenance(
+						context,
+						"graphql:rename-user-tag",
+						"Authenticated user renamed a Supertag.",
+					),
+				));
+		},
+		"Mutation.archiveUserTag": (_source, args, context) => {
+			const value = input(args);
+			return read(context, (api) =>
+				api.archiveUserTag(
+					boundedString(value.id, "tag ID", 200),
+					Number(value.expectedRevision),
+					provenance(
+						context,
+						"graphql:archive-user-tag",
+						"Authenticated user archived an unused Supertag.",
+					),
+				));
+		},
 		"Mutation.defineEntityField": (_source, args, context) => {
 			const value = input(args),
 				type = fieldTypes[String(value.type)],
@@ -255,6 +317,20 @@ export const entitiesGraphql: IntegrationSchema = {
 						),
 					),
 			);
+		},
+		"Mutation.archiveEntityField": (_source, args, context) => {
+			const value = input(args);
+			return read(context, (api) =>
+				api.archiveField(
+					boundedString(value.id, "field ID", 200),
+					Number(value.expectedTagRevision),
+					Number(value.expectedValueCount),
+					provenance(
+						context,
+						"graphql:archive-entity-field",
+						"Authenticated user archived a Supertag field after reviewing its impact.",
+					),
+				));
 		},
 		"Mutation.createEntity": async (_source, args, context) => {
 			const value = input(args);

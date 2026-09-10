@@ -293,3 +293,87 @@ Deno.test("merges retain redirects and every mutation has provenance", () => {
 		database.close();
 	}
 });
+
+Deno.test("Supertag management reports inherited origins and archives with reviewed impact", () => {
+	const { database, entities } = fixture();
+	try {
+		const role = entities.createUserTag({
+			name: "Professional",
+			parentId: BASE_TAGS.person,
+		}, provenance);
+		const engineer = entities.createUserTag({
+			name: "Engineer",
+			parentId: role.id,
+		}, provenance);
+		const specialty = entities.defineField({
+			tagId: role.id,
+			key: "specialty",
+			label: "Specialty",
+			type: "text",
+			cardinality: "single",
+		}, provenance);
+		entities.createEntity({
+			label: "Ada",
+			tagIds: [engineer.id],
+			values: { [specialty.id]: "Computing" },
+		}, provenance);
+		const details = entities.getTag(engineer.id)!;
+		assert.equal(details.directEntityCount, 1);
+		assert.equal(
+			details.fields.find((field) => field.id === specialty.id)?.originTagId,
+			role.id,
+		);
+		assert.equal(
+			details.fields.find((field) => field.id === specialty.id)?.inherited,
+			true,
+		);
+		assert.deepEqual(entities.getTagArchiveImpact(role.id), {
+			allowed: false,
+			entityCount: 1,
+			descendantTagCount: 1,
+			valueCount: 1,
+		});
+		assert.deepEqual(entities.getFieldArchiveImpact(specialty.id), {
+			allowed: true,
+			entityCount: 1,
+			descendantTagCount: 1,
+			valueCount: 1,
+		});
+		assert.throws(() =>
+			entities.renameUserTag(BASE_TAGS.person, "People", 1, provenance)
+		);
+		assert.throws(() =>
+			entities.archiveUserTag(INTEGRATION_TAGS.googleContact, 1, provenance)
+		);
+		const renamed = entities.renameUserTag(
+			role.id,
+			"Technologist",
+			2,
+			provenance,
+		);
+		assert.equal(renamed.tag.name, "Technologist");
+		assert.equal(renamed.tag.revision, 3);
+		assert.throws(() => entities.archiveField(specialty.id, 3, 0, provenance));
+		const archivedField = entities.archiveField(specialty.id, 3, 1, provenance);
+		assert.equal(archivedField.tag.revision, 4);
+		assert.equal(
+			archivedField.fields.find((field) => field.id === specialty.id)?.archived,
+			true,
+		);
+		const unused = entities.createUserTag({
+			name: "Unused",
+			parentId: BASE_TAGS.topic,
+		}, provenance);
+		const archivedTag = entities.archiveUserTag(unused.id, 1, provenance);
+		assert.equal(archivedTag.tag.archived, true);
+		assert.ok(
+			Number(
+				database.prepare(
+					"SELECT count(*) AS count FROM audit_events WHERE subject_type IN ('supertag','field-definition')",
+				).get()?.count,
+			) >= 8,
+		);
+	} finally {
+		database.close();
+	}
+});

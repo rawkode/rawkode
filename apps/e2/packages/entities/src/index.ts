@@ -77,6 +77,26 @@ export interface FieldDefinition {
 	archived: boolean;
 }
 
+export interface EffectiveFieldDefinition extends FieldDefinition {
+	originTagId: string;
+	inherited: boolean;
+}
+
+export interface SupertagDetails {
+	tag: Supertag;
+	fields: readonly EffectiveFieldDefinition[];
+	directEntityCount: number;
+	inheritedEntityCount: number;
+	activeChildTagCount: number;
+}
+
+export interface ArchiveImpact {
+	allowed: boolean;
+	entityCount: number;
+	descendantTagCount: number;
+	valueCount: number;
+}
+
 export interface EntitySource {
 	provider: string;
 	connectionId: string;
@@ -153,6 +173,9 @@ export interface ProjectionBatch {
 
 export interface EntitiesApi {
 	listTags(): Promise<Supertag[]>;
+	getTag(id: string): Promise<SupertagDetails | null>;
+	getTagArchiveImpact(id: string): Promise<ArchiveImpact>;
+	getFieldArchiveImpact(id: string): Promise<ArchiveImpact>;
 	searchEntities(
 		query: string,
 		options?: EntitySearchOptions,
@@ -161,10 +184,27 @@ export interface EntitiesApi {
 		input: CreateUserTagInput,
 		provenance: MutationProvenance,
 	): Promise<Supertag>;
+	renameUserTag(
+		id: string,
+		name: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	): Promise<SupertagDetails>;
+	archiveUserTag(
+		id: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	): Promise<SupertagDetails>;
 	defineField(
 		input: DefineFieldInput,
 		provenance: MutationProvenance,
 	): Promise<FieldDefinition>;
+	archiveField(
+		id: string,
+		expectedTagRevision: number,
+		expectedValueCount: number,
+		provenance: MutationProvenance,
+	): Promise<SupertagDetails>;
 	createEntity(
 		input: CreateEntityInput,
 		provenance: MutationProvenance,

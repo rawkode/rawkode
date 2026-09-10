@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/durable-sqlite";
 import {
+	type ArchiveImpact,
 	BASE_TAGS,
 	type BaseTagId,
 	type CanonicalEntity,
@@ -8,6 +9,7 @@ import {
 	type CreateEntityInput,
 	type CreateUserTagInput,
 	type DefineFieldInput,
+	type EffectiveFieldDefinition,
 	type EntitySearchOptions,
 	type EntitySource,
 	type EntitySummary,
@@ -19,6 +21,7 @@ import {
 	type MutationProvenance,
 	type ProjectionBatch,
 	type Supertag,
+	type SupertagDetails,
 } from "@e2/entities";
 import {
 	auditEvents,
@@ -632,6 +635,140 @@ export const createEntityStore = (
 		return fields;
 	};
 
+	const descendantIds = (tagId: string, includeSelf = false): string[] => {
+		const all = db.select().from(supertags).all();
+		const descendants = new Set(includeSelf ? [tagId] : []);
+		let frontier = new Set([tagId]);
+		for (let depth = 0; depth < MAX_TAG_DEPTH && frontier.size; depth++) {
+			const next = new Set<string>();
+			for (const tag of all) {
+				if (
+					tag.parentId && frontier.has(tag.parentId) &&
+					!descendants.has(tag.id)
+				) {
+					descendants.add(tag.id);
+					next.add(tag.id);
+				}
+			}
+			frontier = next;
+		}
+		return [...descendants];
+	};
+
+	const entityIdsForTags = (tagIds: readonly string[]): Set<string> =>
+		tagIds.length
+			? new Set(
+				db.select({ entityId: entityTags.entityId }).from(entityTags)
+					.innerJoin(entities, eq(entityTags.entityId, entities.id))
+					.where(and(
+						inArray(entityTags.tagId, [...tagIds]),
+						eq(entities.archived, false),
+					)).all()
+					.map(({ entityId }) => entityId),
+			)
+			: new Set();
+
+	const fieldUsage = (fieldId: string): number => {
+		const users = new Set(
+			db.select({ entityId: entityUserValues.entityId }).from(entityUserValues)
+				.where(eq(entityUserValues.fieldId, fieldId)).all()
+				.map(({ entityId }) => entityId),
+		);
+		for (
+			const observation of db.select({
+				entityId: sourceObservations.entityId,
+				values: sourceObservations.values,
+			}).from(sourceObservations).where(eq(sourceObservations.active, true))
+				.all()
+		) {
+			if (fieldId in parseJSON<Record<string, unknown>>(observation.values)) {
+				users.add(observation.entityId);
+			}
+		}
+		return users.size;
+	};
+
+	const getTag = (tagId: string): SupertagDetails | null => {
+		if (typeof tagId !== "string" || !tagId || tagId.length > 200) {
+			throw new Error("Invalid tag ID");
+		}
+		const tag = db.select().from(supertags).where(eq(supertags.id, tagId))
+			.get();
+		if (!tag) return null;
+		const allTags = db.select().from(supertags).all(),
+			byId = new Map(allTags.map((candidate) => [candidate.id, candidate]));
+		const ancestry: string[] = [];
+		let current: typeof tag | undefined = tag;
+		for (let depth = 0; current && depth <= MAX_TAG_DEPTH; depth++) {
+			ancestry.push(current.id);
+			current = current.parentId ? byId.get(current.parentId) : undefined;
+		}
+		const fields: EffectiveFieldDefinition[] = db.select().from(
+			fieldDefinitions,
+		)
+			.where(inArray(fieldDefinitions.tagId, ancestry)).all()
+			.map((row) => ({
+				...fieldView(row),
+				originTagId: row.tagId,
+				inherited: row.tagId !== tag.id,
+			}));
+		const descendants = descendantIds(tag.id),
+			direct = entityIdsForTags([tag.id]),
+			inherited = entityIdsForTags(descendants);
+		for (const entityId of direct) inherited.delete(entityId);
+		return {
+			tag: tagView(tag),
+			fields,
+			directEntityCount: direct.size,
+			inheritedEntityCount: inherited.size,
+			activeChildTagCount:
+				allTags.filter((candidate) =>
+					candidate.parentId === tag.id && !candidate.archived
+				).length,
+		};
+	};
+
+	const getTagArchiveImpact = (tagId: string): ArchiveImpact => {
+		const details = getTag(tagId);
+		if (!details) throw new Error("Tag not found");
+		const descendants = descendantIds(tagId).filter((id) =>
+			!db.select().from(supertags).where(eq(supertags.id, id)).get()?.archived
+		);
+		const entityIds = entityIdsForTags([tagId, ...descendants]);
+		const ownFields = db.select({ id: fieldDefinitions.id }).from(
+			fieldDefinitions,
+		)
+			.where(eq(fieldDefinitions.tagId, tagId)).all();
+		return {
+			allowed: details.tag.kind === "user" && !details.tag.archived &&
+				descendants.length === 0 && entityIds.size === 0,
+			entityCount: entityIds.size,
+			descendantTagCount: descendants.length,
+			valueCount: ownFields.reduce(
+				(count, field) => count + fieldUsage(field.id),
+				0,
+			),
+		};
+	};
+
+	const getFieldArchiveImpact = (fieldId: string): ArchiveImpact => {
+		if (typeof fieldId !== "string" || !fieldId || fieldId.length > 200) {
+			throw new Error("Invalid field ID");
+		}
+		const field = db.select().from(fieldDefinitions).where(
+			eq(fieldDefinitions.id, fieldId),
+		).get();
+		if (!field) throw new Error("Field not found");
+		const tag = db.select().from(supertags).where(eq(supertags.id, field.tagId))
+			.get()!;
+		return {
+			allowed: tag.kind === "user" && !tag.archived && !field.archived,
+			entityCount: entityIdsForTags(descendantIds(tag.id, true)).size,
+			descendantTagCount: descendantIds(tag.id).length,
+			valueCount: fieldUsage(field.id),
+		};
+	};
+
 	const checkedValues = (
 		fields: readonly FieldDefinition[],
 		values: Readonly<Record<string, unknown>>,
@@ -842,6 +979,9 @@ export const createEntityStore = (
 	return {
 		listTags: () =>
 			db.select().from(supertags).orderBy(asc(supertags.id)).all().map(tagView),
+		getTag,
+		getTagArchiveImpact,
+		getFieldArchiveImpact,
 		searchEntities: (
 			query: string,
 			options: EntitySearchOptions = {},
@@ -938,6 +1078,54 @@ export const createEntityStore = (
 				return tagView(
 					tx.select().from(supertags).where(eq(supertags.id, tagId)).get()!,
 				);
+			}),
+		renameUserTag: (
+			tagId: string,
+			name: string,
+			expectedRevision: number,
+			provenance: MutationProvenance,
+		): SupertagDetails =>
+			db.transaction((tx) => {
+				const tag = tx.select().from(supertags).where(eq(supertags.id, tagId))
+					.get();
+				if (!tag || tag.kind !== "user" || tag.archived) {
+					throw new Error("Only active user tags may be renamed");
+				}
+				if (tag.revision !== expectedRevision) {
+					throw new Error("Tag revision conflict");
+				}
+				const revision = tag.revision + 1;
+				tx.update(supertags).set({
+					name: requiredText(name, "tag name", 100),
+					revision,
+					updatedAt: now(),
+				}).where(eq(supertags.id, tag.id)).run();
+				audit(tx, "supertag", tag.id, revision, provenance);
+				return getTag(tag.id)!;
+			}),
+		archiveUserTag: (
+			tagId: string,
+			expectedRevision: number,
+			provenance: MutationProvenance,
+		): SupertagDetails =>
+			db.transaction((tx) => {
+				const tag = tx.select().from(supertags).where(eq(supertags.id, tagId))
+					.get();
+				if (!tag || tag.kind !== "user" || tag.archived) {
+					throw new Error("Only active user tags may be archived");
+				}
+				if (tag.revision !== expectedRevision) {
+					throw new Error("Tag revision conflict");
+				}
+				const impact = getTagArchiveImpact(tag.id);
+				if (!impact.allowed) {
+					throw new Error("Tag is still inherited or applied to entities");
+				}
+				const revision = tag.revision + 1;
+				tx.update(supertags).set({ archived: true, revision, updatedAt: now() })
+					.where(eq(supertags.id, tag.id)).run();
+				audit(tx, "supertag", tag.id, revision, provenance);
+				return getTag(tag.id)!;
 			}),
 		defineField: (
 			input: DefineFieldInput,
@@ -1062,6 +1250,41 @@ export const createEntityStore = (
 				}).where(eq(supertags.id, tag.id)).run();
 				audit(tx, "supertag", tag.id, tag.revision + 1, provenance);
 				return field;
+			}),
+		archiveField: (
+			fieldId: string,
+			expectedTagRevision: number,
+			expectedValueCount: number,
+			provenance: MutationProvenance,
+		): SupertagDetails =>
+			db.transaction((tx) => {
+				const field = tx.select().from(fieldDefinitions).where(
+					eq(fieldDefinitions.id, fieldId),
+				).get();
+				if (!field) throw new Error("Field not found");
+				const tag = tx.select().from(supertags).where(
+					eq(supertags.id, field.tagId),
+				).get()!;
+				const impact = getFieldArchiveImpact(field.id);
+				if (!impact.allowed) {
+					throw new Error("Only active user fields may be archived");
+				}
+				if (tag.revision !== expectedTagRevision) {
+					throw new Error("Tag revision conflict");
+				}
+				if (impact.valueCount !== expectedValueCount) {
+					throw new Error("Field impact changed");
+				}
+				const revision = tag.revision + 1;
+				tx.update(fieldDefinitions).set({ archived: true }).where(
+					eq(fieldDefinitions.id, field.id),
+				).run();
+				tx.update(supertags).set({ revision, updatedAt: now() }).where(
+					eq(supertags.id, tag.id),
+				).run();
+				audit(tx, "field-definition", field.id, revision, provenance);
+				audit(tx, "supertag", tag.id, revision, provenance);
+				return getTag(tag.id)!;
 			}),
 		createEntity: (
 			input: CreateEntityInput,

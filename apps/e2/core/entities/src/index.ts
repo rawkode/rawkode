@@ -33,14 +33,51 @@ export class Entities extends DurableObject<EntitiesEnv> {
 	listTags() {
 		return this.#store.listTags();
 	}
+	getTag(id: string) {
+		return this.#store.getTag(id);
+	}
+	getTagArchiveImpact(id: string) {
+		return this.#store.getTagArchiveImpact(id);
+	}
+	getFieldArchiveImpact(id: string) {
+		return this.#store.getFieldArchiveImpact(id);
+	}
 	searchEntities(query: string, options?: EntitySearchOptions) {
 		return this.#store.searchEntities(query, options);
 	}
 	createUserTag(input: CreateUserTagInput, provenance: MutationProvenance) {
 		return this.#store.createUserTag(input, provenance);
 	}
+	renameUserTag(
+		id: string,
+		name: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#store.renameUserTag(id, name, expectedRevision, provenance);
+	}
+	archiveUserTag(
+		id: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#store.archiveUserTag(id, expectedRevision, provenance);
+	}
 	defineField(input: DefineFieldInput, provenance: MutationProvenance) {
 		return this.#store.defineField(input, provenance);
+	}
+	archiveField(
+		id: string,
+		expectedTagRevision: number,
+		expectedValueCount: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#store.archiveField(
+			id,
+			expectedTagRevision,
+			expectedValueCount,
+			provenance,
+		);
 	}
 	createEntity(input: CreateEntityInput, provenance: MutationProvenance) {
 		return this.#store.createEntity(input, provenance);
@@ -85,14 +122,51 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 	listTags() {
 		return this.#entities.listTags();
 	}
+	getTag(id: string) {
+		return this.#entities.getTag(id);
+	}
+	getTagArchiveImpact(id: string) {
+		return this.#entities.getTagArchiveImpact(id);
+	}
+	getFieldArchiveImpact(id: string) {
+		return this.#entities.getFieldArchiveImpact(id);
+	}
 	searchEntities(query: string, options?: EntitySearchOptions) {
 		return this.#entities.searchEntities(query, options);
 	}
 	createUserTag(input: CreateUserTagInput, provenance: MutationProvenance) {
 		return this.#entities.createUserTag(input, provenance);
 	}
+	renameUserTag(
+		id: string,
+		name: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#entities.renameUserTag(id, name, expectedRevision, provenance);
+	}
+	archiveUserTag(
+		id: string,
+		expectedRevision: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#entities.archiveUserTag(id, expectedRevision, provenance);
+	}
 	defineField(input: DefineFieldInput, provenance: MutationProvenance) {
 		return this.#entities.defineField(input, provenance);
+	}
+	archiveField(
+		id: string,
+		expectedTagRevision: number,
+		expectedValueCount: number,
+		provenance: MutationProvenance,
+	) {
+		return this.#entities.archiveField(
+			id,
+			expectedTagRevision,
+			expectedValueCount,
+			provenance,
+		);
 	}
 	createEntity(input: CreateEntityInput, provenance: MutationProvenance) {
 		return this.#entities.createEntity(input, provenance);
