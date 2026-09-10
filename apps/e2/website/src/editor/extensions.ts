@@ -155,14 +155,22 @@ export const EntityNode = Node.create({
 			},
 		},
 	],
-	renderHTML: ({ node }) => [
-		"span",
-		{
-			"data-fieldnotes-entity": JSON.stringify(node.attrs.entity),
-			class: "fieldnotes-entity",
-		},
-		`@${node.attrs.entity?.label ?? "Entity"}`,
-	],
+	renderHTML: ({ node }) => {
+		const entity = node.attrs.entity;
+		const canonical = entity?.version === 1;
+		const label = canonical
+			? entity.displayText ?? entity.fallbackLabel
+			: entity?.label;
+		const prefix = canonical && entity.presentation === "link" ? "" : "@";
+		return [
+			"span",
+			{
+				"data-fieldnotes-entity": JSON.stringify(entity),
+				class: "fieldnotes-entity",
+			},
+			`${prefix}${label ?? "Entity"}`,
+		];
+	},
 });
 
 const containsComponent = (node: PMNode): boolean => {

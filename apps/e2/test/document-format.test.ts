@@ -268,6 +268,35 @@ test("entity mentions keep provider identity and reject unsupported payloads", (
 	) assert.throws(() => parseEntity(invalid), NoteFormatError);
 });
 
+test("canonical entity references roundtrip exact display intent", () => {
+	const entity = {
+		version: 1 as const,
+		entityId: "11111111-1111-4111-8111-111111111111",
+		fallbackLabel: "Ada Lovelace",
+		displayText: "Ada",
+		presentation: "mention" as const,
+	};
+	const value = doc(paragraph([{ type: "entity", attrs: { entity } }]));
+	assert.deepEqual(parseEntity(entity), entity);
+	assert.deepEqual(parseNote(value), value);
+	const saved = parseNote(schema.nodeFromJSON(value).toJSON());
+	assert.deepEqual(saved.content[0].content?.[0], {
+		type: "entity",
+		attrs: { entity },
+	});
+	assert.deepEqual(parseNote(schema.nodeFromJSON(saved).toJSON()), saved);
+	for (
+		const invalid of [
+			{ ...entity, version: 2 },
+			{ ...entity, entityId: "not-a-uuid" },
+			{ ...entity, fallbackLabel: "" },
+			{ ...entity, displayText: "" },
+			{ ...entity, presentation: "embed" },
+			{ ...entity, provider: "google" },
+		]
+	) assert.throws(() => parseEntity(invalid), NoteFormatError);
+});
+
 test("all supported CSS colors and nullable visual defaults are accepted unchanged", () => {
 	for (
 		const color of [

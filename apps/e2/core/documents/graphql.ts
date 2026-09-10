@@ -3,9 +3,10 @@ import type { ApiContext, IntegrationSchema } from "../../api/src/context.ts";
 export const documentsGraphql: IntegrationSchema = {
 	typeDefs: `
   scalar NoteDocument
-  extend type User { document(id: ID!): Document documentFeed(prefix: String!, limit: Int = 50): [DocumentSummary!]! }
+  extend type User { document(id: ID!): Document documentFeed(prefix: String!, limit: Int = 50): [DocumentSummary!]! entityBacklinks(entityId: ID!, limit: Int = 50): [DocumentBacklink!]! }
   type Document { id: ID! note: NoteDocument! revision: Int! createdAt: String! updatedAt: String! }
   type DocumentSummary { id: ID! revision: Int! createdAt: String! updatedAt: String! }
+  type DocumentBacklink { id: ID! entityId: ID! revision: Int! createdAt: String! updatedAt: String! }
  `,
 	fields: {
 		"User.document": async (_source, args, context: ApiContext) => {
@@ -35,6 +36,19 @@ export const documentsGraphql: IntegrationSchema = {
 				context.identity.ownerId,
 			);
 			return await documents.list(prefix, Number(args.limit ?? 50));
+		},
+		"User.entityBacklinks": async (_source, args, context: ApiContext) => {
+			context.consume();
+			if (!context.env.DOCUMENTS_ADMIN) {
+				throw new Error("Documents are not configured.");
+			}
+			using documents = await context.env.DOCUMENTS_ADMIN.admin(
+				context.identity.ownerId,
+			);
+			return await documents.backlinks(
+				String(args.entityId),
+				Number(args.limit ?? 50),
+			);
 		},
 	},
 };

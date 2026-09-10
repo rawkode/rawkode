@@ -22,6 +22,22 @@ const note = (text: string) => ({
 	type: "doc",
 	content: [{ type: "paragraph", content: [{ type: "text", text }] }],
 });
+const entity = (entityId: string, displayText = "Entity") => ({
+	type: "entity",
+	attrs: {
+		entity: {
+			version: 1,
+			entityId,
+			fallbackLabel: displayText,
+			displayText,
+			presentation: "link",
+		},
+	},
+});
+const noteWithEntities = (...entities: unknown[]) => ({
+	type: "doc",
+	content: [{ type: "paragraph", content: entities }],
+});
 
 Deno.test("large shared notes roundtrip Unicode through bounded chunks and replace atomically", () => {
 	const { database, documents } = fixture();
@@ -118,6 +134,86 @@ Deno.test("event feeds list instance notes by owner and prefix", () => {
 			documents.list("event:connection_x:series:").map(({ id }) => id),
 			["event:connection_x:series:instance-3"],
 		);
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("canonical entity backlinks are deduplicated and replaced with the document", () => {
+	const { database, documents } = fixture();
+	const first = "11111111-1111-4111-8111-111111111111";
+	const second = "22222222-2222-4222-8222-222222222222";
+	try {
+		assert.equal(
+			documents.save(
+				"today",
+				noteWithEntities(entity(first), entity(first, "Same entity")),
+				null,
+			).ok,
+			true,
+		);
+		assert.deepEqual(documents.backlinks(first), [{
+			id: "today",
+			entityId: first,
+			revision: 1,
+			createdAt: documents.get("today")!.createdAt,
+			updatedAt: documents.get("today")!.updatedAt,
+		}]);
+		assert.equal(
+			documents.save("today", noteWithEntities(entity(second)), 1).ok,
+			true,
+		);
+		assert.deepEqual(documents.backlinks(first), []);
+		assert.equal(documents.backlinks(second)[0]?.revision, 2);
+		assert.throws(() => documents.backlinks("not-a-uuid"));
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("legacy provider references remain portable but are not canonical backlinks", () => {
+	const { database, documents } = fixture();
+	try {
+		const legacy = {
+			type: "entity",
+			attrs: {
+				entity: {
+					provider: "google",
+					kind: "person",
+					id: "connection:people/123",
+					label: "Alice Example",
+				},
+			},
+		};
+		assert.equal(
+			documents.save("legacy", noteWithEntities(legacy), null).ok,
+			true,
+		);
+		assert.equal(
+			Number(
+				database.prepare("SELECT count(*) AS count FROM document_entity_refs")
+					.get()?.count,
+			),
+			0,
+		);
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("failed document writes preserve the previous backlink set", () => {
+	const { database, documents } = fixture();
+	const entityId = "33333333-3333-4333-8333-333333333333";
+	try {
+		documents.save("today", noteWithEntities(entity(entityId)), null);
+		database.exec(`
+			CREATE TRIGGER fail_backlink_delete
+			BEFORE DELETE ON document_entity_refs
+			BEGIN SELECT RAISE(ABORT, 'Backlink failure'); END
+		`);
+		assert.throws(() => documents.save("today", note("Lost"), 1));
+		assert.equal(documents.get("today")?.revision, 1);
+		assert.equal(documents.backlinks(entityId).length, 1);
 	} finally {
 		database.close();
 	}

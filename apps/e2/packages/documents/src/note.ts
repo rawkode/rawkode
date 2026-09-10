@@ -255,7 +255,7 @@ export const textNodeSchema = z.strictObject({
 	text: validText(NOTE_LIMITS.text).min(1),
 	marks: marksSchema.optional(),
 });
-export const entityReferenceSchema = z.strictObject({
+export const providerEntityReferenceSchema = z.strictObject({
 	provider: z.enum(["google", "github"]),
 	kind: z.enum(["person", "event", "issue", "pullRequest", "discussion"]),
 	// deno-lint-ignore no-control-regex
@@ -264,6 +264,17 @@ export const entityReferenceSchema = z.strictObject({
 	avatarURL: httpURLSchema.optional(),
 	meta: validText(4_096).optional(),
 });
+export const canonicalEntityReferenceSchema = z.strictObject({
+	version: z.literal(1),
+	entityId: uuid,
+	fallbackLabel: validText(1_000).min(1),
+	displayText: validText(1_000).min(1),
+	presentation: z.enum(["link", "mention"]),
+});
+export const entityReferenceSchema = z.union([
+	providerEntityReferenceSchema,
+	canonicalEntityReferenceSchema,
+]);
 const inlineNodeSchema = z.discriminatedUnion("type", [
 	textNodeSchema,
 	z.strictObject({
@@ -508,6 +519,12 @@ export const documentSchema = boundedJSONSchema
 export type NoteDocument = z.infer<typeof documentSchema>;
 export type Component = z.infer<typeof componentSchema>;
 export type EntityReference = z.infer<typeof entityReferenceSchema>;
+export type ProviderEntityReference = z.infer<
+	typeof providerEntityReferenceSchema
+>;
+export type CanonicalEntityReference = z.infer<
+	typeof canonicalEntityReferenceSchema
+>;
 export type LinkMetadata = z.infer<typeof linkMetadataSchema>;
 export type Playback = z.infer<typeof playbackSchema>;
 export type DrawingDocument = z.infer<typeof drawingDocumentSchema>;

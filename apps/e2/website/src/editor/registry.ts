@@ -3,7 +3,7 @@ import type {
 	EditorEntityDefinition,
 	EditorIntegrationManifest,
 } from "@e2/editor/contracts";
-import type { EntityReference } from "@e2/documents/note";
+import type { ProviderEntityReference } from "@e2/documents/note";
 import { githubEditor } from "../../../integrations/github/editor.ts";
 import { googleEditor } from "../../../integrations/google/editor.ts";
 
@@ -16,7 +16,7 @@ export interface RegisteredCommand extends EditorCommandDefinition {
 }
 
 export interface RegisteredEntity extends EditorEntityDefinition {
-	search: (query: string) => Promise<EntityReference[]>;
+	search: (query: string) => Promise<ProviderEntityReference[]>;
 }
 
 export interface EditorRegistry {
@@ -52,7 +52,9 @@ export const boundedEntityId = (...parts: string[]): string => {
 	return `${value.slice(0, 460)}:${hash.toString(36)}`;
 };
 
-const googlePeople = async (query: string): Promise<EntityReference[]> => {
+const googlePeople = async (
+	query: string,
+): Promise<ProviderEntityReference[]> => {
 	const data = await request<{
 		me: {
 			googlePeople: {
@@ -77,7 +79,9 @@ const googlePeople = async (query: string): Promise<EntityReference[]> => {
 	}));
 };
 
-const googleEvents = async (query: string): Promise<EntityReference[]> => {
+const googleEvents = async (
+	query: string,
+): Promise<ProviderEntityReference[]> => {
 	const data = await request<{
 		me: {
 			googleEvents: {
@@ -107,7 +111,7 @@ const googleEvents = async (query: string): Promise<EntityReference[]> => {
 	}));
 };
 
-const entityKinds = new Set<EntityReference["kind"]>([
+const entityKinds = new Set<ProviderEntityReference["kind"]>([
 	"person",
 	"event",
 	"issue",
@@ -116,7 +120,7 @@ const entityKinds = new Set<EntityReference["kind"]>([
 ]);
 const githubActivityRows = async (
 	query: string,
-): Promise<EntityReference[]> => {
+): Promise<ProviderEntityReference[]> => {
 	const data = await request<{
 		me: {
 			githubActivity: {
@@ -135,8 +139,10 @@ const githubActivityRows = async (
 		{ query },
 	);
 	return data.me.githubActivity.flatMap((item) => {
-		if (!entityKinds.has(item.kind as EntityReference["kind"])) return [];
-		const itemKind = item.kind as EntityReference["kind"];
+		if (!entityKinds.has(item.kind as ProviderEntityReference["kind"])) {
+			return [];
+		}
+		const itemKind = item.kind as ProviderEntityReference["kind"];
 		return [{
 			provider: "github" as const,
 			kind: itemKind,
@@ -146,11 +152,14 @@ const githubActivityRows = async (
 		}];
 	});
 };
-const githubActivityCache = new Map<string, Promise<EntityReference[]>>();
+const githubActivityCache = new Map<
+	string,
+	Promise<ProviderEntityReference[]>
+>();
 const githubActivity = async (
 	query: string,
-	kind?: EntityReference["kind"],
-): Promise<EntityReference[]> => {
+	kind?: ProviderEntityReference["kind"],
+): Promise<ProviderEntityReference[]> => {
 	let pending = githubActivityCache.get(query);
 	if (!pending) {
 		pending = githubActivityRows(query);
@@ -177,7 +186,8 @@ const githubActivity = async (
 	}
 };
 
-const emptySearch = (): Promise<EntityReference[]> => Promise.resolve([]);
+const emptySearch = (): Promise<ProviderEntityReference[]> =>
+	Promise.resolve([]);
 
 const entities = (manifest: EditorIntegrationManifest): RegisteredEntity[] =>
 	manifest.entities.map((definition) => ({

@@ -13,6 +13,9 @@ export interface DocumentSummary {
 	createdAt: string;
 	updatedAt: string;
 }
+export interface DocumentBacklink extends DocumentSummary {
+	entityId: string;
+}
 export type SaveResult = { ok: true; document: StoredDocument } | {
 	ok: false;
 	conflict: StoredDocument | null;
@@ -20,6 +23,7 @@ export type SaveResult = { ok: true; document: StoredDocument } | {
 export interface DocumentsApi {
 	get(id: string): Promise<StoredDocument | null>;
 	list(prefix: string, limit?: number): Promise<DocumentSummary[]>;
+	backlinks(entityId: string, limit?: number): Promise<DocumentBacklink[]>;
 	save(
 		id: string,
 		note: unknown,

@@ -1,8 +1,17 @@
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/durable-sqlite";
-import { parseNote } from "@e2/documents/note";
-import { documentChunks, documents } from "../schema.ts";
-import type { DocumentSummary, SaveResult, StoredDocument } from "./types.ts";
+import {
+	type CanonicalEntityReference,
+	type NoteDocument,
+	parseNote,
+} from "@e2/documents/note";
+import { documentChunks, documentEntityRefs, documents } from "../schema.ts";
+import type {
+	DocumentBacklink,
+	DocumentSummary,
+	SaveResult,
+	StoredDocument,
+} from "./types.ts";
 
 /** Drizzle is the only SQL adapter used by the Documents persistence layer. */
 export type DocumentDatabase = ReturnType<typeof drizzle>;
@@ -30,6 +39,36 @@ const validateId = (id: string): void => {
 	if (!/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,199}$/.test(id)) {
 		throw new Error("Invalid document ID");
 	}
+};
+
+const validateEntityId = (id: string): void => {
+	if (
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+			.test(id)
+	) throw new Error("Invalid entity ID");
+};
+
+const referencedEntities = (note: NoteDocument): string[] => {
+	const ids = new Set<string>();
+	const stack: unknown[] = [note];
+	while (stack.length) {
+		const value = stack.pop();
+		if (!value || typeof value !== "object") continue;
+		if (
+			!Array.isArray(value) &&
+			(value as { type?: unknown }).type === "entity"
+		) {
+			const entity = (value as {
+				attrs?: { entity?: Partial<CanonicalEntityReference> };
+			}).attrs?.entity;
+			if (entity?.version === 1 && typeof entity.entityId === "string") {
+				ids.add(entity.entityId);
+			}
+		}
+		if (Array.isArray(value)) stack.push(...value);
+		else stack.push(...Object.values(value));
+	}
+	return [...ids].sort();
 };
 
 const prefixUpperBound = (prefix: string): string => {
@@ -94,6 +133,24 @@ export const createDocumentStore = (
 		)
 			.orderBy(asc(documents.id)).limit(limit).all() as DocumentSummary[];
 	};
+	const backlinks = (entityId: string, limit = 50): DocumentBacklink[] => {
+		validateEntityId(entityId);
+		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+			throw new Error("Invalid document limit");
+		}
+		return db.select({
+			id: documents.id,
+			entityId: documentEntityRefs.entityId,
+			revision: documents.revision,
+			createdAt: documents.createdAt,
+			updatedAt: documents.updatedAt,
+		}).from(documentEntityRefs).innerJoin(
+			documents,
+			eq(documentEntityRefs.documentId, documents.id),
+		).where(eq(documentEntityRefs.entityId, entityId)).orderBy(
+			desc(documents.updatedAt),
+		).limit(limit).all() as DocumentBacklink[];
+	};
 	const save = (
 		id: string,
 		value: unknown,
@@ -142,8 +199,15 @@ export const createDocumentStore = (
 					content,
 				}).run();
 			});
+			tx.delete(documentEntityRefs).where(
+				eq(documentEntityRefs.documentId, id),
+			).run();
+			for (const entityId of referencedEntities(note)) {
+				tx.insert(documentEntityRefs).values({ documentId: id, entityId })
+					.run();
+			}
 			return { ok: true, document };
 		});
 	};
-	return { get, list, save };
+	return { get, list, backlinks, save };
 };

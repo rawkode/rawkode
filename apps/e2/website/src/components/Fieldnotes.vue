@@ -6,7 +6,7 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import ComponentView from "./ComponentView.vue";
 import TodaySidebar from "./TodaySidebar.vue";
 import { defaultComponent } from "../lib/component";
-import { NOTE_LIMITS, parseEntity, parseNote, type EntityReference, type NoteDocument } from "@e2/documents/note";
+import { NOTE_LIMITS, parseEntity, parseNote, type EntityReference, type NoteDocument, type ProviderEntityReference } from "@e2/documents/note";
 import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
 import { loadDocument, saveDocument } from '../editor/persistence';
@@ -54,7 +54,7 @@ const entityMenu = ref<{
 	x: number;
 	y: number;
 }>();
-const entityMatches = ref<EntityReference[]>([]);
+const entityMatches = ref<ProviderEntityReference[]>([]);
 const entityIndex = ref(0);
 const paletteOpen = ref(false);
 const paletteQuery = ref("");
@@ -219,6 +219,16 @@ const chooseEntity = (entity: EntityReference) => {
 	entityMenu.value = undefined;
 	entityMatches.value = [];
 };
+const entityKey = (entity: EntityReference) =>
+	"version" in entity
+		? `entity:${entity.entityId}`
+		: `${entity.provider}:${entity.kind}:${entity.id}`;
+const entityLabel = (entity: EntityReference) =>
+	"version" in entity ? entity.displayText : entity.label;
+const entityKind = (entity: EntityReference) =>
+	"version" in entity ? entity.presentation : entity.kind;
+const entityMeta = (entity: EntityReference) =>
+	"version" in entity ? entity.fallbackLabel : entity.meta;
 const insertExternalEntity = (event: Event) => {
 	if (!(event instanceof CustomEvent)) return;
 	try {
@@ -833,13 +843,13 @@ onBeforeUnmount(() => {
 			<div class="menu-title">Mention a person or event</div>
 			<button
 				v-for="(entity, index) in entityMatches"
-				:key="`${entity.provider}:${entity.kind}:${entity.id}`"
+				:key="entityKey(entity)"
 				role="option"
 				:aria-selected="index === entityIndex"
 				@mousedown.prevent="chooseEntity(entity)"
 			>
 				<span class="block-icon">@</span>
-				<span><strong>{{ entity.label }}</strong><small>{{ entity.kind }}<template v-if="entity.meta"> · {{ entity.meta }}</template></small></span>
+				<span><strong>{{ entityLabel(entity) }}</strong><small>{{ entityKind(entity) }}<template v-if="entityMeta(entity)"> · {{ entityMeta(entity) }}</template></small></span>
 			</button>
 			<p v-if="!entityMatches.length" class="menu-empty">No matching people or events</p>
 		</div>
