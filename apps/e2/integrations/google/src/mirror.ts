@@ -1,6 +1,11 @@
 import type { Connection, OAuthIntegrationApi } from "@e2/oauth-client";
 import type { AccountEnv } from "./env.ts";
 import { authorized, endpoint, googleRequest, scopes } from "./google.ts";
+import {
+	enqueueContactProjection,
+	enqueueMissingContactTombstones,
+	googleContactProjection,
+} from "./projection.ts";
 
 type RecordData = {
 	id?: string;
@@ -125,27 +130,57 @@ export const syncCollection = async (
 		const records = (contacts ? body.connections : body.items) ?? [];
 		if (!Array.isArray(records)) throw new Error("Invalid Google page");
 		const now = Date.now();
-		const statements = records.map((record) => {
+		const projections = contacts
+			? await Promise.all(records.map((record) => {
+				const key = record?.resourceName;
+				if (!record || typeof key !== "string" || !key || key.length > 2048) {
+					throw new Error("Invalid Google resource");
+				}
+				return googleContactProjection(
+					id,
+					key,
+					record,
+					Boolean(record.deleted || record.metadata?.deleted),
+				);
+			}))
+			: [];
+		const statements = records.flatMap((record, index) => {
 			const key = contacts ? record?.resourceName : record?.id;
 			if (!record || typeof key !== "string" || !key || key.length > 2048) {
 				throw new Error("Invalid Google resource");
 			}
-			return db.prepare(
-				`INSERT OR REPLACE INTO google_staging(generation, resource_id, data, deleted) SELECT ?, ?, ?, ? WHERE ${gate}`,
-			)
-				.bind(
-					cursor.generation,
-					key,
-					JSON.stringify(record),
-					record.deleted || record.metadata?.deleted ||
-						record.status === "cancelled"
-						? 1
-						: 0,
-					id,
-					collection,
-					lease,
-					now,
-				);
+			const projection = contacts ? projections[index] : undefined;
+			const staging = db.prepare(
+				`INSERT OR REPLACE INTO google_staging
+          (generation, resource_id, data, deleted, source_revision)
+         SELECT ?, ?, ?, ?, ? WHERE ${gate}`,
+			).bind(
+				cursor.generation,
+				key,
+				JSON.stringify(record),
+				record.deleted || record.metadata?.deleted ||
+					record.status === "cancelled"
+					? 1
+					: 0,
+				projection?.sourceRevision ?? null,
+				id,
+				collection,
+				lease,
+				now,
+			);
+			return projection
+				? [
+					staging,
+					enqueueContactProjection(
+						db,
+						connection.ownerId,
+						id,
+						projection,
+						now,
+						lease,
+					),
+				]
+				: [staging];
 		});
 		await authorized(oauth, connection, scope);
 		if (body.nextPageToken) {
@@ -164,6 +199,18 @@ export const syncCollection = async (
 			}
 			// Tombstones preserve stable references for the future entity layer.
 			if (!cursor.sync_token) {
+				if (contacts) {
+					statements.push(
+						enqueueMissingContactTombstones(
+							db,
+							connection.ownerId,
+							id,
+							cursor.generation,
+							lease,
+							now,
+						),
+					);
+				}
 				statements.push(
 					db.prepare(
 						`UPDATE google_records SET deleted = 1 WHERE connection_id = ? AND collection = ? AND ${gate}`,
@@ -172,7 +219,14 @@ export const syncCollection = async (
 			}
 			statements.push(
 				db.prepare(
-					`INSERT INTO google_records(connection_id, collection, resource_id, data, deleted) SELECT ?, ?, resource_id, data, deleted FROM google_staging WHERE generation = ? AND ${gate} ON CONFLICT(connection_id, collection, resource_id) DO UPDATE SET data = excluded.data, deleted = excluded.deleted`,
+					`INSERT INTO google_records
+            (connection_id, collection, resource_id, data, deleted, source_revision)
+           SELECT ?, ?, resource_id, data, deleted, source_revision
+             FROM google_staging WHERE generation = ? AND ${gate}
+           ON CONFLICT(connection_id, collection, resource_id) DO UPDATE SET
+             data = excluded.data,
+             deleted = excluded.deleted,
+             source_revision = excluded.source_revision`,
 				).bind(id, collection, cursor.generation, id, collection, lease, now),
 			);
 			statements.push(

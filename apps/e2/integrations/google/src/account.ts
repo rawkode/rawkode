@@ -7,6 +7,7 @@ import { watchMail } from "./gmail.ts";
 import { scopes } from "./google.ts";
 import { accountStorage, migrateAccount } from "./storage.ts";
 import { createAccountApi } from "./account-api.ts";
+import { drainContactProjectionOutbox } from "./projection.ts";
 
 interface CoordinatorStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -54,6 +55,11 @@ export const syncAccount = async (
 			return;
 		}
 		const result = await syncGoogle(env, oauth, connection);
+		const projection = await drainContactProjectionOutbox(
+			env.DB,
+			env.ENTITIES_ADMIN,
+			id,
+		);
 		if (env.GMAIL_PUBSUB_TOPIC && connection.scopes.includes(scopes.gmail)) {
 			const watch = await env.DB.prepare(
 				"SELECT renewed_at FROM gmail_watches WHERE connection_id = ?",
@@ -63,7 +69,9 @@ export const syncAccount = async (
 			}
 		}
 		await storage.put("failures", 0);
-		await storage.setAlarm(Date.now() + (result.pending ? 1000 : 15 * 60_000));
+		await storage.setAlarm(
+			Date.now() + (result.pending || projection.pending ? 1000 : 15 * 60_000),
+		);
 	} catch {
 		if (await storage.get<boolean>("deleted")) return;
 		const failures = Math.min(

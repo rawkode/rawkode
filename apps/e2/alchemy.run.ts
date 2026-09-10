@@ -27,11 +27,14 @@ export default Alchemy.Stack(
 				github: githubCredential(store),
 			})),
 		Effect.bind("oauth", ({ store, credentials }) => oauth(store, credentials)),
-		Effect.bind("integrations", ({ oauth, credentials }) =>
-			Effect.all({
-				google: google(oauth, credentials.google),
-				github: github(oauth, credentials.github),
-			})),
+		Effect.bind(
+			"integrations",
+			({ oauth, credentials, entities }) =>
+				Effect.all({
+					google: google(oauth, credentials.google, entities),
+					github: github(oauth, credentials.github),
+				}),
+		),
 		Effect.bind("access", () => deploymentAccess),
 		Effect.bind(
 			"api",

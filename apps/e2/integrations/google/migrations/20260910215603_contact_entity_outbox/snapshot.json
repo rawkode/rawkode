@@ -1,0 +1,734 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "45d4e088-774a-4469-8444-b4803364f136",
+  "prevIds": [
+    "dd974bc9-981e-469c-a65f-c2c6f8a34e98"
+  ],
+  "ddl": [
+    {
+      "name": "calendar_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "calendar_staging",
+      "entityType": "tables"
+    },
+    {
+      "name": "calendar_syncs",
+      "entityType": "tables"
+    },
+    {
+      "name": "entity_projection_outbox",
+      "entityType": "tables"
+    },
+    {
+      "name": "gmail_watches",
+      "entityType": "tables"
+    },
+    {
+      "name": "google_records",
+      "entityType": "tables"
+    },
+    {
+      "name": "google_staging",
+      "entityType": "tables"
+    },
+    {
+      "name": "google_syncs",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "calendar_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_id",
+      "entityType": "columns",
+      "table": "calendar_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "calendar_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "run_id",
+      "entityType": "columns",
+      "table": "calendar_staging"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_id",
+      "entityType": "columns",
+      "table": "calendar_staging"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "calendar_staging"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cancelled",
+      "entityType": "columns",
+      "table": "calendar_staging"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_id",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sync_token",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "synced_at",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lease",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lease_until",
+      "entityType": "columns",
+      "table": "calendar_syncs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "sequence",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "projection_id",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_id",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_type",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_revision",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "aliases",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "values",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "deleted",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "attempts",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_error",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expiration",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "history_id",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "notified_at",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "renewed_at",
+      "entityType": "columns",
+      "table": "gmail_watches"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "collection",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "deleted",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_revision",
+      "entityType": "columns",
+      "table": "google_records"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation",
+      "entityType": "columns",
+      "table": "google_staging"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "google_staging"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "google_staging"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "deleted",
+      "entityType": "columns",
+      "table": "google_staging"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_revision",
+      "entityType": "columns",
+      "table": "google_staging"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "collection",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_id",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sync_token",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "page_token",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "synced_at",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lease",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "lease_until",
+      "entityType": "columns",
+      "table": "google_syncs"
+    },
+    {
+      "columns": [
+        "connection_id"
+      ],
+      "tableTo": "calendar_syncs",
+      "columnsTo": [
+        "connection_id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_calendar_events_connection_id_calendar_syncs_connection_id_fk",
+      "entityType": "fks",
+      "table": "calendar_events"
+    },
+    {
+      "columns": [
+        "connection_id",
+        "event_id"
+      ],
+      "nameExplicit": false,
+      "name": "calendar_events_pk",
+      "entityType": "pks",
+      "table": "calendar_events"
+    },
+    {
+      "columns": [
+        "run_id",
+        "event_id"
+      ],
+      "nameExplicit": false,
+      "name": "calendar_staging_pk",
+      "entityType": "pks",
+      "table": "calendar_staging"
+    },
+    {
+      "columns": [
+        "connection_id"
+      ],
+      "nameExplicit": false,
+      "name": "calendar_syncs_pk",
+      "entityType": "pks",
+      "table": "calendar_syncs"
+    },
+    {
+      "columns": [
+        "connection_id"
+      ],
+      "nameExplicit": false,
+      "name": "gmail_watches_pk",
+      "entityType": "pks",
+      "table": "gmail_watches"
+    },
+    {
+      "columns": [
+        "connection_id",
+        "collection",
+        "resource_id"
+      ],
+      "nameExplicit": false,
+      "name": "google_records_pk",
+      "entityType": "pks",
+      "table": "google_records"
+    },
+    {
+      "columns": [
+        "generation",
+        "resource_id"
+      ],
+      "nameExplicit": false,
+      "name": "google_staging_pk",
+      "entityType": "pks",
+      "table": "google_staging"
+    },
+    {
+      "columns": [
+        "connection_id",
+        "collection"
+      ],
+      "nameExplicit": false,
+      "name": "google_syncs_pk",
+      "entityType": "pks",
+      "table": "google_syncs"
+    },
+    {
+      "columns": [
+        "sequence"
+      ],
+      "nameExplicit": false,
+      "name": "entity_projection_outbox_pk",
+      "table": "entity_projection_outbox",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "projection_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "entity_projection_outbox_projection",
+      "entityType": "indexes",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "columns": [
+        {
+          "value": "connection_id",
+          "isExpression": false
+        },
+        {
+          "value": "sequence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "entity_projection_outbox_delivery",
+      "entityType": "indexes",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "value": "json_valid(\"data\")",
+      "name": "calendar_events_data_json",
+      "entityType": "checks",
+      "table": "calendar_events"
+    },
+    {
+      "value": "json_valid(\"data\")",
+      "name": "calendar_staging_data_json",
+      "entityType": "checks",
+      "table": "calendar_staging"
+    },
+    {
+      "value": "json_valid(\"aliases\")",
+      "name": "entity_projection_outbox_aliases_json",
+      "entityType": "checks",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "value": "\"values\" IS NULL OR json_valid(\"values\")",
+      "name": "entity_projection_outbox_values_json",
+      "entityType": "checks",
+      "table": "entity_projection_outbox"
+    },
+    {
+      "value": "json_valid(\"data\")",
+      "name": "google_records_data_json",
+      "entityType": "checks",
+      "table": "google_records"
+    },
+    {
+      "value": "json_valid(\"data\")",
+      "name": "google_staging_data_json",
+      "entityType": "checks",
+      "table": "google_staging"
+    }
+  ],
+  "renames": []
+}

@@ -31,6 +31,7 @@ export const serviceCredential = (store: Cloudflare.SecretsStore.Store) =>
 export default (
 	oauth: Cloudflare.Worker,
 	credential: Cloudflare.SecretsStore.Secret,
+	entities: Cloudflare.Worker,
 ) =>
 	Effect.flatMap(
 		Alchemy.Stage,
@@ -45,6 +46,10 @@ export default (
 					}),
 					OAUTH: Cloudflare.WorkerEntrypoint(oauth, "OAuthIntegrations"),
 					OAUTH_SERVICE_CREDENTIAL: credential,
+					ENTITIES_ADMIN: Cloudflare.WorkerEntrypoint(
+						entities,
+						"EntitiesAdmin",
+					),
 					LOCAL_PROVIDER_ORIGIN: optional("LOCAL_PROVIDER_ORIGIN"),
 					GMAIL_PUBSUB_TOPIC: optional("GMAIL_PUBSUB_TOPIC"),
 					GMAIL_PUSH_AUDIENCE: optional("GMAIL_PUSH_AUDIENCE"),

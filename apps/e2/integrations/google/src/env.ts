@@ -1,6 +1,7 @@
 import type { OAuthIntegrationBinding, SecretBinding } from "@e2/oauth-client";
 import type { CalendarApi } from "@e2/oauth-client/calendar";
 import type { AccountDatabase } from "./storage.ts";
+import type { EntitiesAdminBinding } from "./projection.ts";
 
 interface GoogleAccountStub extends Rpc.DurableObjectBranded {
 	start(connectionId: string, immediate?: boolean): Promise<void>;
@@ -53,6 +54,8 @@ export interface CalendarEnv {
 	GOOGLE_ACCOUNTS: DurableObjectNamespace<GoogleAccountStub>;
 	OAUTH: OAuthIntegrationBinding;
 	OAUTH_SERVICE_CREDENTIAL: SecretBinding;
+	/** Optional until deployment composition wires the canonical entity Worker. */
+	ENTITIES_ADMIN?: EntitiesAdminBinding;
 	LOCAL_PROVIDER_ORIGIN?: string;
 	GMAIL_PUBSUB_TOPIC?: string;
 	GMAIL_PUSH_AUDIENCE?: string;
