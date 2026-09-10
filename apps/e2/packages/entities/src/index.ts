@@ -226,6 +226,7 @@ export interface EntitiesApi {
 		provenance: MutationProvenance,
 	): Promise<CanonicalEntity>;
 	getEntity(id: string): Promise<CanonicalEntity | null>;
+	getEntitySources(id: string): Promise<readonly EntitySource[]>;
 	setUserValues(
 		id: string,
 		values: Readonly<Record<string, unknown>>,

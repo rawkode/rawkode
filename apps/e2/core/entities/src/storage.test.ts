@@ -317,6 +317,82 @@ Deno.test("projection batches are idempotent and user values override preferred 
 	}
 });
 
+Deno.test("tombstones scrub source data and hide source-only entities until reactivation", () => {
+	const { database, entities } = fixture();
+	try {
+		const active = {
+			provider: "google",
+			connectionId: "account-a",
+			provenance,
+			records: [{
+				resourceType: "contact",
+				resourceId: "people/private",
+				sourceRevision: "1",
+				tagId: INTEGRATION_TAGS.googleContact,
+				label: "Private Person",
+				aliases: ["private@example.com"],
+				values: {
+					"field:person:name": "Private Person",
+					"field:person:emails": ["private@example.com"],
+				},
+			}],
+		};
+		entities.upsertProjectionBatch(active);
+		const entityId = String(
+			database.prepare("SELECT entity_id FROM source_observations").get()
+				?.entity_id,
+		);
+		assert.deepEqual(entities.getEntitySources(entityId), [{
+			provider: "google",
+			connectionId: "account-a",
+			resourceType: "contact",
+			resourceId: "people/private",
+		}]);
+		entities.upsertProjectionBatch({
+			...active,
+			records: [{
+				resourceType: "contact",
+				resourceId: "people/private",
+				sourceRevision: "deleted:1",
+				tagId: INTEGRATION_TAGS.googleContact,
+				deleted: true,
+			}],
+		});
+		assert.deepEqual(entities.getEntitySources(entityId), []);
+		assert.deepEqual(entities.searchEntities("private"), []);
+		assert.equal(entities.getEntity(entityId)?.archived, true);
+		assert.deepEqual(entities.getEntity(entityId)?.tagIds, [BASE_TAGS.person]);
+		const scrubbed = database.prepare(
+			'SELECT label, "values" FROM source_observations',
+		).get();
+		assert.equal(scrubbed?.label, "");
+		assert.equal(scrubbed?.values, "{}");
+		assert.equal(
+			database.prepare("SELECT count(*) AS count FROM source_aliases").get()
+				?.count,
+			0,
+		);
+		assert.equal(
+			database.prepare("SELECT label FROM entities").get()?.label,
+			"Deleted Person",
+		);
+
+		entities.upsertProjectionBatch({
+			...active,
+			records: [{ ...active.records[0], sourceRevision: "2" }],
+		});
+		assert.equal(entities.getEntity(entityId)?.archived, false);
+		assert.equal(entities.searchEntities("private")[0]?.id, entityId);
+		assert.ok(
+			entities.getEntity(entityId)?.tagIds.includes(
+				INTEGRATION_TAGS.googleContact,
+			),
+		);
+	} finally {
+		database.close();
+	}
+});
+
 Deno.test("merges retain redirects and every mutation has provenance", () => {
 	const { database, entities } = fixture();
 	try {

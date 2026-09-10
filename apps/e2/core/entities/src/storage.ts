@@ -964,6 +964,28 @@ export const createEntityStore = (
 			...(requestedId === entityId ? {} : { redirectedTo: entityId }),
 		};
 	};
+	const getEntitySources = (requestedId: string): readonly EntitySource[] => {
+		const entityId = resolveId(requestedId);
+		if (
+			!db.select({ id: entities.id }).from(entities).where(
+				eq(entities.id, entityId),
+			).get()
+		) return [];
+		return db.select({
+			provider: sourceObservations.provider,
+			connectionId: sourceObservations.connectionId,
+			resourceType: sourceObservations.resourceType,
+			resourceId: sourceObservations.resourceId,
+		}).from(sourceObservations).where(and(
+			eq(sourceObservations.entityId, entityId),
+			eq(sourceObservations.active, true),
+		)).orderBy(
+			asc(sourceObservations.provider),
+			asc(sourceObservations.connectionId),
+			asc(sourceObservations.resourceType),
+			asc(sourceObservations.resourceId),
+		).all();
+	};
 
 	const createEntityRows = (
 		tx: EntityExecutor,
@@ -1090,8 +1112,27 @@ export const createEntityStore = (
 					),
 				)
 				: undefined;
+			const visible = or(
+				exists(
+					db.select({ id: entityUserValues.entityId }).from(entityUserValues)
+						.where(eq(entityUserValues.entityId, entities.id)),
+				),
+				exists(
+					db.select({ id: entityAliases.entityId }).from(entityAliases)
+						.where(eq(entityAliases.entityId, entities.id)),
+				),
+				exists(
+					db.select({ id: sourceObservations.entityId }).from(
+						sourceObservations,
+					)
+						.where(and(
+							eq(sourceObservations.entityId, entities.id),
+							eq(sourceObservations.active, true),
+						)),
+				),
+			);
 			const queryBuilder = db.select({ id: entities.id }).from(entities).where(
-				and(eq(entities.archived, false), rootMatch, textMatch),
+				and(eq(entities.archived, false), visible, rootMatch, textMatch),
 			);
 			const candidates =
 				(needle
@@ -1363,6 +1404,7 @@ export const createEntityStore = (
 				return getEntity(entityId)!;
 			}),
 		getEntity,
+		getEntitySources,
 		setUserValues: (
 			requestedId: string,
 			input: Readonly<Record<string, unknown>>,
@@ -1682,17 +1724,12 @@ export const createEntityStore = (
 							eq(entityTags.entityId, entityId),
 						).all().map((row) => row.tagId),
 					);
-					const label = record.deleted && current && !record.label
-							? current.label
+					const label = record.deleted
+							? ""
 							: requiredText(record.label, "entity label"),
-						values = withPrimaryLabel(
+						values = record.deleted ? {} : withPrimaryLabel(
 							fields,
-							checkedValues(
-								fields,
-								record.deleted && current && record.values === undefined
-									? parseJSON<Record<string, unknown>>(current.values)
-									: record.values ?? {},
-							),
+							checkedValues(fields, record.values ?? {}),
 							label,
 						),
 						timestamp = now();
@@ -1745,14 +1782,73 @@ export const createEntityStore = (
 							normalized: normalize(clean),
 						}).onConflictDoNothing().run();
 					}
+					if (record.deleted) {
+						tx.delete(fieldSourcePreferences).where(and(
+							eq(fieldSourcePreferences.entityId, entityId),
+							eq(fieldSourcePreferences.provider, provider),
+							eq(fieldSourcePreferences.connectionId, connectionId),
+							eq(fieldSourcePreferences.resourceType, resourceType),
+							eq(fieldSourcePreferences.resourceId, resourceId),
+						)).run();
+					}
 					const entity = tx.select().from(entities).where(
 							eq(entities.id, entityId),
 						).get()!,
 						revision = entity.revision + (current ? 1 : 0),
-						canonicalLabel = getEntity(entityId)!.label;
+						activeSource = tx.select({ id: sourceObservations.entityId }).from(
+							sourceObservations,
+						).where(and(
+							eq(sourceObservations.entityId, entityId),
+							eq(sourceObservations.active, true),
+						)).get(),
+						userValue = tx.select({ id: entityUserValues.entityId }).from(
+							entityUserValues,
+						).where(eq(entityUserValues.entityId, entityId)).get(),
+						userAlias = tx.select({
+							alias: entityAliases.alias,
+						}).from(entityAliases).where(eq(entityAliases.entityId, entityId))
+							.orderBy(asc(entityAliases.normalized)).get(),
+						userOwned = Boolean(userValue || userAlias);
+					for (
+						const { tagId } of tx.select({ tagId: entityTags.tagId }).from(
+							entityTags,
+						).where(eq(entityTags.entityId, entityId)).all()
+					) {
+						const attached = tx.select().from(supertags).where(
+							eq(supertags.id, tagId),
+						).get();
+						if (attached?.kind !== "integration") continue;
+						const activeForTag = tx.select({ id: sourceObservations.entityId })
+							.from(sourceObservations).where(and(
+								eq(sourceObservations.entityId, entityId),
+								eq(sourceObservations.tagId, tagId),
+								eq(sourceObservations.active, true),
+							)).get();
+						if (!activeForTag) {
+							tx.insert(entityTags).values({
+								entityId,
+								tagId: attached.rootId,
+							}).onConflictDoNothing().run();
+							tx.delete(entityTags).where(and(
+								eq(entityTags.entityId, entityId),
+								eq(entityTags.tagId, tagId),
+							)).run();
+						}
+					}
+					const neutralLabel = userAlias?.alias ??
+						`Deleted ${baseNames[tag.rootId as BaseTagId]}`;
+					tx.update(entities).set({
+						label: activeSource ? entity.label : neutralLabel,
+						normalizedLabel: normalize(
+							activeSource ? entity.label : neutralLabel,
+						),
+						archived: !activeSource && !userOwned,
+					}).where(eq(entities.id, entityId)).run();
+					const canonicalLabel = getEntity(entityId)!.label;
 					tx.update(entities).set({
 						label: canonicalLabel,
 						normalizedLabel: normalize(canonicalLabel),
+						archived: !activeSource && !userOwned,
 						revision,
 						updatedAt: timestamp,
 					})

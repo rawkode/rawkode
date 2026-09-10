@@ -92,6 +92,9 @@ export class Entities extends DurableObject<EntitiesEnv> {
 	getEntity(id: string) {
 		return this.#store.getEntity(id);
 	}
+	getEntitySources(id: string) {
+		return this.#store.getEntitySources(id);
+	}
 	setUserValues(
 		id: string,
 		values: Readonly<Record<string, unknown>>,
@@ -202,6 +205,9 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 	}
 	getEntity(id: string) {
 		return this.#entities.getEntity(id);
+	}
+	getEntitySources(id: string) {
+		return this.#entities.getEntitySources(id);
 	}
 	setUserValues(
 		id: string,

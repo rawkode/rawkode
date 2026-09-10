@@ -151,7 +151,7 @@ const todayEventsPartial = (
 	to?: string,
 ) => todayEventResult(context, date, from, to).then(({ partial }) => partial);
 
-const todayTaggedPeople = async (context: ApiContext, date: string) => {
+export const todayTaggedPeople = async (context: ApiContext, date: string) => {
 	if (!context.env.DOCUMENTS_ADMIN) return [];
 	using documents = await context.env.DOCUMENTS_ADMIN.admin(
 		context.identity.ownerId,
@@ -164,6 +164,7 @@ const todayTaggedPeople = async (context: ApiContext, date: string) => {
 		label: string;
 		meta?: string;
 	}[] = [];
+	const canonical: { entityId: string; label: string }[] = [];
 	const walk = (value: unknown) => {
 		if (!value || typeof value !== "object") return;
 		if (Array.isArray(value)) {
@@ -177,7 +178,14 @@ const todayTaggedPeople = async (context: ApiContext, date: string) => {
 				: undefined;
 			if (entity && typeof entity === "object") {
 				const reference = entity as Record<string, unknown>;
-				if (reference.provider === "google" && reference.kind === "person") {
+				if (reference.version === 1 && text(reference.entityId)) {
+					canonical.push({
+						entityId: text(reference.entityId),
+						label: text(reference.displayText) || text(reference.fallbackLabel),
+					});
+				} else if (
+					reference.provider === "google" && reference.kind === "person"
+				) {
 					const [connectionId, ...parts] = text(reference.id).split(":");
 					references.push({
 						connectionId: connectionId ?? "",
@@ -191,6 +199,26 @@ const todayTaggedPeople = async (context: ApiContext, date: string) => {
 		Object.values(object).forEach(walk);
 	};
 	walk(document.note);
+	if (canonical.length && context.env.ENTITIES_ADMIN) {
+		using entities = await context.env.ENTITIES_ADMIN.admin(
+			context.identity.ownerId,
+		);
+		for (const reference of canonical) {
+			const sources = await entities.getEntitySources(reference.entityId);
+			for (
+				const source of sources.filter((candidate) =>
+					candidate.provider === "google" &&
+					candidate.resourceType === "contact"
+				)
+			) {
+				references.push({
+					connectionId: source.connectionId,
+					id: source.resourceId,
+					label: reference.label,
+				});
+			}
+		}
+	}
 	return references;
 };
 
