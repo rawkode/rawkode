@@ -27,18 +27,91 @@ export interface EditorRegistry {
 const request = async <T>(
 	query: string,
 	variables: Record<string, unknown>,
+	signal?: AbortSignal,
+	unavailable = "Entity search is unavailable.",
 ) => {
 	const response = await fetch("/api/graphql", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ query, variables }),
+		signal,
 	});
-	if (!response.ok) throw new Error("Entity search is unavailable.");
+	if (!response.ok) throw new Error(unavailable);
 	const result = await response.json() as { data?: T; errors?: unknown[] };
 	if (result.errors?.length || !result.data) {
-		throw new Error("Entity search is unavailable.");
+		throw new Error(unavailable);
 	}
 	return result.data;
+};
+
+export interface CanonicalEntitySummary {
+	id: string;
+	label: string;
+	bodyDocumentId: string;
+	tagIds: string[];
+	rootId: string;
+}
+
+export interface CanonicalSupertag {
+	id: string;
+	name: string;
+	kind: "base" | "integration" | "user";
+	parentId: string | null;
+	rootId: string;
+	archived: boolean;
+}
+
+export const searchCanonicalEntities = async (
+	query: string,
+	rootId: string | undefined,
+	signal?: AbortSignal,
+): Promise<CanonicalEntitySummary[]> => {
+	const data = await request<{
+		me: { entities: CanonicalEntitySummary[] };
+	}>(
+		`query EditorEntities($query: String!, $rootId: ID) {
+			me { entities(query: $query, rootId: $rootId, limit: 12) {
+				id label bodyDocumentId tagIds rootId
+			} }
+		}`,
+		{ query, rootId: rootId ?? null },
+		signal,
+	);
+	return data.me.entities;
+};
+
+export const listCanonicalSupertags = async (
+	signal?: AbortSignal,
+): Promise<CanonicalSupertag[]> => {
+	const data = await request<{ me: { supertags: CanonicalSupertag[] } }>(
+		`query EditorSupertags {
+			me { supertags { id name kind parentId rootId archived } }
+		}`,
+		{},
+		signal,
+		"Supertags are unavailable.",
+	);
+	return data.me.supertags;
+};
+
+export const createCanonicalEntity = async (
+	label: string,
+	tagId: string,
+	signal?: AbortSignal,
+): Promise<Omit<CanonicalEntitySummary, "rootId">> => {
+	const data = await request<{
+		createEntity: Omit<CanonicalEntitySummary, "rootId">;
+	}>(
+		`mutation EditorCreateEntity($label: String!, $tagIds: [ID!]!) {
+			createEntity(input: { label: $label, tagIds: $tagIds }) {
+				id label bodyDocumentId tagIds
+			}
+		}`,
+		{ label, tagIds: [tagId] },
+		signal,
+		"The entity could not be created.",
+	);
+	return data.createEntity;
 };
 
 export const boundedEntityId = (...parts: string[]): string => {

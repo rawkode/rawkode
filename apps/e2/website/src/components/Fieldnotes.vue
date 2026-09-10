@@ -6,12 +6,13 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import ComponentView from "./ComponentView.vue";
 import TodaySidebar from "./TodaySidebar.vue";
 import { defaultComponent } from "../lib/component";
-import { NOTE_LIMITS, parseEntity, parseNote, type EntityReference, type NoteDocument, type ProviderEntityReference } from "@e2/documents/note";
+import { NOTE_LIMITS, parseEntity, parseNote, type EntityReference, type NoteDocument } from "@e2/documents/note";
 import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
+import { canonicalEntityReference, closeEntityComposer, createLatestEntitySearch, EntityComposer, entityComposerKey, type EntityComposerMatch } from "../editor/entityComposer";
 import { loadDocument, saveDocument } from '../editor/persistence';
 import { createDocumentSaver, readDocument, todayBounds, todayDocumentId, type SaveState } from '../editor/documents';
-import { editorRegistry } from "../editor/registry";
+import { createCanonicalEntity, editorRegistry, listCanonicalSupertags, searchCanonicalEntities, type CanonicalEntitySummary, type CanonicalSupertag } from "../editor/registry";
 
 const props = withDefaults(defineProps<{
 	documentId?: string;
@@ -47,23 +48,32 @@ const slash = ref<{
 }>();
 const slashIndex = ref(0);
 const insertOpen = ref(false);
-const entityMenu = ref<{
-	from: number;
-	to: number;
-	query: string;
+const entityMenu = ref<EntityComposerMatch & {
 	x: number;
 	y: number;
 }>();
-const entityMatches = ref<ProviderEntityReference[]>([]);
+const entityMatches = ref<CanonicalEntitySummary[]>([]);
 const entityIndex = ref(0);
+const entitySearchLoading = ref(false);
+const entitySearchError = ref("");
+const entityCreateMode = ref(false);
+const entityCreating = ref(false);
+const entityCreateError = ref("");
+const entityTags = ref<CanonicalSupertag[]>([]);
+const entityTagId = ref("");
+const entityTagSelect = ref<HTMLSelectElement>();
 const paletteOpen = ref(false);
 const paletteQuery = ref("");
 const paletteIndex = ref(0);
 const paletteInput = ref<HTMLInputElement>();
 const revision = ref(0);
 let importGeneration = 0;
-let entitySearchGeneration = 0;
 const pendingExternalEntities: EntityReference[] = [];
+let dismissedEntityToken: Pick<EntityComposerMatch, "from" | "trigger"> | undefined;
+const canonicalEntitySearch = createLatestEntitySearch(
+	(input: { query: string; rootId?: string }, signal) =>
+		searchCanonicalEntities(input.query, input.rootId, signal),
+);
 
 type Block = { label: string; detail: string; icon: string; run: () => void };
 const blocks: Block[] = [
@@ -147,6 +157,10 @@ const commandMatches = computed(() => {
 		)
 	);
 });
+const entityChoiceCount = computed(() =>
+	entityMatches.value.length +
+	(entityMenu.value?.trigger === "#" && entityMenu.value.query ? 1 : 0)
+);
 const activeStyle = computed(() => {
 	void revision.value;
 	if (!editor.value) return "paragraph";
@@ -208,27 +222,102 @@ const choose = (block: Block) => {
 	insertOpen.value = false;
 	block.run();
 };
-const chooseEntity = (entity: EntityReference) => {
+const setEntityAutocomplete = (open: boolean) => {
+	const dom = editor.value?.view.dom;
+	if (!dom) return;
+	if (!open) {
+		dom.removeAttribute("aria-autocomplete");
+		dom.removeAttribute("aria-expanded");
+		dom.removeAttribute("aria-controls");
+		dom.removeAttribute("aria-activedescendant");
+		return;
+	}
+	dom.setAttribute("aria-autocomplete", "list");
+	dom.setAttribute("aria-expanded", "true");
+	dom.setAttribute("aria-controls", "entity-composer-listbox");
+	if (entityChoiceCount.value) {
+		dom.setAttribute(
+			"aria-activedescendant",
+			`entity-composer-option-${entityIndex.value}`,
+		);
+	} else dom.removeAttribute("aria-activedescendant");
+};
+const closeEntityMenu = (dispatch = true) => {
+	canonicalEntitySearch.cancel();
+	entityMenu.value = undefined;
+	entityMatches.value = [];
+	entityCreateMode.value = false;
+	entitySearchLoading.value = false;
+	entitySearchError.value = "";
+	entityCreateError.value = "";
+	setEntityAutocomplete(false);
+	const current = editor.value;
+	if (dispatch && current) {
+		current.view.dispatch(closeEntityComposer(current.state.tr));
+	}
+};
+const dismissEntityMenu = () => {
+	const menu = entityMenu.value;
+	dismissedEntityToken = menu?.mode === "typed"
+		? { from: menu.from, trigger: menu.trigger }
+		: undefined;
+	closeEntityMenu();
+};
+const insertCanonicalEntity = (
+	entity: Pick<CanonicalEntitySummary, "id" | "label">,
+) => {
 	const current = editor.value;
 	const menu = entityMenu.value;
 	if (!current || !menu) return;
+	const reference = canonicalEntityReference(menu, entity);
 	current.chain().focus().deleteRange({ from: menu.from, to: menu.to }).insertContent({
 		type: "entity",
-		attrs: { entity },
+		attrs: { entity: reference },
 	}).run();
-	entityMenu.value = undefined;
-	entityMatches.value = [];
+	closeEntityMenu(false);
 };
-const entityKey = (entity: EntityReference) =>
-	"version" in entity
-		? `entity:${entity.entityId}`
-		: `${entity.provider}:${entity.kind}:${entity.id}`;
-const entityLabel = (entity: EntityReference) =>
-	"version" in entity ? entity.displayText : entity.label;
-const entityKind = (entity: EntityReference) =>
-	"version" in entity ? entity.presentation : entity.kind;
-const entityMeta = (entity: EntityReference) =>
-	"version" in entity ? entity.fallbackLabel : entity.meta;
+const beginEntityCreate = async () => {
+	if (!entityMenu.value?.query || entityMenu.value.trigger !== "#") return;
+	entityCreateMode.value = true;
+	entityCreateError.value = "";
+	setEntityAutocomplete(false);
+	if (!entityTags.value.length) {
+		try {
+			entityTags.value = (await listCanonicalSupertags()).filter((tag) =>
+				!tag.archived && tag.kind !== "integration"
+			);
+			entityTagId.value = entityTags.value.find((tag) => tag.kind === "base")?.id ?? "";
+		} catch (failure) {
+			entityCreateError.value = failure instanceof Error
+				? failure.message
+				: "Supertags are unavailable.";
+		}
+	}
+	void nextTick(() => entityTagSelect.value?.focus());
+};
+const cancelEntityCreate = () => {
+	entityCreateMode.value = false;
+	entityCreateError.value = "";
+	setEntityAutocomplete(true);
+	editor.value?.commands.focus();
+};
+const createEntityFromMenu = async () => {
+	const menu = entityMenu.value;
+	if (!menu?.query || !entityTagId.value || entityCreating.value) return;
+	entityCreating.value = true;
+	entityCreateError.value = "";
+	try {
+		const created = await createCanonicalEntity(menu.query, entityTagId.value);
+		if (entityMenu.value !== menu) return;
+		insertCanonicalEntity(created);
+	} catch (failure) {
+		entityCreateError.value = failure instanceof Error
+			? failure.message
+			: "The entity could not be created.";
+	} finally {
+		entityCreating.value = false;
+	}
+};
 const insertExternalEntity = (event: Event) => {
 	if (!(event instanceof CustomEvent)) return;
 	try {
@@ -245,42 +334,47 @@ const insertExternalEntity = (event: Event) => {
 		error.value = "That linked entity could not be inserted.";
 	}
 };
-const updateEntityMenu = async () => {
+const updateEntityMenu = async (match: EntityComposerMatch | null) => {
 	const current = editor.value;
-	if (!current) return;
-	const { $from, empty, from } = current.state.selection;
-	const before = $from.parent.textBetween(0, $from.parentOffset, "\n", "\ufffc");
-	const token = /(?:^|[\s([{])@[\p{L}\p{N}._ -]{0,64}$/u.exec(before);
-	if (!empty || $from.parent.type.name !== "paragraph" || !token) {
-		entitySearchGeneration++;
-		entityMenu.value = undefined;
-		entityMatches.value = [];
+	if (!current || !match) {
+		if (entityMenu.value) closeEntityMenu(false);
 		return;
 	}
-	const tokenStart = before.length - token[0].length +
-		(token[0].startsWith("@") ? 0 : 1);
-	const tokenText = before.slice(tokenStart);
-	const rectangle = current.view.coordsAtPos(from);
+	if (
+		match.mode === "typed" && dismissedEntityToken?.from === match.from &&
+		dismissedEntityToken.trigger === match.trigger
+	) return;
+	dismissedEntityToken = undefined;
+	const rectangle = current.view.coordsAtPos(match.to);
 	entityMenu.value = {
-		from: from - tokenText.length,
-		to: from,
-		query: tokenText.slice(1).trim(),
+		...match,
 		x: Math.max(12, Math.min(rectangle.left, innerWidth - 330)),
 		y: Math.min(rectangle.bottom + 8, Math.max(80, innerHeight - 390)),
 	};
-	const generation = ++entitySearchGeneration;
-	const query = entityMenu.value.query;
+	entityCreateMode.value = false;
+	entityCreateError.value = "";
+	entitySearchError.value = "";
+	entitySearchLoading.value = true;
+	setEntityAutocomplete(true);
+	let currentResult = false;
 	try {
-		const definitions = editorRegistry.entities.filter((entry) => entry.trigger === "@");
-		const matches = (await Promise.allSettled(
-			definitions.map((definition) => definition.search(query)),
-		)).flatMap((result) => result.status === "fulfilled" ? result.value : [])
-			.slice(0, 12);
-		if (generation !== entitySearchGeneration) return;
-		entityMatches.value = matches;
+		const result = await canonicalEntitySearch.run({
+			query: match.query,
+			rootId: match.trigger === "@" ? "base:person" : undefined,
+		});
+		if (!result.accepted) return;
+		currentResult = true;
+		entityMatches.value = result.value;
 		entityIndex.value = 0;
-	} catch {
-		if (generation === entitySearchGeneration) entityMatches.value = [];
+		setEntityAutocomplete(true);
+	} catch (failure) {
+		currentResult = true;
+		entityMatches.value = [];
+		entitySearchError.value = failure instanceof Error
+			? failure.message
+			: "Entity search is unavailable.";
+	} finally {
+		if (currentResult) entitySearchLoading.value = false;
 	}
 };
 const openPalette = () => {
@@ -504,8 +598,11 @@ const loadToday = async () => {
 	editor.value = new Editor({
 		extensions: [
 			...documentExtensions(componentExtension),
+			EntityComposer.configure({
+				onChange: (match) => void updateEntityMenu(match),
+			}),
 			Placeholder.configure({
-				placeholder: "Write something, or type / for blocks…",
+				placeholder: "Write something, type / for blocks, or # to link…",
 			}),
 			FencedCodeAuthoring,
 		],
@@ -562,22 +659,29 @@ const loadToday = async () => {
 				}
 				if (entityMenu.value) {
 					if (event.key === "Escape") {
-						entityMenu.value = undefined;
-						entityMatches.value = [];
+						dismissEntityMenu();
 						return true;
 					}
 					if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+						event.preventDefault();
 						entityIndex.value =
 							(entityIndex.value + (event.key === "ArrowDown" ? 1 : -1) +
-								Math.max(1, entityMatches.value.length)) %
-							Math.max(1, entityMatches.value.length);
+								Math.max(1, entityChoiceCount.value)) %
+							Math.max(1, entityChoiceCount.value);
+						setEntityAutocomplete(true);
 						return true;
 					}
-					if (
-						(event.key === "Enter" || event.key === "Tab") &&
-						entityMatches.value[entityIndex.value]
-					) {
-						chooseEntity(entityMatches.value[entityIndex.value]!);
+					if (event.key === "Enter" || event.key === "Tab") {
+						const entity = entityMatches.value[entityIndex.value];
+						const createSelected = !entity &&
+							entityMenu.value.trigger === "#" && !!entityMenu.value.query &&
+							entityIndex.value === entityMatches.value.length;
+						if (!entity && !createSelected) {
+							return false;
+						}
+						event.preventDefault();
+						if (entity) insertCanonicalEntity(entity);
+						else void beginEntityCreate();
 						return true;
 					}
 				}
@@ -623,15 +727,14 @@ const loadToday = async () => {
 		onUpdate: () => {
 			saveDraft();
 			updateSlash();
-			void updateEntityMenu();
 			revision.value++;
 		},
 		onSelectionUpdate: () => {
 			updateSlash();
-			void updateEntityMenu();
 			revision.value++;
 		},
 	});
+	void updateEntityMenu(entityComposerKey.getState(editor.value.state) ?? null);
 	pendingExternalEntities.splice(0).forEach((entity) => {
 		editor.value?.chain().focus().insertContent({
 			type: "entity",
@@ -799,7 +902,7 @@ onBeforeUnmount(() => {
 			<TodaySidebar v-if="props.showSidebar" :date="dayBounds.date" :from="dayBounds.from" :to="dayBounds.to" />
 		</div>
 		<footer>
-			<span>Type <kbd>/</kbd> for blocks</span
+			<span>Type <kbd>/</kbd> for blocks or <kbd>#</kbd> to link</span
 			><span>Your note saves after the first edit.</span>
 		</footer>
 		<dialog
@@ -841,23 +944,54 @@ onBeforeUnmount(() => {
 		</div>
 		<div
 			v-if="entityMenu"
+			id="entity-composer-listbox"
 			class="block-menu entity-menu"
-			role="listbox"
-			aria-label="Mention an entity"
+			:role="entityCreateMode ? 'dialog' : 'listbox'"
+			:aria-label="entityCreateMode ? 'Create an entity' : entityMenu.trigger === '@' ? 'Mention a person' : 'Link or create an entity'"
 			:style="{ left: `${entityMenu.x}px`, top: `${entityMenu.y}px` }"
 		>
-			<div class="menu-title">Mention a person or event</div>
-			<button
-				v-for="(entity, index) in entityMatches"
-				:key="entityKey(entity)"
-				role="option"
-				:aria-selected="index === entityIndex"
-				@mousedown.prevent="chooseEntity(entity)"
-			>
-				<span class="block-icon">@</span>
-				<span><strong>{{ entityLabel(entity) }}</strong><small>{{ entityKind(entity) }}<template v-if="entityMeta(entity)"> · {{ entityMeta(entity) }}</template></small></span>
-			</button>
-			<p v-if="!entityMatches.length" class="menu-empty">No matching people or events</p>
+			<template v-if="!entityCreateMode">
+				<div class="menu-title">{{ entityMenu.trigger === "@" ? "Mention a person" : "Link or create an entity" }}</div>
+				<p v-if="entitySearchLoading" class="menu-empty" role="status">Searching entities…</p>
+				<p v-else-if="entitySearchError" class="menu-empty" role="alert">{{ entitySearchError }}</p>
+				<button
+					v-for="(entity, index) in entityMatches"
+					:id="`entity-composer-option-${index}`"
+					:key="entity.id"
+					role="option"
+					tabindex="-1"
+					:aria-selected="index === entityIndex"
+					@mousedown.prevent="insertCanonicalEntity(entity)"
+				>
+					<span class="block-icon">{{ entityMenu.trigger }}</span>
+					<span><strong>{{ entity.label }}</strong><small>{{ entity.rootId.replace(/^base:/, "") }}</small></span>
+				</button>
+				<button
+					v-if="entityMenu.trigger === '#' && entityMenu.query"
+					:id="`entity-composer-option-${entityMatches.length}`"
+					role="option"
+					tabindex="-1"
+					:aria-selected="entityIndex === entityMatches.length"
+					@mousedown.prevent="beginEntityCreate"
+				>
+					<span class="block-icon">＋</span>
+					<span><strong>Create “{{ entityMenu.query }}”</strong><small>Choose a Supertag</small></span>
+				</button>
+				<p v-if="!entitySearchLoading && !entitySearchError && !entityMatches.length && entityMenu.trigger === '@'" class="menu-empty">No matching people</p>
+			</template>
+			<form v-else class="entity-create" @submit.prevent="createEntityFromMenu" @keydown.esc.prevent="cancelEntityCreate">
+				<div class="menu-title">Create “{{ entityMenu.query }}”</div>
+				<label for="entity-supertag">Supertag</label>
+				<select id="entity-supertag" ref="entityTagSelect" v-model="entityTagId" :disabled="entityCreating || !entityTags.length">
+					<option value="" disabled>Choose a Supertag</option>
+					<option v-for="tag in entityTags" :key="tag.id" :value="tag.id">{{ tag.name }}{{ tag.kind === "base" ? " (base)" : "" }}</option>
+				</select>
+				<p v-if="entityCreateError" class="menu-empty" role="alert">{{ entityCreateError }}</p>
+				<div class="entity-create-actions">
+					<button type="button" :disabled="entityCreating" @click="cancelEntityCreate">Back</button>
+					<button class="primary" type="submit" :disabled="entityCreating || !entityTagId">{{ entityCreating ? "Creating…" : "Create entity" }}</button>
+				</div>
+			</form>
 		</div>
 		<div v-if="paletteOpen" class="palette-backdrop" @mousedown.self="paletteOpen = false">
 			<div class="block-menu command-palette" role="dialog" aria-label="Command palette">

@@ -406,6 +406,26 @@ a {
 .entity-menu {
 	width: 330px;
 }
+.entity-create {
+	display: grid;
+	gap: 8px;
+	padding: 0 8px 8px;
+}
+.entity-create label {
+	font-size: 12px;
+	font-weight: 650;
+}
+.entity-create select {
+	width: 100%;
+	border-color: var(--line);
+	background: var(--bg);
+}
+.entity-create-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 4px;
+}
 .event-page-heading {
 	display: flex;
 	justify-content: space-between;
