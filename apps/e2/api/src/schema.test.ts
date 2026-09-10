@@ -8,6 +8,7 @@ import { enforceQueryBudget } from "./limits.ts";
 import type { CalendarApi } from "@e2/oauth-client/calendar";
 import { todayGraphql } from "./today.ts";
 import { entitiesGraphql } from "../../core/entities/graphql.ts";
+import { documentsGraphql } from "../../core/documents/graphql.ts";
 import type { EntitiesApi, MutationProvenance } from "@e2/entities";
 
 Deno.test("integration-owned schemas compose independently onto shared User", () => {
@@ -48,11 +49,44 @@ Deno.test("entities GraphQL uses authenticated owner for search and mutation pro
 				id: "00000000-0000-4000-8000-000000000002",
 				label: input.label,
 				bodyDocumentId: "entity:00000000-0000-4000-8000-000000000002",
+				bodyDocumentIds: [
+					"entity:00000000-0000-4000-8000-000000000002",
+				],
+				mergedEntityIds: ["00000000-0000-4000-8000-000000000002"],
 				tagIds: input.tagIds,
 				values: { "field:person:name": input.label },
 				aliases: [],
 				archived: false,
 				revision: 1,
+			});
+		},
+		setUserValues: (
+			id: string,
+			_values: Readonly<Record<string, unknown>>,
+			_clear: readonly string[],
+			expectedRevision: number,
+			provenance: MutationProvenance,
+		) => {
+			actors.push(provenance);
+			return Promise.resolve({
+				ok: false as const,
+				entity: {
+					id,
+					label: "Grace Hopper",
+					bodyDocumentId: `entity:${id}`,
+					bodyDocumentIds: [`entity:${id}`],
+					mergedEntityIds: [id],
+					tagIds: ["base:person"],
+					values: { "field:person:name": "Grace Hopper" },
+					aliases: [],
+					archived: false,
+					revision: 2,
+				},
+				conflicts: [{
+					entityId: id,
+					expectedRevision,
+					actualRevision: 2,
+				}],
 			});
 		},
 		[Symbol.dispose]: () => {},
@@ -97,6 +131,26 @@ Deno.test("entities GraphQL uses authenticated owner for search and mutation pro
 		contextValue,
 	});
 	assert.equal(create.errors, undefined);
+	const conflict = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`mutation { setEntityValues(input: { id: "00000000-0000-4000-8000-000000000002", expectedRevision: 1, values: [], clearFieldIds: [] }) { ok entity { revision } conflicts { entityId expectedRevision actualRevision } } }`,
+		),
+		contextValue,
+	});
+	assert.equal(conflict.errors, undefined);
+	assert.deepEqual(JSON.parse(JSON.stringify(conflict.data)), {
+		setEntityValues: {
+			ok: false,
+			entity: { revision: 2 },
+			conflicts: [{
+				entityId: "00000000-0000-4000-8000-000000000002",
+				expectedRevision: 1,
+				actualRevision: 2,
+			}],
+		},
+	});
 	const otherOwner = await execute({
 		schema,
 		fieldResolver,
@@ -107,16 +161,28 @@ Deno.test("entities GraphQL uses authenticated owner for search and mutation pro
 		}),
 	});
 	assert.equal(otherOwner.errors, undefined);
-	assert.deepEqual(owners, ["access:alice", "access:alice", "access:bob"]);
+	assert.deepEqual(owners, [
+		"access:alice",
+		"access:alice",
+		"access:alice",
+		"access:bob",
+	]);
 	assert.deepEqual(searches, [
 		["ada", { rootId: "base:person", limit: 5 }],
 		["ada", { rootId: undefined, limit: 1 }],
 	]);
-	assert.deepEqual(actors, [{
-		actor: "access:alice",
-		cause: "graphql:create-entity",
-		rationale: "Authenticated user created an entity.",
-	}]);
+	assert.deepEqual(actors, [
+		{
+			actor: "access:alice",
+			cause: "graphql:create-entity",
+			rationale: "Authenticated user created an entity.",
+		},
+		{
+			actor: "access:alice",
+			cause: "graphql:set-entity-values",
+			rationale: "Authenticated user updated entity field values.",
+		},
+	]);
 	assert.ok(
 		validate(
 			schema,
@@ -125,6 +191,64 @@ Deno.test("entities GraphQL uses authenticated owner for search and mutation pro
 			),
 		).length > 0,
 	);
+});
+
+Deno.test("entity backlinks include every redirected entity ID for the owner", async () => {
+	const requested: unknown[][] = [];
+	const canonicalId = "00000000-0000-4000-8000-000000000011";
+	const redirectedId = "00000000-0000-4000-8000-000000000012";
+	const disposable = { [Symbol.dispose]: () => {} };
+	const env = {
+		ENTITIES_ADMIN: {
+			admin: () =>
+				Promise.resolve({
+					...disposable,
+					getEntity: () =>
+						Promise.resolve({
+							id: canonicalId,
+							label: "Ada",
+							bodyDocumentId: `entity:${canonicalId}`,
+							bodyDocumentIds: [
+								`entity:${canonicalId}`,
+								`entity:${redirectedId}`,
+							],
+							mergedEntityIds: [canonicalId, redirectedId],
+							tagIds: ["base:person"],
+							values: {},
+							aliases: [],
+							archived: false,
+							revision: 2,
+						}),
+				}),
+		},
+		DOCUMENTS_ADMIN: {
+			admin: () =>
+				Promise.resolve({
+					...disposable,
+					backlinks: (ids: readonly string[], limit: number) => {
+						requested.push([ids, limit]);
+						return Promise.resolve([]);
+					},
+				}),
+		},
+	} as unknown as ApiEnv;
+	const { schema, fieldResolver } = composeSchema([
+		documentsGraphql,
+		entitiesGraphql,
+	]);
+	const result = await execute({
+		schema,
+		fieldResolver,
+		document: parse(
+			`query { me { entityBacklinks(entityId: "${redirectedId}", limit: 12) { id } } }`,
+		),
+		contextValue: createContext(env, {
+			ownerId: "access:alice",
+			email: "alice@example.com",
+		}),
+	});
+	assert.equal(result.errors, undefined);
+	assert.deepEqual(requested, [[[canonicalId, redirectedId], 12]]);
 });
 
 Deno.test("Supertag GraphQL exposes inherited field origins, impact, and revisioned admin mutations", async () => {

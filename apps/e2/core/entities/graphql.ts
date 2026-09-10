@@ -3,6 +3,7 @@ import type {
 	Cardinality,
 	DefineFieldInput,
 	EntitiesApi,
+	EntityMutationResult,
 	EntitySource,
 	FieldType,
 	FieldValue,
@@ -126,6 +127,10 @@ const entity = (value: CanonicalEntity) => ({
 	...value,
 	values: Object.entries(value.values).map(outputValue),
 });
+const mutationResult = (value: EntityMutationResult) => ({
+	...value,
+	entity: entity(value.entity),
+});
 const provenance = (
 	context: ApiContext,
 	cause: string,
@@ -172,7 +177,9 @@ export const entitiesGraphql: IntegrationSchema = {
     type SupertagDetails { tag: Supertag! fields: [EntityFieldDefinition!]! directEntityCount: Int! inheritedEntityCount: Int! activeChildTagCount: Int! }
     type ArchiveImpact { allowed: Boolean! entityCount: Int! descendantTagCount: Int! valueCount: Int! }
     type EntitySummary { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! rootId: ID! }
-    type Entity { id: ID! label: String! bodyDocumentId: ID! tagIds: [ID!]! values: [EntityValue!]! aliases: [String!]! archived: Boolean! revision: Int! redirectedTo: ID }
+    type Entity { id: ID! label: String! bodyDocumentId: ID! bodyDocumentIds: [ID!]! mergedEntityIds: [ID!]! tagIds: [ID!]! values: [EntityValue!]! aliases: [String!]! archived: Boolean! revision: Int! redirectedTo: ID }
+    type EntityRevisionConflict { entityId: ID! expectedRevision: Int! actualRevision: Int! }
+    type EntityMutationResult { ok: Boolean! entity: Entity! conflicts: [EntityRevisionConflict!]! }
     type EntityValue { fieldId: ID! text: String number: Float boolean: Boolean strings: [String!] numbers: [Float!] booleans: [Boolean!] }
     type EntityFieldDefinition { id: ID! tagId: ID! key: String! label: String! type: String! cardinality: String! required: Boolean! options: [String!] defaultValue: EntityValue archived: Boolean! originTagId: ID! inherited: Boolean! }
     enum EntityFieldType { TEXT NUMBER BOOLEAN DATE DATETIME URL EMAIL ENUM ENTITY_REFERENCE }
@@ -185,10 +192,10 @@ export const entitiesGraphql: IntegrationSchema = {
     input ArchiveEntityFieldInput { id: ID! expectedTagRevision: Int! expectedValueCount: Int! }
     input DefineEntityFieldInput { tagId: ID! key: String! label: String! type: EntityFieldType! cardinality: EntityCardinality! required: Boolean = false options: [String!] defaultValue: EntityRawValueInput }
     input CreateEntityInput { label: String! tagIds: [ID!]! aliases: [String!] values: [EntityValueInput!] }
-    input SetEntityValuesInput { id: ID! values: [EntityValueInput!]! clearFieldIds: [ID!]! }
+    input SetEntityValuesInput { id: ID! expectedRevision: Int! values: [EntityValueInput!]! clearFieldIds: [ID!]! }
     input EntitySourceInput { provider: String! connectionId: ID! resourceType: String! resourceId: ID! }
-    input SetEntityPreferredSourceInput { id: ID! fieldId: ID! source: EntitySourceInput }
-    input MergeEntitiesInput { fromId: ID! intoId: ID! }
+    input SetEntityPreferredSourceInput { id: ID! fieldId: ID! expectedRevision: Int! source: EntitySourceInput }
+    input MergeEntitiesInput { fromId: ID! intoId: ID! expectedFromRevision: Int! expectedIntoRevision: Int! }
     type Mutation {
       createUserTag(input: CreateUserTagInput!): Supertag!
       renameUserTag(input: RenameUserTagInput!): SupertagDetails!
@@ -196,9 +203,9 @@ export const entitiesGraphql: IntegrationSchema = {
       defineEntityField(input: DefineEntityFieldInput!): EntityFieldDefinition!
       archiveEntityField(input: ArchiveEntityFieldInput!): SupertagDetails!
       createEntity(input: CreateEntityInput!): Entity!
-      setEntityValues(input: SetEntityValuesInput!): Entity!
-      setEntityPreferredSource(input: SetEntityPreferredSourceInput!): Entity!
-      mergeEntities(input: MergeEntitiesInput!): Entity!
+      setEntityValues(input: SetEntityValuesInput!): EntityMutationResult!
+      setEntityPreferredSource(input: SetEntityPreferredSourceInput!): EntityMutationResult!
+      mergeEntities(input: MergeEntitiesInput!): EntityMutationResult!
     }
   `,
 	fields: {
@@ -357,13 +364,14 @@ export const entitiesGraphql: IntegrationSchema = {
 					boundedString(value.id, "entity ID", 200),
 					inputValues(value.values),
 					strings(value.clearFieldIds, "cleared field IDs", 128),
+					Number(value.expectedRevision),
 					provenance(
 						context,
 						"graphql:set-entity-values",
 						"Authenticated user updated entity field values.",
 					),
 				));
-			return entity(result);
+			return mutationResult(result);
 		},
 		"Mutation.setEntityPreferredSource": async (_source, args, context) => {
 			const value = input(args);
@@ -394,13 +402,14 @@ export const entitiesGraphql: IntegrationSchema = {
 					boundedString(value.id, "entity ID", 200),
 					boundedString(value.fieldId, "field ID", 200),
 					source,
+					Number(value.expectedRevision),
 					provenance(
 						context,
 						"graphql:set-entity-source",
 						"Authenticated user changed entity source precedence.",
 					),
 				));
-			return entity(result);
+			return mutationResult(result);
 		},
 		"Mutation.mergeEntities": async (_source, args, context) => {
 			const value = input(args);
@@ -408,13 +417,15 @@ export const entitiesGraphql: IntegrationSchema = {
 				api.mergeEntities(
 					boundedString(value.fromId, "source entity ID", 200),
 					boundedString(value.intoId, "target entity ID", 200),
+					Number(value.expectedFromRevision),
+					Number(value.expectedIntoRevision),
 					provenance(
 						context,
 						"graphql:merge-entities",
 						"Authenticated user merged duplicate entities.",
 					),
 				));
-			return entity(result);
+			return mutationResult(result);
 		},
 	},
 };

@@ -147,7 +147,11 @@ Deno.test("canonical entity backlinks are deduplicated and replaced with the doc
 		assert.equal(
 			documents.save(
 				"today",
-				noteWithEntities(entity(first), entity(first, "Same entity")),
+				noteWithEntities(
+					entity(first),
+					entity(first, "Same entity"),
+					entity(second),
+				),
 				null,
 			).ok,
 			true,
@@ -159,6 +163,7 @@ Deno.test("canonical entity backlinks are deduplicated and replaced with the doc
 			createdAt: documents.get("today")!.createdAt,
 			updatedAt: documents.get("today")!.updatedAt,
 		}]);
+		assert.equal(documents.backlinks([first, second]).length, 1);
 		assert.equal(
 			documents.save("today", noteWithEntities(entity(second)), 1).ok,
 			true,

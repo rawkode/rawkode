@@ -23,7 +23,10 @@ export type SaveResult = { ok: true; document: StoredDocument } | {
 export interface DocumentsApi {
 	get(id: string): Promise<StoredDocument | null>;
 	list(prefix: string, limit?: number): Promise<DocumentSummary[]>;
-	backlinks(entityId: string, limit?: number): Promise<DocumentBacklink[]>;
+	backlinks(
+		entityIds: string | readonly string[],
+		limit?: number,
+	): Promise<DocumentBacklink[]>;
 	save(
 		id: string,
 		note: unknown,

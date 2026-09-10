@@ -6,29 +6,36 @@ import type {
 	CreateUserTagInput,
 	DefineFieldInput,
 	EntitiesApi,
+	EntityMutationResult,
 	EntitySearchOptions,
 	EntitySource,
 	MutationProvenance,
 	ProjectionBatch,
 } from "@e2/entities";
 import migrations from "../migrations/migrations.js";
-import { createEntityStore } from "./storage.ts";
+import { type createEntityStore, initializeEntityStore } from "./storage.ts";
 export type * from "@e2/entities";
-export { createEntityStore, type EntityDatabase } from "./storage.ts";
+export {
+	createEntityStore,
+	type EntityDatabase,
+	initializeEntityStore,
+} from "./storage.ts";
 
 interface EntitiesEnv {
 	ENTITIES: DurableObjectNamespace<Entities>;
 }
 
 export class Entities extends DurableObject<EntitiesEnv> {
-	#store: ReturnType<typeof createEntityStore>;
+	#store!: ReturnType<typeof createEntityStore>;
 	constructor(ctx: DurableObjectState, env: EntitiesEnv) {
 		super(ctx, env);
 		const db = drizzle(ctx.storage);
-		ctx.blockConcurrencyWhile(() =>
-			Promise.resolve().then(() => migrate(db, migrations))
-		);
-		this.#store = createEntityStore(db);
+		ctx.blockConcurrencyWhile(async () => {
+			this.#store = await initializeEntityStore(
+				db,
+				() => migrate(db, migrations),
+			);
+		});
 	}
 	listTags() {
 		return this.#store.listTags();
@@ -89,24 +96,46 @@ export class Entities extends DurableObject<EntitiesEnv> {
 		id: string,
 		values: Readonly<Record<string, unknown>>,
 		clear: readonly string[],
+		expectedRevision: number,
 		provenance: MutationProvenance,
-	) {
-		return this.#store.setUserValues(id, values, clear, provenance);
+	): EntityMutationResult {
+		return this.#store.setUserValues(
+			id,
+			values,
+			clear,
+			expectedRevision,
+			provenance,
+		);
 	}
 	setPreferredSource(
 		id: string,
 		fieldId: string,
 		source: EntitySource | null,
+		expectedRevision: number,
 		provenance: MutationProvenance,
-	) {
-		return this.#store.setPreferredSource(id, fieldId, source, provenance);
+	): EntityMutationResult {
+		return this.#store.setPreferredSource(
+			id,
+			fieldId,
+			source,
+			expectedRevision,
+			provenance,
+		);
 	}
 	mergeEntities(
 		fromId: string,
 		intoId: string,
+		expectedFromRevision: number,
+		expectedIntoRevision: number,
 		provenance: MutationProvenance,
-	) {
-		return this.#store.mergeEntities(fromId, intoId, provenance);
+	): EntityMutationResult {
+		return this.#store.mergeEntities(
+			fromId,
+			intoId,
+			expectedFromRevision,
+			expectedIntoRevision,
+			provenance,
+		);
 	}
 	upsertProjectionBatch(batch: ProjectionBatch) {
 		return this.#store.upsertProjectionBatch(batch);
@@ -178,24 +207,46 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 		id: string,
 		values: Readonly<Record<string, unknown>>,
 		clear: readonly string[],
+		expectedRevision: number,
 		provenance: MutationProvenance,
 	) {
-		return this.#entities.setUserValues(id, values, clear, provenance);
+		return this.#entities.setUserValues(
+			id,
+			values,
+			clear,
+			expectedRevision,
+			provenance,
+		);
 	}
 	setPreferredSource(
 		id: string,
 		fieldId: string,
 		source: EntitySource | null,
+		expectedRevision: number,
 		provenance: MutationProvenance,
 	) {
-		return this.#entities.setPreferredSource(id, fieldId, source, provenance);
+		return this.#entities.setPreferredSource(
+			id,
+			fieldId,
+			source,
+			expectedRevision,
+			provenance,
+		);
 	}
 	mergeEntities(
 		fromId: string,
 		intoId: string,
+		expectedFromRevision: number,
+		expectedIntoRevision: number,
 		provenance: MutationProvenance,
 	) {
-		return this.#entities.mergeEntities(fromId, intoId, provenance);
+		return this.#entities.mergeEntities(
+			fromId,
+			intoId,
+			expectedFromRevision,
+			expectedIntoRevision,
+			provenance,
+		);
 	}
 	upsertProjectionBatch(batch: ProjectionBatch) {
 		return this.#entities.upsertProjectionBatch(batch);

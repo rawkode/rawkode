@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/durable-sqlite";
 import {
 	type CanonicalEntityReference,
@@ -133,23 +133,43 @@ export const createDocumentStore = (
 		)
 			.orderBy(asc(documents.id)).limit(limit).all() as DocumentSummary[];
 	};
-	const backlinks = (entityId: string, limit = 50): DocumentBacklink[] => {
-		validateEntityId(entityId);
+	const backlinks = (
+		entityIds: string | readonly string[],
+		limit = 50,
+	): DocumentBacklink[] => {
+		const ids = [
+			...new Set(typeof entityIds === "string" ? [entityIds] : entityIds),
+		];
+		if (!ids.length || ids.length > 10_000) {
+			throw new Error("Invalid entity IDs");
+		}
+		ids.forEach(validateEntityId);
 		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
 			throw new Error("Invalid document limit");
 		}
-		return db.select({
-			id: documents.id,
-			entityId: documentEntityRefs.entityId,
-			revision: documents.revision,
-			createdAt: documents.createdAt,
-			updatedAt: documents.updatedAt,
-		}).from(documentEntityRefs).innerJoin(
-			documents,
-			eq(documentEntityRefs.documentId, documents.id),
-		).where(eq(documentEntityRefs.entityId, entityId)).orderBy(
-			desc(documents.updatedAt),
-		).limit(limit).all() as DocumentBacklink[];
+		const matches = ids.flatMap((_, offset) => {
+			if (offset % 90 !== 0) return [];
+			return db.select({
+				id: documents.id,
+				entityId: documentEntityRefs.entityId,
+				revision: documents.revision,
+				createdAt: documents.createdAt,
+				updatedAt: documents.updatedAt,
+			}).from(documentEntityRefs).innerJoin(
+				documents,
+				eq(documentEntityRefs.documentId, documents.id),
+			).where(
+				inArray(documentEntityRefs.entityId, ids.slice(offset, offset + 90)),
+			)
+				.orderBy(desc(documents.updatedAt), asc(documents.id)).limit(limit)
+				.all() as DocumentBacklink[];
+		});
+		return [...new Map(
+			matches.sort((left, right) =>
+				right.updatedAt.localeCompare(left.updatedAt) ||
+				left.id.localeCompare(right.id)
+			).map((match) => [match.id, match]),
+		).values()].slice(0, limit);
 	};
 	const save = (
 		id: string,

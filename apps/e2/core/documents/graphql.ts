@@ -42,11 +42,20 @@ export const documentsGraphql: IntegrationSchema = {
 			if (!context.env.DOCUMENTS_ADMIN) {
 				throw new Error("Documents are not configured.");
 			}
+			const requestedId = String(args.entityId);
+			let entityIds: readonly string[] = [requestedId];
+			if (context.env.ENTITIES_ADMIN) {
+				using entities = await context.env.ENTITIES_ADMIN.admin(
+					context.identity.ownerId,
+				);
+				const entity = await entities.getEntity(requestedId);
+				if (entity) entityIds = entity.mergedEntityIds;
+			}
 			using documents = await context.env.DOCUMENTS_ADMIN.admin(
 				context.identity.ownerId,
 			);
 			return await documents.backlinks(
-				String(args.entityId),
+				entityIds,
 				Number(args.limit ?? 50),
 			);
 		},

@@ -1,4 +1,5 @@
 import {
+	index,
 	integer,
 	primaryKey,
 	sqliteTable,
@@ -25,4 +26,7 @@ export const documentEntityRefs = sqliteTable("document_entity_refs", {
 		onDelete: "cascade",
 	}),
 	entityId: text("entity_id").notNull(),
-}, (table) => [primaryKey({ columns: [table.documentId, table.entityId] })]);
+}, (table) => [
+	primaryKey({ columns: [table.documentId, table.entityId] }),
+	index("document_entity_refs_entity").on(table.entityId, table.documentId),
+]);

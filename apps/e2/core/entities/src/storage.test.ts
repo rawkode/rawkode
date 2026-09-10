@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import { BASE_TAGS, INTEGRATION_TAGS, MAX_TAG_DEPTH } from "@e2/entities";
-import { createEntityStore, type EntityDatabase } from "./storage.ts";
+import {
+	createEntityStore,
+	type EntityDatabase,
+	initializeEntityStore,
+} from "./storage.ts";
 
 const migrationConfig = {
 	migrationsFolder: fileURLToPath(new URL("../migrations", import.meta.url)),
@@ -30,6 +34,25 @@ const fixture = () => {
 		),
 	};
 };
+
+Deno.test("initialization migrates before the store seeds locked tags", async () => {
+	const database = new DatabaseSync(":memory:");
+	const db = drizzle({ client: database });
+	let migrated = false;
+	try {
+		const entities = await initializeEntityStore(
+			db as unknown as EntityDatabase,
+			() => {
+				migrate(db, migrationConfig);
+				migrated = true;
+			},
+		);
+		assert.equal(migrated, true);
+		assert.equal(entities.listTags().length, 18);
+	} finally {
+		database.close();
+	}
+});
 
 Deno.test("seeds ten stable bases and locked provider tags", () => {
 	const { database, entities } = fixture();
@@ -126,7 +149,13 @@ Deno.test("same-root tags compose typed fields and cross-root tags are rejected"
 			}, provenance)
 		);
 		assert.throws(() =>
-			entities.setUserValues(entity.id, { [language.id]: "Go" }, [], provenance)
+			entities.setUserValues(
+				entity.id,
+				{ [language.id]: "Go" },
+				[],
+				entity.revision,
+				provenance,
+			)
 		);
 		const quickPerson = entities.createEntity({
 			label: "Grace Hopper",
@@ -155,6 +184,12 @@ Deno.test("bounded indexed search finds labels and aliases and filters roots", (
 			label: "Ada Project",
 			tagIds: [BASE_TAGS.project],
 		}, provenance);
+		for (let index = 0; index < 60; index++) {
+			entities.createEntity({
+				label: `Ada Project ${String(index).padStart(2, "0")}`,
+				tagIds: [BASE_TAGS.project],
+			}, provenance);
+		}
 		assert.equal(
 			entities.searchEntities("ada", { rootId: BASE_TAGS.person })[0]?.id,
 			person.id,
@@ -216,13 +251,20 @@ Deno.test("projection batches are idempotent and user values override preferred 
 				"SELECT entity_id FROM source_observations WHERE provider = 'github'",
 			).get()?.entity_id,
 		);
-		entities.mergeEntities(githubId, entityId, provenance);
-		entities.setPreferredSource(entityId, "field:person:name", {
-			provider: "github",
-			connectionId: "account-b",
-			resourceType: "user",
-			resourceId: "1",
-		}, provenance);
+		const preferred = entities.setPreferredSource(
+			githubId,
+			"field:person:name",
+			{
+				provider: "github",
+				connectionId: "account-b",
+				resourceType: "user",
+				resourceId: "1",
+			},
+			1,
+			provenance,
+		);
+		assert.equal(preferred.ok, true);
+		entities.mergeEntities(githubId, entityId, 2, 1, provenance);
 		assert.equal(
 			entities.getEntity(entityId)?.values["field:person:name"],
 			"Ada GitHub",
@@ -235,25 +277,41 @@ Deno.test("projection batches are idempotent and user values override preferred 
 			entityId,
 			{ "field:person:name": "Countess Lovelace" },
 			[],
+			2,
 			provenance,
 		);
 		assert.equal(
 			entities.getEntity(entityId)?.values["field:person:name"],
 			"Countess Lovelace",
 		);
+		assert.equal(entities.getEntity(entityId)?.label, "Countess Lovelace");
+		assert.deepEqual(
+			entities.upsertProjectionBatch({
+				...google,
+				records: [{
+					...google.records[0],
+					sourceRevision: "2",
+					label: "Augusta Ada King",
+					values: { "field:person:name": "Augusta Ada King" },
+				}],
+			}),
+			{ changed: 1 },
+		);
+		assert.equal(entities.getEntity(entityId)?.label, "Countess Lovelace");
 		assert.deepEqual(
 			entities.upsertProjectionBatch({
 				...google,
 				records: [{
 					resourceType: "contact",
 					resourceId: "people/1",
-					sourceRevision: "2",
+					sourceRevision: "3",
 					tagId: INTEGRATION_TAGS.googleContact,
 					deleted: true,
 				}],
 			}),
 			{ changed: 1 },
 		);
+		assert.equal(entities.getEntity(entityId)?.label, "Countess Lovelace");
 	} finally {
 		database.close();
 	}
@@ -273,10 +331,42 @@ Deno.test("merges retain redirects and every mutation has provenance", () => {
 			tagIds: [BASE_TAGS.person],
 			values: { "field:person:name": "Lovelace" },
 		}, provenance);
-		const merged = entities.mergeEntities(left.id, right.id, provenance);
-		assert.equal(merged.id, right.id);
-		assert.equal(merged.redirectedTo, right.id);
-		assert.deepEqual(merged.aliases, ["A. Lovelace"]);
+		const staleMerge = entities.mergeEntities(
+			left.id,
+			right.id,
+			2,
+			1,
+			provenance,
+		);
+		assert.deepEqual(staleMerge.conflicts, [{
+			entityId: left.id,
+			expectedRevision: 2,
+			actualRevision: 1,
+		}]);
+		assert.equal(entities.getEntity(left.id)?.redirectedTo, undefined);
+		const merged = entities.mergeEntities(left.id, right.id, 1, 1, provenance);
+		assert.equal(merged.ok, true);
+		assert.equal(merged.entity.id, right.id);
+		assert.equal(merged.entity.redirectedTo, right.id);
+		assert.deepEqual(merged.entity.aliases, ["A. Lovelace"]);
+		assert.deepEqual(merged.entity.mergedEntityIds, [right.id, left.id]);
+		assert.deepEqual(merged.entity.bodyDocumentIds, [
+			right.bodyDocumentId,
+			left.bodyDocumentId,
+		]);
+		const conflict = entities.setUserValues(
+			right.id,
+			{ "field:person:name": "Stale" },
+			[],
+			1,
+			provenance,
+		);
+		assert.deepEqual(conflict.conflicts, [{
+			entityId: right.id,
+			expectedRevision: 1,
+			actualRevision: 2,
+		}]);
+		assert.equal(conflict.entity.values["field:person:name"], "Lovelace");
 		assert.ok(
 			Number(
 				database.prepare("SELECT count(*) AS count FROM audit_events").get()

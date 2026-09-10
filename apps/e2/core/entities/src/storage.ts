@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, inArray, lt, or } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/durable-sqlite";
 import {
 	type ArchiveImpact,
@@ -10,6 +10,7 @@ import {
 	type CreateUserTagInput,
 	type DefineFieldInput,
 	type EffectiveFieldDefinition,
+	type EntityMutationResult,
 	type EntitySearchOptions,
 	type EntitySource,
 	type EntitySummary,
@@ -796,6 +797,34 @@ export const createEntityStore = (
 		if (primary && !(primary.id in values)) values[primary.id] = label;
 		return values;
 	};
+	const primaryTextField = (fields: readonly FieldDefinition[]) =>
+		fields.find((field) =>
+			field.required && field.cardinality === "single" &&
+			field.type === "text" && ["name", "title"].includes(field.key)
+		);
+	const resolvedLabel = (
+		fields: readonly FieldDefinition[],
+		values: Readonly<Record<string, FieldValue>>,
+		fallback: string,
+	): string => {
+		const primary = primaryTextField(fields);
+		const value = primary ? values[primary.id] : undefined;
+		return typeof value === "string" && value.trim() ? value : fallback;
+	};
+	const revisionConflict = (
+		entityId: string,
+		expectedRevision: number,
+		actualRevision: number,
+	): EntityMutationResult => ({
+		ok: false,
+		entity: getEntity(entityId)!,
+		conflicts: [{ entityId, expectedRevision, actualRevision }],
+	});
+	const validRevision = (value: number): void => {
+		if (!Number.isSafeInteger(value) || value < 1) {
+			throw new Error("Invalid entity revision");
+		}
+	};
 
 	const resolveId = (entityId: string): string => {
 		if (!isUUID(entityId)) throw new Error("Invalid entity ID");
@@ -909,10 +938,24 @@ export const createEntityStore = (
 				),
 			).all().map((entry) => [entry.normalized, entry.alias] as const),
 		]).values()];
+		const redirectedIds = db.select({ id: entityRedirects.fromEntityId })
+			.from(entityRedirects).where(eq(entityRedirects.toEntityId, entityId))
+			.orderBy(asc(entityRedirects.fromEntityId)).all()
+			.map(({ id }) => id);
+		const mergedEntityIds = [entityId, ...redirectedIds];
+		const bodyByEntity = new Map(
+			db.select({ id: entities.id, bodyDocumentId: entities.bodyDocumentId })
+				.from(entities).where(inArray(entities.id, mergedEntityIds)).all()
+				.map(({ id, bodyDocumentId }) => [id, bodyDocumentId]),
+		);
 		return {
 			id: row.id,
-			label: row.label,
+			label: resolvedLabel(fields, values, row.label),
 			bodyDocumentId: row.bodyDocumentId,
+			bodyDocumentIds: mergedEntityIds.flatMap((id) =>
+				bodyByEntity.has(id) ? [bodyByEntity.get(id)!] : []
+			),
+			mergedEntityIds,
 			tagIds,
 			values,
 			aliases,
@@ -997,46 +1040,71 @@ export const createEntityStore = (
 				options.rootId &&
 				!Object.values(BASE_TAGS).includes(options.rootId)
 			) throw new Error("Invalid entity root");
-			const candidates = needle
-				? [
-					...db.select({ id: entities.id }).from(entities).where(and(
-						eq(entities.archived, false),
+			const rootMatch = options.rootId
+				? exists(
+					db.select({ id: entityTags.entityId }).from(entityTags).innerJoin(
+						supertags,
+						eq(entityTags.tagId, supertags.id),
+					).where(and(
+						eq(entityTags.entityId, entities.id),
+						eq(supertags.rootId, options.rootId),
+					)),
+				)
+				: undefined;
+			const textMatch = needle
+				? or(
+					and(
 						gte(entities.normalizedLabel, needle),
 						lt(entities.normalizedLabel, `${needle}\uffff`),
-					)).orderBy(asc(entities.normalizedLabel)).limit(limit * 4).all()
-						.map(({ id }) => id),
-					...db.select({ entityId: entityAliases.entityId }).from(entityAliases)
-						.where(and(
-							gte(entityAliases.normalized, needle),
-							lt(entityAliases.normalized, `${needle}\uffff`),
-						)).orderBy(asc(entityAliases.normalized)).limit(limit * 4).all()
-						.map(({ entityId }) => entityId),
-					...db.select({ entityId: sourceObservations.entityId })
-						.from(sourceAliases).innerJoin(
-							sourceObservations,
-							and(
-								eq(sourceAliases.provider, sourceObservations.provider),
-								eq(sourceAliases.connectionId, sourceObservations.connectionId),
-								eq(sourceAliases.resourceType, sourceObservations.resourceType),
-								eq(sourceAliases.resourceId, sourceObservations.resourceId),
-							),
-						).where(and(
-							eq(sourceObservations.active, true),
-							gte(sourceAliases.normalized, needle),
-							lt(sourceAliases.normalized, `${needle}\uffff`),
-						)).orderBy(asc(sourceAliases.normalized)).limit(limit * 4).all()
-						.map(({ entityId }) => entityId),
-				]
-				: db.select({ id: entities.id }).from(entities)
-					.where(eq(entities.archived, false))
-					.orderBy(desc(entities.updatedAt), asc(entities.normalizedLabel))
-					.limit(limit * 4).all().map(({ id }) => id);
+					),
+					exists(
+						db.select({ id: entityAliases.entityId }).from(entityAliases)
+							.where(and(
+								eq(entityAliases.entityId, entities.id),
+								gte(entityAliases.normalized, needle),
+								lt(entityAliases.normalized, `${needle}\uffff`),
+							)),
+					),
+					exists(
+						db.select({ id: sourceObservations.entityId }).from(sourceAliases)
+							.innerJoin(
+								sourceObservations,
+								and(
+									eq(sourceAliases.provider, sourceObservations.provider),
+									eq(
+										sourceAliases.connectionId,
+										sourceObservations.connectionId,
+									),
+									eq(
+										sourceAliases.resourceType,
+										sourceObservations.resourceType,
+									),
+									eq(sourceAliases.resourceId, sourceObservations.resourceId),
+								),
+							).where(and(
+								eq(sourceObservations.entityId, entities.id),
+								eq(sourceObservations.active, true),
+								gte(sourceAliases.normalized, needle),
+								lt(sourceAliases.normalized, `${needle}\uffff`),
+							)),
+					),
+				)
+				: undefined;
+			const queryBuilder = db.select({ id: entities.id }).from(entities).where(
+				and(eq(entities.archived, false), rootMatch, textMatch),
+			);
+			const candidates =
+				(needle
+					? queryBuilder.orderBy(asc(entities.normalizedLabel))
+					: queryBuilder.orderBy(
+						desc(entities.updatedAt),
+						asc(entities.normalizedLabel),
+					)).limit(limit).all().map(({ id }) => id);
 			const results: EntitySummary[] = [];
 			for (const candidate of new Set(candidates)) {
 				const entity = getEntity(candidate);
 				if (!entity || entity.archived) continue;
 				const rootId = tagRows(entity.tagIds)[0]!.rootId as BaseTagId;
-				if (options.rootId && rootId !== options.rootId) continue;
 				results.push({
 					id: entity.id,
 					label: entity.label,
@@ -1299,13 +1367,22 @@ export const createEntityStore = (
 			requestedId: string,
 			input: Readonly<Record<string, unknown>>,
 			clear: readonly string[],
+			expectedRevision: number,
 			provenance: MutationProvenance,
-		): CanonicalEntity =>
+		): EntityMutationResult =>
 			db.transaction((tx) => {
+				validRevision(expectedRevision);
 				const entityId = resolveId(requestedId),
 					current = tx.select().from(entities).where(eq(entities.id, entityId))
 						.get();
 				if (!current) throw new Error("Entity not found");
+				if (current.revision !== expectedRevision) {
+					return revisionConflict(
+						entityId,
+						expectedRevision,
+						current.revision,
+					);
+				}
 				const tagIds = tx.select({ tagId: entityTags.tagId }).from(entityTags)
 					.where(eq(entityTags.entityId, entityId)).all().map((entry) =>
 						entry.tagId
@@ -1334,24 +1411,45 @@ export const createEntityStore = (
 						set: { value: json(value) },
 					}).run();
 				}
+				const resolved = getEntity(entityId)!;
+				for (const field of fields) {
+					if (field.required && !(field.id in resolved.values)) {
+						throw new Error(`Missing required field: ${field.key}`);
+					}
+				}
 				const revision = current.revision + 1;
-				tx.update(entities).set({ revision, updatedAt: now() }).where(
+				const label = resolved.label;
+				tx.update(entities).set({
+					label,
+					normalizedLabel: normalize(label),
+					revision,
+					updatedAt: now(),
+				}).where(
 					eq(entities.id, entityId),
 				).run();
 				audit(tx, "entity", entityId, revision, provenance);
-				return getEntity(entityId)!;
+				return { ok: true, entity: getEntity(entityId)!, conflicts: [] };
 			}),
 		setPreferredSource: (
 			requestedId: string,
 			fieldId: string,
 			source: EntitySource | null,
+			expectedRevision: number,
 			provenance: MutationProvenance,
-		): CanonicalEntity =>
+		): EntityMutationResult =>
 			db.transaction((tx) => {
+				validRevision(expectedRevision);
 				const entityId = resolveId(requestedId),
 					current = tx.select().from(entities).where(eq(entities.id, entityId))
 						.get();
 				if (!current) throw new Error("Entity not found");
+				if (current.revision !== expectedRevision) {
+					return revisionConflict(
+						entityId,
+						expectedRevision,
+						current.revision,
+					);
+				}
 				tx.delete(fieldSourcePreferences).where(
 					and(
 						eq(fieldSourcePreferences.entityId, entityId),
@@ -1380,25 +1478,52 @@ export const createEntityStore = (
 					}).run();
 				}
 				const revision = current.revision + 1;
-				tx.update(entities).set({ revision, updatedAt: now() }).where(
+				const label = getEntity(entityId)!.label;
+				tx.update(entities).set({
+					label,
+					normalizedLabel: normalize(label),
+					revision,
+					updatedAt: now(),
+				}).where(
 					eq(entities.id, entityId),
 				).run();
 				audit(tx, "entity", entityId, revision, provenance);
-				return getEntity(entityId)!;
+				return { ok: true, entity: getEntity(entityId)!, conflicts: [] };
 			}),
 		mergeEntities: (
 			fromId: string,
 			intoId: string,
+			expectedFromRevision: number,
+			expectedIntoRevision: number,
 			provenance: MutationProvenance,
-		): CanonicalEntity =>
+		): EntityMutationResult =>
 			db.transaction((tx) => {
+				validRevision(expectedFromRevision);
+				validRevision(expectedIntoRevision);
 				const from = resolveId(fromId), into = resolveId(intoId);
-				if (from === into) return getEntity(into)!;
 				const fromRow = tx.select().from(entities).where(eq(entities.id, from))
 						.get(),
 					intoRow = tx.select().from(entities).where(eq(entities.id, into))
 						.get();
 				if (!fromRow || !intoRow) throw new Error("Entity not found");
+				const conflicts = [
+					...(fromRow.revision === expectedFromRevision ? [] : [{
+						entityId: from,
+						expectedRevision: expectedFromRevision,
+						actualRevision: fromRow.revision,
+					}]),
+					...(intoRow.revision === expectedIntoRevision ? [] : [{
+						entityId: into,
+						expectedRevision: expectedIntoRevision,
+						actualRevision: intoRow.revision,
+					}]),
+				];
+				if (conflicts.length) {
+					return { ok: false, entity: getEntity(into)!, conflicts };
+				}
+				if (from === into) {
+					return { ok: true, entity: getEntity(into)!, conflicts: [] };
+				}
 				const combinedTags = [
 					...new Set(
 						tx.select().from(entityTags).where(
@@ -1433,6 +1558,16 @@ export const createEntityStore = (
 						normalized: alias.normalized,
 					}).onConflictDoNothing().run();
 				}
+				for (
+					const preference of tx.select().from(fieldSourcePreferences).where(
+						eq(fieldSourcePreferences.entityId, from),
+					).all()
+				) {
+					tx.insert(fieldSourcePreferences).values({
+						...preference,
+						entityId: into,
+					}).onConflictDoNothing().run();
+				}
 				tx.update(sourceObservations).set({ entityId: into }).where(
 					eq(sourceObservations.entityId, from),
 				).run();
@@ -1453,12 +1588,18 @@ export const createEntityStore = (
 					updatedAt: now(),
 				}).where(eq(entities.id, from)).run();
 				const revision = intoRow.revision + 1;
-				tx.update(entities).set({ revision, updatedAt: now() }).where(
+				const label = getEntity(into)!.label;
+				tx.update(entities).set({
+					label,
+					normalizedLabel: normalize(label),
+					revision,
+					updatedAt: now(),
+				}).where(
 					eq(entities.id, into),
 				).run();
 				audit(tx, "entity", from, fromRow.revision + 1, provenance);
 				audit(tx, "entity", into, revision, provenance);
-				return getEntity(from)!;
+				return { ok: true, entity: getEntity(from)!, conflicts: [] };
 			}),
 		upsertProjectionBatch: (batch: ProjectionBatch): { changed: number } =>
 			db.transaction((tx) => {
@@ -1607,10 +1748,11 @@ export const createEntityStore = (
 					const entity = tx.select().from(entities).where(
 							eq(entities.id, entityId),
 						).get()!,
-						revision = entity.revision + (current ? 1 : 0);
+						revision = entity.revision + (current ? 1 : 0),
+						canonicalLabel = getEntity(entityId)!.label;
 					tx.update(entities).set({
-						label,
-						normalizedLabel: normalize(label),
+						label: canonicalLabel,
+						normalizedLabel: normalize(canonicalLabel),
 						revision,
 						updatedAt: timestamp,
 					})
@@ -1621,4 +1763,13 @@ export const createEntityStore = (
 				return { changed };
 			}),
 	};
+};
+
+/** Seed only after the owning Durable Object has completed schema migration. */
+export const initializeEntityStore = async (
+	db: EntityDatabase,
+	runMigrations: () => unknown | Promise<unknown>,
+) => {
+	await runMigrations();
+	return createEntityStore(db);
 };

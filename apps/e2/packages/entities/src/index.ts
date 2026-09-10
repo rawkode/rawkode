@@ -108,6 +108,8 @@ export interface CanonicalEntity {
 	id: string;
 	label: string;
 	bodyDocumentId: string;
+	bodyDocumentIds: readonly string[];
+	mergedEntityIds: readonly string[];
 	tagIds: readonly string[];
 	values: Readonly<Record<string, FieldValue>>;
 	aliases: readonly string[];
@@ -115,6 +117,20 @@ export interface CanonicalEntity {
 	revision: number;
 	redirectedTo?: string;
 }
+
+export interface EntityRevisionConflict {
+	entityId: string;
+	expectedRevision: number;
+	actualRevision: number;
+}
+
+export type EntityMutationResult =
+	| { ok: true; entity: CanonicalEntity; conflicts: readonly [] }
+	| {
+		ok: false;
+		entity: CanonicalEntity;
+		conflicts: readonly EntityRevisionConflict[];
+	};
 
 export interface EntitySummary {
 	id: string;
@@ -214,18 +230,22 @@ export interface EntitiesApi {
 		id: string,
 		values: Readonly<Record<string, unknown>>,
 		clear: readonly string[],
+		expectedRevision: number,
 		provenance: MutationProvenance,
-	): Promise<CanonicalEntity>;
+	): Promise<EntityMutationResult>;
 	setPreferredSource(
 		id: string,
 		fieldId: string,
 		source: EntitySource | null,
+		expectedRevision: number,
 		provenance: MutationProvenance,
-	): Promise<CanonicalEntity>;
+	): Promise<EntityMutationResult>;
 	mergeEntities(
 		fromId: string,
 		intoId: string,
+		expectedFromRevision: number,
+		expectedIntoRevision: number,
 		provenance: MutationProvenance,
-	): Promise<CanonicalEntity>;
+	): Promise<EntityMutationResult>;
 	upsertProjectionBatch(batch: ProjectionBatch): Promise<{ changed: number }>;
 }

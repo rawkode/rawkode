@@ -32,8 +32,8 @@ export class Documents extends DurableObject<DocumentsEnv> {
 	list(prefix: string, limit?: number) {
 		return this.#documents.list(prefix, limit);
 	}
-	backlinks(entityId: string, limit?: number) {
-		return this.#documents.backlinks(entityId, limit);
+	backlinks(entityIds: string | readonly string[], limit?: number) {
+		return this.#documents.backlinks(entityIds, limit);
 	}
 	save(id: string, note: unknown, expectedRevision: number | null) {
 		return this.#documents.save(id, note, expectedRevision);
@@ -53,8 +53,8 @@ class OwnerDocuments extends RpcTarget implements DocumentsApi {
 	list(prefix: string, limit?: number) {
 		return this.#documents.list(prefix, limit);
 	}
-	backlinks(entityId: string, limit?: number) {
-		return this.#documents.backlinks(entityId, limit);
+	backlinks(entityIds: string | readonly string[], limit?: number) {
+		return this.#documents.backlinks(entityIds, limit);
 	}
 	save(id: string, note: unknown, expectedRevision: number | null) {
 		return this.#documents.save(id, note, expectedRevision);
