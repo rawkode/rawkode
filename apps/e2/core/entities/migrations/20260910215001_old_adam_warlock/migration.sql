@@ -1,0 +1,1 @@
+CREATE INDEX `source_aliases_normalized` ON `source_aliases` (`normalized`);

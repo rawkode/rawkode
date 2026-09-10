@@ -12,6 +12,7 @@ const files = [
 	...testFiles("website/test"),
 	"api/src/schema.test.ts",
 	"core/documents/src/storage.test.ts",
+	"core/entities/src/storage.test.ts",
 ];
 const args = [
 	"test",

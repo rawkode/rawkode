@@ -7,8 +7,10 @@
 		"./website",
 		"./api",
 		"./packages/documents",
+		"./packages/entities",
 		"./packages/editor",
-		"./core/documents"
+		"./core/documents",
+		"./core/entities"
 	],
 	"tasks": {
 		"dev": "node --env-file-if-exists=.env node_modules/alchemy/bin/cli.js dev",
@@ -23,12 +25,13 @@
 		"smoke": "deno task build:workers && node scripts/smoke.mjs",
 		"db:generate:oauth": "node node_modules/drizzle-kit/bin.cjs generate --config integrations/oauth/drizzle.config.ts",
 		"db:generate:google": "node node_modules/drizzle-kit/bin.cjs generate --config integrations/google/drizzle.config.ts",
-		"db:generate": "deno task db:generate:oauth && deno task db:generate:google && deno task db:generate:documents",
+		"db:generate": "deno task db:generate:oauth && deno task db:generate:google && deno task db:generate:documents && deno task db:generate:entities",
 		"build:website": "node scripts/build-website.mjs",
 		"check:website": "node node_modules/astro/bin/astro.mjs check --root website",
 		"build:workers": "node scripts/build.mjs",
 		"smoke:website": "deno task build && node website/test/runtime.mjs",
 		"db:generate:documents": "node node_modules/drizzle-kit/bin.cjs generate --config core/documents/drizzle.config.ts",
+		"db:generate:entities": "node node_modules/drizzle-kit/bin.cjs generate --config core/entities/drizzle.config.ts",
 		"check:editor": "node node_modules/vue-tsc/bin/vue-tsc.js --noEmit -p website/tsconfig.json"
 	},
 	"nodeModulesDir": "auto",

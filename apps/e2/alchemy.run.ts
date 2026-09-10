@@ -1,4 +1,5 @@
 import documents from "./core/documents/alchemy.ts";
+import entities from "./core/entities/alchemy.ts";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
@@ -18,6 +19,7 @@ export default Alchemy.Stack(
 	{ providers: Cloudflare.providers(), state: Cloudflare.state() },
 	Effect.Do.pipe(
 		Effect.bind("documents", () => documents()),
+		Effect.bind("entities", () => entities()),
 		Effect.bind("store", () => secretStore),
 		Effect.bind("credentials", ({ store }) =>
 			Effect.all({
@@ -41,8 +43,11 @@ export default Alchemy.Stack(
 			({ oauth, integrations, api, access, documents }) =>
 				website(oauth, integrations.google, api, documents, access),
 		),
-		Effect.map(({ oauth, integrations, website, api, documents }) => ({
+		Effect.map((
+			{ oauth, integrations, website, api, documents, entities },
+		) => ({
 			documents: documents.workerName,
+			entities: entities.workerName,
 			website: website.url,
 			api: api.workerName,
 			oauth: oauth.workerName,

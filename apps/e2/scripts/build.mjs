@@ -19,11 +19,12 @@ for (
 		"integrations-github",
 		"api",
 		"core-documents",
+		"core-entities",
 	]
 ) {
 	const { workerSource } = await import(
-		name === "core-documents"
-			? "../core/documents/alchemy.ts"
+		name.startsWith("core-")
+			? `../core/${name.replace("core-", "")}/alchemy.ts`
 			: name === "api"
 			? "../api/alchemy.ts"
 			: `../integrations/${name.replace("integrations-", "")}/alchemy.ts`

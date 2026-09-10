@@ -259,7 +259,7 @@
         "@vitejs/plugin-vue-jsx",
         "@vue/compiler-sfc",
         "astro",
-        "vite@8.2.2_esbuild@0.28.2",
+        "vite@8.2.2_yaml@2.8.3",
         "vite-plugin-vue-devtools",
         "vue"
       ]
@@ -2796,7 +2796,7 @@
         "@babel/plugin-transform-typescript",
         "@rolldown/pluginutils",
         "@vue/babel-plugin-jsx@2.0.1_@babel+core@7.29.7",
-        "vite@8.2.2_esbuild@0.28.2",
+        "vite@8.2.2_yaml@2.8.3",
         "vue"
       ]
     },
@@ -2804,7 +2804,7 @@
       "integrity": "sha512-0ZjgOg7oO6farnNGup7yvoM/YXZV84OZxHAwtflItNa/6zzQyVb5LNxyea3FEKEX2XlagIKzrlH7wwxkKgtiew==",
       "dependencies": [
         "@rolldown/pluginutils",
-        "vite@8.2.2_esbuild@0.28.2",
+        "vite@8.2.2_yaml@2.8.3",
         "vue"
       ]
     },
@@ -3165,7 +3165,7 @@
         "react",
         "rolldown",
         "undici@7.29.1",
-        "vite@8.2.2_esbuild@0.28.2",
+        "vite@8.2.2_yaml@2.8.3",
         "yaml"
       ],
       "optionalPeers": [
@@ -3174,7 +3174,7 @@
         "@effect/platform-node",
         "drizzle-kit@0.31.10",
         "drizzle-orm@0.45.2_@cloudflare+workers-types@5.20260908.1_@libsql+client@0.17.4",
-        "vite@8.2.2_esbuild@0.28.2"
+        "vite@8.2.2_yaml@2.8.3"
       ],
       "bin": true
     },
@@ -5797,7 +5797,7 @@
         "@vue/devtools-kit",
         "@vue/devtools-shared",
         "sirv",
-        "vite@8.2.2_esbuild@0.28.2",
+        "vite@8.2.2_yaml@2.8.3",
         "vite-plugin-inspect",
         "vite-plugin-vue-inspector"
       ]
@@ -6222,6 +6222,14 @@
       "npm:vue-tsc@3.3.11",
       "npm:vue@3.5.42",
       "npm:zod@4.5.4"
-    ]
+    ],
+    "members": {
+      "core/entities": {
+        "dependencies": [
+          "npm:@cloudflare/workers-types@5.20260908.1",
+          "npm:drizzle-orm@1.0.0-rc.4"
+        ]
+      }
+    }
   }
 }
