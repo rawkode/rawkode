@@ -59,6 +59,22 @@ export const githubRecords = sqliteTable("github_records", {
 	check("github_records_data_json", sql`json_valid(${table.data})`),
 ]);
 
+/** Tracks every selected repository that makes a shared user/org observable. */
+export const githubRecordRepositories = sqliteTable(
+	"github_record_repositories",
+	{
+		resourceType: text("resource_type").notNull(),
+		resourceId: text("resource_id").notNull(),
+		repositoryId: text("repository_id").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.resourceType, table.resourceId, table.repositoryId],
+		}),
+		index("github_record_repositories_repository").on(table.repositoryId),
+	],
+);
+
 export const webhookDeliveries = sqliteTable("github_webhook_deliveries", {
 	id: text().primaryKey(),
 	event: text().notNull(),

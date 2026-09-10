@@ -35,7 +35,7 @@ interface CanonicalProjection extends ProjectionRecord {
 	projectionId: string;
 }
 
-interface CursorRow {
+export interface CursorRow {
 	kind: "repositories" | "issues" | "pullRequests" | "discussions";
 	repository_id: string;
 	cursor: string | null;
@@ -432,7 +432,7 @@ const ownerKind = (value: Record<string, unknown>): ResourceKind =>
 		? "organization"
 		: "user";
 
-const repositoryPage = async (
+export const repositoryPage = async (
 	db: InstallationDatabase,
 	env: GitHubEnv,
 	identity: InstallationIdentity,
@@ -444,9 +444,21 @@ const repositoryPage = async (
 			`SELECT resource_type,resource_id FROM github_records
 		   WHERE active=1 AND (
 		     resource_type='repository' AND generation != ? OR
-		     repository_id IN (SELECT id FROM github_repositories WHERE active=1 AND generation != ?)
+		     repository_id IN (SELECT id FROM github_repositories WHERE active=1 AND generation != ?) OR
+		     resource_type IN ('user','organization') AND NOT EXISTS (
+		       SELECT 1 FROM github_record_repositories ownership
+		       JOIN github_repositories repository ON repository.id=ownership.repository_id
+		       WHERE ownership.resource_type=github_records.resource_type
+		         AND ownership.resource_id=github_records.resource_id
+		         AND repository.active=1 AND repository.generation=?
+		     )
 		   ) ORDER BY resource_type,resource_id LIMIT ?`,
-		).bind(cursor.generation, cursor.generation, GITHUB_RECONCILE_PAGE_SIZE)
+		).bind(
+			cursor.generation,
+			cursor.generation,
+			cursor.generation,
+			GITHUB_RECONCILE_PAGE_SIZE,
+		)
 			.all<{ resource_type: ResourceKind; resource_id: string }>();
 		const now = Date.now();
 		if (results.length) {
@@ -469,6 +481,12 @@ const repositoryPage = async (
 			return;
 		}
 		const statements: InstallationStatement[] = [
+			db.prepare(
+				`DELETE FROM github_record_repositories
+			    WHERE repository_id IN (
+			      SELECT id FROM github_repositories WHERE generation != ?
+			    )`,
+			).bind(cursor.generation),
 			db.prepare(
 				"UPDATE github_repositories SET active=0 WHERE generation != ?",
 			).bind(cursor.generation),
@@ -557,6 +575,21 @@ const repositoryPage = async (
 				projection.sourceRevision,
 			),
 		);
+		const owner = object(repo.owner);
+		if (owner) {
+			const ownerProjection = projections.find((item) =>
+				["user", "organization"].includes(item.resourceType) &&
+				item.resourceId === identifier(owner.node_id ?? owner.id)
+			);
+			if (ownerProjection) {
+				statements.push(
+					db.prepare(
+						`INSERT OR IGNORE INTO github_record_repositories
+					      (resource_type,resource_id,repository_id) VALUES (?, ?, ?)`,
+					).bind(ownerProjection.resourceType, ownerProjection.resourceId, id),
+				);
+			}
+		}
 	}
 	for (const projection of projections) {
 		statements.push(...persist(
@@ -691,6 +724,19 @@ const collectionPage = async (
 			now,
 		)
 	);
+	for (const projection of projections) {
+		if (!["user", "organization"].includes(projection.resourceType)) continue;
+		statements.push(
+			db.prepare(
+				`INSERT OR IGNORE INTO github_record_repositories
+			    (resource_type,resource_id,repository_id) VALUES (?, ?, ?)`,
+			).bind(
+				projection.resourceType,
+				projection.resourceId,
+				cursor.repository_id,
+			),
+		);
+	}
 	const pageInfo = object(connection?.pageInfo);
 	const hasNext = pageInfo?.hasNextPage === true;
 	const endCursor = string(pageInfo?.endCursor, 2_000);

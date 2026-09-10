@@ -13,6 +13,7 @@ import {
 	githubProjection,
 	initializeInstallation,
 	recordWebhook,
+	repositoryPage,
 } from "../integrations/github/src/app-mirror.ts";
 import type {
 	EntitiesAdminBinding,
@@ -188,6 +189,65 @@ Deno.test("GitHub installation deletion archives source observations in bounded 
 			sqlite.query(
 				"SELECT active FROM github_records WHERE resource_id='U_1'",
 			).get()?.active,
+			0,
+		);
+	} finally {
+		sqlite.close();
+	}
+});
+
+Deno.test("removing repository access tombstones authors no longer observable elsewhere", async () => {
+	const { db, sqlite } = await testDatabase(
+		"../../integrations/github/account-migrations",
+	);
+	try {
+		const local = db as unknown as InstallationDatabase;
+		await initializeInstallation(local, identity);
+		await db.batch([
+			db.prepare(
+				`INSERT INTO github_repositories
+			    (id,node_id,owner_login,owner_type,name,full_name,url,private,active,generation,source_revision)
+			   VALUES ('9','R_9','octo','User','old','octo/old','https://github.com/octo/old',0,1,'old','active:repo')`,
+			),
+			db.prepare(
+				`INSERT INTO github_records
+			    (resource_type,resource_id,repository_id,data,source_revision,active,generation)
+			   VALUES ('user','U_1','','{}','active:user',1,'old')`,
+			),
+			db.prepare(
+				`INSERT INTO github_record_repositories
+			    (resource_type,resource_id,repository_id) VALUES ('user','U_1','9')`,
+			),
+		]);
+		const cursor = {
+			kind: "repositories" as const,
+			repository_id: "",
+			cursor: "archive",
+			generation: "selected-now",
+		};
+		await repositoryPage(local, {} as GitHubEnv, identity, "", cursor);
+		assert.equal(
+			sqlite.query(
+				"SELECT active FROM github_records WHERE resource_type='user' AND resource_id='U_1'",
+			).get()?.active,
+			0,
+		);
+		assert.equal(
+			sqlite.query(
+				"SELECT deleted FROM github_entity_projection_outbox WHERE resource_type='user'",
+			).get()?.deleted,
+			1,
+		);
+		await repositoryPage(local, {} as GitHubEnv, identity, "", cursor);
+		assert.equal(
+			sqlite.query(
+				"SELECT count(*) AS count FROM github_record_repositories",
+			).get()?.count,
+			0,
+		);
+		assert.equal(
+			sqlite.query("SELECT active FROM github_repositories WHERE id='9'").get()
+				?.active,
 			0,
 		);
 	} finally {
