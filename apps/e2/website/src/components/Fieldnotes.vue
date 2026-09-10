@@ -35,7 +35,17 @@ const emit = defineEmits<{ openEntity: [entityId: string] }>();
 const day = new Date();
 const documentId = props.documentId ?? todayDocumentId(day);
 const dayBounds = todayBounds(day);
-const dayLabel = props.title ?? day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+const documentDate = /^daily:\d{4}-\d{2}-\d{2}$/.test(documentId)
+	? new Date(`${documentId.slice(6)}T12:00:00`)
+	: day;
+const dayLabel = documentId.startsWith("daily:")
+	? documentDate.toLocaleDateString(undefined, {
+			weekday: "long",
+			month: "long",
+			day: "numeric",
+			year: "numeric",
+		})
+	: props.title;
 let saver: ReturnType<typeof createDocumentSaver> | undefined;
 const loading = ref(true);
 const invalidChanges = ref(false);
@@ -965,9 +975,9 @@ onBeforeUnmount(() => {
 			</main>
 			<TodaySidebar v-if="props.showSidebar" :date="dayBounds.date" :from="dayBounds.from" :to="dayBounds.to" />
 		</div>
-		<footer v-if="!props.embedded">
-			<span>Type <kbd>/</kbd> for blocks or <kbd>#</kbd> to link</span
-			><span>Your note saves after the first edit.</span>
+		<footer v-if="!props.embedded || props.showFileActions">
+			<span>Type <kbd>/</kbd> for blocks, <kbd>@</kbd> for people, or select text and press <kbd>#</kbd> to link it.</span
+			><span>Your note saves automatically.</span>
 		</footer>
 		<dialog
 			ref="replaceNoteDialog"

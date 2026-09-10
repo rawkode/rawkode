@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { eventDocumentId } from "../editor/eventDocuments";
 import { searchCanonicalEntities } from "../editor/registry";
 
@@ -45,8 +45,31 @@ const people = ref<TodayPerson[]>([]);
 const activity = ref<GitHubActivity[]>([]);
 const activityInserting = ref("");
 const activityErrors = ref<Record<string, string>>({});
+const personInserting = ref("");
+const personErrors = ref<Record<string, string>>({});
+const eventsExpanded = ref(false);
+const peopleExpanded = ref(false);
+const activityExpanded = ref(false);
 const loading = ref(true);
 const error = ref("");
+
+const SUMMARY_LIMIT = 5;
+const visibleEvents = computed(() =>
+	eventsExpanded.value ? events.value : events.value.slice(0, SUMMARY_LIMIT)
+);
+const visiblePeople = computed(() =>
+	peopleExpanded.value ? people.value : people.value.slice(0, SUMMARY_LIMIT)
+);
+const visibleActivity = computed(() =>
+	activityExpanded.value ? activity.value : activity.value.slice(0, SUMMARY_LIMIT)
+);
+const dateLabel = computed(() =>
+	new Intl.DateTimeFormat(undefined, {
+		weekday: "long",
+		month: "long",
+		day: "numeric",
+	}).format(new Date(`${props.date}T12:00:00`))
+);
 
 const eventTime = (value: string | null): string => {
 	if (!value) return "All day";
@@ -100,6 +123,45 @@ const activityTag = (kind: string): string =>
 		: kind === "discussion"
 		? "integration:github:discussion"
 		: "integration:github:issue";
+const dispatchEntity = (
+	entity: { id: string; label: string },
+	presentation: "link" | "mention",
+) =>
+	window.dispatchEvent(new CustomEvent("e2-insert-entity", {
+		detail: {
+			version: 1,
+			entityId: entity.id,
+			fallbackLabel: entity.label,
+			displayText: entity.label,
+			presentation,
+		},
+	}));
+const insertPerson = async (person: TodayPerson) => {
+	const key = `${person.connectionId}:${person.id}`;
+	personInserting.value = key;
+	personErrors.value = { ...personErrors.value, [key]: "" };
+	try {
+		const label = person.displayName || person.emails[0] || "";
+		const matches = await searchCanonicalEntities(label, "base:person");
+		const exact = matches.filter((entity) =>
+			normalize(entity.label) === normalize(label) &&
+			entity.tagIds.includes("integration:google:contact")
+		);
+		if (exact.length !== 1) {
+			throw new Error("This contact is still syncing. Try again shortly.");
+		}
+		dispatchEntity(exact[0]!, "mention");
+	} catch (failure) {
+		personErrors.value = {
+			...personErrors.value,
+			[key]: failure instanceof Error
+				? failure.message
+				: "This contact could not be mentioned.",
+		};
+	} finally {
+		personInserting.value = "";
+	}
+};
 const insertActivity = async (item: GitHubActivity) => {
 	activityInserting.value = item.id;
 	activityErrors.value = { ...activityErrors.value, [item.id]: "" };
@@ -117,16 +179,7 @@ const insertActivity = async (item: GitHubActivity) => {
 				"This activity has not resolved to one canonical entity yet. Sync it, then retry.",
 			);
 		}
-		const entity = exact[0]!;
-		window.dispatchEvent(new CustomEvent("e2-insert-entity", {
-			detail: {
-				version: 1,
-				entityId: entity.id,
-				fallbackLabel: entity.label,
-				displayText: entity.label,
-				presentation: "link",
-			},
-		}));
+		dispatchEntity(exact[0]!, "link");
 	} catch (failure) {
 		activityErrors.value = {
 			...activityErrors.value,
@@ -146,8 +199,8 @@ onMounted(() => void load());
 	<aside class="today-sidebar" aria-label="Today at a glance">
 		<div class="sidebar-heading">
 			<div>
-				<p class="sidebar-eyebrow">At a glance</p>
-				<h2>Today</h2>
+				<h2>At a glance</h2>
+				<p class="sidebar-date">{{ dateLabel }}</p>
 			</div>
 			<button class="sidebar-refresh" type="button" :disabled="loading" @click="load" aria-label="Refresh today">↻</button>
 		</div>
@@ -159,36 +212,50 @@ onMounted(() => void load());
 				<p v-if="partialEvents" class="sidebar-muted">Some calendars could not be refreshed.</p>
 				<p v-if="!events.length" class="sidebar-muted">No events on the calendar.</p>
 				<ul v-else class="sidebar-list">
-					<li v-for="event in events" :key="`${event.connectionId}:${event.id}`">
+					<li v-for="event in visibleEvents" :key="`${event.connectionId}:${event.id}`">
 						<a :href="`/events/${encodeURIComponent(eventDocumentId(event.connectionId, event.calendarId ?? 'unknown', event.id, event.recurringEventId ?? event.id))}?connection=${encodeURIComponent(event.connectionId)}&calendar=${encodeURIComponent(event.calendarId ?? 'unknown')}&event=${encodeURIComponent(event.id)}&series=${encodeURIComponent(event.recurringEventId ?? event.id)}&title=${encodeURIComponent(event.summary || 'Untitled event')}`">
 							<strong>{{ event.summary || "Untitled event" }}</strong>
 							<span>{{ eventTime(event.start) }}<template v-if="event.calendarName"> · {{ event.calendarName }}</template></span>
 						</a>
 					</li>
 				</ul>
+				<button v-if="events.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="eventsExpanded" @click="eventsExpanded = !eventsExpanded">
+					{{ eventsExpanded ? "Show fewer events" : `Show all ${events.length} events` }}
+				</button>
 			</section>
 			<section aria-labelledby="today-people-heading">
 				<div class="sidebar-section-heading"><h3 id="today-people-heading">People</h3><span>{{ people.length }}</span></div>
 				<p v-if="!people.length" class="sidebar-muted">People from events and today tags will appear here.</p>
 				<ul v-else class="sidebar-list people-list">
-					<li v-for="person in people" :key="`${person.connectionId}:${person.id}`">
-						<strong>{{ person.displayName || person.emails[0] || "Unnamed person" }}</strong>
-						<span>{{ person.emails[0] || "From your connected calendar" }}</span>
+					<li v-for="person in visiblePeople" :key="`${person.connectionId}:${person.id}`">
+						<div class="sidebar-row">
+							<div><strong>{{ person.displayName || person.emails[0] || "Unnamed person" }}</strong><span>{{ person.emails[0] || "From your connected calendar" }}</span></div>
+							<button class="sidebar-inline-action" type="button" :disabled="personInserting === `${person.connectionId}:${person.id}`" @click="insertPerson(person)">
+								{{ personInserting === `${person.connectionId}:${person.id}` ? "Adding…" : "Mention" }}
+							</button>
+						</div>
+						<p v-if="personErrors[`${person.connectionId}:${person.id}`]" class="sidebar-error" role="alert">{{ personErrors[`${person.connectionId}:${person.id}`] }}</p>
 					</li>
 				</ul>
+				<button v-if="people.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="peopleExpanded" @click="peopleExpanded = !peopleExpanded">
+					{{ peopleExpanded ? "Show fewer people" : `Show all ${people.length} people` }}
+				</button>
 			</section>
 			<section aria-labelledby="today-github-heading">
 				<div class="sidebar-section-heading"><h3 id="today-github-heading">GitHub</h3><span>{{ activity.length }}</span></div>
 				<p v-if="!activity.length" class="sidebar-muted">Issues, pull requests, and discussions from today will appear here.</p>
 				<ul v-if="activity.length" class="sidebar-list">
-					<li v-for="item in activity" :key="`${item.connectionId}:${item.id}`">
+					<li v-for="item in visibleActivity" :key="`${item.connectionId}:${item.id}`">
 						<a :href="item.url || '#'"><strong>{{ item.title }}</strong><span>{{ item.kind }} · {{ item.repository }} · {{ item.actor }}</span></a>
 						<button class="sidebar-link-button" type="button" :disabled="activityInserting === item.id" @click="insertActivity(item)">{{ activityInserting === item.id ? "Resolving…" : "Insert activity" }}</button>
 						<p v-if="activityErrors[item.id]" class="sidebar-error" role="alert">{{ activityErrors[item.id] }}</p>
 					</li>
 				</ul>
+				<button v-if="activity.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="activityExpanded" @click="activityExpanded = !activityExpanded">
+					{{ activityExpanded ? "Show fewer GitHub items" : `Show all ${activity.length} GitHub items` }}
+				</button>
 			</section>
 		</template>
-		<a class="sidebar-manage" href="/admin/google">Manage connected data →</a>
+		<a class="sidebar-manage" href="/admin/google">Manage connected data</a>
 	</aside>
 </template>
