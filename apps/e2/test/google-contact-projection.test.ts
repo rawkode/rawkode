@@ -319,3 +319,94 @@ Deno.test("outbox delivery is bounded and retries the same entity projection aft
 		sqlite.close();
 	}
 });
+
+Deno.test("a poison contact is quarantined without stalling later projections", async () => {
+	const { db, sqlite } = await testDatabase(
+		"../../integrations/google/migrations",
+	);
+	const upstream = provider();
+	const delivered = new Set<string>();
+	const binding: EntitiesAdminBinding = {
+		admin: () =>
+			Promise.resolve(
+				{
+					upsertProjectionBatch: (batch: ProjectionBatch) => {
+						if (
+							batch.records.some((row) => row.resourceId === "people/person-1")
+						) {
+							return Promise.reject(new Error("invalid entity"));
+						}
+						batch.records.forEach((row) => delivered.add(row.resourceId));
+						return Promise.resolve({ changed: batch.records.length });
+					},
+					[Symbol.dispose]() {},
+				} as unknown as EntitiesApi & Disposable,
+			),
+	};
+	try {
+		upstream.records([contact, {
+			...contact,
+			resourceName: "people/person-2",
+			names: [{ displayName: "Grace Hopper" }],
+		}]);
+		await syncCollection(
+			environment(db as unknown as AccountEnv["DB"], upstream.origin),
+			oauth,
+			connection,
+			"contacts",
+		);
+		await assert.rejects(
+			drainContactProjectionOutbox(
+				db as unknown as AccountEnv["DB"],
+				binding,
+				connection.id,
+			),
+			/will retry/,
+		);
+		assert.deepEqual([...delivered], ["people/person-2"]);
+		for (let attempt = 2; attempt <= 4; attempt++) {
+			await assert.rejects(
+				drainContactProjectionOutbox(
+					db as unknown as AccountEnv["DB"],
+					binding,
+					connection.id,
+				),
+				/will retry/,
+			);
+		}
+		assert.deepEqual(
+			await drainContactProjectionOutbox(
+				db as unknown as AccountEnv["DB"],
+				binding,
+				connection.id,
+			),
+			{ delivered: 0, pending: false },
+		);
+		const quarantined = sqlite.query(
+			"SELECT attempts,quarantined_at,last_error FROM entity_projection_outbox",
+		).get();
+		assert.equal(quarantined?.attempts, 5);
+		assert.equal(typeof quarantined?.quarantined_at, "number");
+		assert.equal(quarantined?.last_error, "Entity projection failed");
+
+		await db.prepare(
+			`INSERT INTO entity_projection_outbox
+		   (projection_id,connection_id,owner_id,resource_type,resource_id,
+		    source_revision,label,aliases,"values",deleted,created_at)
+		   VALUES ('later','google-account','owner','contact','people/person-3',
+		           'active:later','Later','[]','{}',0,1)`,
+		).run();
+		assert.deepEqual(
+			await drainContactProjectionOutbox(
+				db as unknown as AccountEnv["DB"],
+				binding,
+				connection.id,
+			),
+			{ delivered: 1, pending: false },
+		);
+		assert.equal(delivered.has("people/person-3"), true);
+	} finally {
+		upstream.close();
+		sqlite.close();
+	}
+});

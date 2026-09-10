@@ -13,6 +13,25 @@ const initialSQL = await Deno.readTextFile(
 	),
 );
 const migrationConfig = { migrations: { [initialId]: initialSQL } };
+const migrationRoot = new URL(
+	"../integrations/google/migrations/",
+	import.meta.url,
+);
+const migrationEntries = (await Array.fromAsync(Deno.readDir(migrationRoot)))
+	.filter((entry) => entry.isDirectory && /^\d{14}_/.test(entry.name))
+	.sort((left, right) => left.name.localeCompare(right.name));
+const allMigrationConfig = {
+	migrations: Object.fromEntries(
+		await Promise.all(migrationEntries.map(async (
+			entry,
+		) => [
+			entry.name,
+			await Deno.readTextFile(
+				new URL(`${entry.name}/migration.sql`, migrationRoot),
+			),
+		])),
+	),
+};
 
 const storageFixture = () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -142,6 +161,54 @@ Deno.test("account deletion clears all personal data and fences stale writes, al
 		restarted.revive(2);
 		expect(restarted.deleted()).toBe(false);
 		await restarted.coordinator.put("connection", "account");
+	} finally {
+		sqlite.close();
+	}
+});
+
+Deno.test("account removal durably stages contact tombstones before personal data is wiped", async () => {
+	const { sqlite, storage } = storageFixture();
+	try {
+		migrateAccount(storage, allMigrationConfig);
+		const account = accountStorage(storage);
+		await account.coordinator.put("connection", "account");
+		await account.db.prepare(
+			`INSERT INTO google_records
+		   (connection_id,collection,resource_id,data,deleted,source_revision)
+		   VALUES ('account','contacts','person','{}',0,'active:person')`,
+		).run();
+		await account.beginRemoval({
+			connectionId: "account",
+			ownerId: "owner",
+			grantVersion: 3,
+		});
+		const staged = sqlite.prepare(
+			"SELECT resource_id,source_revision,deleted FROM entity_projection_outbox",
+		).get();
+		expect(staged).toEqual({
+			resource_id: "person",
+			source_revision: "deleted:active:person",
+			deleted: 1,
+		});
+		expect(
+			sqlite.prepare(
+				"SELECT deleted FROM google_records WHERE resource_id='person'",
+			).get()?.deleted,
+		).toBe(1);
+
+		const restarted = accountStorage(storage);
+		expect(restarted.removal()).toEqual({
+			connectionId: "account",
+			ownerId: "owner",
+			grantVersion: 3,
+		});
+		sqlite.exec("DELETE FROM entity_projection_outbox");
+		await restarted.remove(3);
+		expect(restarted.deleted()).toBe(true);
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM google_records").get()
+				?.count,
+		).toBe(0);
 	} finally {
 		sqlite.close();
 	}

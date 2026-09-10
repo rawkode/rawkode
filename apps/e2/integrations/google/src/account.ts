@@ -7,7 +7,10 @@ import { watchMail } from "./gmail.ts";
 import { scopes } from "./google.ts";
 import { accountStorage, migrateAccount } from "./storage.ts";
 import { createAccountApi } from "./account-api.ts";
-import { drainContactProjectionOutbox } from "./projection.ts";
+import {
+	drainContactProjectionOutbox,
+	hasContactProjectionOutbox,
+} from "./projection.ts";
 
 interface CoordinatorStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -173,7 +176,34 @@ export class GoogleAccount extends DurableObject<CalendarEnv> {
 		if (!connection) {
 			throw new Error("Google access is not authorized");
 		}
-		await this.#local.remove(connection.grantVersion);
+		await this.#local.beginRemoval({
+			connectionId: id,
+			ownerId: owner,
+			grantVersion: connection.grantVersion,
+		});
+		await this.#finishRemoval();
+	}
+	async #finishRemoval() {
+		const removal = this.#local.removal();
+		if (!removal) return false;
+		// Preserve a recovery alarm before the cross-object projection effect.
+		await this.ctx.storage.setAlarm(Date.now() + 60 * 60_000);
+		await drainContactProjectionOutbox(
+			this.#local.db,
+			this.env.ENTITIES_ADMIN,
+			removal.connectionId,
+		);
+		if (
+			await hasContactProjectionOutbox(
+				this.#local.db,
+				removal.connectionId,
+			)
+		) {
+			await this.ctx.storage.setAlarm(Date.now() + 1_000);
+			return false;
+		}
+		await this.#local.remove(removal.grantVersion);
+		return true;
 	}
 	async notifyMail(id: string, email: string, history: string) {
 		this.#identity(id);
@@ -194,6 +224,7 @@ export class GoogleAccount extends DurableObject<CalendarEnv> {
 	}
 	override alarm() {
 		if (this.#local.deleted()) return Promise.resolve();
+		if (this.#local.removal()) return this.#finishRemoval().then(() => {});
 		return syncAccount(this.#local.coordinator, {
 			...this.env,
 			DB: this.#local.db,

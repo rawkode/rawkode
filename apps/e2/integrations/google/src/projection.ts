@@ -6,6 +6,7 @@ import {
 import type { AccountDatabase, AccountStatement } from "./storage.ts";
 
 export const CONTACT_PROJECTION_BATCH_SIZE = 50;
+export const CONTACT_PROJECTION_QUARANTINE_ATTEMPTS = 5;
 
 export interface EntitiesAdminBinding {
 	admin(ownerId: string): Promise<EntitiesApi & Disposable>;
@@ -33,6 +34,7 @@ interface OutboxRow {
 	aliases: string;
 	values: string | null;
 	deleted: number;
+	attempts: number;
 }
 
 const objects = (value: unknown): Record<string, unknown>[] =>
@@ -240,9 +242,11 @@ export const drainContactProjectionOutbox = async (
 	}
 	const { results } = await db.prepare(
 		`SELECT sequence, projection_id, connection_id, owner_id, resource_type,
-	            resource_id, source_revision, label, aliases, "values", deleted
+	            resource_id, source_revision, label, aliases, "values", deleted,
+	            attempts
        FROM entity_projection_outbox
-      WHERE connection_id = ? ORDER BY sequence LIMIT ?`,
+	      WHERE connection_id = ? AND quarantined_at IS NULL
+	      ORDER BY sequence LIMIT ?`,
 	).bind(connectionId, limit).all<OutboxRow>();
 	if (!results.length) return { delivered: 0, pending: false };
 	const ownerId = results[0]!.owner_id;
@@ -251,39 +255,64 @@ export const drainContactProjectionOutbox = async (
 			row.owner_id !== ownerId || row.connection_id !== connectionId
 		)
 	) throw new Error("Projection outbox identity mismatch");
-	try {
-		using entities = await binding.admin(ownerId);
-		await entities.upsertProjectionBatch({
-			provider: "google",
-			connectionId,
-			records: results.map(record),
-			provenance: {
-				actor: "integration:google",
-				cause: `contact-outbox:${results[0]!.sequence}-${
-					results.at(-1)!.sequence
-				}`,
-				rationale: "Project a synchronized Google contact observation.",
-			},
-		});
-		await db.batch(
-			results.map((row) =>
+	using entities = await binding.admin(ownerId);
+	let delivered = 0;
+	let retrying = false;
+	const deliver = async (rows: OutboxRow[]): Promise<void> => {
+		try {
+			await entities.upsertProjectionBatch({
+				provider: "google",
+				connectionId,
+				records: rows.map(record),
+				provenance: {
+					actor: "integration:google",
+					cause: `contact-outbox:${rows[0]!.sequence}-${rows.at(-1)!.sequence}`,
+					rationale: "Project a synchronized Google contact observation.",
+				},
+			});
+			await db.batch(rows.map((row) =>
 				db.prepare(
 					"DELETE FROM entity_projection_outbox WHERE sequence = ? AND projection_id = ?",
 				).bind(row.sequence, row.projection_id)
-			),
-		);
-	} catch {
-		await db.batch(
-			results.map((row) =>
-				db.prepare(
-					"UPDATE entity_projection_outbox SET attempts = attempts + 1, last_error = 'Entity projection failed' WHERE sequence = ? AND projection_id = ?",
-				).bind(row.sequence, row.projection_id)
-			),
-		);
-		throw new Error("Google contact projection will retry");
-	}
+			));
+			delivered += rows.length;
+		} catch {
+			if (rows.length > 1) {
+				const middle = Math.floor(rows.length / 2);
+				await deliver(rows.slice(0, middle));
+				await deliver(rows.slice(middle));
+				return;
+			}
+			const row = rows[0]!;
+			const quarantine = row.attempts + 1 >=
+				CONTACT_PROJECTION_QUARANTINE_ATTEMPTS;
+			await db.prepare(
+				`UPDATE entity_projection_outbox
+			    SET attempts=attempts+1,last_error='Entity projection failed',
+			        quarantined_at=CASE WHEN ? THEN ? ELSE quarantined_at END
+			  WHERE sequence=? AND projection_id=?`,
+			).bind(quarantine ? 1 : 0, Date.now(), row.sequence, row.projection_id)
+				.run();
+			if (quarantine) {
+				console.error("Google contact projection quarantined", {
+					connectionId,
+					projectionId: row.projection_id,
+				});
+			} else retrying = true;
+		}
+	};
+	await deliver(results);
+	if (retrying) throw new Error("Google contact projection will retry");
 	const pending = await db.prepare(
-		"SELECT 1 AS pending FROM entity_projection_outbox WHERE connection_id = ? LIMIT 1",
+		"SELECT 1 AS pending FROM entity_projection_outbox WHERE connection_id = ? AND quarantined_at IS NULL LIMIT 1",
 	).bind(connectionId).first<{ pending: number }>();
-	return { delivered: results.length, pending: pending !== null };
+	return { delivered, pending: pending !== null };
 };
+
+export const hasContactProjectionOutbox = async (
+	db: AccountDatabase,
+	connectionId: string,
+): Promise<boolean> =>
+	(await db.prepare(
+		"SELECT 1 AS pending FROM entity_projection_outbox WHERE connection_id = ? LIMIT 1",
+	).bind(connectionId).first()) !== null;

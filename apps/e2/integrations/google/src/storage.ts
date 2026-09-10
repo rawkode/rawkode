@@ -86,6 +86,11 @@ export const migrateAccount = (
 };
 
 export const accountStorage = (storage: DurableObjectStorage) => {
+	type Removal = {
+		connectionId: string;
+		ownerId: string;
+		grantVersion: number;
+	};
 	const read = <T>(key: string): T | undefined => {
 		const row = storage.sql.exec<{ value: string }>(
 			"SELECT value FROM __account_state WHERE key = ?",
@@ -182,6 +187,41 @@ export const accountStorage = (storage: DurableObjectStorage) => {
 		});
 		await storage.deleteAlarm();
 	};
+	const beginRemoval = async (removal: Removal) => {
+		assertActive();
+		const existing = read<Removal>("removal");
+		if (
+			existing && (existing.connectionId !== removal.connectionId ||
+				existing.ownerId !== removal.ownerId ||
+				existing.grantVersion !== removal.grantVersion)
+		) throw new Error("Account removal identity mismatch");
+		storage.transactionSync(() => {
+			storage.sql.exec(
+				`INSERT OR IGNORE INTO entity_projection_outbox
+			  (projection_id,connection_id,owner_id,resource_type,resource_id,
+			   source_revision,label,aliases,"values",deleted,created_at)
+			 SELECT json_array('google',connection_id,'contact',resource_id,
+			          'deleted:' || COALESCE(source_revision,'legacy')),
+			        connection_id,?,'contact',resource_id,
+			        'deleted:' || COALESCE(source_revision,'legacy'),
+			        NULL,'[]',NULL,1,?
+			   FROM google_records
+			  WHERE connection_id=? AND collection='contacts' AND deleted=0`,
+				removal.ownerId,
+				Date.now(),
+				removal.connectionId,
+			);
+			storage.sql.exec(
+				"UPDATE google_records SET deleted=1 WHERE connection_id=? AND collection='contacts'",
+				removal.connectionId,
+			);
+			storage.sql.exec(
+				"INSERT INTO __account_state(key,value) VALUES ('removal',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+				JSON.stringify(removal),
+			);
+		});
+		await storage.setAlarm(Date.now() + 1_000);
+	};
 	const revive = (grantVersion: number) => {
 		storage.transactionSync(() => {
 			if (!read<boolean>("deleted")) return;
@@ -201,6 +241,8 @@ export const accountStorage = (storage: DurableObjectStorage) => {
 		coordinator,
 		assertActive,
 		remove,
+		beginRemoval,
+		removal: () => read<Removal>("removal"),
 		revive,
 		deleted: () => read<boolean>("deleted") === true,
 	};

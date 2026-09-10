@@ -125,12 +125,14 @@ export const entityProjectionOutbox = sqliteTable(
 		deleted: integer({ mode: "boolean" }).notNull().default(false),
 		attempts: integer().notNull().default(0),
 		lastError: text("last_error"),
+		quarantinedAt: integer("quarantined_at"),
 		createdAt: integer("created_at").notNull(),
 	},
 	(table) => [
 		uniqueIndex("entity_projection_outbox_projection").on(table.projectionId),
-		index("entity_projection_outbox_delivery").on(
+		index("entity_projection_outbox_active_delivery").on(
 			table.connectionId,
+			table.quarantinedAt,
 			table.sequence,
 		),
 		check(
