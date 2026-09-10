@@ -29,4 +29,16 @@ env: schema.#Env & {
 	GITHUB_CLIENT_SECRET: schema.#OnePasswordRef & {
 		ref: "op://apsides/integration-github/password"
 	}
+	GITHUB_APP_ID: schema.#OnePasswordRef & {
+		ref: "op://apsides/integration-github-app/app-id"
+	}
+	GITHUB_APP_SLUG: schema.#OnePasswordRef & {
+		ref: "op://apsides/integration-github-app/slug"
+	}
+	GITHUB_APP_PRIVATE_KEY: schema.#OnePasswordRef & {
+		ref: "op://apsides/integration-github-app/private-key"
+	}
+	GITHUB_APP_WEBHOOK_SECRET: schema.#OnePasswordRef & {
+		ref: "op://apsides/integration-github-app/webhook-secret"
+	}
 }

@@ -3,7 +3,6 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
-import * as Redacted from "effect/Redacted";
 import { fileURLToPath } from "node:url";
 
 export const workerSource = {
@@ -63,18 +62,14 @@ export default (
 				privateKey: Cloudflare.SecretsStore.Secret("github-app-private-key", {
 					store: app.store,
 					name: `e2-${stage}-github-app-private-key`,
-					value: Config.redacted("GITHUB_APP_PRIVATE_KEY").pipe(
-						Config.withDefault(Redacted.make("")),
-					),
+					value: Config.redacted("GITHUB_APP_PRIVATE_KEY"),
 				}),
 				webhookSecret: Cloudflare.SecretsStore.Secret(
 					"github-app-webhook-secret",
 					{
 						store: app.store,
 						name: `e2-${stage}-github-app-webhook-secret`,
-						value: Config.redacted("GITHUB_APP_WEBHOOK_SECRET").pipe(
-							Config.withDefault(Redacted.make("")),
-						),
+						value: Config.redacted("GITHUB_APP_WEBHOOK_SECRET"),
 					},
 				),
 			}).pipe(Effect.flatMap(({ privateKey, webhookSecret }) =>
@@ -83,12 +78,8 @@ export default (
 						app.entities,
 						"EntitiesAdmin",
 					),
-					GITHUB_APP_ID: Config.string("GITHUB_APP_ID").pipe(
-						Config.withDefault(""),
-					),
-					GITHUB_APP_SLUG: Config.string("GITHUB_APP_SLUG").pipe(
-						Config.withDefault(""),
-					),
+					GITHUB_APP_ID: Config.string("GITHUB_APP_ID"),
+					GITHUB_APP_SLUG: Config.string("GITHUB_APP_SLUG"),
 					GITHUB_APP_PRIVATE_KEY: privateKey,
 					GITHUB_WEBHOOK_SECRET: webhookSecret,
 				})
