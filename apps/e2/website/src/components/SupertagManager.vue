@@ -376,19 +376,22 @@ onBeforeUnmount(() => detailAbort?.abort());
 				</li>
 			</ul>
 
-			<form class="supertag-create" @submit.prevent="createTag">
-				<h3>Create a Supertag</h3>
-				<label for="new-supertag-name">Name</label>
-				<input id="new-supertag-name" v-model="createName" maxlength="100" required />
-				<label for="new-supertag-parent">Extends</label>
-				<select id="new-supertag-parent" v-model="createParentId" required>
-					<option v-for="tag in availableParents" :key="tag.id" :value="tag.id">{{ tag.name }}</option>
-				</select>
-				<p v-if="createError" class="error-message" role="alert">{{ createError }}</p>
-				<button class="primary" type="submit" :disabled="creating || !availableParents.length">
-					{{ creating ? "Creating…" : "Create Supertag" }}
-				</button>
-			</form>
+			<details class="supertag-create">
+				<summary>New Supertag</summary>
+				<form @submit.prevent="createTag">
+					<label for="new-supertag-name">Name</label>
+					<input id="new-supertag-name" v-model="createName" maxlength="100" autocomplete="off" required />
+					<label for="new-supertag-parent">Extends</label>
+					<select id="new-supertag-parent" v-model="createParentId" required>
+						<option v-for="tag in availableParents" :key="tag.id" :value="tag.id">{{ tag.name }}</option>
+					</select>
+					<p class="hint">It inherits fields from the selected parent.</p>
+					<p v-if="createError" class="error-message" role="alert">{{ createError }}</p>
+					<button class="primary" type="submit" :disabled="creating || !availableParents.length">
+						{{ creating ? "Creating…" : "Create Supertag" }}
+					</button>
+				</form>
+			</details>
 		</aside>
 
 		<section class="supertag-detail" aria-live="polite">
@@ -462,12 +465,10 @@ onBeforeUnmount(() => detailAbort?.abort());
 					</ul>
 				</section>
 
-				<section v-if="isEditable" class="supertag-action-section" aria-labelledby="add-field-heading">
-					<div class="section-heading">
-						<h3 id="add-field-heading">Add a field</h3>
-						<p class="muted">The field becomes available to this Supertag and all descendants.</p>
-					</div>
-					<form class="field-definition-form" @submit.prevent="addField">
+				<details v-if="isEditable" class="supertag-action-section field-creator">
+					<summary id="add-field-heading">Add a field</summary>
+					<p class="muted">The field becomes available to this Supertag and all descendants.</p>
+					<form class="field-definition-form" aria-labelledby="add-field-heading" @submit.prevent="addField">
 						<div><label for="field-label">Label</label><input id="field-label" v-model="fieldDraft.label" maxlength="100" required /></div>
 						<div><label for="field-key">Key</label><input id="field-key" v-model="fieldDraft.key" maxlength="64" placeholder="for example, start_date" required /></div>
 						<div><label for="field-type">Type</label><select id="field-type" v-model="fieldDraft.type"><option v-for="type in fieldTypes" :key="type.value" :value="type.value">{{ type.label }}</option></select></div>
@@ -482,7 +483,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 						<p v-if="fieldError" class="error-message field-form-wide" role="alert">{{ fieldError }}</p>
 						<div class="field-form-actions field-form-wide"><button class="primary" type="submit" :disabled="defining">{{ defining ? "Adding…" : "Add field" }}</button></div>
 					</form>
-				</section>
+				</details>
 
 				<section v-if="isEditable" class="supertag-action-section archive-tag-section" aria-labelledby="archive-supertag-heading">
 					<h3 id="archive-supertag-heading">Archive Supertag</h3>

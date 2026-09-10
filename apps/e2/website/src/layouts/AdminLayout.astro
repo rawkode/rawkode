@@ -2,6 +2,7 @@
 import '../styles/global.css';
 interface Props { title: string; active?: 'accounts' | 'google' | 'supertags' }
 const { title, active = 'accounts' } = Astro.props;
+const context = active === 'supertags' ? 'Structured workspace' : 'Connected data';
 ---
 <!doctype html>
 <html lang="en">
@@ -15,7 +16,7 @@ const { title, active = 'accounts' } = Astro.props;
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="masthead">
-      <a class="wordmark" href="/">Apsides<span>Your connected accounts</span></a>
+      <a class="wordmark" href="/">Apsides<span>{context}</span></a>
       <div class="identity"><span>{Astro.locals.admin.email}</span><a href="/cdn-cgi/access/logout">Sign out</a></div>
     </header>
     <div class="workspace">

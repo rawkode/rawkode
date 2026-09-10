@@ -581,8 +581,33 @@ details ul {
 	padding-top: 1.25rem;
 	border-top: 1px solid var(--line);
 }
-.supertag-create h3 {
-	margin-bottom: .8rem;
+.supertag-create > summary,
+.field-creator > summary {
+	display: flex;
+	align-items: center;
+	min-height: 2.6rem;
+	color: var(--primary);
+	font-weight: 650;
+	cursor: pointer;
+	list-style: none;
+}
+.supertag-create > summary::-webkit-details-marker,
+.field-creator > summary::-webkit-details-marker {
+	display: none;
+}
+.supertag-create > summary::after,
+.field-creator > summary::after {
+	content: "+";
+	margin-left: auto;
+	font-size: 1.15rem;
+	font-weight: 450;
+}
+.supertag-create[open] > summary::after,
+.field-creator[open] > summary::after {
+	content: "−";
+}
+.supertag-create form {
+	padding-top: .3rem;
 }
 .supertag-create label {
 	margin-top: .7rem;
@@ -599,6 +624,11 @@ details ul {
 }
 .supertag-create .error-message {
 	margin: .7rem 0 0;
+}
+.supertag-create .hint {
+	margin: .5rem 0 0;
+	color: var(--muted);
+	font-size: .76rem;
 }
 .supertag-detail {
 	padding: 1.5rem 0 4rem 2rem;
@@ -740,6 +770,17 @@ details ul {
 .field-form-actions {
 	display: flex;
 	justify-content: flex-end;
+}
+.field-creator {
+	padding-top: .25rem;
+	border-top: 1px solid var(--line);
+}
+.field-creator > summary {
+	color: var(--ink);
+	font-size: 1rem;
+}
+.field-creator > p {
+	margin: .15rem 0 1rem;
 }
 .archive-tag-section {
 	padding-top: 1.5rem;
