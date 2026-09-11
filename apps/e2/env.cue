@@ -18,10 +18,10 @@ env: schema.#Env & {
 		}
 	}
 	GOOGLE_CLIENT_ID: schema.#OnePasswordRef & {
-		ref: "op://apsides/integrations-google/username"
+		ref: "op://apsides/integration-google/username"
 	}
 	GOOGLE_CLIENT_SECRET: schema.#OnePasswordRef & {
-		ref: "op://apsides/integrations-google/password"
+		ref: "op://apsides/integration-google/password"
 	}
 	GITHUB_CLIENT_ID: schema.#OnePasswordRef & {
 		ref: "op://apsides/integration-github/username"
