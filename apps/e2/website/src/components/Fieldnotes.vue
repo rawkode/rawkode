@@ -48,6 +48,9 @@ const dayLabel = documentId.startsWith("daily:")
 			year: "numeric",
 		})
 	: props.title;
+const idleStatus = documentId.startsWith("daily:")
+	? "Start writing to save today's note"
+	: "";
 let saver: ReturnType<typeof createDocumentSaver> | undefined;
 const loading = ref(true);
 const invalidChanges = ref(false);
@@ -60,7 +63,7 @@ const pendingReplacement = shallowRef<
 	{ kind: "new" } | { kind: "import"; note: NoteDocument; filename: string }
 >();
 const filename = ref(`${props.title === "Today" ? documentId.slice(6) : props.title}.native-note`);
-const status = ref("Loading today…");
+const status = ref("Loading…");
 const error = ref("");
 const importing = ref(false);
 const saveBlocked = ref(false);
@@ -624,15 +627,15 @@ const loadToday = async () => {
 	          status.value = "Changes not saved";
 	          return;
 	        }
-	        status.value = ({ idle: "Start writing to save today's note", pending: "Unsaved changes", saving: "Saving…", saved: "All changes saved", error: "Changes not saved", conflict: "Changes need attention" })[state];
+	        status.value = ({ idle: idleStatus, pending: "Unsaved changes", saving: "Saving…", saved: "All changes saved", error: "Changes not saved", conflict: "Changes need attention" })[state];
 	        error.value = message ?? "";
 	      },
 	    });
-    status.value = saved ? "All changes saved" : "Start writing to save today's note";
+    status.value = saved ? "All changes saved" : idleStatus;
     saveBlocked.value = false;
   } catch (failure) {
     status.value = "Note unavailable";
-    error.value = failure instanceof Error ? failure.message : "Could not load today's note.";
+    error.value = failure instanceof Error ? failure.message : "Could not load this note.";
     loading.value = false;
     return;
   }
@@ -863,7 +866,7 @@ onBeforeUnmount(() => {
 				@change="importNote"
 			/>
 		</div>
-		<div class="document-meta">
+		<div v-if="props.showDocumentLabel || status" class="document-meta">
 			<span v-if="props.showDocumentLabel" class="filename">{{ dayLabel }}</span
 			><span role="status" aria-live="polite">{{ status }}</span>
 		</div>

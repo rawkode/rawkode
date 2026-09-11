@@ -41,7 +41,7 @@ export const readDocument = async (
 ): Promise<SavedDocument | null> => {
 	const response = await fetch(endpoint(id), { cache: "no-store" });
 	if (!response.ok) {
-		throw new Error("Could not load today's note. Try again before editing.");
+		throw new Error("Could not load this note. Try again before editing.");
 	}
 	const { document } = envelopeSchema.parse(await response.json());
 	if (document && document.id !== id) {
