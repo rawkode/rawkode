@@ -73,7 +73,7 @@ const message = (failure: unknown, fallback: string): string =>
 const tagName = (id: string | null): string =>
 	id ? tags.value.find((tag) => tag.id === id)?.name ?? id : "None";
 const kindLabel = (tag: Supertag): string =>
-	tag.kind === "base" ? "Base, locked" : tag.kind === "integration" ? "Integration, locked" : "User";
+	tag.kind === "base" ? "Base" : tag.kind === "integration" ? "Integration" : "Custom";
 const isEditable = computed(() =>
 	details.value?.tag.kind === "user" && !details.value.tag.archived
 );
@@ -353,7 +353,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 		<aside class="supertag-index" aria-labelledby="supertag-index-heading">
 			<div class="supertag-index-heading">
 				<div>
-					<h2 id="supertag-index-heading">Supertags</h2>
+					<h2 id="supertag-index-heading">Types</h2>
 					<p>{{ tags.filter((tag) => !tag.archived).length }} active</p>
 				</div>
 				<label class="visually-hidden" for="supertag-search">Search Supertags</label>
@@ -410,7 +410,6 @@ onBeforeUnmount(() => detailAbort?.abort());
 					<dl class="supertag-meta">
 						<div><dt>Parent</dt><dd>{{ tagName(details.tag.parentId) }}</dd></div>
 						<div><dt>Root</dt><dd>{{ tagName(details.tag.rootId) }}</dd></div>
-						<div><dt>Revision</dt><dd>{{ details.tag.revision }}</dd></div>
 					</dl>
 				</header>
 
@@ -431,10 +430,9 @@ onBeforeUnmount(() => detailAbort?.abort());
 
 				<section class="supertag-fields" aria-labelledby="supertag-fields-heading">
 					<div class="section-heading">
-						<h3 id="supertag-fields-heading">Effective fields</h3>
-						<p class="muted">Inherited fields are defined by an ancestor and are read-only here.</p>
+						<h3 id="supertag-fields-heading">Fields</h3>
 					</div>
-					<p v-if="!details.fields.length" class="supertag-empty">This Supertag has no fields yet.</p>
+					<p v-if="!details.fields.length" class="supertag-empty">No fields.</p>
 					<ul v-else class="field-definition-list">
 						<li v-for="field in details.fields" :key="field.id" :class="{ archived: field.archived }">
 							<div class="field-definition-heading">
@@ -467,7 +465,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 
 				<details v-if="isEditable" class="supertag-action-section field-creator">
 					<summary id="add-field-heading">Add a field</summary>
-					<p class="muted">The field becomes available to this Supertag and all descendants.</p>
+					<p class="muted">Available to this Supertag and its descendants.</p>
 					<form class="field-definition-form" aria-labelledby="add-field-heading" @submit.prevent="addField">
 						<div><label for="field-label">Label</label><input id="field-label" v-model="fieldDraft.label" maxlength="100" required /></div>
 						<div><label for="field-key">Key</label><input id="field-key" v-model="fieldDraft.key" maxlength="64" placeholder="for example, start_date" required /></div>
@@ -487,7 +485,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 
 				<section v-if="isEditable" class="supertag-action-section archive-tag-section" aria-labelledby="archive-supertag-heading">
 					<h3 id="archive-supertag-heading">Archive Supertag</h3>
-					<p class="muted">Review current usage before removing this Supertag from active choices.</p>
+					<p class="muted">Review usage before removing it from active choices.</p>
 					<button v-if="!tagImpact" type="button" class="danger" :disabled="tagImpactLoading" @click="reviewTagArchive">{{ tagImpactLoading ? "Reviewing…" : "Review archive" }}</button>
 					<div v-else class="archive-preview">
 						<p>This Supertag affects {{ tagImpact.entityCount }} entities, {{ tagImpact.descendantTagCount }} descendant Supertags, and {{ tagImpact.valueCount }} saved field values.</p>
@@ -496,7 +494,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 					</div>
 					<p v-if="tagArchiveError" class="error-message" role="alert">{{ tagArchiveError }}</p>
 				</section>
-				<p v-else class="locked-note">{{ details.tag.kind !== "user" ? "Base and integration Supertags are managed by Apsides. Their fields and names are read-only." : "This archived Supertag is read-only." }}</p>
+				<p v-else class="locked-note">{{ details.tag.kind !== "user" ? "Managed by Apsides." : "Archived Supertags are read-only." }}</p>
 			</template>
 			<p v-else class="supertag-empty">Choose a Supertag to inspect its fields and usage.</p>
 		</section>
