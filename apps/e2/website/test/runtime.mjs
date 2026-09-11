@@ -442,7 +442,7 @@ const exercise = async (urls) => {
 	assert.match(await response.text(), /No accounts connected/);
 	response = await get("/admin/supertags");
 	assert.equal(response.status, 200);
-	assert.match(await response.text(), /Extend Apsides' base entity types/);
+	assert.match(await response.text(), /Define inheritance and fields/);
 	const supertags = await fetch(origin + "/api/graphql", {
 		method: "POST",
 		headers: { Origin: origin, "Content-Type": "application/json" },
