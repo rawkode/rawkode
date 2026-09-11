@@ -103,7 +103,7 @@ export const provider = (id: string, env: OAuthEnv) => {
 	}
 	const server: oauth.AuthorizationServer = id === "github"
 		? {
-			issuer: local || "https://github.com",
+			issuer: local || "https://github.com/login/oauth",
 			authorization_endpoint: local
 				? `${local}/authorize/github`
 				: "https://github.com/login/oauth/authorize",

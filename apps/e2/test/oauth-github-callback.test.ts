@@ -139,6 +139,7 @@ import type { OAuthEnv } from "../integrations/oauth/src/env.ts";
 			url.search = new URLSearchParams({
 				state: authorization.searchParams.get("state")!,
 				code: "github-code",
+				iss: env.LOCAL_PROVIDER_ORIGIN!,
 			}).toString();
 			assert.equal((await callback(new Request(url), env)).status, 400);
 			assert.equal(tokenRequests, 0);

@@ -7,6 +7,7 @@ const env = { WEBSITE_ORIGIN: "https://e2.example.com" } as OAuthEnv;
 
 Deno.test("GitHub authorization is PKCE OAuth with a separate identity endpoint", () => {
 	const github = provider("github", env);
+	assert.equal(github.server.issuer, "https://github.com/login/oauth");
 	assert.equal(
 		github.server.authorization_endpoint,
 		"https://github.com/login/oauth/authorize",
