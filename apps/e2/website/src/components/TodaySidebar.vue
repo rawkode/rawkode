@@ -204,13 +204,13 @@ onMounted(() => void load());
 			</div>
 			<button class="sidebar-refresh" type="button" :disabled="loading" @click="load" aria-label="Refresh today">↻</button>
 		</div>
-		<p v-if="loading" class="sidebar-muted" role="status">Loading your day…</p>
+		<p v-if="loading" class="sidebar-muted" role="status">Loading…</p>
 		<p v-else-if="error" class="sidebar-error" role="alert">{{ error }}</p>
 		<template v-else>
 				<section aria-labelledby="today-events-heading">
 				<div class="sidebar-section-heading"><h3 id="today-events-heading">Events</h3><span>{{ events.length }}</span></div>
-				<p v-if="partialEvents" class="sidebar-muted">Some calendars could not be refreshed.</p>
-				<p v-if="!events.length" class="sidebar-muted">No events on the calendar.</p>
+				<p v-if="partialEvents" class="sidebar-muted">Some calendars failed to refresh.</p>
+				<p v-if="!events.length" class="sidebar-muted">No events today.</p>
 				<ul v-else class="sidebar-list">
 					<li v-for="event in visibleEvents" :key="`${event.connectionId}:${event.id}`">
 						<a :href="`/events/${encodeURIComponent(eventDocumentId(event.connectionId, event.calendarId ?? 'unknown', event.id, event.recurringEventId ?? event.id))}?connection=${encodeURIComponent(event.connectionId)}&calendar=${encodeURIComponent(event.calendarId ?? 'unknown')}&event=${encodeURIComponent(event.id)}&series=${encodeURIComponent(event.recurringEventId ?? event.id)}&title=${encodeURIComponent(event.summary || 'Untitled event')}`">
@@ -225,7 +225,7 @@ onMounted(() => void load());
 			</section>
 			<section aria-labelledby="today-people-heading">
 				<div class="sidebar-section-heading"><h3 id="today-people-heading">People</h3><span>{{ people.length }}</span></div>
-				<p v-if="!people.length" class="sidebar-muted">People from events and today tags will appear here.</p>
+				<p v-if="!people.length" class="sidebar-muted">No people linked today.</p>
 				<ul v-else class="sidebar-list people-list">
 					<li v-for="person in visiblePeople" :key="`${person.connectionId}:${person.id}`">
 						<div class="sidebar-row">
@@ -243,7 +243,7 @@ onMounted(() => void load());
 			</section>
 			<section aria-labelledby="today-github-heading">
 				<div class="sidebar-section-heading"><h3 id="today-github-heading">GitHub</h3><span>{{ activity.length }}</span></div>
-				<p v-if="!activity.length" class="sidebar-muted">Issues, pull requests, and discussions from today will appear here.</p>
+				<p v-if="!activity.length" class="sidebar-muted">No GitHub activity today.</p>
 				<ul v-if="activity.length" class="sidebar-list">
 					<li v-for="item in visibleActivity" :key="`${item.connectionId}:${item.id}`">
 						<a :href="item.url || '#'"><strong>{{ item.title }}</strong><span>{{ item.kind }} · {{ item.repository }} · {{ item.actor }}</span></a>
@@ -256,6 +256,6 @@ onMounted(() => void load());
 				</button>
 			</section>
 		</template>
-		<a class="sidebar-manage" href="/admin/google">Manage connected data</a>
+		<a class="sidebar-manage" href="/admin/google">Google data</a>
 	</aside>
 </template>
