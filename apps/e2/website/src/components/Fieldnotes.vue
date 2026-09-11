@@ -23,12 +23,14 @@ const props = withDefaults(defineProps<{
 	embedded?: boolean;
 	showHeading?: boolean;
 	showFileActions?: boolean;
+	showDocumentLabel?: boolean;
 }>(), {
 	title: "Today",
 	showSidebar: true,
 	embedded: false,
 	showHeading: true,
 	showFileActions: false,
+	showDocumentLabel: true,
 });
 const emit = defineEmits<{ openEntity: [entityId: string] }>();
 
@@ -862,7 +864,7 @@ onBeforeUnmount(() => {
 			/>
 		</div>
 		<div class="document-meta">
-			<span class="filename">{{ dayLabel }}</span
+			<span v-if="props.showDocumentLabel" class="filename">{{ dayLabel }}</span
 			><span role="status" aria-live="polite">{{ status }}</span>
 		</div>
 		<nav v-if="editor" class="editor-toolbar" aria-label="Text formatting">

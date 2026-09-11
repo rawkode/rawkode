@@ -164,6 +164,7 @@ onMounted(async () => {
 					embedded
 					:show-heading="false"
 					:show-sidebar="false"
+					:show-document-label="false"
 					:document-id="entity.bodyDocumentId"
 					:title="entity.label"
 					@open-entity="emit('openEntity', $event)"
@@ -172,7 +173,7 @@ onMounted(async () => {
 
 			<section class="entity-backlinks" aria-labelledby="entity-backlinks-heading">
 				<h3 id="entity-backlinks-heading">Linked from</h3>
-				<p v-if="!backlinks.length" class="pane-status">No documents link here yet.</p>
+				<p v-if="!backlinks.length" class="pane-status">No backlinks.</p>
 				<ul v-else>
 					<li v-for="backlink in backlinks" :key="backlink.id">
 						<a :href="documentHref(backlink.id)">{{ backlink.id }}</a>

@@ -143,7 +143,10 @@ onBeforeUnmount(() => {
 			</a>
 			<nav class="pane-workspace-actions" aria-label="Workspace navigation">
 				<a href="/admin/supertags">Supertags</a>
-				<a href="/admin/google">Contacts &amp; events</a>
+				<a href="/admin/google">
+					<span class="nav-label-wide">Contacts &amp; events</span>
+					<span class="nav-label-compact">Google</span>
+				</a>
 				<a href="/admin/oauth">Accounts</a>
 			</nav>
 		</header>

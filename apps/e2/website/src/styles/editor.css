@@ -497,6 +497,9 @@ a {
 	color: var(--primary);
 	text-decoration: underline;
 }
+.nav-label-compact {
+	display: none;
+}
 .pane-navigation-error {
 	max-width: 1240px;
 }
@@ -520,7 +523,7 @@ a {
 	background: var(--surface);
 }
 .pane-frame.is-active {
-	flex-basis: min(760px, calc(100vw - 44px));
+	flex: 1 0 min(760px, calc(100vw - 44px));
 	background: var(--bg);
 }
 .pane-frame.is-root.is-active {
@@ -552,6 +555,7 @@ a {
 	min-height: 100%;
 }
 .entity-pane-content {
+	width: min(100%, 900px);
 	padding: 36px 42px 64px;
 }
 .entity-pane-heading {
@@ -1099,6 +1103,12 @@ kbd {
 	}
 }
 @media (max-width: 480px) {
+	.nav-label-wide {
+		display: none;
+	}
+	.nav-label-compact {
+		display: inline;
+	}
 	.document-meta {
 		align-items: flex-start;
 		flex-direction: column;
