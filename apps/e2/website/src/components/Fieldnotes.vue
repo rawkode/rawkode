@@ -833,12 +833,14 @@ onBeforeUnmount(() => {
 				<a href="/admin/oauth">Accounts</a>
         <a href="/admin/google">Contacts &amp; events</a>
         <button type="button" @click="openPalette">Commands <kbd>⌘K</kbd></button>
-        <button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">Clear today</button>
+				<button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">
+					<span class="nav-label-wide">Clear today</span><span class="nav-label-compact">Clear</span>
+				</button>
 				<button :disabled="importing || !editor || saveBlocked || saveState === 'conflict'" @click="fileInput?.click()">
-					{{ importing ? "Opening…" : "Open note" }}
+					<template v-if="importing">Opening…</template><template v-else><span class="nav-label-wide">Open note</span><span class="nav-label-compact">Open</span></template>
 				</button>
 				<button class="primary" :disabled="!editor" @click="exportNote">
-					Export note <span aria-hidden="true">↗</span>
+					<span class="nav-label-wide">Export note</span><span class="nav-label-compact">Export</span> <span aria-hidden="true">↗</span>
 				</button>
 				<input
 					ref="fileInput"
@@ -852,11 +854,13 @@ onBeforeUnmount(() => {
 		</header>
 		<div v-if="props.embedded && props.showFileActions" class="embedded-file-actions" aria-label="Document actions">
 			<button type="button" @click="openPalette">Commands <kbd>⌘K</kbd></button>
-			<button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">Clear today</button>
-			<button :disabled="importing || !editor || saveBlocked || saveState === 'conflict'" @click="fileInput?.click()">
-				{{ importing ? "Opening…" : "Open note" }}
+			<button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">
+				<span class="nav-label-wide">Clear today</span><span class="nav-label-compact">Clear</span>
 			</button>
-			<button class="primary" :disabled="!editor" @click="exportNote">Export note <span aria-hidden="true">↗</span></button>
+			<button :disabled="importing || !editor || saveBlocked || saveState === 'conflict'" @click="fileInput?.click()">
+				<template v-if="importing">Opening…</template><template v-else><span class="nav-label-wide">Open note</span><span class="nav-label-compact">Open</span></template>
+			</button>
+			<button class="primary" :disabled="!editor" @click="exportNote"><span class="nav-label-wide">Export note</span><span class="nav-label-compact">Export</span> <span aria-hidden="true">↗</span></button>
 			<input
 				ref="fileInput"
 				class="file-input"

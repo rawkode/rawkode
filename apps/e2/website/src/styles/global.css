@@ -420,6 +420,9 @@ details ul {
 	.identity {
 		max-width: 45%;
 	}
+	.identity span {
+		display: none;
+	}
 	.workspace {
 		display: block;
 	}

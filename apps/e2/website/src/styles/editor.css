@@ -1002,7 +1002,8 @@ kbd {
 		flex: 0 0 100%;
 		border-right: 0;
 	}
-	.pane-frame.is-active {
+	.pane-frame.is-active,
+	.pane-frame.is-root.is-active {
 		display: block;
 	}
 	.pane-rail {
@@ -1108,6 +1109,16 @@ kbd {
 	}
 	.nav-label-compact {
 		display: inline;
+	}
+	.embedded-file-actions {
+		justify-content: flex-start;
+		gap: 2px;
+		padding: 10px 12px 0;
+		overflow-x: auto;
+	}
+	.embedded-file-actions button {
+		flex: none;
+		white-space: nowrap;
 	}
 	.document-meta {
 		align-items: flex-start;
