@@ -661,7 +661,7 @@ a:focus-visible {
 }
 .primary {
 	background: var(--primary);
-	color: white;
+	color: var(--on-primary);
 	border-color: var(--primary);
 }
 .draft-image {
@@ -675,7 +675,7 @@ a:focus-visible {
 	font-weight: 400;
 }
 .component-error {
-	color: #ad2424;
+	color: var(--error);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	font:

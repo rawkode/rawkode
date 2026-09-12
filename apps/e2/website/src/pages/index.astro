@@ -1,7 +1,9 @@
 ---
+import ThemeHead from "../components/ThemeHead.astro";
 import PaneWorkspace from '../components/PaneWorkspace.vue';
 import { parsePaneStack } from '../editor/paneStack';
 import '../styles/editor.css';
+import '../styles/workspace.css';
 
 const parsedPanes = parsePaneStack(Astro.url.searchParams);
 const initialPanes = parsedPanes.ok ? parsedPanes.panes : undefined;
@@ -9,9 +11,10 @@ const initialPanes = parsedPanes.ok ? parsedPanes.panes : undefined;
 <!doctype html>
 <html lang="en">
   <head>
+    <ThemeHead />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="robots" content="noindex,nofollow" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Today · Apsides</title>

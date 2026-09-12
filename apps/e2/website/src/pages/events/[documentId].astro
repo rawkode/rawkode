@@ -1,8 +1,10 @@
 ---
+import ThemeHead from "../../components/ThemeHead.astro";
 import Fieldnotes from '../../components/Fieldnotes.vue';
 import EventNotesFeed from '../../components/EventNotesFeed.vue';
 import { eventSeriesDocumentPrefix, eventSeriesDocumentId } from '../../editor/eventDocuments';
 import '../../styles/editor.css';
+import '../../styles/workspace.css';
 
 const decodeId = (value: string | undefined): string => {
   if (typeof value !== 'string') return '';
@@ -30,9 +32,10 @@ const seriesHref = instanceDocument
 <!doctype html>
 <html lang="en">
   <head>
+    <ThemeHead />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="robots" content="noindex,nofollow" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title} · Apsides</title>

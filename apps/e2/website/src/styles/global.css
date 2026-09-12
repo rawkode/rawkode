@@ -1,15 +1,5 @@
 :root {
 	color-scheme: light;
-	--bg: oklch(1 0 0);
-	--surface: oklch(.97 .008 230);
-	--ink: oklch(.25 .02 230);
-	--muted: oklch(.46 .025 230);
-	--line: oklch(.86 .015 230);
-	--primary: oklch(.45 .086 230);
-	--primary-hover: oklch(.36 .075 230);
-	--success: oklch(.36 .07 150);
-	--danger: oklch(.43 .15 25);
-	--focus: oklch(.52 .13 230);
 	font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
 		"Segoe UI", sans-serif;
 	color: var(--ink);

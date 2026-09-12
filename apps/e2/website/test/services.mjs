@@ -1,6 +1,36 @@
 import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
 // Test-only provider boundary. This module is never included in deployment.
+let dense = false;
+const densePeople = Array.from({ length: 23 }, (_, index) => ({
+	email: `person${index + 1}@example.test`,
+	displayName: [
+		"Ada Lovelace",
+		"Grace Hopper",
+		"Katherine Johnson",
+		"Alan Turing",
+		"Margaret Hamilton",
+		"Edsger Dijkstra",
+		"Barbara Liskov",
+		"Donald Knuth",
+		"Frances Allen",
+		"John McCarthy",
+		"Radia Perlman",
+		"Claude Shannon",
+		"Mary Jackson",
+		"Ken Thompson",
+		"Dorothy Vaughan",
+		"Dennis Ritchie",
+		"Annie Easley",
+		"Tim Berners-Lee",
+		"Karen Spärck Jones",
+		"James Gosling",
+		"Jean Bartik",
+		"Guido van Rossum",
+		"Sophie Wilson",
+	][index],
+	responseStatus: "accepted",
+}));
 let accounts = [];
 let mirrored = false;
 let pendingOwner = "";
@@ -99,6 +129,46 @@ class Google extends RpcTarget {
 		}
 		const start = new Date((Date.parse(from) + Date.parse(to)) / 2);
 		const end = new Date(start.getTime() + 3_600_000);
+		if (dense) {
+			const dayStart = Date.parse(from);
+			const titles = [
+				"Team offsite",
+				"Daily planning",
+				"Design review",
+				"Customer research: onboarding and permissions",
+				"Pairing session",
+				"Roadmap review",
+				"Wrap up",
+			];
+			const hours = [0, 9, 10, 10.5, 13, 15, 17];
+			return {
+				events: titles.map((summary, index) => ({
+					id: `event-${index}`,
+					calendarId: "primary",
+					calendarName: "Personal",
+					summary,
+					start: index === 0 ? { date: start.toISOString().slice(0, 10) } : {
+						dateTime: new Date(dayStart + hours[index] * 3600000)
+							.toISOString(),
+					},
+					end: index === 0
+						? {
+							date: new Date(start.getTime() + 86400000).toISOString().slice(
+								0,
+								10,
+							),
+						}
+						: {
+							dateTime: new Date(dayStart + (hours[index] + 1) * 3600000)
+								.toISOString(),
+						},
+					attendees: index === 0
+						? densePeople
+						: densePeople.slice(index, index + 4),
+				})),
+				partial: false,
+			};
+		}
 		return {
 			events: [{
 				id: "event-today",
@@ -157,6 +227,41 @@ class GitHub extends RpcTarget {
 		return { items: [], nextPage: null };
 	}
 	listActivity() {
+		if (dense) {
+			return {
+				items: Array.from({ length: 30 }, (_, index) => ({
+					id: `activity-${index}`,
+					type: index % 4 === 0 ? "PullRequestEvent" : "IssuesEvent",
+					created_at: new Date(Date.now() - index * 600000).toISOString(),
+					actor: { login: index % 2 ? "rawkode" : "contributor" },
+					repo: {
+						name: [
+							"rawkode/apsides",
+							"cuenv/cuenv",
+							"rawkode-academy/website",
+						][index % 3],
+					},
+					payload: {
+						action: index % 2 ? "opened" : "closed",
+						[index % 4 === 0 ? "pull_request" : "issue"]: {
+							id: index + 100,
+							node_id: `dense-${index}`,
+							title: [
+								"Improve calendar keyboard navigation",
+								"Keep note changes across navigation",
+								"Clarify account connection status",
+								"Handle overlapping events in the day view",
+								"Update documentation links",
+							][index % 5] + ` (${index + 1})`,
+							html_url: `https://github.com/rawkode/apsides/issues/${
+								index + 100
+							}`,
+						},
+					},
+				})),
+				nextPage: null,
+			};
+		}
 		return {
 			items: [{
 				id: "github-event-today",
@@ -196,6 +301,10 @@ export class GitHubAdmin extends WorkerEntrypoint {
 export default {
 	fetch: (request) => {
 		const url = new URL(request.url);
+		if (url.pathname === "/dense") {
+			dense = true;
+			return new Response("Dense fixture enabled");
+		}
 		accounts = [{
 			id: "account",
 			appId: app.id,

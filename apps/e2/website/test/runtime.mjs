@@ -623,6 +623,20 @@ const exercise = async (urls) => {
 			action: "sync",
 			connectionId: "account",
 		});
+		if (process.argv.includes("--dense")) {
+			await fetch(new URL("/dense", urls[2]));
+			const populated = await (await queryGraphql(
+				`query { me { today(date: "${
+					new Date().toISOString().slice(0, 10)
+				}") { googleEvents { id } googlePeople { id } githubActivity { id } } } }`,
+			)).json();
+			assert.equal(populated.data.me.today.googleEvents.length, 7);
+			assert.equal(populated.data.me.today.googlePeople.length, 23);
+			assert.equal(populated.data.me.today.githubActivity.length, 30);
+			console.log(
+				"Dense context fixture passed: 7 events, 23 people, 30 GitHub activities.",
+			);
+		}
 		console.log(`WEBSITE_BROWSER_URL=${origin}`);
 		await new Promise((resolve) => process.once("SIGINT", resolve));
 	}

@@ -1,44 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import type { ContextPaneDescriptor, ContextPaneKind } from "../editor/paneStack";
 import { eventDocumentId } from "../editor/eventDocuments";
 import { searchCanonicalEntities } from "../editor/registry";
 
-interface TodayEvent {
-	connectionId: string;
-	id: string;
-	calendarId: string | null;
-	calendarName: string | null;
-	summary: string;
-	start: string | null;
-	end: string | null;
-	recurringEventId: string | null;
-	attendees: { email: string; name: string }[];
-}
-interface TodayPerson {
-	connectionId: string;
-	id: string;
-	displayName: string;
-	emails: string[];
-}
-interface GitHubActivity {
-	connectionId: string;
-	id: string;
-	resourceId: string;
-	kind: string;
-	title: string;
-	url: string;
-	repository: string;
-	actor: string;
-	createdAt: string;
-	action: string;
-}
-interface TodayData {
-	me: {
-		today: { googleEvents: TodayEvent[]; googleEventsPartial: boolean; googlePeople: TodayPerson[]; githubActivity: GitHubActivity[] };
-	};
-}
+import { loadTodayContext, type TodayEvent, type TodayPerson, type GitHubActivity } from "../editor/todayContext";
 
-const props = defineProps<{ date: string; from: string; to: string }>();
+const props = defineProps<{ date: string }>();
+const emit = defineEmits<{ openContext: [pane: ContextPaneDescriptor] }>();
+const openContext = (kind: ContextPaneKind) => emit("openContext", { kind, id: props.date });
 const events = ref<TodayEvent[]>([]);
 const partialEvents = ref(false);
 const people = ref<TodayPerson[]>([]);
@@ -47,30 +17,19 @@ const activityInserting = ref("");
 const activityErrors = ref<Record<string, string>>({});
 const personInserting = ref("");
 const personErrors = ref<Record<string, string>>({});
-const eventsExpanded = ref(false);
-const peopleExpanded = ref(false);
-const activityExpanded = ref(false);
 const loading = ref(true);
 const error = ref("");
 
-const SUMMARY_LIMIT = 5;
+const SUMMARY_LIMIT = 3;
 const visibleEvents = computed(() =>
-	eventsExpanded.value ? events.value : events.value.slice(0, SUMMARY_LIMIT)
+	events.value.slice(0, SUMMARY_LIMIT)
 );
 const visiblePeople = computed(() =>
-	peopleExpanded.value ? people.value : people.value.slice(0, SUMMARY_LIMIT)
+	people.value.slice(0, SUMMARY_LIMIT)
 );
 const visibleActivity = computed(() =>
-	activityExpanded.value ? activity.value : activity.value.slice(0, SUMMARY_LIMIT)
+	activity.value.slice(0, SUMMARY_LIMIT)
 );
-const dateLabel = computed(() =>
-	new Intl.DateTimeFormat(undefined, {
-		weekday: "long",
-		month: "long",
-		day: "numeric",
-	}).format(new Date(`${props.date}T12:00:00`))
-);
-
 const eventTime = (value: string | null): string => {
 	if (!value) return "All day";
 	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return "All day";
@@ -84,28 +43,11 @@ const load = async () => {
 	loading.value = true;
 	error.value = "";
 	try {
-		const response = await fetch("/api/graphql", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				query: `query TodaySidebar($date: String!, $from: String!, $to: String!) {
-          me { today(date: $date, from: $from, to: $to) {
-            googleEvents { connectionId id calendarId calendarName summary start end recurringEventId attendees { email name } }
-            googleEventsPartial
-            googlePeople { connectionId id displayName emails }
-            githubActivity { connectionId id resourceId kind title url repository actor createdAt action }
-          } }
-        }`,
-				variables: { date: props.date, from: props.from, to: props.to },
-			}),
-		});
-		if (!response.ok) throw new Error("Today data is unavailable.");
-		const result = await response.json() as { data?: TodayData; errors?: unknown[] };
-		if (result.errors?.length || !result.data) throw new Error("Today data is unavailable.");
-		events.value = result.data.me.today.googleEvents;
-		partialEvents.value = result.data.me.today.googleEventsPartial;
-		people.value = result.data.me.today.googlePeople;
-		activity.value = result.data.me.today.githubActivity;
+		const result = await loadTodayContext(props.date);
+		events.value = result.googleEvents;
+		partialEvents.value = result.googleEventsPartial;
+		people.value = result.googlePeople;
+		activity.value = result.githubActivity;
 	} catch (failure) {
 		error.value = failure instanceof Error ? failure.message : "Today data is unavailable.";
 	} finally {
@@ -199,8 +141,7 @@ onMounted(() => void load());
 	<aside class="today-sidebar" aria-label="Today at a glance">
 		<div class="sidebar-heading">
 			<div>
-				<h2>At a glance</h2>
-				<p class="sidebar-date">{{ dateLabel }}</p>
+				<h2>From your services</h2>
 			</div>
 			<button class="sidebar-refresh" type="button" :disabled="loading" @click="load" aria-label="Refresh today">↻</button>
 		</div>
@@ -208,7 +149,7 @@ onMounted(() => void load());
 		<p v-else-if="error" class="sidebar-error" role="alert">{{ error }}</p>
 		<template v-else>
 				<section aria-labelledby="today-events-heading">
-				<div class="sidebar-section-heading"><h3 id="today-events-heading">Events</h3><span>{{ events.length }}</span></div>
+				<div class="sidebar-section-heading"><h3 id="today-events-heading">Events</h3></div>
 				<p v-if="partialEvents" class="sidebar-muted">Some calendars failed to refresh.</p>
 				<p v-if="!events.length" class="sidebar-muted">No events today.</p>
 				<ul v-else class="sidebar-list">
@@ -219,12 +160,10 @@ onMounted(() => void load());
 						</a>
 					</li>
 				</ul>
-				<button v-if="events.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="eventsExpanded" @click="eventsExpanded = !eventsExpanded">
-					{{ eventsExpanded ? "Show fewer events" : `Show all ${events.length} events` }}
-				</button>
+				<button v-if="events.length" class="sidebar-more" type="button" @click="openContext('events')">View day calendar · {{ events.length }}</button>
 			</section>
 			<section aria-labelledby="today-people-heading">
-				<div class="sidebar-section-heading"><h3 id="today-people-heading">People</h3><span>{{ people.length }}</span></div>
+				<div class="sidebar-section-heading"><h3 id="today-people-heading">People</h3></div>
 				<p v-if="!people.length" class="sidebar-muted">No people linked today.</p>
 				<ul v-else class="sidebar-list people-list">
 					<li v-for="person in visiblePeople" :key="`${person.connectionId}:${person.id}`">
@@ -237,12 +176,10 @@ onMounted(() => void load());
 						<p v-if="personErrors[`${person.connectionId}:${person.id}`]" class="sidebar-error" role="alert">{{ personErrors[`${person.connectionId}:${person.id}`] }}</p>
 					</li>
 				</ul>
-				<button v-if="people.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="peopleExpanded" @click="peopleExpanded = !peopleExpanded">
-					{{ peopleExpanded ? "Show fewer people" : `Show all ${people.length} people` }}
-				</button>
+				<button v-if="people.length" class="sidebar-more" type="button" @click="openContext('people')">View all people · {{ people.length }}</button>
 			</section>
 			<section aria-labelledby="today-github-heading">
-				<div class="sidebar-section-heading"><h3 id="today-github-heading">GitHub</h3><span>{{ activity.length }}</span></div>
+				<div class="sidebar-section-heading"><h3 id="today-github-heading">GitHub</h3></div>
 				<p v-if="!activity.length" class="sidebar-muted">No GitHub activity today.</p>
 				<ul v-if="activity.length" class="sidebar-list">
 					<li v-for="item in visibleActivity" :key="`${item.connectionId}:${item.id}`">
@@ -251,11 +188,9 @@ onMounted(() => void load());
 						<p v-if="activityErrors[item.id]" class="sidebar-error" role="alert">{{ activityErrors[item.id] }}</p>
 					</li>
 				</ul>
-				<button v-if="activity.length > SUMMARY_LIMIT" class="sidebar-more" type="button" :aria-expanded="activityExpanded" @click="activityExpanded = !activityExpanded">
-					{{ activityExpanded ? "Show fewer GitHub items" : `Show all ${activity.length} GitHub items` }}
-				</button>
+				<button v-if="activity.length" class="sidebar-more" type="button" @click="openContext('github')">View all GitHub activity · {{ activity.length }}</button>
 			</section>
 		</template>
-		<a class="sidebar-manage" href="/admin/google">Google data</a>
+
 	</aside>
 </template>

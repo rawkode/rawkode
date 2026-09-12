@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ThemeToggle from "./ThemeToggle.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { Editor, EditorContent, VueNodeViewRenderer } from "@tiptap/vue-3";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -14,7 +15,7 @@ import { canonicalEntityInsertion, canonicalEntityReference, closeEntityComposer
 import { loadDocument, saveDocument } from '../editor/persistence';
 import { createDocumentSaver, readDocument, todayBounds, todayDocumentId, type SaveState } from '../editor/documents';
 import { createCanonicalEntity, editorRegistry, listCanonicalSupertags, searchCanonicalEntities, type CanonicalEntitySummary, type CanonicalSupertag } from "../editor/registry";
-import { paneSearchParams } from "../editor/paneStack";
+import { type ContextPaneDescriptor, paneSearchParams } from "../editor/paneStack";
 
 const props = withDefaults(defineProps<{
 	documentId?: string;
@@ -32,7 +33,7 @@ const props = withDefaults(defineProps<{
 	showFileActions: false,
 	showDocumentLabel: true,
 });
-const emit = defineEmits<{ openEntity: [entityId: string] }>();
+const emit = defineEmits<{ openEntity: [entityId: string]; openContext: [pane: ContextPaneDescriptor] }>();
 
 const day = new Date();
 const documentId = props.documentId ?? todayDocumentId(day);
@@ -358,6 +359,8 @@ const createEntityFromMenu = async () => {
 	}
 };
 const insertExternalEntity = (event: Event) => {
+	const frame = editor.value?.view.dom.closest(".pane-frame");
+	if (frame && !frame.classList.contains("is-active")) return;
 	if (!(event instanceof CustomEvent)) return;
 	try {
 		const entity = canonicalEntityInsertion(event.detail);
@@ -494,7 +497,7 @@ const prepareForTransition = async (): Promise<boolean> => {
 	return await saver?.flush() ?? true;
 };
 const focusHeading = () => {
-	void nextTick(() => heading.value?.focus());
+	void nextTick(() => heading.value?.focus({ preventScroll: true }));
 };
 defineExpose({ prepareForTransition, focusHeading });
 const download = (contents: string, name: string) => {
@@ -830,6 +833,7 @@ onBeforeUnmount(() => {
 				>Apsides <span>{{ props.title }}</span></a
 			>
 			<div class="file-actions">
+        <ThemeToggle />
 				<a href="/admin/oauth">Accounts</a>
         <a href="/admin/google">Contacts &amp; events</a>
         <button type="button" @click="openPalette">Commands <kbd>⌘K</kbd></button>
@@ -854,13 +858,15 @@ onBeforeUnmount(() => {
 		</header>
 		<div v-if="props.embedded && props.showFileActions" class="embedded-file-actions" aria-label="Document actions">
 			<button type="button" @click="openPalette">Commands <kbd>⌘K</kbd></button>
+			<details class="document-actions"><summary>Note actions <span aria-hidden="true">⌄</span></summary><div class="document-actions-list">
 			<button :disabled="!editor || saveBlocked || saveState === 'conflict'" @click="requestNewNote">
 				<span class="nav-label-wide">Clear today</span><span class="nav-label-compact">Clear</span>
 			</button>
 			<button :disabled="importing || !editor || saveBlocked || saveState === 'conflict'" @click="fileInput?.click()">
 				<template v-if="importing">Opening…</template><template v-else><span class="nav-label-wide">Open note</span><span class="nav-label-compact">Open</span></template>
 			</button>
-			<button class="primary" :disabled="!editor" @click="exportNote"><span class="nav-label-wide">Export note</span><span class="nav-label-compact">Export</span> <span aria-hidden="true">↗</span></button>
+			<button  :disabled="!editor" @click="exportNote"><span class="nav-label-wide">Export note</span><span class="nav-label-compact">Export</span> <span aria-hidden="true">↗</span></button>
+			</div></details>
 			<input
 				ref="fileInput"
 				class="file-input"
@@ -870,11 +876,22 @@ onBeforeUnmount(() => {
 				@change="importNote"
 			/>
 		</div>
+
+		<div v-if="error" class="error-message" role="alert">
+			<p>{{ error }}</p>
+			<button v-if="saveBlocked && !loading" @click="loadToday">Try loading again</button
+      ><button v-if="saveState === 'error'" @click="saver?.retry()">Retry saving</button
+      ><button v-if="editor" @click="exportNote">Export your changes</button>
+		</div>
+		<div class="today-layout">
+			<main :id="props.embedded ? undefined : 'main'">
 		<div v-if="props.showDocumentLabel || status" class="document-meta">
 			<span v-if="props.showDocumentLabel" class="filename">{{ dayLabel }}</span
 			><span role="status" aria-live="polite">{{ status }}</span>
 		</div>
-		<nav v-if="editor" class="editor-toolbar" aria-label="Text formatting">
+				<h1 v-if="props.showHeading" ref="heading" class="today-heading" tabindex="-1">{{ props.title }}</h1>
+		<details v-if="editor" class="formatting-controls"><summary>Format text</summary>
+		<nav class="editor-toolbar" aria-label="Text formatting">
 			<select
 				aria-label="Paragraph style"
 				:value="activeStyle"
@@ -964,16 +981,7 @@ onBeforeUnmount(() => {
 			>
 				＋ Insert
 			</button>
-		</nav>
-		<div v-if="error" class="error-message" role="alert">
-			<p>{{ error }}</p>
-			<button v-if="saveBlocked && !loading" @click="loadToday">Try loading again</button
-      ><button v-if="saveState === 'error'" @click="saver?.retry()">Retry saving</button
-      ><button v-if="editor" @click="exportNote">Export your changes</button>
-		</div>
-		<div class="today-layout">
-			<main :id="props.embedded ? undefined : 'main'">
-				<h1 v-if="props.showHeading" ref="heading" class="today-heading" tabindex="-1">{{ props.title }}</h1>
+		</nav></details>
         <p v-if="loading" role="status">Opening your note…</p>
 				<EditorContent v-if="editor" :editor="editor" />
 				<div v-else-if="loading" class="loading-note" aria-label="Loading editor">
@@ -982,12 +990,8 @@ onBeforeUnmount(() => {
 					<div />
 				</div>
 			</main>
-			<TodaySidebar v-if="props.showSidebar" :date="dayBounds.date" :from="dayBounds.from" :to="dayBounds.to" />
+			<TodaySidebar v-if="props.showSidebar" :date="dayBounds.date" @open-context="emit('openContext', $event)" />
 		</div>
-		<footer v-if="!props.embedded || props.showFileActions">
-			<span>Type <kbd>/</kbd> for blocks, <kbd>@</kbd> for people, or select text and press <kbd>#</kbd> to link it.</span
-			><span>Your note saves automatically.</span>
-		</footer>
 		<dialog
 			ref="replaceNoteDialog"
 			class="new-note-dialog"

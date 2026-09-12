@@ -537,7 +537,7 @@ select {
 }
 .drawing-actions .primary {
 	background: var(--primary);
-	color: white;
+	color: var(--on-primary);
 	border-color: var(--primary);
 }
 </style>

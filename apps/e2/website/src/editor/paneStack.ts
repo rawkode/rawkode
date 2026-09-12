@@ -1,9 +1,13 @@
 export const MAX_PANES = 8;
 export const MAX_PANE_QUERY_LENGTH = 2_048;
 
+export type ContextPaneKind = "events" | "people" | "github";
+export type ContextPaneDescriptor = { kind: ContextPaneKind; id: string };
+
 export type PaneDescriptor =
 	| { kind: "document"; id: string }
-	| { kind: "entity"; id: string };
+	| { kind: "entity"; id: string }
+	| ContextPaneDescriptor;
 export type PaneHistoryMode = "push" | "pop";
 
 export type PaneParseResult =
@@ -26,6 +30,17 @@ export const decodePane = (value: string): PaneDescriptor | null => {
 		const id = value.slice("entity:".length);
 		return entityId.test(id) ? { kind: "entity", id: id.toLowerCase() } : null;
 	}
+	const context = /^(events|people|github):(\d{4}-\d{2}-\d{2})$/.exec(value);
+	if (context) {
+		const date = context[2]!;
+		const parsed = new Date(`${date}T12:00:00Z`);
+		if (
+			Number.isFinite(parsed.getTime()) &&
+			parsed.toISOString().slice(0, 10) === date
+		) {
+			return { kind: context[1] as ContextPaneKind, id: date };
+		}
+	}
 	return null;
 };
 
@@ -45,7 +60,9 @@ export const parsePaneStack = (params: URLSearchParams): PaneParseResult => {
 	const valid = panes as PaneDescriptor[];
 	if (
 		valid[0]?.kind !== "document" ||
-		valid.slice(1).some((pane) => pane.kind !== "entity")
+		valid.slice(1).some((pane) =>
+			pane.kind === "document" && !pane.id.startsWith("event:")
+		)
 	) return { ok: false, reason: "invalid-order" };
 	const keys = valid.map(encodePane);
 	if (new Set(keys).size !== keys.length) {
@@ -104,29 +121,33 @@ export const createPaneNavigator = (
 		queue = operation.catch(() => undefined);
 		return operation;
 	};
+	const openPane = (sourceIndex: number, descriptor: PaneDescriptor) => {
+		if (
+			!Number.isInteger(sourceIndex) || sourceIndex < 0 ||
+			sourceIndex >= current.length
+		) return Promise.resolve(false);
+		const pane = decodePane(encodePane(descriptor));
+		if (!pane || (pane.kind === "document" && !pane.id.startsWith("event:"))) {
+			return Promise.resolve(false);
+		}
+		const prefix = current.slice(0, sourceIndex + 1);
+		const existing = prefix.findIndex((entry) =>
+			encodePane(entry) === encodePane(pane)
+		);
+		const target = existing >= 0
+			? prefix.slice(0, existing + 1)
+			: [...prefix, pane];
+		return target.length <= MAX_PANES
+			? transition(target, "push")
+			: Promise.resolve(false);
+	};
 	return {
 		get panes(): readonly PaneDescriptor[] {
 			return current;
 		},
-		openEntity: (sourceIndex: number, id: string) => {
-			if (!Number.isInteger(sourceIndex) || sourceIndex < 0) {
-				return Promise.resolve(false);
-			}
-			const entity = decodePane(`entity:${id}`);
-			if (!entity || sourceIndex >= current.length) {
-				return Promise.resolve(false);
-			}
-			const prefix = current.slice(0, sourceIndex + 1);
-			const existing = prefix.findIndex((pane) =>
-				encodePane(pane) === encodePane(entity)
-			);
-			const target = existing >= 0
-				? prefix.slice(0, existing + 1)
-				: [...prefix, entity];
-			return target.length <= MAX_PANES
-				? transition(target, "push")
-				: Promise.resolve(false);
-		},
+		openPane,
+		openEntity: (sourceIndex: number, id: string) =>
+			openPane(sourceIndex, { kind: "entity", id }),
 		activate: (index: number) =>
 			Number.isInteger(index) && index >= 0 && index < current.length
 				? transition(current.slice(0, index + 1), "push")

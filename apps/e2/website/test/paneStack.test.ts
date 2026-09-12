@@ -111,3 +111,57 @@ Deno.test("rapid navigation is serialized and the latest same-source intent wins
 		[root, second].map(encodePane),
 	]);
 });
+
+Deno.test("context panes round-trip with a validated calendar date and event notes", () => {
+	const contexts: PaneDescriptor[] = [root, {
+		kind: "events",
+		id: "2026-09-10",
+	}, { kind: "document", id: "event:account:primary:series:instance" }];
+	assert.deepEqual(
+		parsePaneStack(paneSearchParams(new URLSearchParams(), contexts)),
+		{ ok: true, panes: contexts },
+	);
+	for (
+		const invalid of [
+			"events:2026-02-30",
+			"people:2026-13-01",
+			"github:not-a-date",
+			"calendar:2026-09-10",
+		]
+	) {
+		assert.equal(
+			parsePaneStack(new URLSearchParams({ pane: invalid })).ok,
+			false,
+		);
+		const params = paneSearchParams(new URLSearchParams(), [root]);
+		params.append("pane", invalid);
+		assert.equal(parsePaneStack(params).ok, false);
+	}
+});
+
+Deno.test("context navigation uses save gate and restores the parent document", async () => {
+	let saved = false;
+	const navigator = createPaneNavigator([root], {
+		prepareForTransition: () => Promise.resolve(saved),
+		commit: () => {},
+	});
+	const events: PaneDescriptor = { kind: "events", id: "2026-09-10" };
+	assert.equal(await navigator.openPane(0, events), false);
+	assert.deepEqual(navigator.panes, [root]);
+	saved = true;
+	assert.equal(await navigator.openPane(0, events), true);
+	assert.deepEqual(navigator.panes, [root, events]);
+	assert.equal(
+		await navigator.openPane(1, {
+			kind: "document",
+			id: "event:account:primary:series:instance",
+		}),
+		true,
+	);
+	assert.equal(await navigator.activate(0), true);
+	assert.deepEqual(navigator.panes, [root]);
+	for (const kind of ["people", "github"] as const) {
+		assert.equal(await navigator.openPane(0, { kind, id: "2026-09-10" }), true);
+		assert.deepEqual(navigator.panes, [root, { kind, id: "2026-09-10" }]);
+	}
+});
