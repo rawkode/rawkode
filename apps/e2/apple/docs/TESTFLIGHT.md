@@ -136,3 +136,16 @@ Actual editor screenshots are in
 [editor qualification](EDITOR-QUALIFICATION.md). They show the shared editor
 layout; they predate the bundle/name change. They are QA evidence and have not
 been submitted as App Store marketing screenshots.
+
+## Distribution registration update
+
+After the user renamed the older prototype record, Xcode confirmed **Enchiridion
+is Set Up for Distribution** for `rawkode.academy.enchiridion` and generated an
+internal TestFlight distribution workflow. The release branch is
+`spike/native-web-rich-editor`.
+
+Cloud Build 2 passed the earlier compiler crash but stopped on Swift 6.3.3's
+type-checking limit in AgendaView's event button expression. The event button is
+now a separate view with explicit CGFloat layout values; the formulas and
+selection behavior are preserved. Local Debug compilation passed. The next cloud
+run must verify this change before signing/upload can be claimed.

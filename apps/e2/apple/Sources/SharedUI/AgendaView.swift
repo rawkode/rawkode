@@ -108,22 +108,10 @@ private struct DayCalendar: View {
                                 }
                             }
                             ForEach(items) { item in
-                                let available = max(0, geometry.size.width - 68)
-                                let width = available / Double(item.columnCount)
-                                Button { selectedEvent = item.event } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.event.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                                        if item.endMinute - item.startMinute >= 45 {
-                                            Text(eventTime(item.event)).font(.caption).lineLimit(1)
-                                        }
-                                    }.padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                                    .background(theme.accent.opacity(0.12), in: .rect(cornerRadius: 8))
+                                CalendarEventButton(item: item, availableWidth: geometry.size.width - 68,
+                                    hourHeight: hourHeight, theme: theme) {
+                                    selectedEvent = item.event
                                 }
-                                .buttonStyle(.plain).foregroundStyle(theme.ink)
-                                .frame(width: max(1, width - 5), height: max(24, (item.endMinute - item.startMinute) / 60 * hourHeight - 3))
-                                .offset(x: 64 + Double(item.column) * width, y: item.startMinute / 60 * hourHeight + 7)
-                                .accessibilityLabel(item.event.title + ", " + eventTime(item.event))
-                                .accessibilityHint("Show event details")
                             }
                         }
                     }.frame(height: Double(hours) * hourHeight + 24).padding(.trailing, 16)
@@ -132,6 +120,38 @@ private struct DayCalendar: View {
             Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened)) · \(TimeZone.current.abbreviation() ?? TimeZone.current.identifier)")
                 .font(.caption).foregroundStyle(theme.secondary).padding(10)
         }
+    }
+}
+
+private struct CalendarEventButton: View {
+    let item: DayAgendaLayout.Item
+    let availableWidth: CGFloat
+    let hourHeight: Double
+    let theme: ApsidesTheme
+    let select: () -> Void
+
+    private var columnWidth: CGFloat { max(0, availableWidth) / CGFloat(item.columnCount) }
+    private var eventHeight: CGFloat { CGFloat(max(24, (item.endMinute - item.startMinute) / 60 * hourHeight - 3)) }
+    private var horizontalOffset: CGFloat { 64 + CGFloat(item.column) * columnWidth }
+    private var verticalOffset: CGFloat { CGFloat(item.startMinute / 60 * hourHeight + 7) }
+
+    var body: some View {
+        Button(action: select) { label }
+            .buttonStyle(.plain).foregroundStyle(theme.ink)
+            .frame(width: max(1, columnWidth - 5), height: eventHeight)
+            .offset(x: horizontalOffset, y: verticalOffset)
+            .accessibilityLabel(item.event.title + ", " + eventTime(item.event))
+            .accessibilityHint("Show event details")
+    }
+
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.event.title).font(.subheadline.weight(.medium)).lineLimit(2)
+            if item.endMinute - item.startMinute >= 45 {
+                Text(eventTime(item.event)).font(.caption).lineLimit(1)
+            }
+        }.padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(theme.accent.opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 
