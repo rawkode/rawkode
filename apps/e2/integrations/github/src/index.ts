@@ -56,47 +56,71 @@ export class GitHubAdminApi extends RpcTarget
 		return this.#api.listActivity(connectionId, page);
 	}
 	async beginAppInstallation() {
-		if (!githubAppConfigured(this.#env) || !this.#env.GITHUB_APP_SLUG) {
-			throw new Error("GitHub App is not configured");
+		let stage = "configuration";
+		try {
+			if (!githubAppConfigured(this.#env) || !this.#env.GITHUB_APP_SLUG) {
+				throw new Error("GitHub App is not configured");
+			}
+			stage = "create-session";
+			const state = await beginInstallation(this.#env.DB, this.#ownerId);
+			return {
+				state,
+				url: `https://github.com/apps/${
+					encodeURIComponent(this.#env.GITHUB_APP_SLUG)
+				}/installations/new?state=${state}`,
+			};
+		} catch (error) {
+			console.error("GitHub App setup failed", {
+				stage,
+				type: error instanceof Error ? error.name : typeof error,
+			});
+			throw error;
 		}
-		const state = await beginInstallation(this.#env.DB, this.#ownerId);
-		return {
-			state,
-			url: `https://github.com/apps/${
-				encodeURIComponent(this.#env.GITHUB_APP_SLUG)
-			}/installations/new?state=${state}`,
-		};
 	}
 	async completeAppInstallation(state: string, installationId: string) {
-		if (!githubAppConfigured(this.#env)) {
-			throw new Error("GitHub App is not configured");
+		let stage = "configuration";
+		try {
+			if (!githubAppConfigured(this.#env)) {
+				throw new Error("GitHub App is not configured");
+			}
+			stage = "read-installation";
+			const installation = await readGitHubInstallation(
+				this.#env,
+				installationId,
+			);
+			if (String(installation.id) !== installationId) {
+				throw new Error("GitHub installation identity mismatch");
+			}
+			stage = "permissions";
+			assertReadOnlyPermissions(installation.permissions);
+			stage = "account-identity";
+			const account = installation.account;
+			if (!account || typeof account !== "object" || Array.isArray(account)) {
+				throw new Error("GitHub installation account is unavailable");
+			}
+			const row = account as Record<string, unknown>;
+			const targetType = installation.target_type;
+			if (targetType !== "User" && targetType !== "Organization") {
+				throw new Error("GitHub installation target is invalid");
+			}
+			stage = "claim-installation";
+			const identity = await claimInstallation(this.#env.DB, state, {
+				installationId: String(installation.id),
+				accountId: String(row.id),
+				accountLogin: String(row.login),
+				targetType,
+			});
+			stage = "start-mirror";
+			await this.#env.GITHUB_INSTALLATIONS.getByName(identity.installationId)
+				.claim(identity);
+			return identity;
+		} catch (error) {
+			console.error("GitHub App setup failed", {
+				stage,
+				type: error instanceof Error ? error.name : typeof error,
+			});
+			throw error;
 		}
-		const installation = await readGitHubInstallation(
-			this.#env,
-			installationId,
-		);
-		if (String(installation.id) !== installationId) {
-			throw new Error("GitHub installation identity mismatch");
-		}
-		assertReadOnlyPermissions(installation.permissions);
-		const account = installation.account;
-		if (!account || typeof account !== "object" || Array.isArray(account)) {
-			throw new Error("GitHub installation account is unavailable");
-		}
-		const row = account as Record<string, unknown>;
-		const targetType = installation.target_type;
-		if (targetType !== "User" && targetType !== "Organization") {
-			throw new Error("GitHub installation target is invalid");
-		}
-		const identity = await claimInstallation(this.#env.DB, state, {
-			installationId: String(installation.id),
-			accountId: String(row.id),
-			accountLogin: String(row.login),
-			targetType,
-		});
-		await this.#env.GITHUB_INSTALLATIONS.getByName(identity.installationId)
-			.claim(identity);
-		return identity;
 	}
 	listAppInstallations() {
 		if (!this.#env.DB) return Promise.resolve([]);

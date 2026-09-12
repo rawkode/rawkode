@@ -1,3 +1,4 @@
+import { failureDetails } from "./diagnostics.ts";
 import { appSecret, getApp } from "./apps.ts";
 import * as oauth from "oauth4webapi";
 import type { OAuthEnv } from "./env.ts";
@@ -8,21 +9,6 @@ import type { ConnectionRow, SessionRow } from "./store.ts";
 
 export const bindingCookieName = (stateId: string, secure: boolean): string => {
 	return `${secure ? "__Host-" : ""}e2-oauth-${stateId.slice(0, 24)}`;
-};
-
-const failureDetails = (error: unknown): Record<string, unknown> => {
-	if (!(error instanceof Error)) return { type: typeof error };
-	if (error instanceof oauth.ResponseBodyError) {
-		return {
-			type: error.name,
-			status: error.status,
-			providerError: error.error,
-		};
-	}
-	if (error instanceof oauth.AuthorizationResponseError) {
-		return { type: error.name, providerError: error.error };
-	}
-	return { type: error.name };
 };
 
 export const callback = async (
@@ -76,6 +62,8 @@ export const callback = async (
 
 	let result = "failed";
 	let providerId = "unknown";
+	let stage = "load-app";
+	let responseStatus: number | undefined;
 	try {
 		const app = await getApp(env, session.app_id);
 		if (!app) throw new Error("App missing.");
@@ -83,18 +71,27 @@ export const callback = async (
 		const p = provider(app.provider_id, env);
 		const vault = createTokenVault(env);
 		const client: oauth.Client = { client_id: app.client_id };
+		stage = "validate-authorization";
 		const parameters = oauth.validateAuthResponse(p.server, client, url, state);
+		stage = "read-client-secret";
+		const secret = await appSecret(env, app);
+		stage = "decrypt-verifier";
+		const verifier = await vault.decrypt(
+			session.verifier,
+			`session:${stateId}`,
+		);
+		stage = "request-token";
 		const response = await oauth.authorizationCodeGrantRequest(
 			p.server,
 			client,
-			oauth.ClientSecretPost(
-				await appSecret(env, app),
-			),
+			oauth.ClientSecretPost(secret),
 			parameters,
 			p.redirectUri,
-			await vault.decrypt(session.verifier, `session:${stateId}`),
+			verifier,
 			p.options,
 		);
+		responseStatus = response.status;
+		stage = "process-token";
 		const tokens = await oauth.processAuthorizationCodeResponse(
 			p.server,
 			client,
@@ -103,7 +100,10 @@ export const callback = async (
 				? { expectedNonce: session.nonce, requireIdToken: true }
 				: {},
 		);
+		responseStatus = undefined;
+		stage = "read-identity";
 		const identity = await readIdentity(p, client, tokens);
+		stage = "validate-permissions";
 		const scopes = normalizeScopes(
 			tokens.scope?.split(/[ ,]+/).filter(Boolean) ?? JSON.parse(app.scopes),
 		);
@@ -120,6 +120,7 @@ export const callback = async (
 			result = "scopes";
 			throw new Error("Unexpected token permissions or lifetime.");
 		}
+		stage = "read-connection";
 		const old = await env.DB.prepare(
 			"SELECT * FROM oauth_connections WHERE app_id = ? AND owner_id = ? AND account_id = ?",
 		)
@@ -132,6 +133,7 @@ export const callback = async (
 			throw new Error("Offline access required.");
 		}
 		const id = old?.id ?? crypto.randomUUID();
+		stage = "encrypt-tokens";
 		const access = await vault.encrypt(
 			tokens.access_token,
 			`connection:${id}:access`,
@@ -143,6 +145,7 @@ export const callback = async (
 		const expires = tokens.expires_in === undefined
 			? null
 			: Date.now() + tokens.expires_in * 1000;
+		stage = "save-connection";
 		if (old) {
 			const update = await env.DB.prepare(
 				`UPDATE oauth_connections SET account_label = ?, scopes = ?, access_token = ?, refresh_token = ?, expires_at = ?,
@@ -184,7 +187,8 @@ export const callback = async (
 		// Never expose provider errors, authorization codes, tokens, or client secrets.
 		console.error("OAuth callback failed", {
 			provider: providerId,
-			...failureDetails(error),
+			stage,
+			...failureDetails(error, responseStatus),
 		});
 	}
 	return new Response(null, {
