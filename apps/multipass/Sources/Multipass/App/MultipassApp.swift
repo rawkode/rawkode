@@ -32,7 +32,7 @@ private struct MenuContent: View {
 
     var body: some View {
         Text(store.enabled ? "Automatic switching on" : "Automatic switching paused")
-        Text(store.keyboardPresent ? "Keyboard connected" : "Keyboard not connected here")
+        Text(store.keyboardPresent.map { $0 ? "Keyboard connected" : "Keyboard not connected here" } ?? "Keyboard status unknown")
         Divider()
         Button("Open Multipass…") {
             openWindow(id: "multipass")
@@ -40,7 +40,7 @@ private struct MenuContent: View {
         }
         Button(store.enabled ? "Pause switching" : "Resume switching") {
             store.setEnabled(!store.enabled)
-        }.disabled(!store.paired)
+        }.disabled(!store.paired || !store.available)
         Divider()
         Button("Quit Multipass") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }

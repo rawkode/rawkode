@@ -9,10 +9,13 @@ case "$MODE" in
 esac
 cd "$ROOT_DIR"
 if [[ "$MODE" != --build ]]; then pkill -x Multipass >/dev/null 2>&1 || true; fi
+cargo build --locked -p multipass-core --bin multipass-engine
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/Multipass"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 cp "$BUILD_BINARY" "$APP_BUNDLE/Contents/MacOS/Multipass"
+cp target/debug/multipass-engine "$APP_BUNDLE/Contents/MacOS/multipass-engine"
+codesign --force --sign "${MULTIPASS_SIGNING_IDENTITY:--}" "$APP_BUNDLE/Contents/MacOS/multipass-engine"
 cp Resources/Info.plist "$APP_BUNDLE/Contents/Info.plist"
 codesign --force --sign "${MULTIPASS_SIGNING_IDENTITY:--}" "$APP_BUNDLE"
 case "$MODE" in
@@ -23,7 +26,7 @@ case "$MODE" in
     /usr/bin/log stream --info --style compact --predicate 'process == "Multipass"'
     ;;
   --verify)
-    swift test
+    cargo test --locked --workspace
     codesign --verify --strict "$APP_BUNDLE"
     open -n "$APP_BUNDLE"
     sleep 1

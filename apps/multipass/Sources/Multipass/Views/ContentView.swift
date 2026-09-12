@@ -20,7 +20,7 @@ struct ContentView: View {
                     HStack {
                         Text(store.computerName).fontWeight(.medium)
                         Spacer()
-                        Picker("Mouse slot", selection: $store.localSlot) {
+                        Picker("Mouse slot", selection: Binding(get: { store.localSlot }, set: store.setLocalSlot)) {
                             ForEach(1...3, id: \.self) { Text("\($0)").tag($0) }
                         }.frame(width: 165)
                     }
@@ -36,11 +36,11 @@ struct ContentView: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle("Automatic switching", isOn: Binding(get: { store.enabled }, set: store.setEnabled))
-                        .toggleStyle(.switch).disabled(!store.paired)
+                        .toggleStyle(.switch).disabled(!store.paired || !store.available)
                     Label(store.networkStatus, systemImage: store.enabled ? "network" : "pause.circle")
                         .font(.callout).foregroundStyle(.secondary)
-                    if !store.peers.isEmpty {
-                        Text("\(store.peers.count) nearby Multipass \(store.peers.count == 1 ? "service" : "services"). Requests must match your pairing code.")
+                    if store.peerCount > 0 {
+                        Text("\(store.peerCount) nearby Multipass \(store.peerCount == 1 ? "service" : "services"). Requests must match your pairing code.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Toggle("Launch at login", isOn: Binding(get: { store.launchAtLogin }, set: store.setLaunchAtLogin))
@@ -62,19 +62,19 @@ struct ContentView: View {
                     }
                 }.frame(height: 95)
             }
-            Text("Run Multipass on both Macs on the same local network. Wait three seconds after enabling, then switch the keyboard away and back to test.")
+            Text("Run Multipass on both computers on the same local network. Wait three seconds after enabling, then switch the keyboard away and back to test.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24)
         .frame(width: 580)
     }
 
-    private func deviceRow(_ name: String, icon: String, present: Bool) -> some View {
+    private func deviceRow(_ name: String, icon: String, present: Bool?) -> some View {
         HStack {
             Label(name, systemImage: icon)
             Spacer()
-            Text(present ? "Connected here" : "Not connected here")
-                .foregroundStyle(present ? Color.green : Color.secondary)
+            Text(present.map { $0 ? "Connected here" : "Not connected here" } ?? "Unknown")
+                .foregroundStyle(present == true ? Color.green : Color.secondary)
         }
     }
 }
@@ -84,14 +84,14 @@ private struct PairingView: View {
     @State private var editing = false
 
     var body: some View {
-        GroupBox("Connect your Macs") {
+        GroupBox("Connect your computers") {
             VStack(alignment: .leading, spacing: 10) {
                 if store.paired && !editing && store.pairingCode.isEmpty {
-                    Label("Pairing key saved in Keychain", systemImage: "lock.shield")
+                    Label("Pairing key saved securely", systemImage: "lock.shield")
                     Button("Replace pairing…") { editing = true }
                         .buttonStyle(.link)
                 } else {
-                    Text("Create a code on one Mac, then paste it into the other.")
+                    Text("Create a code on one computer, then paste it into the other.")
                         .font(.callout).foregroundStyle(.secondary)
                     HStack {
                         SecureField("Pairing code from your other Mac", text: $store.enteredCode)
