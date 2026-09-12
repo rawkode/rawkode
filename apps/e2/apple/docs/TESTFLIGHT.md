@@ -173,3 +173,16 @@ This reserves signing capability only. No CarPlay scene, microphone permission,
 audio session, or conversational interface is enabled. Future voice interaction
 must be gated to iOS 26.4 or later, use the voice control template for recording,
 and hold an audio session only while voice features are active.
+
+## Production editor recovery — 12 September 2026
+
+The production web update was deployed successfully using a temporary account
+token and original integration settings recovered in memory from Alchemy state.
+The full `e2` production plan contained three updates (website, API, documents)
+and 21 no-ops, with no deletions or replacements. Application completed with
+exit zero. The downloaded live website Worker contains `/apple/editor`, the
+native editor version marker, and NativeEditor. The public route redirects to
+Cloudflare Access as expected; authenticated physical-device editing still
+requires confirmation. The installed iOS app can retry without a new build.
+The temporary recovery helper was removed and the credential process closed.
+CI vault access remains separate follow-up work.
