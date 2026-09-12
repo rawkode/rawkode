@@ -7,7 +7,7 @@ final class ApsidesUITests: XCTestCase {
     override func setUp() async throws {
         await MainActor.run {
         continueAfterFailure = false
-        app = XCUIApplication(bundleIdentifier: "dev.rawkode.apsides")
+        app = XCUIApplication(bundleIdentifier: "rawkode.academy.enchiridion")
         app.launchArguments = ["--ui-testing", "--reset-test-data"]
         app.launch()
         }

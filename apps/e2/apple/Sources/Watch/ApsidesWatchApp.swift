@@ -44,7 +44,7 @@ private struct WatchTodayView: View {
                             Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened)) on iPhone")
                                 .font(.caption2).foregroundStyle(.secondary)
                         } else {
-                            Text("Open Apsides on iPhone to send today’s agenda.").foregroundStyle(.secondary)
+                            Text("Open Enchiridion on iPhone to send today’s agenda.").foregroundStyle(.secondary)
                         }
                     }
                 }

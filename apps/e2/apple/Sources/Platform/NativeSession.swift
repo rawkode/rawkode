@@ -13,7 +13,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var accountID: String?
     @Published public private(set) var email: String?
-    public var status: String { isVerifying ? "Checking connection…" : (isConnected ? "Connected to Apsides" : "Not connected") }
+    public var status: String { isVerifying ? "Checking connection…" : (isConnected ? "Connected to Enchiridion" : "Not connected") }
 
     private let websiteDataStore: WKWebsiteDataStore
     private var generation = 0
@@ -23,9 +23,9 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
 
         public var errorDescription: String? {
             switch self {
-            case .invalidOrigin: "Use the HTTPS address of your Apsides website, without a path."
-            case .signInRequired: "Sign in to your Apsides website to load connected data."
-            case .invalidResponse: "Apsides did not return valid account data."
+            case .invalidOrigin: "Use the HTTPS address of your Enchiridion website, without a path."
+            case .signInRequired: "Sign in to your Enchiridion website to load connected data."
+            case .invalidResponse: "Enchiridion did not return valid account data."
             case .responseTooLarge: "The response is too large to open on this device."
             case .invalidDocumentID: "This document address is invalid."
             case .cancelled: "The connection changed. Please try again."

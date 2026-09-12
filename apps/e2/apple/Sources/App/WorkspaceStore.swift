@@ -219,7 +219,7 @@ final class WorkspaceStore: ObservableObject {
     private func publishWidget(_ snapshot: ContextSnapshot?) {
         guard !isUITesting && !demo else { return }
         #if os(iOS)
-        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.rawkode.apsides")?.appendingPathComponent("context.json") {
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.rawkode.academy.enchiridion")?.appendingPathComponent("context.json") {
             do {
                 if let snapshot { try JSONEncoder().encode(snapshot).write(to: url, options: .atomic) }
                 else if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }

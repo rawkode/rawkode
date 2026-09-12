@@ -11,4 +11,4 @@ xcodebuild -project "$APPLE_ROOT/Apsides.xcodeproj" -scheme ApsidesIOS \
   -destination 'generic/platform=iOS' -derivedDataPath "$BUILD_DIR" \
   CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
 python3 "$APPLE_ROOT/script/verify_device_build.py" \
-  "$BUILD_DIR/Build/Products/Debug-iphoneos/Apsides.app" --iphone "$1" --watch "$2"
+  "$BUILD_DIR/Build/Products/Debug-iphoneos/Enchiridion.app" --iphone "$1" --watch "$2"

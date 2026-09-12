@@ -13,8 +13,8 @@ struct SettingsView: View {
                 Section("Appearance") {
                     Picker("Palette", selection: $theme) { ForEach(ApsidesTheme.allCases) { Text($0.label).tag($0) } }
                 }
-                Section("Apsides account") {
-                    Text(session.origin.host ?? "Apsides").font(.callout)
+                Section("Enchiridion account") {
+                    Text(session.origin.host ?? "Enchiridion").font(.callout)
                     Text(session.isConnected ? "Connected" : "Local notebook · not connected").foregroundStyle(theme.secondary)
                     if session.isConnected {
                         Button("Refresh connected context") { Task { await store.refresh() } }.disabled(store.refreshing)
@@ -23,7 +23,7 @@ struct SettingsView: View {
                         Button("Sign in") { signIn = true }
                     }
                     if let error = session.errorMessage { Text(error).font(.callout).foregroundStyle(theme.secondary) }
-                    Text("Sign-in opens your existing Apsides website. The Today editor uses your web workspace. Earlier device notes remain local. Send individual captures to the workspace when ready.").font(.caption).foregroundStyle(theme.secondary)
+                    Text("Sign-in opens your existing Enchiridion workspace. The Today editor uses your web workspace. Earlier device notes remain local. Send individual captures to the workspace when ready.").font(.caption).foregroundStyle(theme.secondary)
                 }
                 Section("Your data") {
                     Text("Local notes and capture drafts are saved on this device. They remain here when you sign out.")
@@ -38,7 +38,7 @@ struct SettingsView: View {
         .sheet(isPresented: $signIn) {
             NavigationStack {
                 SignInWebView(session: session)
-                    .navigationTitle("Sign in to Apsides")
+                    .navigationTitle("Sign in to Enchiridion")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { signIn = false } }
                         ToolbarItem(placement: .confirmationAction) {

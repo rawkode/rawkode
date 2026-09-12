@@ -4,7 +4,7 @@ public enum VaultError: LocalizedError {
     case unsupportedVersion(Int), invalidCapture, tooLarge, duplicateIdentity
     public var errorDescription: String? {
         switch self {
-        case .unsupportedVersion(let version): "This notebook uses version \(version). Update Apsides before opening it."
+        case .unsupportedVersion(let version): "This notebook uses version \(version). Update Enchiridion before opening it."
         case .invalidCapture: "Write a thought before saving."
         case .tooLarge: "This thought is too large to save. Keep it under 100,000 characters."
         case .duplicateIdentity: "A different capture already uses this identifier. Neither copy was changed."

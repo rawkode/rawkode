@@ -58,7 +58,7 @@ def signed_entitlement_errors(profile, signed, bundle_id):
     groups = signed.get("com.apple.security.application-groups", [])
     if any(group not in allowed.get("com.apple.security.application-groups", []) for group in groups):
         errors.append("signed App Group is not authorized by the profile")
-    if bundle_id in ("dev.rawkode.apsides", "dev.rawkode.apsides.widget") and "group.dev.rawkode.apsides" not in groups:
+    if bundle_id in ("rawkode.academy.enchiridion", "rawkode.academy.enchiridion.widget") and "group.rawkode.academy.enchiridion" not in groups:
         errors.append("executable is missing the shared widget App Group entitlement")
     return errors
 
@@ -71,7 +71,7 @@ def main():
     args = parser.parse_args()
     bundles = [
         ("iPhone", args.app, args.iphone),
-        ("Watch", args.app / "Watch/ApsidesWatch.app", args.watch),
+        ("Watch", args.app / "Watch/Enchiridion.app", args.watch),
         ("Widget", args.app / "PlugIns/ApsidesWidget.appex", args.iphone),
     ]
     results = {}
@@ -102,7 +102,7 @@ def main():
                     failures.append(f"{label}: {key} differs from iPhone")
         for label in ("iPhone", "Widget"):
             groups = results[label][1].get("Entitlements", {}).get("com.apple.security.application-groups", [])
-            if "group.dev.rawkode.apsides" not in groups:
+            if "group.rawkode.academy.enchiridion" not in groups:
                 failures.append(f"{label}: profile does not authorize the shared widget App Group")
     for failure in failures:
         print(failure, file=sys.stderr)

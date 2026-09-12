@@ -1,3 +1,6 @@
+> Distribution: see [Enchiridion TestFlight setup](docs/TESTFLIGHT.md) for the
+> new bundle identity and Xcode Cloud workflow.
+
 # Apsides for Apple
 
 A native SwiftUI notebook and capture app for Mac, iPhone, iPad, and Apple
@@ -30,8 +33,8 @@ swift test --package-path apple
 Select ApsidesIOS for iPhone/iPad (embeds Watch and widget), ApsidesWatch for
 Watch, or ApsidesMac. Simulator builds use CODE_SIGNING_ALLOWED=NO. Physical
 devices need your development team, provisioning, and the
-group.dev.rawkode.apsides app group on the iOS app and widget. XcodeGen's
-project.yml is the project source of truth.
+group.rawkode.academy.enchiridion app group on the iOS app and widget.
+XcodeGen's project.yml is the project source of truth.
 
 The Mac Run script supports --logs, --debug, and --telemetry. Use
 APSIDES_BUILD_DIR to put build output elsewhere. No telemetry collection is

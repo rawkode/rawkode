@@ -37,10 +37,10 @@ class DeviceProvisioningTests(unittest.TestCase):
 
     def test_profile_permission_does_not_replace_signed_app_group(self):
         self.profile["TeamIdentifier"] = ["TEAM"]
-        self.profile["Entitlements"]["com.apple.security.application-groups"] = ["group.dev.rawkode.apsides"]
-        signed = {"application-identifier": "TEAM.dev.rawkode.apsides.widget",
+        self.profile["Entitlements"]["com.apple.security.application-groups"] = ["group.rawkode.academy.enchiridion"]
+        signed = {"application-identifier": "TEAM.rawkode.academy.enchiridion.widget",
                   "com.apple.developer.team-identifier": "TEAM", "get-task-allow": True}
-        self.assertEqual(signed_entitlement_errors(self.profile, signed, "dev.rawkode.apsides.widget"),
+        self.assertEqual(signed_entitlement_errors(self.profile, signed, "rawkode.academy.enchiridion.widget"),
                          ["executable is missing the shared widget App Group entitlement"])
 
     def test_signed_identity_must_match_bundle_and_profile(self):

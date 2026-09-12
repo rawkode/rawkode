@@ -1,6 +1,6 @@
 name: Apsides
 options:
-  bundleIdPrefix: dev.rawkode
+  bundleIdPrefix: rawkode.academy
   deploymentTarget:
     macOS: "26.0"
     iOS: "26.0"
@@ -11,6 +11,7 @@ settings:
     DEVELOPMENT_TEAM: "6KXCJGJ45W"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
 packages:
   ApsidesCore:
     path: .
@@ -20,30 +21,39 @@ targets:
     platform: macOS
     sources:
       - Sources/App
+      - path: Resources/MacAssets.xcassets
+        buildPhase: resources
       - Sources/SharedUI
       - Sources/Platform
+      - path: Configuration/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: ApsidesCore
     settings:
       base:
-        PRODUCT_NAME: Apsides
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.mac
+        PRODUCT_NAME: Enchiridion
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.mac
         ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
     info:
       path: Configuration/Mac-Info.plist
       properties:
-        CFBundleDisplayName: Apsides
+        CFBundleDisplayName: Enchiridion
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [apsides]
+          - CFBundleURLSchemes: [enchiridion]
   ApsidesIOS:
     type: application
     platform: iOS
     sources:
       - Sources/App
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
       - Sources/SharedUI
       - Sources/Platform
+      - path: Configuration/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: ApsidesCore
       - target: ApsidesWatch
@@ -52,20 +62,21 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_NAME: Apsides
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides
+        PRODUCT_NAME: Enchiridion
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: Configuration/iOS.entitlements
     info:
       path: Configuration/iOS-Info.plist
       properties:
-        CFBundleDisplayName: Apsides
+        CFBundleDisplayName: Enchiridion
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [apsides]
+          - CFBundleURLSchemes: [enchiridion]
         UISupportedInterfaceOrientations: [
           UIInterfaceOrientationPortrait,
           UIInterfaceOrientationLandscapeLeft,
@@ -83,19 +94,23 @@ targets:
     sources:
       - Sources/Watch
       - Sources/Platform/WatchBridge.swift
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: ApsidesCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.watchkitapp
+        PRODUCT_NAME: Enchiridion
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
     info:
       path: Configuration/Watch-Info.plist
       properties:
-        CFBundleDisplayName: Apsides
+        CFBundleDisplayName: Enchiridion
         WKApplication: true
-        WKCompanionAppBundleIdentifier: dev.rawkode.apsides
+        WKCompanionAppBundleIdentifier: rawkode.academy.enchiridion
   ApsidesWidget:
     type: app-extension
     platform: iOS
@@ -104,7 +119,7 @@ targets:
       - package: ApsidesCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.widget
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.widget
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: Configuration/iOS.entitlements
         SKIP_INSTALL: YES
@@ -112,7 +127,7 @@ targets:
     info:
       path: Configuration/Widget-Info.plist
       properties:
-        CFBundleDisplayName: Apsides Up Next
+        CFBundleDisplayName: Up Next
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
   ApsidesUITests:
@@ -123,7 +138,7 @@ targets:
       - target: ApsidesIOS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.uitests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   ApsidesMac:
@@ -136,6 +151,8 @@ schemes:
         ApsidesIOS: all
     test:
       targets: [ApsidesUITests]
+    archive:
+      config: Release
   ApsidesWatch:
     build:
       targets:

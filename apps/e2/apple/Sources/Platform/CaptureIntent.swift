@@ -5,7 +5,7 @@ import Foundation
 
 struct CaptureThoughtIntent: AppIntent {
     static let title: LocalizedStringResource = "Capture a thought"
-    static let description = IntentDescription("Save a thought on this device for your Apsides inbox.")
+    static let description = IntentDescription("Save a thought on this device for your Enchiridion inbox.")
     static let openAppWhenRun = false
 
     @Parameter(title: "Thought", requestValueDialog: "What would you like to remember?")
@@ -19,7 +19,7 @@ struct CaptureThoughtIntent: AppIntent {
         await MainActor.run {
             NotificationCenter.default.post(name: Notification.Name("apsidesCaptureArrived"), object: nil)
         }
-        return .result(dialog: "Saved on this device for your Apsides inbox.")
+        return .result(dialog: "Saved on this device for your Enchiridion inbox.")
     }
 }
 

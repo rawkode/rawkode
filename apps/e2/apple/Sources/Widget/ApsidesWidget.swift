@@ -23,7 +23,7 @@ struct AgendaProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: .after(current.date.addingTimeInterval(300))))
     }
     private func entry() -> AgendaEntry {
-        let snapshot = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.rawkode.apsides")
+        let snapshot = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.rawkode.academy.enchiridion")
             .flatMap { try? Data(contentsOf: $0.appendingPathComponent("context.json")) }
             .flatMap { try? JSONDecoder().decode(ContextSnapshot.self, from: $0) }
         return AgendaEntry(date: .now, snapshot: snapshot)
@@ -49,11 +49,11 @@ struct NextEventWidgetView: View {
                 } else { Text("No more events").font(.headline) }
             } else {
                 Text("Refresh your day").font(.headline)
-                Text("Open Apsides on iPhone before your journey.").font(.caption).foregroundStyle(.secondary)
+                Text("Open Enchiridion on iPhone before your journey.").font(.caption).foregroundStyle(.secondary)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "apsides://today"))
+        .widgetURL(URL(string: "enchiridion://today"))
     }
 }
 @main

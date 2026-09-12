@@ -53,7 +53,7 @@ struct WorkspaceView: View {
             List(WorkspaceDestination.allCases, selection: $selection) { destination in
                 Label(destination.rawValue, systemImage: destination.symbol).tag(destination)
             }
-            .navigationTitle("Apsides")
+            .navigationTitle("Enchiridion")
             .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 240)
             .safeAreaInset(edge: .bottom) {
                 Button { store.settingsPresented = true } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.plain).padding()

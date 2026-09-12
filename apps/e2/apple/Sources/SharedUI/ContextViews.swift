@@ -10,7 +10,7 @@ struct ContextConnectionView: View {
                 Text("Updated \(snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(theme.ink)
             } else {
                 Text("Bring your day into focus").font(.system(.title2, design: .serif))
-                Text("Connect your Apsides account for calendar, people, and GitHub context. Your local writing stays available offline.").foregroundStyle(theme.ink)
+                Text("Connect your Enchiridion account for calendar, people, and GitHub context. Your local writing stays available offline.").foregroundStyle(theme.ink)
                 Button("Connect account") { store.settingsPresented = true }
             }
             if let error = store.connectionError { Text(error).font(.callout).foregroundStyle(theme.ink) }

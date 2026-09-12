@@ -39,10 +39,15 @@
 		9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
 		A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
+		A7FF93D129B2BBB759DE85BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
+		BC1DE2339B8F1B71CABD83E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		BCE3B588C96AD83010123AA0 /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 14A63658B3EA59F83FB92B5B /* ApsidesCore */; };
+		C18BE9B33E4B4E668CC51D25 /* MacAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */; };
 		C583934A6EEF52563C18D434 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		C82A6683C503096AC1348FE4 /* ApsidesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */; };
+		D038938E8A2F0BCF1DA909F6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		D2CD43E95B7B408A8DD474E1 /* DemoContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9A1EBBC62157B945574E86 /* DemoContent.swift */; };
+		D4221FD8FCC62C4CD02AD389 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
 		E15BB472DAE847B42414E8CB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3F74FC662D9F3E7F5865B333 /* ApsidesCore */; };
 		E6222213B492B702E9D33154 /* CaptureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */; };
 		E8CB9DB0ABD08C268963D387 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */; };
@@ -116,12 +121,15 @@
 		531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWatchApp.swift; sourceTree = "<group>"; };
 		64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWidget.swift; sourceTree = "<group>"; };
 		6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = MacAssets.xcassets; sourceTree = "<group>"; };
 		75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ApsidesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		83D84418589D887D76F550C8 /* ApsidesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ApsidesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8D9A1EBBC62157B945574E86 /* DemoContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoContent.swift; sourceTree = "<group>"; };
+		93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		97BE1B8C546F541BE80A452D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesUITests.swift; sourceTree = "<group>"; };
 		9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViews.swift; sourceTree = "<group>"; };
+		A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		B500427B31BBB3B632B18DC1 /* ContextViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextViews.swift; sourceTree = "<group>"; };
 		BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDaybookView.swift; sourceTree = "<group>"; };
@@ -179,14 +187,24 @@
 			isa = PBXGroup;
 			children = (
 				D35D04D13F849E17AB7EC502 /* App */,
+				523ADB06EEB5F21E4339BDDB /* Configuration */,
 				B104CA17150AFE7B40B49BAA /* Packages */,
 				A7263C04F0CAB439044BD8FA /* Platform */,
+				D27985203260D0122F200F2D /* Resources */,
 				BB3B93D3527BCCF7910431F3 /* SharedUI */,
 				BC04B2ECAFA9B98E93D8E41E /* UI */,
 				CD3A70DCD560A52819D4A8A9 /* Watch */,
 				18D3EE2C08DD85150EA11FE1 /* Widget */,
 				76F464A0A386540253CDCE5C /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		523ADB06EEB5F21E4339BDDB /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Configuration;
 			sourceTree = "<group>";
 		};
 		76F464A0A386540253CDCE5C /* Products */ = {
@@ -257,6 +275,15 @@
 			path = Sources/Watch;
 			sourceTree = "<group>";
 		};
+		D27985203260D0122F200F2D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */,
+				7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		D35D04D13F849E17AB7EC502 /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -276,6 +303,7 @@
 			buildConfigurationList = 46A56078BE9D7575170202BA /* Build configuration list for PBXNativeTarget "ApsidesMac" */;
 			buildPhases = (
 				FE13C692D9187B721DA90D55 /* Sources */,
+				D2D00A3E0BC631C9D248DF4F /* Resources */,
 				213E3E3F417B561B6919A71B /* Frameworks */,
 			);
 			buildRules = (
@@ -332,6 +360,7 @@
 			buildConfigurationList = 042E916FD7AF2DA84E95B064 /* Build configuration list for PBXNativeTarget "ApsidesIOS" */;
 			buildPhases = (
 				36195CC5FDB0483E810A9123 /* Sources */,
+				D3C39F0F187C3A61D259C411 /* Resources */,
 				EE4127611FC366798EF7BFEE /* Frameworks */,
 				87FA6ACFDD4FBA96741BB8EE /* Embed Foundation Extensions */,
 				4E1764A2C0F4AF0C344FE984 /* Embed Watch Content */,
@@ -355,6 +384,7 @@
 			buildConfigurationList = 417183EC7C58037A82B06BBB /* Build configuration list for PBXNativeTarget "ApsidesWatch" */;
 			buildPhases = (
 				332289A6DB3B6B46DAA5324B /* Sources */,
+				5DD99618A1525D920DBA25FD /* Resources */,
 				0FA5AECFF5FAEC8E87094509 /* Frameworks */,
 			);
 			buildRules = (
@@ -380,19 +410,24 @@
 				TargetAttributes = {
 					043B0693B95676408BEC2C9B = {
 						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
 					};
 					2B0F3640374409FBF6F52D67 = {
 						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
 					};
 					388285793BA8F6ECF0CBD91D = {
 						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
 						TestTargetID = D14506CD77A86C6454802600;
 					};
 					D14506CD77A86C6454802600 = {
 						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
 					};
 					D820F41B1C45F40CD9A7610A = {
 						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -421,6 +456,35 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5DD99618A1525D920DBA25FD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4221FD8FCC62C4CD02AD389 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2D00A3E0BC631C9D248DF4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C18BE9B33E4B4E668CC51D25 /* MacAssets.xcassets in Resources */,
+				D038938E8A2F0BCF1DA909F6 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3C39F0F187C3A61D259C411 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7FF93D129B2BBB759DE85BA /* Assets.xcassets in Resources */,
+				BC1DE2339B8F1B71CABD83E2 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		107C7BB8D47E7D629046BF97 /* Sources */ = {
@@ -528,8 +592,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides;
-				PRODUCT_NAME = Apsides;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -547,7 +611,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.widget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -560,7 +624,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Watch-Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.watchkitapp;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -579,8 +644,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides;
-				PRODUCT_NAME = Apsides;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -599,8 +664,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.mac;
-				PRODUCT_NAME = Apsides;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.mac;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -638,6 +703,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
@@ -682,7 +748,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ApsidesIOS;
@@ -695,7 +761,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Watch-Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.watchkitapp;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -712,7 +779,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ApsidesIOS;
@@ -752,6 +819,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -792,8 +860,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.mac;
-				PRODUCT_NAME = Apsides;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.mac;
+				PRODUCT_NAME = Enchiridion;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -810,7 +878,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.apsides.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.widget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
