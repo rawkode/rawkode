@@ -119,3 +119,23 @@ Deno.test("complete payloads and malformed repository names never trigger hydrat
 	]);
 	assert.equal(calls, 0);
 });
+
+Deno.test("hung metadata lookups stop at shared deadline and subsequent pages do not retry", async () => {
+	let calls = 0;
+	const enrich = createActivityEnricher(
+		() => {
+			calls++;
+			return new Promise(() => {});
+		},
+		8,
+		20,
+	);
+	const rows = [1, 2, 3].map((number) => event("PullRequestEvent", { number }));
+	const started = Date.now();
+	const result = await enrich(rows);
+	assert.ok(Date.now() - started < 300);
+	assert.equal(result.length, 3);
+	assert.equal(calls, 2);
+	await enrich(rows);
+	assert.equal(calls, 2);
+});

@@ -273,12 +273,13 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         request.setValue(origin.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(HTTPCookie.requestHeaderFields(with: [cookie])["Cookie"], forHTTPHeaderField: "Cookie")
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 30
+        request.timeoutInterval = 15
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
+        configuration.timeoutIntervalForResource = 15
         let session = URLSession(configuration: configuration, delegate: NativeRedirectBlocker(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(for: request)

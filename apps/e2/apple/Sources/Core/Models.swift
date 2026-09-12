@@ -63,6 +63,7 @@ public struct Vault: Codable, Equatable, Sendable {
     public var phoneReceipts: Set<UUID> = []
     public var uploaded: Set<UUID> = []
     public var context: ContextSnapshot?
+    public var connectedContext: ConnectedContext?
     public var accountID: String?
     public init() {}
 }

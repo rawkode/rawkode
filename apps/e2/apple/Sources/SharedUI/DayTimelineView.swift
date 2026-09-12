@@ -12,8 +12,8 @@ struct DayTimelineView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { clock in
-            content(at: clock.date)
-                .task(id: DayIdentity.key(clock.date)) { if store.snapshot?.day != DayIdentity.key(clock.date) { await store.refresh() } }
+            VStack(spacing: 0) { content(at: clock.date) }
+                .task(id: DayIdentity.key(clock.date)) { await store.refresh() }
         }
         .background(theme.canvas).foregroundStyle(theme.ink).tint(theme.accent)
         .navigationTitle("")
@@ -28,13 +28,14 @@ struct DayTimelineView: View {
     @ViewBuilder private func content(at now: Date) -> some View {
         if let snapshot = store.snapshot, snapshot.day == DayIdentity.key(now) {
             connectedDay(snapshot, now: now)
-        } else if store.refreshing {
+        } else if store.refreshing && store.snapshot == nil {
             ProgressView("Bringing your day together…").frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ContextConnectionView(store: store)
-                    if store.snapshot != nil {
+                    if store.refreshing { ProgressView("Refreshing your day…") }
+                    if store.snapshot != nil || store.connectionError != nil {
                         Text("Today's calendar is not available yet.").font(.headline)
                         Button("Refresh today") { Task { await store.refresh() } }
                     }
@@ -73,11 +74,11 @@ struct DayTimelineView: View {
             Label("Some services could not refresh", systemImage: "exclamationmark.triangle")
                 .font(.callout).padding(.horizontal, 24).padding(.vertical, 8)
         }
-        if now.timeIntervalSince(snapshot.fetchedAt) > 15 * 60 {
+        if store.connectionError != nil || now.timeIntervalSince(snapshot.fetchedAt) > 15 * 60 {
             Text("Last updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
                 .font(.caption).foregroundStyle(theme.secondary).padding(8)
         }
-        if snapshot.events.isEmpty {
+        if snapshot.events.isEmpty && store.context?.partial != true {
             Text("Nothing scheduled. Your day has room.")
                 .font(.callout).foregroundStyle(theme.secondary).padding(16)
         }

@@ -1,12 +1,12 @@
 import Foundation
 
-public struct ContextPerson: Identifiable, Equatable, Sendable {
+public struct ContextPerson: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var name: String
     public var emails: [String]
     public init(id: String, name: String, emails: [String]) { self.id = id; self.name = name; self.emails = emails }
 }
-public struct RepositoryActivity: Identifiable, Equatable, Sendable {
+public struct RepositoryActivity: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var repository: String
     public var title: String
@@ -21,7 +21,7 @@ public struct RepositoryActivity: Identifiable, Equatable, Sendable {
         self.id = id; self.repository = repository; self.title = title; self.kind = kind; self.actor = actor; self.action = action; self.date = date; self.url = url; self.summary = summary; self.number = number
     }
 }
-public struct ConnectedContext: Sendable {
+public struct ConnectedContext: Codable, Equatable, Sendable {
     public var snapshot: ContextSnapshot
     public var people: [ContextPerson]
     public var activity: [RepositoryActivity]

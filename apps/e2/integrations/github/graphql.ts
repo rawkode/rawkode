@@ -1,6 +1,11 @@
+import { beforeDeadline } from "./src/deadline.ts";
 import { normalizeGitHubActivity } from "./src/activity.ts";
 import type { Connection } from "@e2/oauth-client";
-import type { GitHubActivityApi, GitHubApi } from "@e2/oauth-client/github";
+import type {
+	GitHubActivityApi,
+	GitHubApi,
+	GitHubPage,
+} from "@e2/oauth-client/github";
 import {
 	type ApiContext,
 	type IntegrationSchema,
@@ -24,35 +29,51 @@ const connections = (context: ApiContext) =>
 		"github.connections",
 		() => read(context, (api) => api.listConnections()),
 	);
-const activityRows = (context: ApiContext) =>
-	requestMemo(context, "github.activity", async () => {
-		const accounts = await connections(context);
-		const results = await Promise.allSettled(
-			accounts.map(async (account) => {
-				const rows: Record<string, unknown>[] = [];
-				let page: number | undefined = 1;
-				for (let request = 0; request < 5 && page; request++) {
-					const result = await read(
-						context,
-						(api) => api.listActivity(account.id, page),
-					);
-					rows.push(...result.items);
-					page = result.nextPage ?? undefined;
-				}
+export const loadGitHubActivity = async (
+	context: ApiContext,
+	budgetMs = 8_000,
+) => {
+	const deadline = Date.now() + budgetMs;
+	const accounts = await beforeDeadline(connections(context), deadline);
+	if (!accounts || !context.env.GITHUB_ADMIN) return [];
+	const results = await Promise.all(accounts.map(async (account) => {
+		const rows: Record<string, unknown>[] = [];
+		try {
+			const session = context.env.GITHUB_ADMIN!.admin(context.identity.ownerId);
+			using api = await beforeDeadline(session, deadline);
+			if (!api) {
+				void session.then((late) => late[Symbol.dispose]()).catch(() => {});
 				return rows;
-			}),
-		);
-		return results.flatMap((result, index) =>
-			result.status === "fulfilled"
-				? result.value.flatMap((row) => {
-					const item = normalizeGitHubActivity(row);
-					return item
-						? [{ ...item, connectionId: accounts[index]?.id ?? "" }]
-						: [];
-				})
-				: []
-		);
-	});
+			}
+			let page: number | undefined = 1;
+			for (
+				let request = 0;
+				request < 5 && page && Date.now() < deadline;
+				request++
+			) {
+				context.consume();
+				const result: GitHubPage | undefined = await beforeDeadline(
+					api.listActivity(account.id, page),
+					deadline,
+				);
+				if (!result) break;
+				rows.push(...result.items);
+				page = result.nextPage ?? undefined;
+			}
+		} catch {
+			// A slow/unavailable later page must not discard completed pages.
+		}
+		return rows;
+	}));
+	return results.flatMap((rows, index) =>
+		rows.flatMap((row) => {
+			const item = normalizeGitHubActivity(row);
+			return item ? [{ ...item, connectionId: accounts[index]?.id ?? "" }] : [];
+		})
+	);
+};
+const activityRows = (context: ApiContext) =>
+	requestMemo(context, "github.activity", () => loadGitHubActivity(context));
 export const githubGraphql: IntegrationSchema = {
 	typeDefs: `
     extend type User { githubAccounts: [GitHubAccount!]! githubAccount(connectionId: ID!): GitHubAccount }

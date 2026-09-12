@@ -20,6 +20,22 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testCachedWorkspaceOpensWithoutNetworkAfterRelaunch() {
+        app.terminate()
+        app.launchArguments = ["--ui-testing", "--reset-test-data", "--seed-cached-context"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Release week"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Bringing your day together…"].exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Last updated")).firstMatch.exists)
+        openContext("People")
+        XCTAssertTrue(app.staticTexts["Ada Lovelace"].waitForExistence(timeout: 5))
+
+        relaunchPreservingData()
+        XCTAssertTrue(app.staticTexts["Release week"].waitForExistence(timeout: 5))
+        openContext("GitHub")
+        XCTAssertTrue(app.staticTexts["rawkode/apsides"].waitForExistence(timeout: 5))
+    }
+
     func testFreshLaunchHasEmptyDaybookAndCaptures() {
         openContext("On this device")
         let editor = app.textViews["daybookEditor"]

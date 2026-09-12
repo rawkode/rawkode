@@ -22,6 +22,7 @@ final class WorkspaceStore: ObservableObject {
     let demo: Bool
     let isUITesting: Bool
     private var connectionGeneration = 0
+    private var refreshID: UUID?
     #if os(iOS)
     var watchBridge: WatchBridge?
     #endif
@@ -46,10 +47,28 @@ final class WorkspaceStore: ObservableObject {
         #endif
         session = try! NativeSession(origin: editorOrigin)
         do {
+            #if DEBUG
+            if isUITesting && arguments.contains("--seed-cached-context") {
+                var saved = Vault()
+                var cached = DemoContent.context
+                cached.snapshot.fetchedAt = .now.addingTimeInterval(-3600)
+                saved.accountID = "offline-test-account"
+                saved.context = cached.snapshot
+                saved.connectedContext = cached
+                try disk.save(saved)
+            }
+            #endif
             vault = try disk.load()
-            // Remote cache stays hidden until this launch verifies the account.
-            vault.context = nil
-            vault.captures.removeAll { $0.source == .workspace }
+            // This device's last signed-in workspace remains usable offline.
+            // A verified account change or explicit sign-out clears it atomically.
+            if vault.accountID != nil {
+                context = vault.connectedContext
+                calendarContext = context
+            } else {
+                vault.context = nil
+                vault.connectedContext = nil
+                vault.captures.removeAll { $0.source == .workspace }
+            }
         } catch {
             storageError = "Your notebook could not be opened. The original file is preserved. \(error.localizedDescription)"
             isReadOnly = true
@@ -122,19 +141,33 @@ final class WorkspaceStore: ObservableObject {
     func refresh(for date: Date = .now) async {
         guard !refreshing, !demo, !isUITesting else { return }
         let generation = connectionGeneration
+        let id = UUID()
+        refreshID = id
         refreshing = true; connectionError = nil
-        defer { refreshing = false }
+        // This also bounds WebKit cookie retrieval, which has no cancellation API.
+        // A late response is fenced out before it can replace a newer refresh.
+        let deadline = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            guard let self, self.refreshID == id, self.connectionGeneration == generation else { return }
+            self.refreshID = nil
+            self.refreshing = false
+            self.connectionError = "Your day is taking too long to load. Please try again."
+        }
+        defer {
+            deadline.cancel()
+            if refreshID == id { refreshID = nil; refreshing = false }
+        }
         do {
             try await session.verifyConnection()
-            guard generation == connectionGeneration, let account = session.accountID else { return }
+            guard refreshID == id, generation == connectionGeneration, let account = session.accountID else { return }
             if vault.accountID != account { try bindAccount(account) }
             let key = DayIdentity.key(date), bounds = DayIdentity.bounds(date)
             let data = try await session.today(date: key, from: bounds.0, to: bounds.1)
-            guard generation == connectionGeneration, session.accountID == account else { return }
+            guard refreshID == id, generation == connectionGeneration, session.accountID == account else { return }
             let next = try ConnectedContext.decode(data, day: key)
             calendarContext = next
             if Calendar.current.isDateInToday(date) {
-                var updated = vault; updated.context = next.snapshot
+                var updated = vault; updated.context = next.snapshot; updated.connectedContext = next
                 try commit(updated)
                 context = next
                 publishWidget(next.snapshot)
@@ -142,8 +175,14 @@ final class WorkspaceStore: ObservableObject {
                 watchBridge?.sendContext(next.snapshot)
                 #endif
             }
-            try await receiveCaptures(account: account, generation: generation)
-        } catch { connectionError = error.localizedDescription }
+            // The day is usable now; capture synchronization must not hold its spinner.
+            refreshing = false
+            deadline.cancel()
+            try await receiveCaptures(account: account, generation: generation, refresh: id)
+        } catch {
+            guard refreshID == id, generation == connectionGeneration else { return }
+            if !Task.isCancelled { connectionError = error.localizedDescription }
+        }
     }
     func send(_ capture: Capture) async {
         guard !sending.contains(capture.id), capture.source != .workspace, !isUITesting, !demo else { return }
@@ -161,6 +200,9 @@ final class WorkspaceStore: ObservableObject {
     func signOut() async {
         guard await session.signOut() else { return }
         connectionGeneration += 1
+        refreshID = nil
+        refreshing = false
+        connectionError = nil
         context = nil
         do { try bindAccount(nil) } catch { storageError = "Sign-out cleared the visible account data, but its cache could not be removed from disk. \(error.localizedDescription)" }
         #if os(iOS)
@@ -180,17 +222,17 @@ final class WorkspaceStore: ObservableObject {
             }
         } catch { storageError = error.localizedDescription }
     }
-    private func receiveCaptures(account: String, generation: Int) async throws {
+    private func receiveCaptures(account: String, generation: Int, refresh: UUID) async throws {
         let data = try await session.captureFeed()
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let payload = envelope["data"] as? [String: Any], let me = payload["me"] as? [String: Any],
               let summaries = me["documentFeed"] as? [[String: Any]] else { throw CocoaError(.coderReadCorrupt) }
         for summary in summaries {
-            guard connectionGeneration == generation, session.accountID == account else { return }
+            guard refreshID == refresh, connectionGeneration == generation, session.accountID == account else { return }
             guard let id = summary["id"] as? String, id.hasPrefix("capture:"), let uuid = UUID(uuidString: String(id.dropFirst(8))) else { continue }
             if vault.captures.contains(where: { $0.id == uuid }) { continue }
             let bytes = try await session.document(id: id)
-            guard connectionGeneration == generation, session.accountID == account else { return }
+            guard refreshID == refresh, connectionGeneration == generation, session.accountID == account else { return }
             // Decode only our exact immutable wire format; never flatten a rich document.
             let capture: Capture
             do { capture = try RemoteCaptureDocument.decode(bytes, expectedID: id) }
@@ -205,7 +247,7 @@ final class WorkspaceStore: ObservableObject {
     private func bindAccount(_ account: String?) throws {
         context = nil; calendarContext = nil
         var next = vault
-        next.context = nil; next.accountID = account; next.uploaded = []
+        next.context = nil; next.connectedContext = nil; next.accountID = account; next.uploaded = []
         let remoteIDs = Set(next.captures.filter { $0.source == .workspace }.map(\.id))
         next.captures.removeAll { $0.source == .workspace }
         next.archived.subtract(remoteIDs)

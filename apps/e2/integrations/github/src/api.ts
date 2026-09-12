@@ -60,6 +60,7 @@ export const createGitHubApi = (
 		connectionId: string,
 		path: string,
 		params: Record<string, string> = {},
+		signal?: AbortSignal,
 	) => {
 		if (
 			typeof connectionId !== "string" ||
@@ -86,7 +87,7 @@ export const createGitHubApi = (
 				"User-Agent": "e2-integrations-github",
 			},
 			redirect: "manual",
-			signal: AbortSignal.timeout(10_000),
+			signal: signal ?? AbortSignal.timeout(10_000),
 		}).catch(() => {
 			throw new Error("GitHub is unavailable. Try again later.");
 		});
@@ -190,8 +191,8 @@ export const createGitHubApi = (
 			);
 			let enrich = activityEnrichers.get(connectionId);
 			if (!enrich) {
-				enrich = createActivityEnricher(async (path) =>
-					(await request(connectionId, path)).body
+				enrich = createActivityEnricher(async (path, signal) =>
+					(await request(connectionId, path, {}, signal)).body
 				);
 				activityEnrichers.set(connectionId, enrich);
 			}

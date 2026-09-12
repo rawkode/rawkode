@@ -1,3 +1,4 @@
+import { beforeDeadline } from "./deadline.ts";
 import type { GitHubRecord } from "@e2/oauth-client/github";
 
 const object = (value: unknown): GitHubRecord =>
@@ -111,11 +112,15 @@ export const normalizeGitHubActivity = (row: GitHubRecord) => {
 /** Events can contain only a resource number. Hydrate a small, deduplicated set
  * of missing titles; failures preserve the event and its direct resource link. */
 export const createActivityEnricher = (
-	fetchResource: (path: string) => Promise<unknown>,
+	fetchResource: (path: string, signal: AbortSignal) => Promise<unknown>,
 	limit = 8,
+	budgetMs = 1_200,
 ) => {
 	const requests = new Map<string, Promise<GitHubRecord>>();
+	let deadline: number | undefined;
 	return async (rows: GitHubRecord[]): Promise<GitHubRecord[]> => {
+		deadline ??= Date.now() + budgetMs;
+		const expiresAt = deadline;
 		const enrichRow = async (row: GitHubRecord): Promise<GitHubRecord> => {
 			const payload = object(row.payload);
 			const type = text(row.type);
@@ -136,8 +141,15 @@ export const createActivityEnricher = (
 			const path = `/repos/${repository}/${
 				key === "pull_request" ? "pulls" : "issues"
 			}/${resourceNumber}`;
-			if (!requests.has(path) && requests.size < limit) {
-				requests.set(path, fetchResource(path).then(object).catch(() => ({})));
+			if (
+				!requests.has(path) && requests.size < limit && Date.now() < expiresAt
+			) {
+				const signal = AbortSignal.timeout(Math.max(1, expiresAt - Date.now()));
+				requests.set(
+					path,
+					beforeDeadline(fetchResource(path, signal), expiresAt).then(object)
+						.catch(() => ({})),
+				);
 			}
 			const detail = await requests.get(path);
 			return detail
