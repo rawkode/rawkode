@@ -121,7 +121,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.widget
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_ENTITLEMENTS: Configuration/iOS.entitlements
+        CODE_SIGN_ENTITLEMENTS: Configuration/Widget.entitlements
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
     info:

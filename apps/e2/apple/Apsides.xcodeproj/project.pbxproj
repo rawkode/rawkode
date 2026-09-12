@@ -603,7 +603,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Widget.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Widget-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -870,7 +870,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Widget.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Widget-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (

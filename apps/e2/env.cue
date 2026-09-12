@@ -5,12 +5,17 @@ import (
 	ciContributors "github.com/cuenv/cuenv/contrib/contributors"
 )
 
+schema.#Project
+
 name: "e2"
+
+let _t = tasks
 
 tasks: {
 	install: schema.#Task & {
 		command: "deno"
 		args: ["install", "--frozen"]
+		inputs: ["deno.json", "deno.lock", "**/deno.json"]
 		hermetic: false
 		cache: mode: "never"
 	}
@@ -18,15 +23,15 @@ tasks: {
 		description: "Inspect production changes without applying them"
 		command:     "deno"
 		args: ["task", "deploy", "--stage", "production", "--dry-run"]
+		// CI selects tasks from changed inputs; uncached does not mean always selected.
+		inputs: ["**/*"]
 		dependsOn: [install]
 		hermetic: false
 		cache: mode: "never"
 	}
 }
 
-let Tasks = tasks
-
-ci: schema.#CI & {
+ci: {
 	providers: ["github"]
 	provider: github: permissions: {
 		contents:        "read"
@@ -37,7 +42,7 @@ ci: schema.#CI & {
 		environment: "production"
 		when: branch: "spike/native-web-rich-editor"
 		derivePaths: false
-		tasks: [Tasks.productionPlan]
+		tasks: [_t.productionPlan]
 		provider: github: {
 			runner: "ubuntu-latest"
 		}

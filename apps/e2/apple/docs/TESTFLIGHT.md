@@ -147,3 +147,19 @@ Actual editor screenshots are in
 [editor qualification](EDITOR-QUALIFICATION.md). They show the shared editor
 layout; they predate the bundle/name change. They are QA evidence and have not
 been submitted as App Store marketing screenshots.
+
+## Reserved CarPlay voice capability
+
+The iOS host requests `com.apple.developer.carplay-voice-based-conversation`.
+Apple lists this category from iOS 26.4 in its
+[CarPlay Developer Guide](https://developer.apple.com/download/files/CarPlay-Developer-Guide.pdf).
+The account holder reports approval; enable the matching managed capability on
+`rawkode.academy.enchiridion` under Additional Capabilities so distribution
+profiles include it. Account approval alone does not prove App ID provisioning.
+The widget uses its own App Group-only entitlements; Watch and Mac do not request
+this CarPlay capability.
+
+This reserves signing capability only. No CarPlay scene, microphone permission,
+audio session, or conversational interface is enabled. Future voice interaction
+must be gated to iOS 26.4 or later, use the voice control template for recording,
+and hold an audio session only while voice features are active.
