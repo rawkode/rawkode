@@ -21,6 +21,7 @@ final class ApsidesUITests: XCTestCase {
     }
 
     func testFreshLaunchHasEmptyDaybookAndCaptures() {
+        openContext("On this device")
         let editor = app.textViews["daybookEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String ?? "", "")
@@ -48,6 +49,7 @@ final class ApsidesUITests: XCTestCase {
     }
 
     func testDaybookPersistsAfterImmediateRelaunch() {
+        openContext("On this device")
         let thought = "A durable daily thought \(UUID().uuidString)"
         let editor = app.textViews["daybookEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
@@ -55,6 +57,7 @@ final class ApsidesUITests: XCTestCase {
         editor.typeText(thought)
         // No arbitrary save delay: leaving immediately must preserve the input.
         relaunchPreservingData()
+        openContext("On this device")
         let restored = app.textViews["daybookEditor"]
         XCTAssertTrue(restored.waitForExistence(timeout: 10))
         let savedText = NSPredicate(format: "value == %@", thought)
@@ -153,6 +156,114 @@ final class ApsidesUITests: XCTestCase {
         let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
         XCTAssertTrue(restored.waitForExistence(timeout: 5))
         XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
+    }
+
+    func testWebEditorHasOneDocumentHeadingAndNoDesktopChrome() throws {
+        try launchWebEditor()
+        let web = app.webViews.firstMatch
+        XCTAssertEqual(web.staticTexts.matching(identifier: "Today").count, 1)
+        let heading = web.staticTexts["Today"].firstMatch
+        let format = web.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Format text")).firstMatch
+        XCTAssertTrue(format.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(format.frame.midY, heading.frame.minY)
+        XCTAssertLessThanOrEqual(format.frame.midY, heading.frame.maxY)
+        for label in ["Supertags", "Google", "Accounts", "Commands", "Clear", "Export"] {
+            XCTAssertFalse(web.links[label].exists, "Desktop navigation leaked into the editor: \(label)")
+            XCTAssertFalse(web.buttons[label].exists, "Desktop action leaked into the editor: \(label)")
+        }
+        XCTAssertFalse(app.buttons["Device notes"].exists)
+        XCTAssertFalse(app.staticTexts["Device notes"].exists)
+        captureScreenshot("Embedded editor Dawn")
+    }
+
+    func testWebEditorSlashCommandInsertsHeading() throws {
+        let editor = try launchWebEditor()
+        activate(editor)
+        editor.typeText("\n/heading")
+        let heading = app.webViews.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "Heading 1")
+        ).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        activate(heading)
+        editor.typeText("Native editor heading")
+        XCTAssertTrue((editor.value as? String ?? "").contains("Native editor heading"))
+        XCTAssertFalse(app.webViews.staticTexts["Insert a block"].exists)
+        captureScreenshot("Embedded editor slash command")
+    }
+
+    func testWebEditorMentionListsAndInsertsEntity() throws {
+        let editor = try launchWebEditor()
+        let entity = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ENTITY"] ?? "Ada Lovelace"
+        activate(editor)
+        editor.typeText("\n@\(entity)")
+        let match = app.webViews.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "@ " + entity)
+        ).firstMatch
+        XCTAssertTrue(match.waitForExistence(timeout: 10), "The fixture entity must appear in @ suggestions")
+        captureScreenshot("Embedded editor mention suggestions")
+        activate(match)
+        XCTAssertTrue((editor.value as? String ?? "").contains(entity))
+        XCTAssertFalse(app.webViews.staticTexts["Mention an entity"].exists)
+        captureScreenshot("Embedded editor mention")
+        XCTAssertTrue(app.webViews.staticTexts["All changes saved"].waitForExistence(timeout: 10))
+        relaunchPreservingData()
+        XCTAssertTrue(webEditor.waitForExistence(timeout: 15))
+        XCTAssertTrue((webEditor.value as? String ?? "").contains(entity))
+        // A canonical mention renders with an @ prefix too. Opening its entity
+        // proves this is an interactive reference rather than retained plain text.
+        let mention = app.webViews.staticTexts["@" + entity].firstMatch
+        XCTAssertTrue(mention.waitForExistence(timeout: 5))
+        activate(mention)
+        XCTAssertTrue(app.webViews.staticTexts[entity].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.buttons["Back"].exists)
+        captureScreenshot("Embedded editor linked entity")
+    }
+
+    func testWebEditorReturnsAfterPaletteChangeAndRelaunch() throws {
+        try launchWebEditor()
+        openContext("Account & appearance")
+        let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(palette.waitForExistence(timeout: 5))
+        activate(palette)
+        chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        openToday()
+        XCTAssertTrue(webEditor.waitForExistence(timeout: 10))
+        captureScreenshot("Embedded editor Dark")
+        relaunchPreservingData()
+        XCTAssertTrue(webEditor.waitForExistence(timeout: 15))
+        openContext("Account & appearance")
+        let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 5))
+        XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
+    }
+
+    private var webEditor: XCUIElement {
+        app.webViews.textViews["Note editor"].firstMatch
+    }
+
+    @discardableResult
+    private func launchWebEditor() throws -> XCUIElement {
+        guard let origin = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ORIGIN"],
+              !origin.isEmpty else {
+            throw XCTSkip("Set APSIDES_EDITOR_TEST_ORIGIN to the running editor fixture to test the real WKWebView.")
+        }
+        app.terminate()
+        app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = origin
+        app.launchArguments = ["--ui-testing", "--reset-test-data"]
+        app.launch()
+        XCTAssertTrue(webEditor.waitForExistence(timeout: 20))
+        return webEditor
+    }
+
+    private func openToday() {
+        #if os(iOS)
+        let tab = app.tabBars.buttons["Today"]
+        if tab.exists { activate(tab); return }
+        #endif
+        let destination = app.staticTexts["Today"].firstMatch
+        XCTAssertTrue(destination.waitForExistence(timeout: 5))
+        activate(destination)
     }
 
     private func captureScreenshot(_ name: String) {

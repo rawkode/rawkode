@@ -37,7 +37,14 @@ final class WorkspaceStore: ObservableObject {
             try? FileManager.default.removeItem(at: testURL.deletingLastPathComponent())
         }
         disk = VaultPersistence(url: arguments.contains("--ui-testing") ? testURL : override.map { URL(fileURLWithPath: $0) } ?? VaultPersistence.defaultURL())
-        session = try! NativeSession(origin: URL(string: "https://apsides.rawkode.academy")!)
+        var editorOrigin = URL(string: "https://apsides.rawkode.academy")!
+        #if DEBUG
+        if isUITesting, let value = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ORIGIN"],
+           let url = URL(string: value), ["localhost", "127.0.0.1"].contains(url.host ?? "") {
+            editorOrigin = url
+        }
+        #endif
+        session = try! NativeSession(origin: editorOrigin)
         do {
             vault = try disk.load()
             // Remote cache stays hidden until this launch verifies the account.

@@ -25,6 +25,7 @@ const props = withDefaults(defineProps<{
 	showHeading?: boolean;
 	showFileActions?: boolean;
 	showDocumentLabel?: boolean;
+	nativeSurface?: boolean;
 }>(), {
 	title: "Today",
 	showSidebar: true,
@@ -32,8 +33,9 @@ const props = withDefaults(defineProps<{
 	showHeading: true,
 	showFileActions: false,
 	showDocumentLabel: true,
+	nativeSurface: false,
 });
-const emit = defineEmits<{ openEntity: [entityId: string]; openContext: [pane: ContextPaneDescriptor] }>();
+const emit = defineEmits<{ openEntity: [entityId: string]; openContext: [pane: ContextPaneDescriptor]; ready: [] }>();
 
 const day = new Date();
 const documentId = props.documentId ?? todayDocumentId(day);
@@ -49,7 +51,7 @@ const dayLabel = documentId.startsWith("daily:")
 			year: "numeric",
 		})
 	: props.title;
-const idleStatus = documentId.startsWith("daily:")
+const idleStatus = !props.nativeSurface && documentId.startsWith("daily:")
 	? "Start writing to save today's note"
 	: "";
 let saver: ReturnType<typeof createDocumentSaver> | undefined;
@@ -670,7 +672,7 @@ const loadToday = async () => {
 				onChange: (match) => void updateEntityMenu(match),
 			}),
 			Placeholder.configure({
-				placeholder: "Write something, type / for blocks, or # to link…",
+				placeholder: props.nativeSurface ? "What’s on your mind?" : "Write something, type / for blocks, or # to link…",
 			}),
 			FencedCodeAuthoring,
 		],
@@ -840,6 +842,7 @@ const loadToday = async () => {
 		}).run();
 	});
   loading.value = false;
+  emit("ready");
 };
 onMounted(() => {
 	window.addEventListener("beforeunload", warnBeforeLeaving);
@@ -1052,7 +1055,7 @@ onBeforeUnmount(() => {
 				:key="block.label"
 				role="option"
 				:aria-selected="index === slashIndex"
-				@mousedown.prevent="choose(block)"
+				@mousedown.prevent @click="choose(block)"
 			>
 				<span class="block-icon">{{ block.icon }}</span
 				><span
@@ -1082,12 +1085,12 @@ onBeforeUnmount(() => {
 					tabindex="-1"
 					:aria-selected="index === entityIndex"
 					:disabled="entityCreating || entitySearchLoading"
-					@mousedown.prevent="chooseSelectionTag(tag)"
+					@mousedown.prevent @click="chooseSelectionTag(tag)"
 				>
 					<span class="block-icon">#</span><span><strong>{{ tag.name }}</strong></span>
 				</button>
 				<p v-if="entityCreating" class="menu-empty" role="status">Applying Supertag…</p>
-				<button v-if="entityCreateError && !entityTags.length" type="button" @mousedown.prevent="beginEntityCreate">Try again</button>
+				<button v-if="entityCreateError && !entityTags.length" type="button" @mousedown.prevent @click="beginEntityCreate">Try again</button>
 			</template>
 			<template v-else-if="!entityCreateMode">
 				<div class="menu-title">{{ entityMenu.trigger === "@" ? "Mention an entity" : "Link or create an entity" }}</div>
@@ -1100,7 +1103,7 @@ onBeforeUnmount(() => {
 					role="option"
 					tabindex="-1"
 					:aria-selected="index === entityIndex"
-					@mousedown.prevent="insertCanonicalEntity(entity)"
+					@mousedown.prevent @click="insertCanonicalEntity(entity)"
 				>
 					<span class="block-icon">{{ entityMenu.trigger }}</span>
 					<span><strong>{{ entity.label }}</strong><small>{{ entity.rootId.replace(/^base:/, "") }}</small></span>
@@ -1111,7 +1114,7 @@ onBeforeUnmount(() => {
 					role="option"
 					tabindex="-1"
 					:aria-selected="entityIndex === entityMatches.length"
-					@mousedown.prevent="beginEntityCreate"
+					@mousedown.prevent @click="beginEntityCreate"
 				>
 					<span class="block-icon">＋</span>
 					<span><strong>Create “{{ entityMenu.query }}”</strong><small>Choose a Supertag</small></span>

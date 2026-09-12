@@ -5,6 +5,10 @@ criteria are in PRODUCT.md and QA.md. Builds use Xcode 27.0 (27A5209h) and
 minimum deployment targets of iOS/iPadOS 26, macOS 26, and watchOS 26. No
 production deployment or App Store/TestFlight submission occurred.
 
+The following baseline predates the dedicated WebView editor. See
+[editor qualification](EDITOR-QUALIFICATION.md) for the current iPhone layout,
+interaction checks, screenshots, and deployment blocker.
+
 ## Executed
 
 - 18 core Swift tests passed: atomic vault persistence,

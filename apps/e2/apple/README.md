@@ -64,11 +64,11 @@ Support/Apsides/Incoming.
 
 ## Boundaries still to ship
 
-Daily notes do not yet sync with the web editor. Native Supertags, mentions, and
-rich content are planned work. The current sign-in sheet depends on an identity
-provider that permits embedded sign-in; Google requires the planned
-external-browser authorization flow. No live sign-in or cloud round trip was
-qualified in this build.
+Device-only daily notes do not sync with web documents. Today shares the web
+editor and its rich content, Supertags, mentions, and persistence. The current
+sign-in sheet depends on an identity provider that permits embedded sign-in;
+Google requires the planned external-browser authorization flow. No live sign-in
+or cloud round trip was qualified in this build.
 
 The CarPlay candidate is the small next-event widget, not a custom template app.
 CarPlay eligibility/runtime, voice interaction, paired Watch background
@@ -80,20 +80,44 @@ are satisfied.
 
 Today now hosts the deployed Apsides web editor in WKWebView, with the shared
 website cookie store. Slash commands, mentions, and document saving are provided
-by the deployed website. Opening it requires network access and a website sign-in;
-this is not a bundled offline editor. Wait for the web editor's saved status before
-closing the app. Native quick capture remains available offline.
+by the deployed website. Opening it requires network access and a website
+sign-in; this is not a bundled offline editor. Wait for the web editor's saved
+status before closing the app. Native quick capture remains available offline.
 
-Earlier local daybooks remain under **Device notes**. **Add to device notes** in
-Captures still targets those local notes; it does not insert into the web document.
-Native navigation and sign-out consult the web editor's unsaved-change guard.
-The guard and real-phone keyboard interactions still require runtime qualification.
-See [CarPlay test](docs/CARPLAY-TEST.md) for the calendar widget setup and limits.
+Earlier local daybooks remain under **Context → On this device**. **Add to
+device notes** in Captures still targets those local notes; it does not insert
+into the web document. Native navigation and sign-out consult the web editor's
+unsaved-change guard. Real-phone keyboard interactions and interruption recovery
+still require qualification; simulator slash and mention journeys are recorded
+below. See [CarPlay test](docs/CARPLAY-TEST.md) for the calendar widget setup
+and limits.
 
 ## Physical device qualification
 
 Before claiming the iPhone package can install on its paired Watch, run
 `bash apple/script/build_for_devices.sh "$IPHONE_UDID" "$WATCH_UDID"` with both
-physical UDIDs. A generic signed build can reuse a profile that excludes the Watch.
-The [installation diagnosis](docs/DEVICE-INSTALL-DIAGNOSIS.md) records the confirmed
-profile defect in the first phone build and the remaining provisioning repair.
+physical UDIDs. A generic signed build can reuse a profile that excludes the
+Watch. The [installation diagnosis](docs/DEVICE-INSTALL-DIAGNOSIS.md) records
+the confirmed profile defect in the first phone build and the remaining
+provisioning repair.
+
+## Dedicated editor surface
+
+Today now opens `/apple/editor` rather than the website home page. This route
+reuses the web document editor and persistence while omitting website
+navigation, context sidebars, duplicate headings, and desktop file controls.
+Formatting is a compact disclosure beside the document title. The native app and
+document share the selected Rosé Pine palette, including loading backgrounds.
+
+The host checks the editor route version before displaying it. An older deployed
+website produces an update message instead of silently showing desktop chrome.
+Earlier device-only notes are available at **Context → On this device**.
+
+For simulator UI qualification, run the website fixture with
+`node website/test/runtime.mjs --serve --dense`, then pass its loopback URL as
+`TEST_RUNNER_APSIDES_EDITOR_TEST_ORIGIN` when running `xcodebuild test`. The app
+accepts this origin override only in debug UI-test mode. This does not bypass
+production authentication.
+
+See [editor qualification](docs/EDITOR-QUALIFICATION.md) for current
+screenshots, interaction checks, and deployment status.

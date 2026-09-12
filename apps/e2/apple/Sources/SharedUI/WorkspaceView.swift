@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum WorkspaceDestination: String, CaseIterable, Identifiable, Hashable {
-    case today = "Today", inbox = "Captures", agenda = "Day calendar", people = "People", github = "GitHub"
+    case today = "Today", localNotes = "On this device", inbox = "Captures", agenda = "Day calendar", people = "People", github = "GitHub"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .today: "sun.max"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
+        switch self { case .today: "sun.max"; case .localNotes: "internaldrive"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
     }
 }
 struct WorkspaceView: View {
@@ -75,6 +75,7 @@ struct WorkspaceView: View {
                     NavigationLink("Day calendar", value: WorkspaceDestination.agenda)
                     NavigationLink("People", value: WorkspaceDestination.people)
                     NavigationLink("GitHub", value: WorkspaceDestination.github)
+                    NavigationLink("On this device", value: WorkspaceDestination.localNotes)
                     Button("Account & appearance") { store.settingsPresented = true }
                 }.listRowBackground(theme.canvas).scrollContentBackground(.hidden)
                 .background(theme.base).foregroundStyle(theme.ink).navigationTitle("Context").toolbar { captureButton }
@@ -93,6 +94,7 @@ struct WorkspaceView: View {
     }
     @ViewBuilder private func destination(_ selected: WorkspaceDestination) -> some View {
         switch selected {
+        case .localNotes: LocalDaybookView(store: store, showAgenda: showAgenda)
         case .today: TodayView(store: store, showAgenda: showAgenda)
         case .inbox: CaptureListView(store: store)
         case .agenda: AgendaView(store: store)

@@ -63,19 +63,10 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         if let editorWebView { return editorWebView }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = websiteDataStore
-        let originJSON = String(data: try! JSONSerialization.data(withJSONObject: origin.absoluteString, options: .fragmentsAllowed), encoding: .utf8)!
-        let script = """
-        if (location.origin === \(originJSON)) {
-          const style = document.createElement('style');
-          style.textContent = '.workspace-sidebar { display: none !important; } .pane-workspace { grid-template-columns: minmax(0, 1fr) !important; }';
-          document.head.appendChild(style);
-        }
-        """
-        configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = false
         #if os(iOS)
-        view.isOpaque = false
+        view.isOpaque = true
         #endif
         editorWebView = view
         return view

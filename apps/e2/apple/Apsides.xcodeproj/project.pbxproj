@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01FAAB784E0492C20E2B5344 /* LocalDaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */; };
 		0282D6CC775C674F344B7BDB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA869EC6CD92F535B5CAFA73 /* ApsidesCore */; };
 		03386BEA24270C60A8AD8447 /* ApsidesWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1133FE0C24EE7C25AB0AF3E2 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
@@ -19,6 +20,8 @@
 		4D4903F9387256FB7DF03B15 /* ApsidesWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */; };
 		4E1E4857A2E5402D37AE55BD /* ContextViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500427B31BBB3B632B18DC1 /* ContextViews.swift */; };
 		526216E5FB65363AFAEA4512 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */; };
+		5DD9CA9CBCD42075DF91F9C9 /* LocalDaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */; };
+		6401C43EE444CCD4C26C23C1 /* WebEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */; };
 		679DCF11AAC820CA8007FBDE /* ApsidesWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6EC5127F1939AF9DD4231868 /* ApsidesWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */; };
 		73DC0349B9E32FFAECE485B5 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
@@ -31,6 +34,7 @@
 		8E971567242E0FC676F26534 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
 		92665A0F747A5D2560D01DF0 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		93753900B113140E073F5356 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */; };
+		940D6BB310B75A894CD56C56 /* WebEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */; };
 		94A347A9C913A44C3DB321E3 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354AC8040C6FF7BB1C216F9A /* NativeSession.swift */; };
 		9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
 		A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
@@ -108,6 +112,7 @@
 		3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		354AC8040C6FF7BB1C216F9A /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
 		38997F6D4D948D13A4974CC7 /* ApsidesUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ApsidesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorController.swift; sourceTree = "<group>"; };
 		531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWatchApp.swift; sourceTree = "<group>"; };
 		64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWidget.swift; sourceTree = "<group>"; };
 		6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
@@ -119,6 +124,7 @@
 		9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViews.swift; sourceTree = "<group>"; };
 		ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		B500427B31BBB3B632B18DC1 /* ContextViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextViews.swift; sourceTree = "<group>"; };
+		BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDaybookView.swift; sourceTree = "<group>"; };
 		BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		C812172F3A7C19D4C18E10AD /* AgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaView.swift; sourceTree = "<group>"; };
@@ -201,6 +207,7 @@
 				01101CE06932177CF893D8F3 /* CaptureIntent.swift */,
 				354AC8040C6FF7BB1C216F9A /* NativeSession.swift */,
 				BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */,
+				4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */,
 			);
 			name = Platform;
 			path = Sources/Platform;
@@ -220,6 +227,7 @@
 				C812172F3A7C19D4C18E10AD /* AgendaView.swift */,
 				9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */,
 				B500427B31BBB3B632B18DC1 /* ContextViews.swift */,
+				BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */,
 				162ACC4946122F75142724F2 /* PersonDetailView.swift */,
 				3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */,
 				97BE1B8C546F541BE80A452D /* Theme.swift */,
@@ -451,12 +459,14 @@
 				E6222213B492B702E9D33154 /* CaptureViews.swift in Sources */,
 				83C5F549626D8DC03AD17034 /* ContextViews.swift in Sources */,
 				D2CD43E95B7B408A8DD474E1 /* DemoContent.swift in Sources */,
+				5DD9CA9CBCD42075DF91F9C9 /* LocalDaybookView.swift in Sources */,
 				94A347A9C913A44C3DB321E3 /* NativeSession.swift in Sources */,
 				FEFC770E4DBE85C644F6D383 /* PersonDetailView.swift in Sources */,
 				93753900B113140E073F5356 /* SettingsView.swift in Sources */,
 				3234CD0241817E0CA74578C7 /* Theme.swift in Sources */,
 				48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */,
 				73DC0349B9E32FFAECE485B5 /* WatchBridge.swift in Sources */,
+				6401C43EE444CCD4C26C23C1 /* WebEditorController.swift in Sources */,
 				E8CB9DB0ABD08C268963D387 /* WorkspaceStore.swift in Sources */,
 				A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */,
 			);
@@ -472,12 +482,14 @@
 				1D2F0B9C2C1710A1AA13D305 /* CaptureViews.swift in Sources */,
 				4E1E4857A2E5402D37AE55BD /* ContextViews.swift in Sources */,
 				8499DB45A68E4B5FFEF47CD1 /* DemoContent.swift in Sources */,
+				01FAAB784E0492C20E2B5344 /* LocalDaybookView.swift in Sources */,
 				1B5EC9ADBFE1EE772F991E89 /* NativeSession.swift in Sources */,
 				FCCC40858B23751CA526DB1E /* PersonDetailView.swift in Sources */,
 				749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */,
 				7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */,
 				FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */,
 				8E971567242E0FC676F26534 /* WatchBridge.swift in Sources */,
+				940D6BB310B75A894CD56C56 /* WebEditorController.swift in Sources */,
 				526216E5FB65363AFAEA4512 /* WorkspaceStore.swift in Sources */,
 				92665A0F747A5D2560D01DF0 /* WorkspaceView.swift in Sources */,
 			);
