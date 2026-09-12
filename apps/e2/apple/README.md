@@ -89,3 +89,11 @@ Captures still targets those local notes; it does not insert into the web docume
 Native navigation and sign-out consult the web editor's unsaved-change guard.
 The guard and real-phone keyboard interactions still require runtime qualification.
 See [CarPlay test](docs/CARPLAY-TEST.md) for the calendar widget setup and limits.
+
+## Physical device qualification
+
+Before claiming the iPhone package can install on its paired Watch, run
+`bash apple/script/build_for_devices.sh "$IPHONE_UDID" "$WATCH_UDID"` with both
+physical UDIDs. A generic signed build can reuse a profile that excludes the Watch.
+The [installation diagnosis](docs/DEVICE-INSTALL-DIAGNOSIS.md) records the confirmed
+profile defect in the first phone build and the remaining provisioning repair.

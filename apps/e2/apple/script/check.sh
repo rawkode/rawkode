@@ -2,6 +2,7 @@
 set -euo pipefail
 APPLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_DIR="${APSIDES_CHECK_DIR:-$APPLE_ROOT/DerivedData/Checks}"
+python3 -m unittest discover -s "$APPLE_ROOT/script" -p 'test_*.py'
 xcodegen generate --spec "$APPLE_ROOT/project.yml"
 swift test --package-path "$APPLE_ROOT" --scratch-path "$CHECK_DIR/Core"
 xcodebuild -project "$APPLE_ROOT/Apsides.xcodeproj" -scheme ApsidesMac \
