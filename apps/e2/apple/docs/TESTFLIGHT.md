@@ -111,12 +111,23 @@ confirm the workaround; local Xcode 27 uses Swift 6.4. The downloaded logs are
 at `/tmp/enchiridion-cloud-build1-logs`.
 
 Cloud product registration is recorded in the Xcode-generated shared manifest.
-The current Default workflow is build-only, not TestFlight distribution.
-Distribution onboarding confirmed name Enchiridion and bundle ID
-`rawkode.academy.enchiridion`, but Apple reports an existing app in this team
-already reserves the Enchiridion name. The user has been asked to rename that
-prototype record, preserving it. No new App Store app record, signed archive,
-TestFlight upload, or tester availability has been confirmed yet.
+After the user freed the name held by an older prototype, Xcode registered
+Enchiridion / `rawkode.academy.enchiridion` and created an **Internal TestFlight
+Build** workflow. Its Archive action is configured for TestFlight Internal
+Testing Only.
+
+Build 2 exposed a Swift 6.3.3 type-checking limit in the calendar event view.
+The expression was split without changing layout formulas. Build 3 at `7ac9cba7`
+compiled and archived successfully on Apple's Xcode 26.6 environment, confirming
+both compiler fixes. Distribution export failed because automatic signing cannot
+register `rawkode.academy.enchiridion.watchkitapp` and no matching Watch profile
+exists. Downloaded export logs are at `/tmp/enchiridion-cloud-build3-logs`.
+
+A local Watch development build succeeded but reused a wildcard profile; that
+does not register the explicit identifier. A local distribution export reported
+No Accounts. The user has been asked to register the explicit Watch App ID in
+Apple Developer. No TestFlight upload, processing, or tester availability has
+been confirmed yet.
 
 ## Icon and screenshots
 
@@ -136,16 +147,3 @@ Actual editor screenshots are in
 [editor qualification](EDITOR-QUALIFICATION.md). They show the shared editor
 layout; they predate the bundle/name change. They are QA evidence and have not
 been submitted as App Store marketing screenshots.
-
-## Distribution registration update
-
-After the user renamed the older prototype record, Xcode confirmed **Enchiridion
-is Set Up for Distribution** for `rawkode.academy.enchiridion` and generated an
-internal TestFlight distribution workflow. The release branch is
-`spike/native-web-rich-editor`.
-
-Cloud Build 2 passed the earlier compiler crash but stopped on Swift 6.3.3's
-type-checking limit in AgendaView's event button expression. The event button is
-now a separate view with explicit CGFloat layout values; the formulas and
-selection behavior are preserved. Local Debug compilation passed. The next cloud
-run must verify this change before signing/upload can be claimed.
