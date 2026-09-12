@@ -8,10 +8,10 @@ struct TodayView: View {
     @StateObject private var editor: WebEditorController
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
 
-    init(store: WorkspaceStore, showAgenda: @escaping () -> Void) {
+    init(store: WorkspaceStore, showAgenda: @escaping () -> Void, editor: WebEditorController? = nil) {
         self.store = store
         self.showAgenda = showAgenda
-        _editor = StateObject(wrappedValue: WebEditorController(session: store.session))
+        _editor = StateObject(wrappedValue: editor ?? WebEditorController(session: store.session))
     }
 
     var body: some View {
@@ -35,6 +35,15 @@ struct TodayView: View {
                         ProgressView().tint(theme.accent)
                     }.padding(24).foregroundStyle(theme.ink)
                 }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if editor.previousDayNeedsSave {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Previous day’s note").font(.headline)
+                    Text("Finish saving this note before opening today.").font(.caption)
+                    Button("Open today") { editor.start() }
+                }.padding().frame(maxWidth: .infinity, alignment: .leading).background(theme.base)
             }
         }
         .navigationTitle("")

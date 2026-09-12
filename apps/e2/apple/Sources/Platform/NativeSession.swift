@@ -137,7 +137,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         let query = """
         query AppleToday($date: String!, $from: String!, $to: String!) {
           me { today(date: $date, from: $from, to: $to) {
-            googleEvents { connectionId id calendarId calendarName summary start end recurringEventId attendees { email name } }
+            googleEvents { connectionId id calendarId calendarName calendarColor summary start end recurringEventId attendees { email name } }
             googleEventsPartial
             googlePeople { connectionId id displayName emails }
             githubActivity { connectionId id resourceId kind title url repository actor createdAt action }

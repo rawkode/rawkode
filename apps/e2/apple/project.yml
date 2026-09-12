@@ -151,6 +151,8 @@ schemes:
         ApsidesIOS: all
     test:
       targets: [ApsidesUITests]
+      environmentVariables:
+        APSIDES_EDITOR_TEST_ORIGIN: "$(APSIDES_EDITOR_TEST_ORIGIN)"
     archive:
       config: Release
   ApsidesWatch:

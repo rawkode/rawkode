@@ -66,7 +66,7 @@ struct WorkspaceView: View {
     #if os(iOS)
     private var phone: some View {
         TabView(selection: $phoneTab) {
-            NavigationStack { TodayView(store: store, showAgenda: showAgenda).toolbar { captureButton } }
+            NavigationStack { PhoneTodayView(store: store, showAgenda: showAgenda).toolbar { captureButton } }
                 .tabItem { Label("Today", systemImage: "sun.max") }.tag(0)
             NavigationStack { CaptureListView(store: store).toolbar { captureButton } }
                 .tabItem { Label("Captures", systemImage: "tray") }.tag(1)

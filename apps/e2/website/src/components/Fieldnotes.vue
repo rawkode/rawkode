@@ -11,7 +11,7 @@ import { defaultComponent } from "../lib/component";
 import { NOTE_LIMITS, parseNote, type CanonicalEntityReference, type NoteDocument } from "@e2/documents/note";
 import { ComponentNode, documentExtensions, applyBlockStyle } from "../editor/extensions";
 import { FencedCodeAuthoring } from "../editor/fencedCode";
-import { canonicalEntityInsertion, canonicalEntityReference, closeEntityComposer, createLatestEntitySearch, EntityComposer, entityComposerKey, type EntityComposerMatch } from "../editor/entityComposer";
+import { canonicalEntityInsertion, canonicalEntityReference, closeEntityComposer, createLatestEntitySearch, EntityComposer, entityComposerKey, openSelectedEntityComposer, selectedEntityMatch, type EntityComposerMatch } from "../editor/entityComposer";
 import { loadDocument, saveDocument } from '../editor/persistence';
 import { createDocumentSaver, readDocument, todayBounds, todayDocumentId, type SaveState } from '../editor/documents';
 import { createCanonicalEntity, editorRegistry, listCanonicalSupertags, searchCanonicalEntities, type CanonicalEntitySummary, type CanonicalSupertag } from "../editor/registry";
@@ -93,11 +93,34 @@ const entityCreateError = ref("");
 const entityTags = ref<CanonicalSupertag[]>([]);
 const entityTagId = ref("");
 const entityTagSelect = ref<HTMLSelectElement>();
+const selectionTagCancel = ref<HTMLButtonElement>();
 const paletteOpen = ref(false);
 const paletteQuery = ref("");
 const paletteIndex = ref(0);
 const paletteInput = ref<HTMLInputElement>();
 const revision = ref(0);
+const keyboardInset = ref(12);
+const updateKeyboardInset = () => {
+	const viewport = window.visualViewport;
+	keyboardInset.value = Math.max(12, window.innerHeight - (viewport?.height ?? window.innerHeight) - (viewport?.offsetTop ?? 0) + 12);
+};
+const canTagSelection = computed(() => {
+	void revision.value;
+	return !!editor.value && !!selectedEntityMatch(editor.value.state);
+});
+const tagSelection = () => {
+	const current = editor.value;
+	if (!current || entityCreating.value) return;
+	const transaction = openSelectedEntityComposer(current.state);
+	if (transaction) {
+		slash.value = undefined;
+		insertOpen.value = false;
+		current.view.dispatch(transaction);
+		// Transfer focus out of contenteditable to dismiss iOS selection chrome.
+		// The composer retains the selected ProseMirror range while the picker owns focus.
+		void nextTick(() => selectionTagCancel.value?.focus({ preventScroll: true }));
+	}
+};
 let importGeneration = 0;
 const pendingExternalEntities: CanonicalEntityReference[] = [];
 let dismissedEntityToken: Pick<EntityComposerMatch, "from" | "trigger"> | undefined;
@@ -305,6 +328,10 @@ const dismissEntityMenu = () => {
 		? { from: menu.from, trigger: menu.trigger }
 		: undefined;
 	closeEntityMenu();
+};
+const cancelSelectionTag = () => {
+	dismissEntityMenu();
+	editor.value?.commands.focus();
 };
 const insertCanonicalEntity = (
 	entity: Pick<CanonicalEntitySummary, "id" | "label">,
@@ -845,11 +872,16 @@ const loadToday = async () => {
   emit("ready");
 };
 onMounted(() => {
+	updateKeyboardInset();
+	window.visualViewport?.addEventListener("resize", updateKeyboardInset);
+	window.visualViewport?.addEventListener("scroll", updateKeyboardInset);
 	window.addEventListener("beforeunload", warnBeforeLeaving);
 	window.addEventListener("e2-insert-entity", insertExternalEntity);
 	void loadToday();
 });
 onBeforeUnmount(() => {
+	window.visualViewport?.removeEventListener("resize", updateKeyboardInset);
+	window.visualViewport?.removeEventListener("scroll", updateKeyboardInset);
 	window.removeEventListener("beforeunload", warnBeforeLeaving);
 	window.removeEventListener("e2-insert-entity", insertExternalEntity);
   saver?.dispose();
@@ -925,6 +957,9 @@ onBeforeUnmount(() => {
 			><span role="status" aria-live="polite">{{ status }}</span>
 		</div>
 				<h1 v-if="props.showHeading" ref="heading" class="today-heading" tabindex="-1">{{ props.title }}</h1>
+		<div v-if="canTagSelection && !entityMenu" class="selection-actions" :style="{ bottom: `${keyboardInset}px` }" role="toolbar" aria-label="Selected text actions">
+			<button type="button" aria-label="Add Supertag to selected text" @pointerdown.prevent @mousedown.prevent @click="tagSelection"><span aria-hidden="true">#</span> Add Supertag</button>
+		</div>
 		<details v-if="editor" class="formatting-controls"><summary>Format text</summary>
 		<nav class="editor-toolbar" aria-label="Text formatting">
 			<select
@@ -1068,12 +1103,13 @@ onBeforeUnmount(() => {
 			v-if="entityMenu"
 			id="entity-composer-listbox"
 			class="block-menu entity-menu"
+			:class="{ 'selection-tag-menu': selectionTagPicker }"
 			:role="entityCreateMode && !selectionTagPicker ? 'dialog' : 'listbox'"
 			:aria-label="selectionTagPicker ? 'Choose a Supertag' : entityCreateMode ? 'Create an entity' : entityMenu.trigger === '@' ? 'Mention an entity' : 'Link or create an entity'"
-			:style="{ left: `${entityMenu.x}px`, top: `${entityMenu.y}px` }"
+			:style="{ left: `${entityMenu.x}px`, top: `${entityMenu.y}px`, '--selection-menu-bottom': `${keyboardInset}px` }"
 		>
 			<template v-if="selectionTagPicker">
-				<div class="menu-title">Choose a Supertag</div>
+				<div class="menu-title">Choose a Supertag<button ref="selectionTagCancel" type="button" aria-label="Cancel Supertag selection" :disabled="entityCreating" @pointerdown.prevent @mousedown.prevent @click="cancelSelectionTag" @keydown.esc.prevent="cancelSelectionTag">Cancel</button></div>
 				<p class="menu-empty">{{ entityMenu.displayText }}</p>
 				<p v-if="entitySearchLoading" class="menu-empty" role="status">Loading Supertags…</p>
 				<p v-if="entityCreateError" class="menu-empty" role="alert">{{ entityCreateError }}</p>
@@ -1085,10 +1121,11 @@ onBeforeUnmount(() => {
 					tabindex="-1"
 					:aria-selected="index === entityIndex"
 					:disabled="entityCreating || entitySearchLoading"
-					@mousedown.prevent @click="chooseSelectionTag(tag)"
+					@pointerdown.prevent @mousedown.prevent @click="chooseSelectionTag(tag)"
 				>
 					<span class="block-icon">#</span><span><strong>{{ tag.name }}</strong></span>
 				</button>
+				<p v-if="!entitySearchLoading && !entityCreateError && !entityTags.length" class="menu-empty" role="status">No Supertags are available yet.</p>
 				<p v-if="entityCreating" class="menu-empty" role="status">Applying Supertag…</p>
 				<button v-if="entityCreateError && !entityTags.length" type="button" @mousedown.prevent @click="beginEntityCreate">Try again</button>
 			</template>

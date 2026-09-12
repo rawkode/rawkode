@@ -43,7 +43,7 @@ public struct ConnectedContext: Sendable {
         }
         let events = (today["googleEvents"] as? [[String: Any]] ?? []).map { item in
             let rawStart = item["start"] as? String
-            return AgendaEvent(id: "\(item["connectionId"] ?? ""):\(item["calendarId"] ?? ""):\(item["id"] ?? "")", title: item["summary"] as? String ?? "Untitled event", start: date(rawStart), end: date(item["end"] as? String), allDay: rawStart?.count == 10, calendar: item["calendarName"] as? String)
+            return AgendaEvent(id: "\(item["connectionId"] ?? ""):\(item["calendarId"] ?? ""):\(item["id"] ?? "")", title: item["summary"] as? String ?? "Untitled event", start: date(rawStart), end: date(item["end"] as? String), allDay: rawStart?.count == 10, calendar: item["calendarName"] as? String, calendarColor: item["calendarColor"] as? String)
         }
         let people = (today["googlePeople"] as? [[String: Any]] ?? []).map { item in
             ContextPerson(id: "\(item["connectionId"] ?? ""):\(item["id"] ?? "")", name: item["displayName"] as? String ?? "Unnamed person", emails: item["emails"] as? [String] ?? [])

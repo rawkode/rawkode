@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var store: WorkspaceStore
     @ObservedObject var session: NativeSession
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("notesEntryStyle", store: ApsidesPreferences.store) private var notesEntryStyle: NotesEntryStyle = .floatingButton
     @State private var signIn = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -13,6 +14,15 @@ struct SettingsView: View {
                 Section("Appearance") {
                     Picker("Palette", selection: $theme) { ForEach(ApsidesTheme.allCases) { Text($0.label).tag($0) } }
                 }
+                #if os(iOS)
+                Section("Today’s note") {
+                    Picker("Notes control", selection: $notesEntryStyle) {
+                        ForEach(NotesEntryStyle.allCases) { Text($0.label).tag($0) }
+                    }.accessibilityIdentifier("notesEntryStyle")
+                    Text("Choose how you open your note from the day timeline. Tap either control, or swipe up on the handle.")
+                        .font(.caption).foregroundStyle(theme.secondary)
+                }
+                #endif
                 Section("Enchiridion account") {
                     Text(session.origin.host ?? "Enchiridion").font(.callout)
                     Text(session.isConnected ? "Connected" : "Local notebook · not connected").foregroundStyle(theme.secondary)

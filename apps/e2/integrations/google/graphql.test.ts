@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import type { ApiContext } from "../../api/src/context.ts";
-import { todayTaggedPeople } from "./graphql.ts";
+import { googleGraphql, todayTaggedPeople } from "./graphql.ts";
 
 Deno.test("tagged people resolves canonical references through active Google sources", async () => {
 	const disposed: string[] = [];
@@ -63,4 +63,56 @@ Deno.test("tagged people resolves canonical references through active Google sou
 		label: "Ada",
 	}]);
 	assert.deepEqual(disposed, ["entities", "documents"]);
+});
+
+Deno.test("Today GraphQL carries calendar colors without inventing a missing color", async () => {
+	const api = {
+		listConnections: () => Promise.resolve([{ id: "calendar-account" }]),
+		upcoming: () =>
+			Promise.resolve({
+				partial: false,
+				events: [
+					{
+						id: "colored",
+						summary: "Meeting",
+						calendarId: "work",
+						calendarName: "Work",
+						calendarColor: "#Ab12Ef",
+					},
+					{
+						id: "missing",
+						summary: "Meeting",
+						calendarId: "other",
+						calendarName: "Other",
+					},
+					{
+						id: "invalid",
+						summary: "Meeting",
+						calendarId: "other",
+						calendarName: "Other",
+						calendarColor: "red",
+					},
+				],
+			}),
+		[Symbol.dispose]: () => {},
+	};
+	const context = {
+		identity: { ownerId: "owner" },
+		env: { GOOGLE_ADMIN: { admin: () => Promise.resolve(api) } },
+		cache: new Map(),
+		consume: () => {},
+	} as unknown as ApiContext;
+	const result = await googleGraphql.fields["Today.googleEvents"](
+		{ date: "2026-09-12" },
+		{},
+		context,
+	) as { id: string; calendarColor: string | null }[];
+	assert.deepEqual(
+		result.map(({ id, calendarColor }) => ({ id, calendarColor })),
+		[
+			{ id: "colored", calendarColor: "#Ab12Ef" },
+			{ id: "missing", calendarColor: null },
+			{ id: "invalid", calendarColor: null },
+		],
+	);
 });

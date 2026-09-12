@@ -20,7 +20,10 @@ const connection: Connection = {
 	services: ["integrations-google"],
 };
 
-const createApi = (accessRole = "owner") => {
+const createApi = (
+	accessRole = "owner",
+	backgroundColor: unknown = undefined,
+) => {
 	const oauth: OAuthIntegrationApi & Disposable = {
 		canDeleteConnection: () => Promise.resolve(true),
 		getConnectionForCleanup: () => Promise.resolve(connection),
@@ -32,6 +35,7 @@ const createApi = (accessRole = "owner") => {
 		resource_id: "calendar",
 		data: JSON.stringify({
 			summary: "Calendar",
+			backgroundColor,
 			accessRole,
 			timeZone: "America/Los_Angeles",
 		}),
@@ -121,4 +125,32 @@ Deno.test("Today accepts the full three-day query window", async () => {
 		"2026-09-13T00:00:00.000Z",
 	);
 	assert.equal(result.partial, false);
+});
+
+Deno.test("Today preserves actual calendar RGB colors and omits missing or invalid values", async () => {
+	for (
+		const input of [
+			"#Ab12Ef",
+			undefined,
+			"red",
+			"#fff",
+			"#12345678",
+			"#123456\n",
+			"url(https://example.com)",
+			42,
+		]
+	) {
+		const result = await createApi("owner", input).upcoming(
+			connection.id,
+			"2026-09-10T00:00:00.000Z",
+			"2026-09-11T00:00:00.000Z",
+		);
+		assert.equal(result.events.length, 2);
+		for (const event of result.events) {
+			assert.equal(
+				event.calendarColor,
+				input === "#Ab12Ef" ? input : undefined,
+			);
+		}
+	}
 });

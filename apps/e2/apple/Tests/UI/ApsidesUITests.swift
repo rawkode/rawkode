@@ -158,6 +158,37 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
     }
 
+    func testDayTimelineAndNotesControlPreference() {
+        launchDemo()
+        let control = app.buttons["openDailyNote"]
+        XCTAssertTrue(control.waitForExistence(timeout: 10))
+        XCTAssertFalse(webEditor.exists, "Home must show the day before opening the editor")
+        captureScreenshot("Day timeline floating button")
+        activate(app.buttons["todaySettings"])
+        let picker = app.buttons["notesEntryStyle"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        activate(picker)
+        chooseMenuItem("Pull-up handle")
+        activate(app.buttons["Done"])
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        captureScreenshot("Day timeline pull-up handle")
+        relaunchPreservingData()
+        activate(app.buttons["todaySettings"])
+        let restored = app.buttons["notesEntryStyle"]
+        XCTAssertTrue(restored.waitForExistence(timeout: 5))
+        XCTAssertTrue(restored.label.contains("Pull-up") || (restored.value as? String ?? "").contains("Pull-up"))
+        let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        activate(palette)
+        chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        captureScreenshot("Day timeline Dark pull-up handle")
+        activate(app.buttons["todaySettings"])
+        activate(app.buttons["notesEntryStyle"])
+        chooseMenuItem("Floating button")
+        activate(app.buttons["Done"])
+        captureScreenshot("Day timeline Dark floating button")
+    }
+
     func testWebEditorHasOneDocumentHeadingAndNoDesktopChrome() throws {
         try launchWebEditor()
         let web = app.webViews.firstMatch
@@ -207,6 +238,7 @@ final class ApsidesUITests: XCTestCase {
         captureScreenshot("Embedded editor mention")
         XCTAssertTrue(app.webViews.staticTexts["All changes saved"].waitForExistence(timeout: 10))
         relaunchPreservingData()
+        openDailyNoteIfNeeded()
         XCTAssertTrue(webEditor.waitForExistence(timeout: 15))
         XCTAssertTrue((webEditor.value as? String ?? "").contains(entity))
         // A canonical mention renders with an @ prefix too. Opening its entity
@@ -217,6 +249,34 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(app.webViews.staticTexts[entity].waitForExistence(timeout: 10))
         XCTAssertTrue(app.webViews.buttons["Back"].exists)
         captureScreenshot("Embedded editor linked entity")
+    }
+
+    func testTouchSelectionOffersSupertags() throws {
+        let editor = try launchWebEditor()
+        activate(editor)
+        editor.typeText("\nTouch candidate")
+        app.webViews.staticTexts["Touch candidate"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).doubleTap()
+        let addTag = app.webViews.buttons["Add Supertag to selected text"]
+        XCTAssertTrue(addTag.waitForExistence(timeout: 5))
+        captureScreenshot("Touch selected text action")
+        activate(addTag)
+        XCTAssertTrue(app.webViews.staticTexts["Choose a Supertag"].waitForExistence(timeout: 5))
+        let cancel = app.webViews.buttons["Cancel Supertag selection"]
+        XCTAssertTrue(cancel.exists)
+        captureScreenshot("Touch Supertag picker")
+        activate(cancel)
+        XCTAssertTrue((editor.value as? String ?? "").contains("Touch candidate"))
+        activate(addTag)
+        let colleague = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Colleague")).firstMatch
+        XCTAssertTrue(colleague.waitForExistence(timeout: 5))
+        activate(colleague)
+        XCTAssertTrue(app.webViews.staticTexts["All changes saved"].waitForExistence(timeout: 10))
+        XCTAssertFalse(cancel.exists)
+        captureScreenshot("Touch Supertag applied")
+        activate(app.buttons["closeDailyNote"])
+        openDailyNoteIfNeeded()
+        XCTAssertTrue(webEditor.waitForExistence(timeout: 10))
+        XCTAssertTrue((webEditor.value as? String ?? "").contains("candidate"))
     }
 
     func testWebEditorReturnsAfterPaletteChangeAndRelaunch() throws {
@@ -231,6 +291,7 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(webEditor.waitForExistence(timeout: 10))
         captureScreenshot("Embedded editor Dark")
         relaunchPreservingData()
+        openDailyNoteIfNeeded()
         XCTAssertTrue(webEditor.waitForExistence(timeout: 15))
         openContext("Account & appearance")
         let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
@@ -245,13 +306,14 @@ final class ApsidesUITests: XCTestCase {
     @discardableResult
     private func launchWebEditor() throws -> XCUIElement {
         guard let origin = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ORIGIN"],
-              !origin.isEmpty else {
+              !origin.isEmpty, !origin.hasPrefix("$(") else {
             throw XCTSkip("Set APSIDES_EDITOR_TEST_ORIGIN to the running editor fixture to test the real WKWebView.")
         }
         app.terminate()
         app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = origin
         app.launchArguments = ["--ui-testing", "--reset-test-data"]
         app.launch()
+        openDailyNoteIfNeeded()
         XCTAssertTrue(webEditor.waitForExistence(timeout: 20))
         return webEditor
     }
@@ -259,11 +321,18 @@ final class ApsidesUITests: XCTestCase {
     private func openToday() {
         #if os(iOS)
         let tab = app.tabBars.buttons["Today"]
-        if tab.exists { activate(tab); return }
+        if tab.exists { activate(tab); openDailyNoteIfNeeded(); return }
         #endif
         let destination = app.staticTexts["Today"].firstMatch
         XCTAssertTrue(destination.waitForExistence(timeout: 5))
         activate(destination)
+    }
+
+    private func openDailyNoteIfNeeded() {
+        #if os(iOS)
+        let control = app.buttons["openDailyNote"]
+        if control.waitForExistence(timeout: 3) { activate(control) }
+        #endif
     }
 
     private func captureScreenshot(_ name: String) {
@@ -280,6 +349,8 @@ final class ApsidesUITests: XCTestCase {
     }
 
     private func openContext(_ name: String) {
+        let closeNote = app.buttons["closeDailyNote"]
+        if closeNote.exists { activate(closeNote) }
         #if os(iOS)
         let context = app.tabBars.buttons["Context"]
         if context.exists { activate(context) }
@@ -326,7 +397,7 @@ final class ApsidesUITests: XCTestCase {
 
     private func relaunchPreservingData() {
         app.terminate()
-        app.launchArguments = ["--ui-testing"]
+        app.launchArguments.removeAll { $0 == "--reset-test-data" }
         app.launch()
     }
 

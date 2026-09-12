@@ -7,6 +7,7 @@ import {
 	closeEntityComposer,
 	createLatestEntitySearch,
 	openEntityComposer,
+	openSelectedEntityComposer,
 	reduceEntityComposer,
 	selectedEntityMatch,
 	typedEntityMatch,
@@ -206,4 +207,31 @@ Deno.test("composer meta opens and closes selection state deterministically", ()
 		editor.tr.setSelection(TextSelection.create(editor.doc, 6)),
 	);
 	assert.equal(reduceEntityComposer(moved.tr, match, moved), null);
+});
+
+Deno.test("touch Supertag action preserves selected phrase until insertion or cancellation", () => {
+	const original = state([paragraph([text("Before Alice After")])], 8, 13);
+	const transaction = openSelectedEntityComposer(original);
+	assert.ok(transaction);
+	const opened = original.apply(transaction);
+	const match = reduceEntityComposer(transaction, null, opened);
+	assert.equal(match?.displayText, "Alice");
+	assert.equal(transaction.docChanged, false);
+	assert.equal(opened.selection.from, 8);
+	assert.equal(opened.selection.to, 13);
+	// Picker loading/focus does not need a text edit or another selection.
+	const idle = opened.tr;
+	assert.deepEqual(
+		reduceEntityComposer(idle, match, opened.apply(idle)),
+		match,
+	);
+	const cancel = closeEntityComposer(opened.tr);
+	assert.equal(reduceEntityComposer(cancel, match, opened.apply(cancel)), null);
+	assert.equal(opened.doc.textContent, "Before Alice After");
+	const moved = opened.tr.setSelection(TextSelection.create(opened.doc, 2));
+	assert.equal(reduceEntityComposer(moved, match, opened.apply(moved)), null);
+	assert.equal(
+		openSelectedEntityComposer(state([paragraph([text("Alice")])], 2)),
+		null,
+	);
 });

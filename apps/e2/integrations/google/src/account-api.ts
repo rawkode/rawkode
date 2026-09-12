@@ -37,7 +37,7 @@ const eventTimes = (event: CalendarEvent) => {
 	};
 };
 
-type CalendarMetadata = { name: string; timeZone?: string };
+type CalendarMetadata = { name: string; timeZone?: string; color?: string };
 
 const dateInZone = (value: number, timeZone?: string) => {
 	try {
@@ -201,6 +201,7 @@ export const createAccountApi = (env: AccountEnv, owner: string) => {
 							summary?: unknown;
 							timeZone?: unknown;
 							accessRole?: unknown;
+							backgroundColor?: unknown;
 						};
 						const accessRole = parsed.accessRole;
 						if (
@@ -213,6 +214,11 @@ export const createAccountApi = (env: AccountEnv, owner: string) => {
 						return [[
 							resource_id,
 							{
+								color: typeof parsed.backgroundColor === "string" &&
+										parsed.backgroundColor.length === 7 &&
+										/^#[0-9a-f]{6}$/i.test(parsed.backgroundColor)
+									? parsed.backgroundColor
+									: undefined,
 								name: typeof parsed.summary === "string" && parsed.summary
 									? parsed.summary
 									: resource_id,
@@ -247,6 +253,7 @@ export const createAccountApi = (env: AccountEnv, owner: string) => {
 					id,
 					calendarId,
 					calendarName: calendar?.name ?? calendarId,
+					calendarColor: calendar?.color,
 				}));
 			const syncByCollection = new Map(
 				syncs.results.map((sync) => [sync.collection, sync]),

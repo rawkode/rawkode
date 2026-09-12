@@ -212,6 +212,14 @@ export const openEntityComposer = (
 		{ type: "open", match } satisfies EntityComposerMeta,
 	);
 
+/** Open from the touch action without inserting a trigger or moving the range. */
+export const openSelectedEntityComposer = (
+	state: EditorState,
+): Transaction | null => {
+	const match = selectedEntityMatch(state);
+	return match ? openEntityComposer(state.tr, match) : null;
+};
+
 export const reduceEntityComposer = (
 	transaction: Transaction,
 	previous: EntityComposerMatch | null,

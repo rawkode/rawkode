@@ -1295,3 +1295,51 @@ kbd {
 		min-height: 44px;
 	}
 }
+
+/* A stable action above the keyboard leaves native text-selection handles free. */
+.selection-actions {
+	position: fixed;
+	z-index: 60;
+	left: 50%;
+	transform: translateX(-50%);
+	width: max-content;
+	max-width: calc(100vw - 24px);
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: var(--bg);
+	box-shadow: 0 4px 20px #0002;
+}
+.selection-actions button {
+	min-height: 44px;
+	padding: 8px 18px;
+	color: var(--primary);
+	touch-action: manipulation;
+}
+.selection-actions button span {
+	margin-right: 6px;
+}
+.selection-tag-menu .menu-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.selection-tag-menu .menu-title button {
+	width: auto;
+	min-height: 44px;
+	color: var(--primary);
+}
+@media (pointer: coarse) {
+	.selection-tag-menu {
+		top: auto !important;
+		bottom: var(--selection-menu-bottom, 12px);
+		left: 12px !important;
+		width: calc(100vw - 24px);
+		max-height: 40dvh;
+	}
+	.selection-tag-menu button {
+		min-height: 48px;
+	}
+}
+.pane-frame:not(.is-active) .selection-actions {
+	display: none;
+}

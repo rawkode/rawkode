@@ -29,8 +29,14 @@ public struct AgendaEvent: Codable, Identifiable, Equatable, Sendable {
     public var end: Date?
     public var allDay: Bool
     public var calendar: String?
-    public init(id: String, title: String, start: Date? = nil, end: Date? = nil, allDay: Bool = false, calendar: String? = nil) {
-        self.id = id; self.title = title; self.start = start; self.end = end; self.allDay = allDay; self.calendar = calendar
+    /// Google CalendarList backgroundColor; nil when the provider has no valid RGB value.
+    public var calendarColor: String?
+    public var calendarColorRGB: UInt32? {
+        guard let calendarColor, calendarColor.utf8.count == 7, calendarColor.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil else { return nil }
+        return UInt32(calendarColor.dropFirst(), radix: 16)
+    }
+    public init(id: String, title: String, start: Date? = nil, end: Date? = nil, allDay: Bool = false, calendar: String? = nil, calendarColor: String? = nil) {
+        self.id = id; self.title = title; self.start = start; self.end = end; self.allDay = allDay; self.calendar = calendar; self.calendarColor = calendarColor
     }
 }
 

@@ -126,8 +126,8 @@ exists. Downloaded export logs are at `/tmp/enchiridion-cloud-build3-logs`.
 A local Watch development build succeeded but reused a wildcard profile; that
 does not register the explicit identifier. A local distribution export reported
 No Accounts. The user then registered the explicit Watch App ID. Build 4 at
-`783f6d80` completed its cloud archive/export with no issues. The downloaded
-App Store IPA contains version 4 of the iPhone, Watch, and widget bundles.
+`783f6d80` completed its cloud archive/export with no issues. The downloaded App
+Store IPA contains version 4 of the iPhone, Watch, and widget bundles.
 `codesign --verify --strict` passed for all three; each embedded Store profile
 matches its exact bundle ID under team `6KXCJGJ45W`. Build 4 predates the
 reserved CarPlay voice entitlement. TestFlight processing and tester
@@ -136,8 +136,8 @@ availability still require confirmation in App Store Connect.
 The website production plan now executes in GitHub Actions, but run
 `34700483957` stops before Alchemy because the existing 1Password service
 account cannot resolve the `apsides` vault. Required vault visibility or the
-verified secret references must be corrected before production deployment.
-No website changes were deployed by that run.
+verified secret references must be corrected before production deployment. No
+website changes were deployed by that run.
 
 ## Icon and screenshots
 
@@ -166,13 +166,13 @@ Apple lists this category from iOS 26.4 in its
 The account holder reports approval; enable the matching managed capability on
 `rawkode.academy.enchiridion` under Additional Capabilities so distribution
 profiles include it. Account approval alone does not prove App ID provisioning.
-The widget uses its own App Group-only entitlements; Watch and Mac do not request
-this CarPlay capability.
+The widget uses its own App Group-only entitlements; Watch and Mac do not
+request this CarPlay capability.
 
 This reserves signing capability only. No CarPlay scene, microphone permission,
 audio session, or conversational interface is enabled. Future voice interaction
-must be gated to iOS 26.4 or later, use the voice control template for recording,
-and hold an audio session only while voice features are active.
+must be gated to iOS 26.4 or later, use the voice control template for
+recording, and hold an audio session only while voice features are active.
 
 ## Production editor recovery — 12 September 2026
 
@@ -183,6 +183,6 @@ and 21 no-ops, with no deletions or replacements. Application completed with
 exit zero. The downloaded live website Worker contains `/apple/editor`, the
 native editor version marker, and NativeEditor. The public route redirects to
 Cloudflare Access as expected; authenticated physical-device editing still
-requires confirmation. The installed iOS app can retry without a new build.
-The temporary recovery helper was removed and the credential process closed.
-CI vault access remains separate follow-up work.
+requires confirmation. The installed iOS app can retry without a new build. The
+temporary recovery helper was removed and the credential process closed. CI
+vault access remains separate follow-up work.

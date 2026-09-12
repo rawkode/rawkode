@@ -79,6 +79,11 @@ const event = (
 	id: text(value.id),
 	calendarId: calendarId ?? text(value.calendarId),
 	calendarName: calendarName ?? text(value.calendarName),
+	calendarColor: typeof value.calendarColor === "string" &&
+			value.calendarColor.length === 7 &&
+			/^#[0-9a-f]{6}$/i.test(value.calendarColor)
+		? value.calendarColor
+		: null,
 	summary: text(value.summary),
 	start: text((value.start as Record<string, unknown> | undefined)?.dateTime) ||
 		text((value.start as Record<string, unknown> | undefined)?.date) || null,
@@ -379,7 +384,7 @@ export const googleGraphql: IntegrationSchema = {
     type GoogleContactPage { records: [GoogleContact!]! nextCursor: String }
     type GoogleCalendar { id: ID! summary: String! }
     type GoogleCalendarPage { records: [GoogleCalendar!]! nextCursor: String }
-    type GoogleEvent { id: ID! connectionId: ID! calendarId: ID calendarName: String summary: String! start: String end: String recurringEventId: String htmlLink: String attendees: [GoogleAttendee!]! }
+    type GoogleEvent { id: ID! connectionId: ID! calendarId: ID calendarName: String calendarColor: String summary: String! start: String end: String recurringEventId: String htmlLink: String attendees: [GoogleAttendee!]! }
     type GoogleAttendee { email: String! name: String! responseStatus: String }
     type GoogleEventPage { records: [GoogleEvent!]! nextCursor: String }
     extend type Today {

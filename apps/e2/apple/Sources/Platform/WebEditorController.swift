@@ -14,6 +14,7 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
     @Published var loading = false
     @Published var error: String?
     @Published var finishedLoads = 0
+    @Published var previousDayNeedsSave = false
 
     init(session: NativeSession) {
         self.session = session
@@ -23,11 +24,33 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
     }
     func start() {
         if webView.url?.scheme == "about" { load(); return }
-        guard !started else { return }
+        if started {
+            Task { await refreshDayIfNeeded() }
+            return
+        }
         started = true
         if webView.url == nil { load() }
+        else if !webView.isLoading {
+            self.webView(webView, didFinish: nil)
+            Task { await refreshDayIfNeeded() }
+        }
+    }
+    private func refreshDayIfNeeded() async {
+        guard let url = webView.url, url.host == session.origin.host,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let pane = components.queryItems?.first(where: { $0.name == "pane" })?.value,
+              pane.hasPrefix("document:daily:"), pane != "document:daily:" + DayIdentity.key(.now) else { return }
+        let generation = navigationGeneration
+        guard await session.editorCanLeave() else {
+            // Keep the previous day's editor visible so the user can finish saving.
+            previousDayNeedsSave = true
+            return
+        }
+        guard generation == navigationGeneration else { return }
+        load()
     }
     func load() {
+        previousDayNeedsSave = false
         error = nil
         loading = true
         var components = URLComponents(url: session.origin.appendingPathComponent("apple/editor"), resolvingAgainstBaseURL: false)!

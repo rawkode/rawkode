@@ -23,7 +23,11 @@ export interface CalendarApi {
 		to: string,
 	): Promise<
 		{
-			events: (CalendarEvent & { calendarId: string; calendarName: string })[];
+			events: (CalendarEvent & {
+				calendarId: string;
+				calendarName: string;
+				calendarColor?: string;
+			})[];
 			partial: boolean;
 		}
 	>;

@@ -151,7 +151,7 @@ private struct CalendarEventButton: View {
                 Text(eventTime(item.event)).font(.caption).lineLimit(1)
             }
         }.padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(theme.accent.opacity(0.12), in: .rect(cornerRadius: 8))
+            .background(calendarAccent(item.event.calendarColor, fallback: theme.accent).opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 
