@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+dist/
+target/
+platforms/windows/**/bin/
+platforms/windows/**/obj/
+**/__pycache__/
