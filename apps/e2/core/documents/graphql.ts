@@ -26,11 +26,12 @@ export const documentsGraphql: IntegrationSchema = {
 			}
 			const prefix = String(args.prefix);
 			if (
+				prefix !== "capture:" &&
 				!/^event(?:-series)?:[a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+){1,2}:$/.test(
 					prefix,
 				)
 			) {
-				throw new Error("Only event document feeds are available.");
+				throw new Error("Only event and capture document feeds are available.");
 			}
 			using documents = await context.env.DOCUMENTS_ADMIN.admin(
 				context.identity.ownerId,

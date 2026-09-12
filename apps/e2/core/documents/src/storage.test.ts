@@ -39,6 +39,33 @@ const noteWithEntities = (...entities: unknown[]) => ({
 	content: [{ type: "paragraph", content: entities }],
 });
 
+Deno.test("capture feed only discovers captures in the owning store", () => {
+	const alice = fixture(), bob = fixture();
+	try {
+		alice.documents.save(
+			"capture:00000000-0000-4000-8000-000000000001",
+			note("Alice capture"),
+			null,
+		);
+		alice.documents.save("daily:2026-09-12", note("Daily note"), null);
+		assert.deepEqual(alice.documents.list("capture:").map(({ id }) => id), [
+			"capture:00000000-0000-4000-8000-000000000001",
+		]);
+		assert.deepEqual(bob.documents.list("capture:"), []);
+		for (
+			const prefix of ["", "capture", "capture:%", "capture:alice:", "daily:"]
+		) {
+			assert.throws(
+				() => alice.documents.list(prefix),
+				/Invalid document prefix/,
+			);
+		}
+	} finally {
+		alice.database.close();
+		bob.database.close();
+	}
+});
+
 Deno.test("large shared notes roundtrip Unicode through bounded chunks and replace atomically", () => {
 	const { database, documents } = fixture();
 	try {

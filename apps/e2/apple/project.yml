@@ -1,0 +1,142 @@
+name: Apsides
+options:
+  bundleIdPrefix: dev.rawkode
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+    watchOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  ApsidesCore:
+    path: .
+targets:
+  ApsidesMac:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/App
+      - Sources/SharedUI
+      - Sources/Platform
+    dependencies:
+      - package: ApsidesCore
+    settings:
+      base:
+        PRODUCT_NAME: Apsides
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.mac
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+    info:
+      path: Configuration/Mac-Info.plist
+      properties:
+        CFBundleDisplayName: Apsides
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [apsides]
+  ApsidesIOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/App
+      - Sources/SharedUI
+      - Sources/Platform
+    dependencies:
+      - package: ApsidesCore
+      - target: ApsidesWatch
+        embed: true
+      - target: ApsidesWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: Apsides
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: Configuration/iOS.entitlements
+    info:
+      path: Configuration/iOS-Info.plist
+      properties:
+        CFBundleDisplayName: Apsides
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [apsides]
+        UISupportedInterfaceOrientations: [
+          UIInterfaceOrientationPortrait,
+          UIInterfaceOrientationLandscapeLeft,
+          UIInterfaceOrientationLandscapeRight,
+        ]
+        UISupportedInterfaceOrientations~ipad: [
+          UIInterfaceOrientationPortrait,
+          UIInterfaceOrientationPortraitUpsideDown,
+          UIInterfaceOrientationLandscapeLeft,
+          UIInterfaceOrientationLandscapeRight,
+        ]
+  ApsidesWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - Sources/Watch
+      - Sources/Platform/WatchBridge.swift
+    dependencies:
+      - package: ApsidesCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.watchkitapp
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+    info:
+      path: Configuration/Watch-Info.plist
+      properties:
+        CFBundleDisplayName: Apsides
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: dev.rawkode.apsides
+  ApsidesWidget:
+    type: app-extension
+    platform: iOS
+    sources: [Sources/Widget]
+    dependencies:
+      - package: ApsidesCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.widget
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: Configuration/iOS.entitlements
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Configuration/Widget-Info.plist
+      properties:
+        CFBundleDisplayName: Apsides Up Next
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  ApsidesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UI]
+    dependencies:
+      - target: ApsidesIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.apsides.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  ApsidesMac:
+    build:
+      targets:
+        ApsidesMac: all
+  ApsidesIOS:
+    build:
+      targets:
+        ApsidesIOS: all
+    test:
+      targets: [ApsidesUITests]
+  ApsidesWatch:
+    build:
+      targets:
+        ApsidesWatch: all

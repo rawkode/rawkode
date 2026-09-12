@@ -143,6 +143,9 @@ const server = createServer(async (request, response) => {
 			Buffer.from(await upstream.arrayBuffer()),
 		);
 	} catch (error) {
+		// Preserve the nested network cause (for example ECONNREFUSED), which
+		// String(error) hides behind a later JSON parse failure in the assertions.
+		console.error("Website fixture proxy request failed:", error);
 		response.writeHead(500).end(String(error));
 	}
 });
@@ -379,6 +382,42 @@ const exerciseDocuments = async () => {
 	assert.equal((await otherWrite.json()).document.revision, 1);
 	assert.deepEqual((await (await get(path)).json()).document, latest);
 	const largePath = "/api/documents/runtime-large-note";
+	const captureID = "capture:00000000-0000-4000-8000-000000000099";
+	const captureSave = await fetch(origin + "/api/documents/" + captureID, {
+		method: "POST",
+		headers: { Origin: origin, "Content-Type": "application/json" },
+		body: JSON.stringify({
+			note: note("Native capture"),
+			expectedRevision: null,
+		}),
+	});
+	assert.equal(captureSave.status, 200);
+	const captureFeed = async (headers = {}) => {
+		const response = await fetch(origin + "/api/graphql", {
+			method: "POST",
+			headers: {
+				Origin: origin,
+				"Content-Type": "application/json",
+				...headers,
+			},
+			body: JSON.stringify({
+				query:
+					'query { me { documentFeed(prefix: "capture:", limit: 100) { id revision } } }',
+			}),
+		});
+		assert.equal(response.status, 200);
+		const result = await response.json();
+		assert.equal(result.errors, undefined);
+		return result.data.me.documentFeed;
+	};
+	assert.deepEqual(await captureFeed(), [{ id: captureID, revision: 1 }]);
+	assert.deepEqual(
+		await captureFeed({
+			"x-test-other-owner": "true",
+			"X-E2-Owner": "access:website-owner",
+		}),
+		[],
+	);
 	const largeNote = {
 		type: "doc",
 		content: [{

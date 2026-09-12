@@ -110,9 +110,10 @@ export const createDocumentStore = (
 	const list = (prefix: string, limit = 50): DocumentSummary[] => {
 		if (
 			typeof prefix !== "string" ||
-			!/^event(?:-series)?:[a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+){1,2}:$/.test(
-				prefix,
-			) ||
+			(prefix !== "capture:" &&
+				!/^event(?:-series)?:[a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+){1,2}:$/.test(
+					prefix,
+				)) ||
 			prefix.length > 180
 		) {
 			throw new Error("Invalid document prefix");
