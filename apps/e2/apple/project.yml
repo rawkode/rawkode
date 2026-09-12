@@ -40,6 +40,7 @@ targets:
     info:
       path: Configuration/Mac-Info.plist
       properties:
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
         CFBundleURLTypes:
           - CFBundleURLSchemes: [enchiridion]
@@ -71,6 +72,7 @@ targets:
     info:
       path: Configuration/iOS-Info.plist
       properties:
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
         UILaunchScreen: {}
         UIApplicationSceneManifest:
@@ -108,6 +110,7 @@ targets:
     info:
       path: Configuration/Watch-Info.plist
       properties:
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
         WKApplication: true
         WKCompanionAppBundleIdentifier: rawkode.academy.enchiridion
@@ -127,6 +130,7 @@ targets:
     info:
       path: Configuration/Widget-Info.plist
       properties:
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Up Next
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
