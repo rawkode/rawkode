@@ -4,6 +4,7 @@ import SwiftUI
 /// The connected day is a read-only projection. Writing remains in the shared editor.
 struct DayTimelineView: View {
     @ObservedObject var store: WorkspaceStore
+    var recenter: Int = 0
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selectedEvent: AgendaEvent?
@@ -53,9 +54,9 @@ struct DayTimelineView: View {
                 .padding(.horizontal, 24).padding(.top, 6).padding(.bottom, 16)
             status(snapshot, now: now)
             if typeSize.isAccessibilitySize || DayAgendaLayout.items(events: snapshot.events, day: now, minimumVisualMinutes: 26).contains(where: { $0.columnCount > 3 }) {
-                accessibleDay(snapshot, activity: activity)
+                accessibleDay(snapshot, activity: activity, now: now)
             } else {
-                DayTimelineCanvas(snapshot: snapshot, activity: activity, now: now, theme: theme,
+                DayTimelineCanvas(snapshot: snapshot, activity: activity, now: now, recenter: recenter, theme: theme,
                     selectEvent: { selectedEvent = $0 }, selectActivity: { selectedActivity = $0 })
             }
         }
@@ -82,23 +83,32 @@ struct DayTimelineView: View {
         }
     }
 
-    private func accessibleDay(_ snapshot: ContextSnapshot, activity: [RepositoryActivity]) -> some View {
+    private func accessibleDay(_ snapshot: ContextSnapshot, activity: [RepositoryActivity], now: Date) -> some View {
         let entries = DayTimelineEntry.entries(events: snapshot.events, activity: activity)
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                ForEach(entries) { entry in
-                    Button {
-                        if let event = entry.event { selectedEvent = event }
-                        if let item = entry.activity { selectedActivity = DayActivityCluster(items: [item]) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(entry.title).font(.headline)
-                            Text(entry.subtitle).font(.body).foregroundStyle(theme.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                            .background(theme.base, in: .rect(cornerRadius: 16))
-                    }.buttonStyle(.plain)
-                }
-            }.padding(20)
+        let target = entries.first { entry in
+            if let end = entry.event?.end { return end >= now && entry.event?.allDay != true }
+            return entry.date >= now
+        }?.id ?? entries.last?.id
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(entries) { entry in
+                        Button {
+                            if let event = entry.event { selectedEvent = event }
+                            if let item = entry.activity { selectedActivity = DayActivityCluster(items: [item]) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(entry.title).font(.headline)
+                                Text(entry.subtitle).font(.body).foregroundStyle(theme.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                                .background(theme.base, in: .rect(cornerRadius: 16))
+                        }.buttonStyle(.plain).id(entry.id)
+                    }
+                }.padding(20)
+            }
+            .onChange(of: recenter) { _, _ in
+                if let target { proxy.scrollTo(target, anchor: .center) }
+            }
         }
     }
 }
@@ -107,6 +117,7 @@ private struct DayTimelineCanvas: View {
     let snapshot: ContextSnapshot
     let activity: [RepositoryActivity]
     let now: Date
+    let recenter: Int
     let theme: ApsidesTheme
     let selectEvent: (AgendaEvent) -> Void
     let selectActivity: (DayActivityCluster) -> Void
@@ -139,7 +150,9 @@ private struct DayTimelineCanvas: View {
                         grid(width: geometry.size.width)
                     }.frame(height: CGFloat(hours) * hourHeight + 44)
                 }
+                .accessibilityIdentifier("dayTimelineScroll")
                 .task(id: snapshot.day) { proxy.scrollTo("day-now", anchor: .center) }
+                .onChange(of: recenter) { _, _ in proxy.scrollTo("day-now", anchor: .center) }
             }
         }
     }
@@ -181,7 +194,9 @@ private struct DayTimelineCanvas: View {
                 Text("Now").font(.caption.weight(.semibold)).frame(width: 48, alignment: .trailing)
                 Circle().frame(width: 5, height: 5)
                 Rectangle().frame(height: 1)
-            }.foregroundStyle(theme.accent).offset(y: nowOffset).accessibilityHidden(true)
+            }.foregroundStyle(theme.accent).offset(y: nowOffset)
+                .accessibilityElement(children: .ignore).accessibilityLabel("Current time")
+                .accessibilityIdentifier("dayTimelineNow")
             VStack(spacing: 0) {
                 Color.clear.frame(height: nowOffset)
                 Color.clear.frame(width: 1, height: 1).id("day-now")

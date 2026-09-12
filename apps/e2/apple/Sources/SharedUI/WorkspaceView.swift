@@ -12,6 +12,7 @@ struct WorkspaceView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: WorkspaceDestination? = .today
     @State private var phoneTab = 0
+    @State private var todayRecenter = 0
     @State private var contextPath: [WorkspaceDestination] = []
     @Namespace private var captureTransition
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
@@ -65,8 +66,11 @@ struct WorkspaceView: View {
     }
     #if os(iOS)
     private var phone: some View {
-        TabView(selection: $phoneTab) {
-            NavigationStack { PhoneTodayView(store: store, showAgenda: showAgenda).toolbar { captureButton } }
+        TabView(selection: Binding(get: { phoneTab }, set: { tab in
+            phoneTab = tab
+            if tab == 0 { todayRecenter += 1 }
+        })) {
+            NavigationStack { PhoneTodayView(store: store, showAgenda: showAgenda, recenter: todayRecenter).toolbar { captureButton } }
                 .tabItem { Label("Today", systemImage: "sun.max") }.tag(0)
             NavigationStack { CaptureListView(store: store).toolbar { captureButton } }
                 .tabItem { Label("Captures", systemImage: "tray") }.tag(1)

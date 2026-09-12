@@ -11,20 +11,22 @@ enum NotesEntryStyle: String, CaseIterable, Identifiable {
 struct PhoneTodayView: View {
     @ObservedObject var store: WorkspaceStore
     let showAgenda: () -> Void
+    let recenter: Int
     @AppStorage("notesEntryStyle", store: ApsidesPreferences.store) private var entryStyle: NotesEntryStyle = .floatingButton
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @StateObject private var editor: WebEditorController
     @State private var notesPresented = false
     @State private var closeError = false
 
-    init(store: WorkspaceStore, showAgenda: @escaping () -> Void) {
+    init(store: WorkspaceStore, showAgenda: @escaping () -> Void, recenter: Int = 0) {
+        self.recenter = recenter
         self.store = store
         self.showAgenda = showAgenda
         _editor = StateObject(wrappedValue: WebEditorController(session: store.session))
     }
 
     var body: some View {
-        DayTimelineView(store: store)
+        DayTimelineView(store: store, recenter: recenter)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 notesControl.padding(.top, 8).padding(.bottom, 12)
             }

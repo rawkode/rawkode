@@ -158,6 +158,26 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
     }
 
+    func testTodayTabRecentersTimelineOnEveryTap() {
+        launchDemo()
+        let timeline = app.scrollViews["dayTimelineScroll"]
+        let now = app.otherElements["dayTimelineNow"]
+        XCTAssertTrue(timeline.waitForExistence(timeout: 10))
+        XCTAssertTrue(now.waitForExistence(timeout: 5))
+        let initialY = now.frame.midY
+        timeline.swipeUp()
+        XCTAssertGreaterThan(abs(now.frame.midY - initialY), 80)
+        activate(app.tabBars.buttons["Today"])
+        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
+        timeline.swipeDown()
+        activate(app.tabBars.buttons["Captures"])
+        activate(app.tabBars.buttons["Today"])
+        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
+        timeline.swipeUp()
+        activate(app.tabBars.buttons["Today"])
+        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
+    }
+
     func testDayTimelineAndNotesControlPreference() {
         launchDemo()
         let control = app.buttons["openDailyNote"]
