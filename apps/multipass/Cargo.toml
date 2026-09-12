@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/multipass-core", "crates/multipass-network", "crates/multipass-hardware"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+strip = true

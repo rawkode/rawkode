@@ -1,0 +1,70 @@
+name: Multipass native builds
+
+on:
+  pull_request:
+    paths: ['apps/multipass/**', '.github/workflows/multipass.yml']
+  push:
+    branches: [main, codex/multipass]
+    paths: ['apps/multipass/**', '.github/workflows/multipass.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multipass-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/multipass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev libudev-dev python3-gi gir1.2-gtk-4.0 xvfb dbus-x11
+      - name: Rust tests
+        run: cargo test --locked --workspace
+      - name: Rust lint
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Build engine
+        run: cargo build --locked --release -p multipass-core --bin multipass-engine
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: Windows transport tests
+        if: runner.os == 'Windows'
+        run: dotnet run --project platforms/windows/tests/TransportTests.csproj -c Release
+      - name: Windows native UI
+        if: runner.os == 'Windows'
+        run: |
+          dotnet publish platforms/windows/Multipass.Windows.csproj -c Release -r win-x64 --self-contained true -o dist/windows
+          Copy-Item target/release/multipass-engine.exe dist/windows/multipass-engine.exe
+      - name: macOS native UI
+        if: runner.os == 'macOS'
+        run: ./script/build_and_run.sh --build
+      - name: Linux native UI tests and package
+        if: runner.os == 'Linux'
+        run: |
+          /usr/bin/python3 -m unittest discover -s platforms/linux/tests -v
+          GTK_A11Y=none xvfb-run -a dbus-run-session -- /usr/bin/python3 platforms/linux/tests/smoke_gtk.py --engine "$PWD/target/release/multipass-engine"
+          /usr/bin/python3 platforms/linux/install.py --engine target/release/multipass-engine --prefix "$RUNNER_TEMP/multipass-install"
+          mkdir -p dist/linux
+          cp platforms/linux/*.py platforms/linux/README.md target/release/multipass-engine dist/linux/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multipass-${{ runner.os }}
+          path: apps/multipass/dist/
