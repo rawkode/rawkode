@@ -56,7 +56,32 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         super.init()
     }
 
-    /// Used only for the sign-in sheet, never for the workspace/editor UI.
+    private var editorWebView: WKWebView?
+
+    /// Keep the editor alive across native tab switches; use the same cookie store as sign-in.
+    public func makeEditorWebView() -> WKWebView {
+        if let editorWebView { return editorWebView }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = websiteDataStore
+        let originJSON = String(data: try! JSONSerialization.data(withJSONObject: origin.absoluteString, options: .fragmentsAllowed), encoding: .utf8)!
+        let script = """
+        if (location.origin === \(originJSON)) {
+          const style = document.createElement('style');
+          style.textContent = '.workspace-sidebar { display: none !important; } .pane-workspace { grid-template-columns: minmax(0, 1fr) !important; }';
+          document.head.appendChild(style);
+        }
+        """
+        configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.allowsBackForwardNavigationGestures = false
+        #if os(iOS)
+        view.isOpaque = false
+        #endif
+        editorWebView = view
+        return view
+    }
+
+    /// Used for the dedicated account sign-in sheet.
     public func makeSignInWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = websiteDataStore
@@ -193,7 +218,21 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         return storedNote.isEqual(to: note)
     }
 
-    public func signOut() async {
+    /// Ask the existing editor's synchronous unsaved-change guard before replacing its page.
+    public func editorCanLeave() async -> Bool {
+        guard let view = editorWebView, let url = view.url, matchesOrigin(url) else { return true }
+        do {
+            let result = try await view.evaluateJavaScript("(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return !event.defaultPrevented; })()")
+            return result as? Bool == true
+        } catch { return false }
+    }
+
+    public func signOut() async -> Bool {
+        guard await editorCanLeave() else {
+            errorMessage = "Your editor has unsaved changes. Wait for All changes saved or export your note before signing out."
+            return false
+        }
+        editorWebView?.loadHTMLString("<p>Signed out. Return to Today to sign in.</p>", baseURL: nil)
         generation += 1
         isConnected = false
         accountID = nil
@@ -202,6 +241,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         errorMessage = nil
         // This store belongs to this app. Remove IdP sessions as well as the application cookie.
         await websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        return true
     }
 
     private func matchesOrigin(_ url: URL) -> Bool {

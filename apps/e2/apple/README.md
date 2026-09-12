@@ -75,3 +75,17 @@ CarPlay eligibility/runtime, voice interaction, paired Watch background
 delivery, real-device signing, accessibility sweeps, and distribution remain
 release gates. The PR must stay draft until those gates and document continuity
 are satisfied.
+
+## iPhone editor update (12 September)
+
+Today now hosts the deployed Apsides web editor in WKWebView, with the shared
+website cookie store. Slash commands, mentions, and document saving are provided
+by the deployed website. Opening it requires network access and a website sign-in;
+this is not a bundled offline editor. Wait for the web editor's saved status before
+closing the app. Native quick capture remains available offline.
+
+Earlier local daybooks remain under **Device notes**. **Add to device notes** in
+Captures still targets those local notes; it does not insert into the web document.
+Native navigation and sign-out consult the web editor's unsaved-change guard.
+The guard and real-phone keyboard interactions still require runtime qualification.
+See [CarPlay test](docs/CARPLAY-TEST.md) for the calendar widget setup and limits.

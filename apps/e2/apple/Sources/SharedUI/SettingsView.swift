@@ -23,7 +23,7 @@ struct SettingsView: View {
                         Button("Sign in") { signIn = true }
                     }
                     if let error = session.errorMessage { Text(error).font(.callout).foregroundStyle(theme.secondary) }
-                    Text("Sign-in opens your existing Apsides website. Your daybook remains on this device. Send individual captures to the workspace when ready.").font(.caption).foregroundStyle(theme.secondary)
+                    Text("Sign-in opens your existing Apsides website. The Today editor uses your web workspace. Earlier device notes remain local. Send individual captures to the workspace when ready.").font(.caption).foregroundStyle(theme.secondary)
                 }
                 Section("Your data") {
                     Text("Local notes and capture drafts are saved on this device. They remain here when you sign out.")

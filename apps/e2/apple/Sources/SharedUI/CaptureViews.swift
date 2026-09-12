@@ -52,7 +52,7 @@ struct CaptureListView: View {
                             .font(.caption).foregroundStyle(theme.secondary)
                         if store.vault.uploaded.contains(capture.id) { Text(capture.source == .workspace ? "From workspace" : "Sent to workspace").font(.caption).foregroundStyle(theme.secondary) }
                         HStack(spacing: 20) {
-                            Button("Add to Today") { store.addToToday(capture) }
+                            Button("Add to device notes") { store.addToToday(capture) }
                             Spacer()
                             Menu {
                                 ShareLink(item: capture.text)

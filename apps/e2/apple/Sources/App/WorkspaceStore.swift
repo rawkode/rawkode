@@ -152,8 +152,9 @@ final class WorkspaceStore: ObservableObject {
         } catch { connectionError = error.localizedDescription }
     }
     func signOut() async {
+        guard await session.signOut() else { return }
         connectionGeneration += 1
-        await session.signOut(); context = nil
+        context = nil
         do { try bindAccount(nil) } catch { storageError = "Sign-out cleared the visible account data, but its cache could not be removed from disk. \(error.localizedDescription)" }
         #if os(iOS)
         watchBridge?.sendContext(ContextSnapshot(day: DayIdentity.key(.now)))
