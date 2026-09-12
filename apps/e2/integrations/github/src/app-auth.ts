@@ -137,9 +137,13 @@ export const githubRequest = async (
 			"User-Agent": "e2-integrations-github-app",
 			...Object.fromEntries(new Headers(init.headers).entries()),
 		},
-		redirect: "error",
+		redirect: "manual",
 		signal: AbortSignal.timeout(15_000),
 	});
+	if (response.status >= 300 && response.status < 400) {
+		await response.body?.cancel();
+		throw new Error("GitHub API redirects are not allowed");
+	}
 	if (response.status === 403 || response.status === 429) {
 		await response.body?.cancel();
 		throw new GitHubRateLimitError(retryAt(response));

@@ -410,3 +410,29 @@ Deno.test("GitHub App observations map stably into every locked integration tag"
 		assert.equal(Object.keys(first.values ?? {}).length > 0, true);
 	}
 });
+
+Deno.test("GitHub App requests reject redirects without forwarding credentials", async () => {
+	const originalFetch = globalThis.fetch;
+	let calls = 0;
+	globalThis.fetch = (_input, init) => {
+		calls++;
+		assert.equal(init?.redirect, "manual");
+		return Promise.resolve(
+			new Response(null, {
+				status: 302,
+				headers: { Location: "https://untrusted.example/" },
+			}),
+		);
+	};
+	try {
+		await assert.rejects(
+			githubRequest({} as GitHubEnv, "/app", {
+				headers: { Authorization: "Bearer test-only" },
+			}),
+			/redirects are not allowed/,
+		);
+		assert.equal(calls, 1);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});

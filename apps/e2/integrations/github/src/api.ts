@@ -84,7 +84,7 @@ export const createGitHubApi = (
 				"X-GitHub-Api-Version": "2022-11-28",
 				"User-Agent": "e2-integrations-github",
 			},
-			redirect: "error",
+			redirect: "manual",
 			signal: AbortSignal.timeout(10_000),
 		}).catch(() => {
 			throw new Error("GitHub is unavailable. Try again later.");

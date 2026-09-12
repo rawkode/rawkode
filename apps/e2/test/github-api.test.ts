@@ -103,7 +103,7 @@ Deno.test("GitHub reads fixed API routes, protects credentials, and preserves bo
 	globalThis.fetch = (input, init) => {
 		const url = new URL(String(input));
 		assert.equal(url.origin, "https://api.github.com");
-		assert.equal(init?.redirect, "error");
+		assert.equal(init?.redirect, "manual");
 		const headers = new Headers(init?.headers);
 		assert.equal(headers.get("Authorization"), "Bearer secret-token");
 		assert.equal(headers.get("User-Agent"), "e2-integrations-github");

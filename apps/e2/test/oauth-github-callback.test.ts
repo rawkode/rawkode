@@ -34,12 +34,22 @@ import type { OAuthEnv } from "../integrations/oauth/src/env.ts";
 		granted: ["repo", "user"],
 		required: ["public_repo", "read:user"],
 	},
-].forEach(({ expiring, requested, granted, required }) =>
-	Deno.test(`GitHub callback protects PKCE state and service grants with ${expiring ? "expiring" : "nonexpiring"} tokens and ${granted.join(",")} scopes`, async () => {
+	{
+		expiring: false,
+		requested: ["public_repo"],
+		granted: ["public_repo", "read:user"],
+		required: ["read:user"],
+		redirectIdentity: true,
+	},
+].forEach((
+	{ expiring, requested, granted, required, redirectIdentity = false },
+) =>
+	Deno.test(`GitHub callback protects PKCE state and service grants with ${expiring ? "expiring" : "nonexpiring"} tokens and ${granted.join(",")} scopes${redirectIdentity ? " and rejects identity redirects" : ""}`, async () => {
 		const { db, sqlite } = await testDatabase(
 			"../../integrations/oauth/migrations",
 		);
 		let tokenRequests = 0;
+		let redirectedRequests = 0;
 		let challenge = "";
 		const server = Deno.serve({
 			hostname: "127.0.0.1",
@@ -90,7 +100,17 @@ import type { OAuthEnv } from "../integrations/oauth/src/env.ts";
 					request.headers.get("Authorization"),
 					"Bearer github-access",
 				);
+				if (redirectIdentity) {
+					return new Response(null, {
+						status: 302,
+						headers: { Location: "/redirected-identity" },
+					});
+				}
 				return Response.json({ id: 12345, login: "octocat" });
+			}
+			if (path === "/redirected-identity") {
+				redirectedRequests++;
+				return Response.json({ id: 999, login: "unexpected-target" });
 			}
 			return new Response("Not found", { status: 404 });
 		});
@@ -155,6 +175,19 @@ import type { OAuthEnv } from "../integrations/oauth/src/env.ts";
 			assert.equal((await callback(wrongRoute, env)).status, 400);
 			assert.equal(tokenRequests, 0);
 			const response = await callback(request, env);
+			if (redirectIdentity) {
+				assert.equal(
+					response.headers.get("Location"),
+					"http://localhost:4321/admin/oauth?result=failed",
+				);
+				assert.equal(
+					redirectedRequests,
+					0,
+					"bearer token must never reach a redirect target",
+				);
+				assert.deepEqual(await admin.listConnections(), []);
+				return;
+			}
 			assert.equal(
 				response.headers.get("Location"),
 				"http://localhost:4321/admin/oauth?result=connected",

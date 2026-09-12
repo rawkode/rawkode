@@ -216,9 +216,13 @@ const readIdentity = async (
 				Accept: "application/vnd.github+json",
 				"User-Agent": "e2-integrations-oauth",
 			},
-			redirect: "error",
+			// workerd supports manual/follow only. Never forward the bearer token.
+			redirect: "manual",
 			signal: AbortSignal.timeout(10_000),
 		});
+		if (response.status >= 300 && response.status < 400) {
+			throw new Error("GitHub identity redirects are not allowed.");
+		}
 		if (!response.ok) throw new Error("GitHub identity lookup failed.");
 		const user = await response.json() as { id?: unknown; login?: unknown };
 		if (
