@@ -96,14 +96,27 @@ Identifiers and icon renditions were inspected, including the Watch runtime
 icon. Seven device-package verifier tests passed. This is build evidence, not a
 signed upload or a cloud run.
 
-Xcode Cloud onboarding reached **Connect Source Code Repository** for the
-Enchiridion iOS product. Connecting redirected to App Store Connect sign-in with
-an authentication failure. Firefox and the in-app browser have no signed-in
-session; the saved passkey requires unlocking 1Password. No App Store Connect
-API key exists in the standard local credential directories or relevant
-environment. The workflow and TestFlight availability are therefore not
-configured yet. Resume from the Xcode onboarding sheet after the account can
-authenticate.
+Xcode Cloud repository authorization completed remotely by the user. Xcode
+confirmed `rawkode/rawkode Connected`, then created the cloud product and its
+Default build workflow. The initial start was blocked by an updated Apple
+Developer agreement; after the account holder accepted it, Build 1 ran on
+Apple's servers for `spike/native-web-rich-editor` at `ba0390c1` using Xcode
+26.6 / Swift 6.3.3. Although the batch log ends at NativeSession.swift, the
+crash stack identifies IR generation for LocalDaybookView.swift and an isolated
+String callback reabstraction thunk. The local daybook Binding setter now calls
+`store.setDayText(value)` through an explicit closure instead of passing the
+actor-isolated method reference directly. This preserves synchronous save
+behavior and avoids that method-reference conversion. The cloud compiler must
+confirm the workaround; local Xcode 27 uses Swift 6.4. The downloaded logs are
+at `/tmp/enchiridion-cloud-build1-logs`.
+
+Cloud product registration is recorded in the Xcode-generated shared manifest.
+The current Default workflow is build-only, not TestFlight distribution.
+Distribution onboarding confirmed name Enchiridion and bundle ID
+`rawkode.academy.enchiridion`, but Apple reports an existing app in this team
+already reserves the Enchiridion name. The user has been asked to rename that
+prototype record, preserving it. No new App Store app record, signed archive,
+TestFlight upload, or tester availability has been confirmed yet.
 
 ## Icon and screenshots
 

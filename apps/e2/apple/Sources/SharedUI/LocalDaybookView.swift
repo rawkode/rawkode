@@ -26,7 +26,7 @@ struct LocalDaybookView: View {
             }
             ZStack(alignment: .topLeading) {
                 if store.dayText.isEmpty { Text("What’s on your mind?").foregroundStyle(theme.secondary).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
-                TextEditor(text: Binding(get: { store.dayText }, set: store.setDayText))
+                TextEditor(text: Binding(get: { store.dayText }, set: { value in store.setDayText(value) }))
                     .font(.system(.body, design: .serif)).lineSpacing(7)
                     .scrollContentBackground(.hidden).disabled(store.isReadOnly)
                     .accessibilityLabel("Daybook editor").accessibilityIdentifier("daybookEditor")
