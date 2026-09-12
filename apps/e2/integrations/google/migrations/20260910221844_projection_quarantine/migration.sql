@@ -1,0 +1,1 @@
+ALTER TABLE `entity_projection_outbox` ADD `quarantined_at` integer;

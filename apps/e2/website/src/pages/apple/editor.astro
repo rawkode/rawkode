@@ -1,0 +1,33 @@
+---
+import NativeEditor from '../../components/NativeEditor.vue';
+import { parsePaneStack } from '../../editor/paneStack';
+import '../../styles/editor.css';
+import '../../styles/workspace.css';
+import '../../styles/native-editor.css';
+
+const parsed = parsePaneStack(Astro.url.searchParams);
+const firstPane = parsed.ok ? parsed.panes[0] : undefined;
+const initialDocumentId = firstPane?.kind === 'document' ? firstPane.id : undefined;
+const theme = Astro.url.searchParams.get('theme') === 'dark' ? 'dark' : 'dawn';
+---
+<!doctype html>
+<html lang="en" data-native-editor-version="1" data-theme={theme}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Today · Enchiridion</title>
+    <script is:inline>
+      window.addEventListener('apsides-theme-change', (event) => {
+        const theme = event.detail?.theme;
+        if (theme === 'dark' || theme === 'dawn') document.documentElement.dataset.theme = theme;
+      });
+    </script>
+  </head>
+  <body class="native-editor-page">
+    <NativeEditor client:only="vue" initialDocumentId={initialDocumentId}>
+      <p class="native-opening" slot="fallback">Opening your note…</p>
+    </NativeEditor>
+    <noscript>JavaScript is required to edit your note.</noscript>
+  </body>
+</html>

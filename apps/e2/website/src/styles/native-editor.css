@@ -1,0 +1,174 @@
+/* The host owns navigation and glass. This document owns writing. */
+.native-editor-page {
+	min-width: 0;
+	-webkit-text-size-adjust: 100%;
+	background: var(--bg);
+}
+.native-editor {
+	max-width: 760px;
+	margin: 0 auto;
+	padding: 22px 24px 48px;
+}
+.native-opening {
+	padding: 28px 24px;
+	color: var(--muted);
+}
+.native-document {
+	position: relative;
+}
+.native-document-heading {
+	margin: 0 0 28px;
+}
+.native-document-heading p {
+	margin: 0 0 8px;
+	font-size: 14px;
+	color: var(--muted);
+}
+.native-document-heading h1 {
+	margin: 0;
+	padding-right: 76px;
+	color: var(--ink);
+	font: 400 42px/1.12 ui-serif, Georgia, serif;
+	letter-spacing: -0.025em;
+}
+.native-editor .pane-frame {
+	border: 0;
+	background: transparent;
+	min-width: 0;
+	width: auto;
+}
+.native-editor .today-layout {
+	display: block;
+	padding: 0;
+}
+.native-editor .app-shell main {
+	position: static;
+	min-height: 0;
+	padding: 0;
+	margin: 0;
+}
+.native-editor .document-meta {
+	padding: 0;
+	margin: 0 0 12px;
+	font-size: 12px;
+	min-height: 0;
+}
+.native-editor .formatting-controls {
+	margin: 0;
+}
+.native-editor .formatting-controls[open] {
+	margin-bottom: 20px;
+}
+.native-editor .formatting-controls > summary {
+	min-height: 44px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0;
+	width: fit-content;
+	list-style: none;
+	color: var(--primary);
+	font-size: 0;
+	min-width: 52px;
+	justify-content: flex-end;
+	cursor: pointer;
+}
+.native-document .formatting-controls > summary {
+	position: absolute;
+	right: 0;
+	top: 26px;
+}
+.native-entity .formatting-controls > summary {
+	font-size: 14px;
+}
+.native-editor .formatting-controls > summary::-webkit-details-marker {
+	display: none;
+}
+.native-editor .formatting-controls > summary::before {
+	content: "Aa";
+	font-size: 18px;
+}
+.native-editor .formatting-controls > summary::after {
+	content: "⌄";
+	font-size: 14px;
+}
+.native-editor .formatting-controls[open] > summary::after {
+	content: "⌃";
+}
+.native-editor .editor-toolbar {
+	padding: 8px 0;
+	gap: 4px;
+	position: static;
+	border-block: 1px solid var(--line);
+}
+.native-editor .editor-toolbar button {
+	min-width: 44px;
+	height: 44px;
+	font-size: 16px;
+}
+.native-editor .editor-toolbar select {
+	min-height: 44px;
+	font-size: 16px;
+}
+.native-editor .editor-toolbar .insert-button {
+	margin-left: 0;
+}
+.native-editor .toolbar-divider {
+	display: none;
+}
+.native-editor .tiptap {
+	font-size: 18px;
+	line-height: 1.65;
+	min-height: 55dvh;
+	padding: 0;
+}
+.native-editor .tiptap p.is-editor-empty:first-child::before {
+	color: var(--muted);
+}
+.native-editor .block-menu {
+	max-width: calc(100vw - 24px);
+}
+.native-editor .block-menu:not(.insert-menu):not(.command-palette) {
+	top: auto !important;
+	bottom: max(12px, calc(100dvh - var(--editor-viewport-height, 100dvh) -
+		var(--editor-viewport-top, 0px) + 12px));
+	left: 12px !important;
+	width: calc(100vw - 24px);
+	max-height: min(320px, calc(var(--editor-viewport-height, 100dvh) * 0.48));
+}
+.native-editor .block-menu button {
+	min-height: 48px;
+	touch-action: manipulation;
+}
+.native-editor .block-menu input,
+.native-editor .block-menu select {
+	font-size: 16px;
+}
+.native-editor .native-back {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 44px;
+	margin-bottom: 20px;
+	padding-left: 0;
+	color: var(--primary);
+}
+.native-back span {
+	font-size: 30px;
+	line-height: 1;
+}
+.native-editor .entity-pane-content {
+	padding: 0;
+}
+.native-editor .entity-pane-heading h2 {
+	font: 400 34px/1.2 ui-serif, Georgia, serif;
+}
+@media (min-width: 700px) {
+	.native-editor {
+		padding: 36px 44px 72px;
+	}
+	.native-editor .block-menu:not(.insert-menu):not(.command-palette) {
+		max-width: 400px;
+		left: max(24px, calc((100vw - 672px) / 2)) !important;
+	}
+}

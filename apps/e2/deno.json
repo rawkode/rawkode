@@ -1,0 +1,110 @@
+{
+	"workspace": [
+		"./packages/oauth-client",
+		"./integrations/oauth",
+		"./integrations/google",
+		"./integrations/github",
+		"./website",
+		"./api",
+		"./packages/documents",
+		"./packages/entities",
+		"./packages/editor",
+		"./core/documents",
+		"./core/entities"
+	],
+	"tasks": {
+		"dev": "node --env-file-if-exists=.env node_modules/alchemy/bin/cli.js dev",
+		"deploy": "node --env-file-if-exists=.env node_modules/alchemy/bin/cli.js deploy",
+		"plan": "node --env-file-if-exists=.env node_modules/alchemy/bin/cli.js plan",
+		"fmt": "deno fmt",
+		"lint": "deno lint",
+		"check": "node scripts/check.mjs",
+		"test": "node scripts/test.mjs",
+		"verify": "deno fmt --check && deno task lint && deno task check && deno task check:website && deno task check:editor && deno task test",
+		"build": "deno task build:workers && deno task build:website",
+		"smoke": "deno task build:workers && node scripts/smoke.mjs",
+		"db:generate:oauth": "node node_modules/drizzle-kit/bin.cjs generate --config integrations/oauth/drizzle.config.ts",
+		"db:generate:google": "node node_modules/drizzle-kit/bin.cjs generate --config integrations/google/drizzle.config.ts",
+		"db:generate": "deno task db:generate:oauth && deno task db:generate:google && deno task db:generate:documents && deno task db:generate:entities",
+		"build:website": "node scripts/build-website.mjs",
+		"check:website": "node node_modules/astro/bin/astro.mjs check --root website",
+		"build:workers": "node scripts/build.mjs",
+		"smoke:website": "deno task build && node website/test/runtime.mjs",
+		"db:generate:documents": "node node_modules/drizzle-kit/bin.cjs generate --config core/documents/drizzle.config.ts",
+		"db:generate:entities": "node node_modules/drizzle-kit/bin.cjs generate --config core/entities/drizzle.config.ts",
+		"check:editor": "node node_modules/vue-tsc/bin/vue-tsc.js --noEmit -p website/tsconfig.json"
+	},
+	"nodeModulesDir": "auto",
+	"imports": {
+		"alchemy": "npm:alchemy@2.0.0-beta.76",
+		"effect": "npm:effect@4.0.0-rc.112",
+		"@effect/platform-node": "npm:@effect/platform-node@4.0.0-rc.112",
+		"@effect/platform-bun": "npm:@effect/platform-bun@4.0.0-rc.112",
+		"capnweb": "npm:capnweb@0.12.0",
+		"oauth4webapi": "npm:oauth4webapi@3.8.8",
+		"jose": "npm:jose@6.2.12",
+		"@cloudflare/workers-types": "npm:@cloudflare/workers-types@5.20260908.1",
+		"expect": "npm:expect@30.5.1",
+		"drizzle-kit": "npm:drizzle-kit@1.0.0-rc.4",
+		"drizzle-orm": "npm:drizzle-orm@1.0.0-rc.4",
+		"astro": "npm:astro@7.3.2",
+		"@alchemy.run/frontend-frameworks": "npm:@alchemy.run/frontend-frameworks@2.0.0-beta.76",
+		"@astrojs/check": "npm:@astrojs/check@0.9.10",
+		"typescript": "npm:typescript@5.9.3",
+		"@distilled.cloud/cloudflare": "npm:@distilled.cloud/cloudflare@1.0.0-rc.8",
+		"graphql": "npm:graphql@16.11.0",
+		"@astrojs/vue": "npm:@astrojs/vue@7.0.2",
+		"@terrastruct/d2": "npm:@terrastruct/d2@0.1.33",
+		"@tiptap/core": "npm:@tiptap/core@3.31.3",
+		"@tiptap/extension-code": "npm:@tiptap/extension-code@3.31.3",
+		"@tiptap/extension-code-block": "npm:@tiptap/extension-code-block@3.31.3",
+		"@tiptap/extension-link": "npm:@tiptap/extension-link@3.31.3",
+		"@tiptap/extension-list": "npm:@tiptap/extension-list@3.31.3",
+		"@tiptap/extension-placeholder": "npm:@tiptap/extension-placeholder@3.31.3",
+		"@tiptap/extension-task-item": "npm:@tiptap/extension-task-item@3.31.3",
+		"@tiptap/extension-task-list": "npm:@tiptap/extension-task-list@3.31.3",
+		"@tiptap/extension-text-align": "npm:@tiptap/extension-text-align@3.31.3",
+		"@tiptap/extension-text-style": "npm:@tiptap/extension-text-style@3.31.3",
+		"@tiptap/pm": "npm:@tiptap/pm@3.31.3",
+		"@tiptap/starter-kit": "npm:@tiptap/starter-kit@3.31.3",
+		"@tiptap/vue-3": "npm:@tiptap/vue-3@3.31.3",
+		"hls.js": "npm:hls.js@1.7.2",
+		"mermaid": "npm:mermaid@11.17.2",
+		"vue": "npm:vue@3.5.42",
+		"zod": "npm:zod@4.5.4",
+		"vue-tsc": "npm:vue-tsc@3.3.11"
+	},
+	"compilerOptions": {
+		"strict": true,
+		"types": [
+			"@cloudflare/workers-types"
+		],
+		"lib": [
+			"deno.ns",
+			"dom",
+			"dom.iterable",
+			"esnext"
+		]
+	},
+	"exclude": [
+		"node_modules",
+		".alchemy",
+		"dist",
+		"coverage",
+		"website/dist",
+		"website/.astro"
+	],
+	"lint": {
+		"rules": {
+			"exclude": [
+				"no-slow-types"
+			]
+		}
+	},
+	"fmt": {
+		"exclude": [
+			"integrations/*/migrations/",
+			"core/*/migrations/"
+		]
+	}
+}

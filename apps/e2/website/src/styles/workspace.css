@@ -1,0 +1,304 @@
+/* Rosé Pine Dawn and Rosé Pine. https://rosepinetheme.com/palette/ */
+:root {
+	color-scheme: light;
+	--rp-base: oklch(0.969872 0.011322 71.8999); /* #faf4ed */
+	--rp-surface: oklch(0.987030 0.010688 76.6004); /* #fffaf3 */
+	--rp-overlay: oklch(0.938889 0.014523 64.3381); /* #f2e9e1 */
+	--rp-text: oklch(0.459740 0.062919 289.5561); /* #575279 */
+	--rp-subtle: oklch(0.576841 0.045838 291.0006); /* #797593 */
+	--rp-love: oklch(0.598891 0.107129 2.6555); /* #b4637a */
+	--rp-gold: oklch(0.755486 0.145930 69.7433); /* #ea9d34 */
+	--rp-rose: oklch(0.695735 0.105774 23.0328); /* #d7827e */
+	--rp-pine: oklch(0.490948 0.076988 227.9983); /* #286983 */
+	--rp-foam: oklch(0.628901 0.066067 210.1228); /* #56949f */
+	--rp-iris: oklch(0.617105 0.073770 305.6980); /* #907aa9 */
+	--rp-line: oklch(0.892025 0.005662 31.0551); /* #dfdad9 */
+	--primary: var(--rp-pine);
+	--on-primary: var(--rp-surface);
+	--muted: color-mix(in oklch, var(--rp-text) 55%, var(--rp-subtle));
+}
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--rp-base: oklch(0.213355 0.025466 291.1310); /* #191724 */
+	--rp-surface: oklch(0.241334 0.032224 289.1359); /* #1f1d2e */
+	--rp-overlay: oklch(0.270779 0.042275 289.2331); /* #26233a */
+	--rp-text: oklch(0.908787 0.029850 289.9690); /* #e0def4 */
+	--rp-subtle: oklch(0.653878 0.044410 291.2325); /* #908caa */
+	--rp-love: oklch(0.697701 0.156460 4.2242); /* #eb6f92 */
+	--rp-gold: oklch(0.842902 0.110044 74.6019); /* #f6c177 */
+	--rp-rose: oklch(0.836274 0.054410 21.1411); /* #ebbcba */
+	--rp-pine: oklch(0.527667 0.079270 227.7159); /* #31748f */
+	--rp-foam: oklch(0.821913 0.054330 209.5588); /* #9ccfd8 */
+	--rp-iris: oklch(0.775973 0.094506 304.9945); /* #c4a7e7 */
+	--rp-line: oklch(0.439929 0.039230 290.4171); /* #524f67 */
+	--primary: var(--rp-foam);
+	--on-primary: var(--rp-base);
+	--muted: color-mix(in oklch, var(--rp-text) 20%, var(--rp-subtle));
+}
+
+:root {
+	--bg: var(--rp-surface);
+	--surface: var(--rp-base);
+	--surface-strong: var(--rp-overlay);
+	--ink: var(--rp-text);
+	--line: var(--rp-line);
+	--primary-hover: var(--ink);
+	--primary-soft: var(--rp-overlay);
+	--focus: var(--primary);
+	--accent: var(--rp-overlay);
+	--success: var(--primary);
+	--danger: color-mix(in oklch, var(--rp-love) 75%, var(--ink));
+	--error: var(--danger);
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+.pane-workspace,
+.settings-shell {
+	display: grid;
+	grid-template-columns: 216px minmax(0, 1fr);
+	min-height: 100dvh;
+}
+.workspace-sidebar {
+	position: sticky;
+	top: 0;
+	display: flex;
+	flex-direction: column;
+	align-self: start;
+	height: 100dvh;
+	padding: 32px 16px 20px;
+	background: var(--surface);
+	border-right: 1px solid var(--line);
+	color: var(--ink);
+}
+.workspace-brand {
+	display: block;
+	padding: 0 12px;
+	margin-bottom: 36px;
+	font: 28px/1.2 Georgia, serif;
+	letter-spacing: -0.03em;
+	color: var(--ink);
+	text-decoration: none;
+}
+.workspace-sidebar .workspace-links {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+.workspace-links a {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 44px;
+	margin: 0;
+	padding: 8px 12px;
+	border-radius: 7px;
+	color: var(--muted);
+	font-size: 13px;
+	font-weight: 500;
+	text-decoration: none;
+}
+.workspace-links a:hover {
+	background: var(--surface-strong);
+	color: var(--ink);
+}
+.workspace-links a[aria-current="page"] {
+	background: var(--primary-soft);
+	color: var(--primary);
+	font-weight: 650;
+}
+.workspace-links svg,
+.theme-toggle svg {
+	width: 18px;
+	height: 18px;
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.workspace-sidebar-bottom {
+	margin-top: auto;
+	padding-top: 32px;
+}
+.workspace-content {
+	min-width: 0;
+}
+.workspace-topbar {
+	min-height: 56px;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	padding: 12px 36px;
+	font-size: 12px;
+	color: var(--muted);
+}
+.workspace-topbar a {
+	color: var(--muted);
+}
+.workspace-identity {
+	display: flex;
+	gap: 16px;
+	min-width: 0;
+	flex-wrap: wrap;
+}
+.workspace-identity > span {
+	max-width: 30ch;
+	overflow-wrap: anywhere;
+}
+.workspace-identity a {
+	white-space: nowrap;
+}
+.theme-toggle {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 44px;
+	padding: 8px 12px;
+	margin-top: 16px;
+	border: 0;
+	background: transparent;
+	font-size: 12px;
+	font-weight: 400;
+	color: var(--muted);
+}
+.theme-toggle[aria-pressed="true"] {
+	background: transparent;
+	color: var(--muted);
+}
+.theme-toggle:hover {
+	background: var(--surface-strong);
+	color: var(--ink);
+}
+.file-actions .theme-toggle {
+	margin: 0;
+}
+.settings-shell main {
+	padding: 24px 48px 52px;
+	max-width: 1240px;
+}
+.settings-shell h1 {
+	font: 44px/1.2 Georgia, serif;
+	letter-spacing: -0.03em;
+}
+button,
+a,
+summary,
+select {
+	transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+button.primary,
+.primary {
+	color: var(--on-primary);
+}
+button.primary:hover,
+.primary:hover {
+	background: var(--primary-hover);
+	color: var(--bg);
+}
+button[aria-pressed="true"],
+button[aria-selected="true"] {
+	background: var(--primary-soft);
+	color: var(--primary);
+}
+::selection {
+	background: var(--rp-overlay);
+	color: var(--ink);
+}
+.formatting-controls {
+	margin: 0 0 24px;
+}
+.formatting-controls > summary {
+	width: fit-content;
+	padding: 8px 0;
+	font-size: 13px;
+	color: var(--muted);
+	cursor: pointer;
+}
+.formatting-controls[open] > summary {
+	margin-bottom: 8px;
+}
+.app-shell main.pane-stack {
+	min-height: 100dvh;
+}
+@media (max-width: 1000px) {
+	.pane-workspace,
+	.settings-shell {
+		grid-template-columns: 184px minmax(0, 1fr);
+	}
+	.workspace-sidebar {
+		padding-inline: 10px;
+	}
+	.workspace-links a {
+		font-size: 12px;
+		gap: 7px;
+	}
+	.settings-shell main {
+		padding: 24px 28px 36px;
+	}
+}
+@media (max-width: 700px) {
+	.pane-workspace,
+	.settings-shell {
+		display: block;
+	}
+	.workspace-sidebar {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		position: static;
+		height: auto;
+		padding: 12px 16px;
+		border-right: 0;
+		border-bottom: 1px solid var(--line);
+		gap: 8px;
+	}
+	.workspace-brand {
+		padding: 8px 0;
+		margin: 0;
+		font-size: 23px;
+	}
+	.workspace-sidebar .workspace-links {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+	.workspace-sidebar-bottom {
+		display: flex;
+		flex-wrap: wrap;
+		grid-column: 1 / -1;
+		margin: 0;
+		padding: 0;
+		gap: 4px;
+	}
+	.workspace-links a {
+		min-height: 44px;
+		font-size: 13px;
+		padding: 8px;
+	}
+	.theme-toggle {
+		margin: 0;
+		padding: 8px;
+	}
+	.workspace-topbar {
+		padding: 12px 20px;
+	}
+	.settings-shell main {
+		padding: 24px 20px;
+	}
+	.settings-shell h1 {
+		font-size: 36px;
+	}
+	.formatting-controls > summary {
+		min-height: 44px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition: none !important;
+		animation: none !important;
+	}
+}

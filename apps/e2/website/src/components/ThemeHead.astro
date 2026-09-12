@@ -1,0 +1,7 @@
+<script is:inline>
+  try {
+    document.documentElement.dataset.theme = localStorage.getItem('apsides-theme') === 'dark' ? 'dark' : 'dawn';
+  } catch {
+    document.documentElement.dataset.theme = 'dawn';
+  }
+</script>
