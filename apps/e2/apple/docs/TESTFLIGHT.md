@@ -125,9 +125,19 @@ exists. Downloaded export logs are at `/tmp/enchiridion-cloud-build3-logs`.
 
 A local Watch development build succeeded but reused a wildcard profile; that
 does not register the explicit identifier. A local distribution export reported
-No Accounts. The user has been asked to register the explicit Watch App ID in
-Apple Developer. No TestFlight upload, processing, or tester availability has
-been confirmed yet.
+No Accounts. The user then registered the explicit Watch App ID. Build 4 at
+`783f6d80` completed its cloud archive/export with no issues. The downloaded
+App Store IPA contains version 4 of the iPhone, Watch, and widget bundles.
+`codesign --verify --strict` passed for all three; each embedded Store profile
+matches its exact bundle ID under team `6KXCJGJ45W`. Build 4 predates the
+reserved CarPlay voice entitlement. TestFlight processing and tester
+availability still require confirmation in App Store Connect.
+
+The website production plan now executes in GitHub Actions, but run
+`34700483957` stops before Alchemy because the existing 1Password service
+account cannot resolve the `apsides` vault. Required vault visibility or the
+verified secret references must be corrected before production deployment.
+No website changes were deployed by that run.
 
 ## Icon and screenshots
 

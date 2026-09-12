@@ -37,3 +37,18 @@ Still unverified: this OpenAI project's Live access, native Swift transport
 integration, session-duration ceiling, car audio interruptions, locked-phone
 operation, and real vehicle behavior. No claim of a ready CarPlay conversation
 experience follows from API availability or entitlement approval.
+
+## ChatGPT subscription sign-in
+
+Official [Codex App Server](https://learn.chatgpt.com/docs/app-server) and
+[authentication](https://learn.chatgpt.com/docs/auth) documentation support
+embedding Codex with managed ChatGPT browser/device-code sign-in and subscription
+limits. This is Codex runtime access, not a general OpenAI inference token.
+The [partner sign-in beta](https://learn.chatgpt.com/docs/whats-new) describes
+identity sharing, not model credits or open self-service enrollment.
+
+No documented path was found to fund external GPT-Live sessions from a ChatGPT
+subscription. Plan on project API credentials and separate metered billing.
+A future Codex backend integration could be researched independently; it would
+not establish subscription-funded Live audio. Do not reuse private ChatGPT
+authentication endpoints or extract subscription tokens.
