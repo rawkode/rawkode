@@ -186,8 +186,9 @@ const commandMatches = computed(() => {
 		)
 	);
 });
+const selectionTagPicker = computed(() => entityMenu.value?.mode === "selection");
 const entityChoiceCount = computed(() =>
-	entityMatches.value.length +
+	selectionTagPicker.value ? entityTags.value.length : entityMatches.value.length +
 	(entityMenu.value?.trigger === "#" && entityMenu.value.query ? 1 : 0)
 );
 const activeStyle = computed(() => {
@@ -317,29 +318,42 @@ const insertCanonicalEntity = (
 	closeEntityMenu(false);
 };
 const beginEntityCreate = async () => {
-	if (!entityMenu.value?.query || entityMenu.value.trigger !== "#") return;
+	const menu = entityMenu.value;
+	if (!menu?.query || menu.trigger !== "#") return;
 	entityCreateMode.value = true;
 	entityCreateError.value = "";
-	setEntityAutocomplete(false);
+	setEntityAutocomplete(selectionTagPicker.value);
+	entityIndex.value = 0;
+	entitySearchLoading.value = true;
 	if (!entityTags.value.length) {
 		try {
-			entityTags.value = (await listCanonicalSupertags()).filter((tag) =>
+			const tags = await listCanonicalSupertags();
+			if (entityMenu.value !== menu) return;
+			entityTags.value = tags.filter((tag) =>
 				!tag.archived && tag.kind !== "integration"
 			);
 			entityTagId.value = entityTags.value.find((tag) => tag.kind === "base")?.id ?? "";
 		} catch (failure) {
+			if (entityMenu.value !== menu) return;
 			entityCreateError.value = failure instanceof Error
 				? failure.message
 				: "Supertags are unavailable.";
 		}
 	}
-	void nextTick(() => entityTagSelect.value?.focus());
+	if (entityMenu.value !== menu) return;
+	entitySearchLoading.value = false;
+	setEntityAutocomplete(selectionTagPicker.value);
+	if (!selectionTagPicker.value) void nextTick(() => entityTagSelect.value?.focus());
 };
 const cancelEntityCreate = () => {
 	entityCreateMode.value = false;
 	entityCreateError.value = "";
 	setEntityAutocomplete(true);
 	editor.value?.commands.focus();
+};
+const chooseSelectionTag = (tag: CanonicalSupertag) => {
+	entityTagId.value = tag.id;
+	void createEntityFromMenu();
 };
 const createEntityFromMenu = async () => {
 	const menu = entityMenu.value;
@@ -351,6 +365,7 @@ const createEntityFromMenu = async () => {
 		if (entityMenu.value !== menu) return;
 		insertCanonicalEntity(created);
 	} catch (failure) {
+		if (entityMenu.value !== menu) return;
 		entityCreateError.value = failure instanceof Error
 			? failure.message
 			: "The entity could not be created.";
@@ -387,6 +402,8 @@ const updateEntityMenu = async (match: EntityComposerMatch | null) => {
 		dismissedEntityToken.trigger === match.trigger
 	) return;
 	dismissedEntityToken = undefined;
+	canonicalEntitySearch.cancel();
+	entityMatches.value = [];
 	const rectangle = current.view.coordsAtPos(match.to);
 	entityMenu.value = {
 		...match,
@@ -398,11 +415,15 @@ const updateEntityMenu = async (match: EntityComposerMatch | null) => {
 	entitySearchError.value = "";
 	entitySearchLoading.value = true;
 	setEntityAutocomplete(true);
+	if (match.mode === "selection") {
+		await beginEntityCreate();
+		return;
+	}
 	let currentResult = false;
 	try {
 		const result = await canonicalEntitySearch.run({
 			query: match.query,
-			rootId: match.trigger === "@" ? "base:person" : undefined,
+			rootId: undefined,
 		});
 		if (!result.accepted) return;
 		currentResult = true;
@@ -735,9 +756,20 @@ const loadToday = async () => {
 								Math.max(1, entityChoiceCount.value)) %
 							Math.max(1, entityChoiceCount.value);
 						setEntityAutocomplete(true);
+						void nextTick(() => {
+							editor.value?.view.dom.closest(".app-shell")?.querySelector<HTMLElement>(
+								`#entity-composer-option-${entityIndex.value}`,
+							)?.scrollIntoView({ block: "nearest" });
+						});
 						return true;
 					}
 					if (event.key === "Enter" || event.key === "Tab") {
+						if (selectionTagPicker.value) {
+							event.preventDefault();
+							const tag = entityTags.value[entityIndex.value];
+							if (tag && !entitySearchLoading.value) chooseSelectionTag(tag);
+							return true;
+						}
 						const entity = entityMatches.value[entityIndex.value];
 						const createSelected = !entity &&
 							entityMenu.value.trigger === "#" && !!entityMenu.value.query &&
@@ -1033,12 +1065,32 @@ onBeforeUnmount(() => {
 			v-if="entityMenu"
 			id="entity-composer-listbox"
 			class="block-menu entity-menu"
-			:role="entityCreateMode ? 'dialog' : 'listbox'"
-			:aria-label="entityCreateMode ? 'Create an entity' : entityMenu.trigger === '@' ? 'Mention a person' : 'Link or create an entity'"
+			:role="entityCreateMode && !selectionTagPicker ? 'dialog' : 'listbox'"
+			:aria-label="selectionTagPicker ? 'Choose a Supertag' : entityCreateMode ? 'Create an entity' : entityMenu.trigger === '@' ? 'Mention an entity' : 'Link or create an entity'"
 			:style="{ left: `${entityMenu.x}px`, top: `${entityMenu.y}px` }"
 		>
-			<template v-if="!entityCreateMode">
-				<div class="menu-title">{{ entityMenu.trigger === "@" ? "Mention a person" : "Link or create an entity" }}</div>
+			<template v-if="selectionTagPicker">
+				<div class="menu-title">Choose a Supertag</div>
+				<p class="menu-empty">{{ entityMenu.displayText }}</p>
+				<p v-if="entitySearchLoading" class="menu-empty" role="status">Loading Supertags…</p>
+				<p v-if="entityCreateError" class="menu-empty" role="alert">{{ entityCreateError }}</p>
+				<button
+					v-for="(tag, index) in entityTags"
+					:id="`entity-composer-option-${index}`"
+					:key="tag.id"
+					role="option"
+					tabindex="-1"
+					:aria-selected="index === entityIndex"
+					:disabled="entityCreating || entitySearchLoading"
+					@mousedown.prevent="chooseSelectionTag(tag)"
+				>
+					<span class="block-icon">#</span><span><strong>{{ tag.name }}</strong></span>
+				</button>
+				<p v-if="entityCreating" class="menu-empty" role="status">Applying Supertag…</p>
+				<button v-if="entityCreateError && !entityTags.length" type="button" @mousedown.prevent="beginEntityCreate">Try again</button>
+			</template>
+			<template v-else-if="!entityCreateMode">
+				<div class="menu-title">{{ entityMenu.trigger === "@" ? "Mention an entity" : "Link or create an entity" }}</div>
 				<p v-if="entitySearchLoading" class="menu-empty" role="status">Searching entities…</p>
 				<p v-else-if="entitySearchError" class="menu-empty" role="alert">{{ entitySearchError }}</p>
 				<button
@@ -1064,7 +1116,8 @@ onBeforeUnmount(() => {
 					<span class="block-icon">＋</span>
 					<span><strong>Create “{{ entityMenu.query }}”</strong><small>Choose a Supertag</small></span>
 				</button>
-				<p v-if="!entitySearchLoading && !entitySearchError && !entityMatches.length && entityMenu.trigger === '@'" class="menu-empty">No matching people</p>
+				<p v-if="!entitySearchLoading && entityMatches.length === 50" class="menu-empty">Showing 50 matches. Keep typing to narrow the list.</p>
+				<p v-if="!entitySearchLoading && !entitySearchError && !entityMatches.length && entityMenu.trigger === '@'" class="menu-empty">No matching entities</p>
 			</template>
 			<form v-else class="entity-create" @submit.prevent="createEntityFromMenu" @keydown.esc.prevent="cancelEntityCreate">
 				<div class="menu-title">Create “{{ entityMenu.query }}”</div>

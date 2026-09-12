@@ -70,7 +70,7 @@ export const searchCanonicalEntities = async (
 		me: { entities: CanonicalEntitySummary[] };
 	}>(
 		`query EditorEntities($query: String!, $rootId: ID) {
-			me { entities(query: $query, rootId: $rootId, limit: 12) {
+			me { entities(query: $query, rootId: $rootId, limit: 50) {
 				id label bodyDocumentId tagIds rootId
 			} }
 		}`,
