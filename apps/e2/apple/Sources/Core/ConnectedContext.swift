@@ -15,8 +15,10 @@ public struct RepositoryActivity: Identifiable, Equatable, Sendable {
     public var action: String
     public var date: Date
     public var url: URL?
-    public init(id: String, repository: String, title: String, kind: String, actor: String, action: String, date: Date, url: URL?) {
-        self.id = id; self.repository = repository; self.title = title; self.kind = kind; self.actor = actor; self.action = action; self.date = date; self.url = url
+    public var summary: String
+    public var number: Int?
+    public init(id: String, repository: String, title: String, kind: String, actor: String, action: String, date: Date, url: URL?, summary: String = "", number: Int? = nil) {
+        self.id = id; self.repository = repository; self.title = title; self.kind = kind; self.actor = actor; self.action = action; self.date = date; self.url = url; self.summary = summary; self.number = number
     }
 }
 public struct ConnectedContext: Sendable {
@@ -50,7 +52,7 @@ public struct ConnectedContext: Sendable {
         }
         let activity = (today["githubActivity"] as? [[String: Any]] ?? []).map { item in
             let candidate = URL(string: item["url"] as? String ?? "")
-            return RepositoryActivity(id: "\(item["connectionId"] ?? ""):\(item["id"] ?? "")", repository: item["repository"] as? String ?? "Unknown repository", title: item["title"] as? String ?? "Untitled activity", kind: item["kind"] as? String ?? "activity", actor: item["actor"] as? String ?? "", action: item["action"] as? String ?? "", date: date(item["createdAt"] as? String) ?? .distantPast, url: ["https", "http"].contains(candidate?.scheme ?? "") ? candidate : nil)
+            return RepositoryActivity(id: "\(item["connectionId"] ?? ""):\(item["id"] ?? "")", repository: item["repository"] as? String ?? "Unknown repository", title: item["title"] as? String ?? "Untitled activity", kind: item["kind"] as? String ?? "activity", actor: item["actor"] as? String ?? "", action: item["action"] as? String ?? "", date: date(item["createdAt"] as? String) ?? .distantPast, url: ["https", "http"].contains(candidate?.scheme ?? "") ? candidate : nil, summary: item["summary"] as? String ?? "", number: item["number"] as? Int)
         }.sorted { $0.date > $1.date }
         return ConnectedContext(snapshot: ContextSnapshot(day: day, fetchedAt: now, events: events), people: people, activity: activity, partial: (today["googleEventsPartial"] as? Bool ?? false) || envelope["errors"] != nil)
     }

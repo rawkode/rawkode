@@ -140,7 +140,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             googleEvents { connectionId id calendarId calendarName calendarColor summary start end recurringEventId attendees { email name } }
             googleEventsPartial
             googlePeople { connectionId id displayName emails }
-            githubActivity { connectionId id resourceId kind title url repository actor createdAt action }
+            githubActivity { connectionId id resourceId kind title summary number url repository actor createdAt action }
           } }
         }
         """

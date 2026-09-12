@@ -178,6 +178,27 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
     }
 
+    func testDayActivityShowsMeaningfulGitHubDetails() {
+        launchDemo()
+        let marker = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "GitHub, ")).firstMatch
+        XCTAssertTrue(marker.waitForExistence(timeout: 10))
+        activate(marker)
+        XCTAssertTrue(app.staticTexts["Keep the thought, wherever you are"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Pull request #35 · Opened"].exists)
+        XCTAssertTrue(app.staticTexts["Adds a calendar-first day view, quick access to today’s note, and touch selection for Supertags."].exists)
+        XCTAssertTrue(app.links["openGitHubActivity"].exists || app.buttons["openGitHubActivity"].exists)
+        captureScreenshot("GitHub activity detail Dawn")
+        activate(app.buttons["Done"])
+        activate(app.buttons["todaySettings"])
+        let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        activate(palette)
+        chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        captureScreenshot("GitHub timeline mark Dark")
+        activate(marker)
+        captureScreenshot("GitHub activity detail Dark")
+    }
+
     func testDayTimelineAndNotesControlPreference() {
         launchDemo()
         let control = app.buttons["openDailyNote"]

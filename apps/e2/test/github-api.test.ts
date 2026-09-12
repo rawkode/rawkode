@@ -153,10 +153,10 @@ Deno.test("GitHub reads fixed API routes, protects credentials, and preserves bo
 			"/users/alice/events",
 			"/repos/alice/project/pulls",
 		]);
-		assert.equal(tokenCalls(), 12);
+		assert.equal(tokenCalls(), 13);
 		assert.deepEqual(
 			requestedScopes(),
-			Array.from({ length: 12 }, () => ["read:user"]),
+			Array.from({ length: 13 }, () => ["read:user"]),
 		);
 	} finally {
 		globalThis.fetch = originalFetch;
@@ -186,5 +186,54 @@ Deno.test("GitHub does not publish results after grant revocation or expose upst
 		});
 	} finally {
 		globalThis.fetch = originalFetch;
+	}
+});
+
+Deno.test("GitHub activity hydrates sparse titles and checks revocation after enrichment", async () => {
+	const originalFetch = globalThis.fetch;
+	for (const revokeDuringHydration of [false, true]) {
+		const { api, revoke } = fixture();
+		const paths: string[] = [];
+		globalThis.fetch = (input) => {
+			const path = new URL(String(input)).pathname;
+			paths.push(path);
+			if (path === "/user") {
+				return Promise.resolve(Response.json({ login: "alice" }));
+			}
+			if (path === "/users/alice/events") {
+				return Promise.resolve(
+					Response.json([{
+						id: "1",
+						type: "PullRequestEvent",
+						repo: { name: "alice/repo" },
+						payload: { number: 35, action: "opened" },
+					}]),
+				);
+			}
+			assert.equal(path, "/repos/alice/repo/pulls/35");
+			if (revokeDuringHydration) revoke();
+			return Promise.resolve(
+				Response.json({
+					number: 35,
+					title: "A meaningful pull request",
+					html_url: "https://github.com/alice/repo/pull/35",
+				}),
+			);
+		};
+		try {
+			if (revokeDuringHydration) {
+				await assert.rejects(api.listActivity(connection.id), /Grant revoked/);
+			} else {
+				const page = await api.listActivity(connection.id);
+				assert.equal(
+					((page.items[0]?.payload as Record<string, unknown>)
+						.pull_request as Record<string, unknown>).title,
+					"A meaningful pull request",
+				);
+			}
+			assert.equal(paths.length, 3);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	}
 });

@@ -1,3 +1,4 @@
+import { createActivityEnricher } from "./activity.ts";
 import { connectOAuth } from "@e2/oauth-client";
 import type {
 	GitHubActivityApi,
@@ -149,6 +150,11 @@ export const createGitHubApi = (
 		return list(connectionId, `${path}/${resource}`, query.page, { state });
 	};
 
+	const activityEnrichers = new Map<
+		string,
+		ReturnType<typeof createActivityEnricher>
+	>();
+
 	return {
 		listConnections,
 		getProfile: async (connectionId) => {
@@ -177,11 +183,24 @@ export const createGitHubApi = (
 			) {
 				throw new Error("GitHub returned an invalid profile.");
 			}
-			return list(
+			const events = await list(
 				connectionId,
 				`/users/${encodeURIComponent(profile.body.login)}/events`,
 				page,
 			);
+			let enrich = activityEnrichers.get(connectionId);
+			if (!enrich) {
+				enrich = createActivityEnricher(async (path) =>
+					(await request(connectionId, path)).body
+				);
+				activityEnrichers.set(connectionId, enrich);
+			}
+			const items = await enrich(events.items);
+			// Enrichment can outlive the initial event request. Recheck revocation
+			// after optional lookups before returning any account data.
+			using oauth = await connectOAuth(env.OAUTH, env.OAUTH_SERVICE_CREDENTIAL);
+			await oauth.getAccessToken(connectionId, githubIdentityScopes);
+			return { ...events, items };
 		},
 	};
 };

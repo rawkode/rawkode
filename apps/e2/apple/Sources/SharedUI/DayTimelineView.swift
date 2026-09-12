@@ -215,7 +215,7 @@ private struct DayTimelineCanvas: View {
     private func activityButton(_ cluster: DayActivityCluster) -> some View {
         Button { selectActivity(cluster) } label: {
             VStack(spacing: 2) {
-                Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 17, weight: .medium))
+                GitHubMark().frame(width: 22, height: 22)
                 if cluster.items.count > 1 { Text("\(cluster.items.count)").font(.caption2.monospacedDigit()) }
             }.foregroundStyle(theme.secondary).frame(width: 44, height: 44)
         }.buttonStyle(.plain)
@@ -265,18 +265,20 @@ private struct DayActivityCluster: Identifiable {
 private struct DayActivityDetails: View {
     let cluster: DayActivityCluster
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     var body: some View {
         NavigationStack {
-            List(cluster.items.sorted { $0.date > $1.date }) { item in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(item.repository).font(.caption)
-                    if let url = item.url { Link(item.title, destination: url) } else { Text(item.title) }
-                    Text([item.actor, item.action, item.date.formatted(date: .omitted, time: .shortened)]
-                        .filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption)
-                }.padding(.vertical, 8)
-            }.navigationTitle("GitHub activity")
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    ForEach(cluster.items.sorted { $0.date > $1.date }) { item in
+                        GitHubActivityCard(item: item)
+                    }
+                }.padding(24)
+            }.background(theme.base).foregroundStyle(theme.ink)
+                .navigationTitle("GitHub activity")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }
+                .tint(theme.accent)
+        }.presentationBackground(theme.base)
     }
 }
 

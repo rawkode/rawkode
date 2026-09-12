@@ -14,6 +14,6 @@ enum DemoContent {
             AgendaEvent(id: "2", title: "A walk and a thought", start: hour(14), end: hour(14.5), calendar: "Personal", calendarColor: "#D50000"),
             AgendaEvent(id: "3", title: "Plan next week", start: hour(16), end: hour(17), calendar: "Work", calendarColor: "#4285F4")
         ]
-        return ConnectedContext(snapshot: ContextSnapshot(day: DayIdentity.key(now), events: events), people: [ContextPerson(id: "ada", name: "Ada Lovelace", emails: ["ada@example.test"])], activity: [RepositoryActivity(id: "a", repository: "rawkode/apsides", title: "Keep the thought, wherever you are", kind: "pullRequest", actor: "rawkode", action: "opened", date: now, url: nil)], partial: false)
+        return ConnectedContext(snapshot: ContextSnapshot(day: DayIdentity.key(now), events: events), people: [ContextPerson(id: "ada", name: "Ada Lovelace", emails: ["ada@example.test"])], activity: [RepositoryActivity(id: "a", repository: "rawkode/apsides", title: "Keep the thought, wherever you are", kind: "pullRequest", actor: "rawkode", action: "opened", date: now, url: URL(string: "https://github.com/rawkode/rawkode/pull/35"), summary: "Adds a calendar-first day view, quick access to today’s note, and touch selection for Supertags.", number: 35)], partial: false)
     }
 }

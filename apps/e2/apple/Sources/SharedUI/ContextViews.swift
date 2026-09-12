@@ -78,13 +78,9 @@ struct RepositoryTimeline: View {
                 ForEach(Array(Set(items.map(\.kind))).sorted(), id: \.self) { Text(activityKind($0, plural: true)).tag($0) }
             }.listRowBackground(theme.canvas)
             ForEach(items.filter { type.isEmpty || $0.kind == type }.sorted { $0.date > $1.date }) { item in
-                HStack(alignment: .top, spacing: 16) {
-                    Text(item.date, format: .dateTime.hour().minute()).font(.caption.monospacedDigit()).foregroundStyle(theme.ink)
-                    VStack(alignment: .leading, spacing: 7) {
-                        if let url = item.url { Link(item.title, destination: url) } else { Text(item.title) }
-                        Text([activityKind(item.kind), humanized(item.action), item.actor].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(theme.ink)
-                    }
-                }.padding(.vertical, 9).listRowBackground(theme.canvas)
+                GitHubActivityCard(item: item)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowSeparator(.hidden).listRowBackground(theme.base)
             }
         }.modifier(ContextListAppearance(theme: theme)).navigationTitle(repository)
     }
@@ -123,4 +119,45 @@ private func humanized(_ value: String) -> String {
         .replacingOccurrences(of: "_", with: " ")
         .replacingOccurrences(of: "-", with: " ")
         .capitalized
+}
+
+struct GitHubMark: View {
+    var body: some View {
+        Image("GitHubMark").resizable().scaledToFit().accessibilityHidden(true)
+    }
+}
+
+struct GitHubActivityCard: View {
+    let item: RepositoryActivity
+    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    private var resource: String {
+        activityKind(item.kind) + (item.number.map { " #\($0)" } ?? "")
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                GitHubMark().frame(width: 22, height: 22)
+                Text(item.repository).font(.subheadline.weight(.medium)).textSelection(.enabled)
+            }.foregroundStyle(theme.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.title).font(.system(.title2, design: .serif).weight(.semibold)).textSelection(.enabled)
+                Text([resource, humanized(item.action)].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.subheadline.weight(.medium)).foregroundStyle(theme.accent)
+            }
+            if !item.summary.isEmpty {
+                Text(item.summary).font(.body).foregroundStyle(theme.ink).textSelection(.enabled)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                if !item.actor.isEmpty { Text("By \(item.actor)") }
+                Text(item.date, format: .dateTime.day().month(.abbreviated).hour().minute())
+            }.font(.caption).foregroundStyle(theme.secondary)
+            if let url = item.url {
+                Link(destination: url) {
+                    Label("Open on GitHub", systemImage: "arrow.up.right")
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }.accessibilityIdentifier("openGitHubActivity")
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+            .background(theme.canvas, in: .rect(cornerRadius: 24))
+    }
 }

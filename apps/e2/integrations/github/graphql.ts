@@ -1,3 +1,4 @@
+import { normalizeGitHubActivity } from "./src/activity.ts";
 import type { Connection } from "@e2/oauth-client";
 import type { GitHubActivityApi, GitHubApi } from "@e2/oauth-client/github";
 import {
@@ -5,20 +6,6 @@ import {
 	type IntegrationSchema,
 	requestMemo,
 } from "../../api/src/context.ts";
-
-type GitHubActivityKind = "issue" | "pullRequest" | "discussion";
-
-type NormalizedActivity = {
-	id: string;
-	resourceId: string;
-	kind: GitHubActivityKind;
-	title: string;
-	url: string;
-	repository: string;
-	actor: string;
-	createdAt: string;
-	action: string;
-};
 
 const read = async <T>(
 	context: ApiContext,
@@ -30,58 +17,6 @@ const read = async <T>(
 	}
 	using api = await context.env.GITHUB_ADMIN.admin(context.identity.ownerId);
 	return await action(api);
-};
-const activity = (row: Record<string, unknown>): NormalizedActivity | null => {
-	const payload = row.payload && typeof row.payload === "object"
-		? row.payload as Record<string, unknown>
-		: {};
-	const type = String(row.type ?? "");
-	const issue = payload.issue && typeof payload.issue === "object"
-		? payload.issue as Record<string, unknown>
-		: undefined;
-	const pullRequest = payload.pull_request &&
-			typeof payload.pull_request === "object"
-		? payload.pull_request as Record<string, unknown>
-		: undefined;
-	const discussion = payload.discussion &&
-			typeof payload.discussion === "object"
-		? payload.discussion as Record<string, unknown>
-		: undefined;
-	const issuePullRequest = issue?.pull_request &&
-			typeof issue.pull_request === "object"
-		? issue.pull_request
-		: undefined;
-	const isPullRequest = Boolean(pullRequest || issuePullRequest) ||
-		type.includes("PullRequest");
-	const kind = isPullRequest
-		? "pullRequest"
-		: discussion || type.includes("Discussion")
-		? "discussion"
-		: issue || type.includes("Issue")
-		? "issue"
-		: null;
-	if (!kind) return null;
-	const resource = pullRequest ??
-		(isPullRequest ? issue : discussion ?? issue) ??
-		{};
-	const resourceId = resource.node_id ?? resource.id ?? resource.number ??
-		row.id;
-	if (resourceId === undefined || resourceId === null) return null;
-	return {
-		id: String(row.id ?? ""),
-		resourceId: String(resourceId),
-		kind,
-		title: String(resource.title ?? "GitHub activity"),
-		url: String(resource.html_url ?? ""),
-		repository: String(
-			(row.repo as Record<string, unknown> | undefined)?.name ?? "",
-		),
-		actor: String(
-			(row.actor as Record<string, unknown> | undefined)?.login ?? "",
-		),
-		createdAt: String(row.created_at ?? ""),
-		action: String(payload.action ?? "updated"),
-	};
 };
 const connections = (context: ApiContext) =>
 	requestMemo(
@@ -110,7 +45,7 @@ const activityRows = (context: ApiContext) =>
 		return results.flatMap((result, index) =>
 			result.status === "fulfilled"
 				? result.value.flatMap((row) => {
-					const item = activity(row);
+					const item = normalizeGitHubActivity(row);
 					return item
 						? [{ ...item, connectionId: accounts[index]?.id ?? "" }]
 						: [];
@@ -124,7 +59,7 @@ export const githubGraphql: IntegrationSchema = {
     type GitHubAccount { id: ID! accountLabel: String! repositories(page: Int = 1): GitHubRepositoryPage! }
     type GitHubRepository { id: ID! name: String! fullName: String! url: String! private: Boolean! }
     type GitHubRepositoryPage { items: [GitHubRepository!]! nextPage: Int }
-    type GitHubActivity { connectionId: ID! id: ID! resourceId: ID! kind: String! title: String! url: String! repository: String! actor: String! createdAt: String! action: String! }
+    type GitHubActivity { connectionId: ID! id: ID! resourceId: ID! kind: String! title: String! url: String! repository: String! actor: String! createdAt: String! action: String! summary: String! number: Int eventType: String! }
     extend type User { githubActivity(query: String!): [GitHubActivity!]! }
     extend type Today { githubActivity: [GitHubActivity!]! }
   `,
