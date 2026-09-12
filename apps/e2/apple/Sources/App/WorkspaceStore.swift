@@ -67,6 +67,7 @@ final class WorkspaceStore: ObservableObject {
             } else {
                 vault.context = nil
                 vault.connectedContext = nil
+                vault.dailyNotePreview = nil
                 vault.captures.removeAll { $0.source == .workspace }
             }
         } catch {
@@ -104,6 +105,17 @@ final class WorkspaceStore: ObservableObject {
         // Keep unsaved text visible on failure; don't claim persistence.
         vault = next
         do { try commit(next) } catch { storageError = error.localizedDescription }
+    }
+    /// Persist only an excerpt whose shared note has passed the caller's save guard.
+    @discardableResult
+    func saveNotePreview(_ value: DailyNotePreview) -> Bool {
+        guard session.isConnected,
+              value.matches(accountID: session.accountID, day: DayIdentity.key(.now)),
+              value.accountID == vault.accountID else { return false }
+        var next = vault
+        next.dailyNotePreview = value
+        do { try commit(next); return true }
+        catch { storageError = error.localizedDescription; return false }
     }
     func retrySave() { do { try commit(vault) } catch { storageError = error.localizedDescription } }
     func setDayText(_ value: String) {
@@ -247,7 +259,7 @@ final class WorkspaceStore: ObservableObject {
     private func bindAccount(_ account: String?) throws {
         context = nil; calendarContext = nil
         var next = vault
-        next.context = nil; next.connectedContext = nil; next.accountID = account; next.uploaded = []
+        next.context = nil; next.connectedContext = nil; next.dailyNotePreview = nil; next.accountID = account; next.uploaded = []
         let remoteIDs = Set(next.captures.filter { $0.source == .workspace }.map(\.id))
         next.captures.removeAll { $0.source == .workspace }
         next.archived.subtract(remoteIDs)

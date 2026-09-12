@@ -65,6 +65,7 @@ public struct Vault: Codable, Equatable, Sendable {
     public var context: ContextSnapshot?
     public var connectedContext: ConnectedContext?
     public var accountID: String?
+    public var dailyNotePreview: DailyNotePreview?
     public init() {}
 }
 

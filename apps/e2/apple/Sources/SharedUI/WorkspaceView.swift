@@ -11,7 +11,6 @@ struct WorkspaceView: View {
     @ObservedObject var store: WorkspaceStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: WorkspaceDestination? = .today
-    @State private var phoneTab = 0
     @State private var todayRecenter = 0
     @State private var contextPath: [WorkspaceDestination] = []
     @Namespace private var captureTransition
@@ -40,13 +39,12 @@ struct WorkspaceView: View {
                     .font(.callout).padding().background(.regularMaterial).accessibilityIdentifier("storageError")
             }
         }
-        .overlay(alignment: .top) { if store.demo { Text("Sample data · local preview").font(.caption).padding(6).background(.regularMaterial) } }
         .onChange(of: scenePhase) { _, phase in if phase == .active { store.importSpool() } }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesCaptureArrived"))) { _ in store.importSpool() }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesShowToday"))) { _ in selection = .today; phoneTab = 0; store.selectedDay = .now }
-        .onOpenURL { url in if url.scheme == "apsides" {
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesShowToday"))) { _ in selection = .today; contextPath = []; todayRecenter += 1; store.selectedDay = .now }
+        .onOpenURL { url in if ["apsides", "enchiridion"].contains(url.scheme ?? "") {
             if url.host == "capture" { store.capturePresented = true }
-            if url.host == "today" { selection = .today; phoneTab = 0; store.selectedDay = .now }
+            if url.host == "today" { selection = .today; contextPath = []; todayRecenter += 1; store.selectedDay = .now }
         } }
     }
     private var desktop: some View {
@@ -66,25 +64,9 @@ struct WorkspaceView: View {
     }
     #if os(iOS)
     private var phone: some View {
-        TabView(selection: Binding(get: { phoneTab }, set: { tab in
-            phoneTab = tab
-            if tab == 0 { todayRecenter += 1 }
-        })) {
-            NavigationStack { PhoneTodayView(store: store, showAgenda: showAgenda, recenter: todayRecenter).toolbar { captureButton } }
-                .tabItem { Label("Today", systemImage: "sun.max") }.tag(0)
-            NavigationStack { CaptureListView(store: store).toolbar { captureButton } }
-                .tabItem { Label("Captures", systemImage: "tray") }.tag(1)
-            NavigationStack(path: $contextPath) {
-                List {
-                    NavigationLink("Day calendar", value: WorkspaceDestination.agenda)
-                    NavigationLink("People", value: WorkspaceDestination.people)
-                    NavigationLink("GitHub", value: WorkspaceDestination.github)
-                    NavigationLink("On this device", value: WorkspaceDestination.localNotes)
-                    Button("Account & appearance") { store.settingsPresented = true }
-                }.listRowBackground(theme.canvas).scrollContentBackground(.hidden)
-                .background(theme.base).foregroundStyle(theme.ink).navigationTitle("Context").toolbar { captureButton }
+        NavigationStack(path: $contextPath) {
+            PhoneTodayView(store: store, showAgenda: showAgenda, recenter: todayRecenter)
                 .navigationDestination(for: WorkspaceDestination.self) { destination($0) }
-            }.tabItem { Label("Context", systemImage: "square.stack.3d.up") }.tag(2)
         }
     }
     #endif
@@ -106,5 +88,5 @@ struct WorkspaceView: View {
         case .github: RepositoryListView(store: store)
         }
     }
-    private func showAgenda() { selection = .agenda; phoneTab = 2; contextPath = [.agenda] }
+    private func showAgenda() { selection = .agenda; contextPath = [.agenda] }
 }

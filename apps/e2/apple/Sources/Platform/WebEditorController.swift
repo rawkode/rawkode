@@ -15,12 +15,72 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
     @Published var error: String?
     @Published var finishedLoads = 0
     @Published var previousDayNeedsSave = false
+    @Published private(set) var preview = ""
+    private var previewIdentity: DailyNotePreview?
+    private var previewSubscriptions = Set<AnyCancellable>()
 
     init(session: NativeSession) {
         self.session = session
         webView = session.makeEditorWebView()
         super.init()
         webView.navigationDelegate = self
+        Publishers.CombineLatest(session.$accountID, session.$isConnected)
+            .sink { [weak self] accountID, connected in
+                guard let self else { return }
+                if !connected || self.previewIdentity?.matches(accountID: accountID, day: DayIdentity.key(.now)) != true {
+                    self.clearPreview()
+                }
+            }
+            .store(in: &previewSubscriptions)
+        NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.clearPreview() }
+            .store(in: &previewSubscriptions)
+    }
+
+    private func clearPreview() {
+        preview = ""
+        previewIdentity = nil
+    }
+
+    /// Read only the currently loaded, authenticated shared note. Call after
+    /// saving/closing the sheet; callers may persist the account/day-scoped result.
+    @discardableResult
+    func refreshPreview() async -> DailyNotePreview? {
+        clearPreview()
+        let day = DayIdentity.key(.now)
+        guard session.isConnected, let accountID = session.accountID,
+              hasEditorDocument, !loading, error == nil,
+              let url = webView.url, isTodayEditor(url, day: day) else { return nil }
+        let generation = navigationGeneration
+        let script = """
+        (() => {
+          if (document.documentElement.dataset.nativeEditorVersion !== '1' ||
+              document.documentElement.dataset.nativeEditor !== 'ready') return null;
+          const pane = document.querySelector('.native-document.is-active');
+          if (pane?.querySelector('.native-document-heading h1')?.textContent?.trim() !== 'Today') return null;
+          const editor = pane.querySelector('.tiptap.ProseMirror');
+          return editor instanceof HTMLElement ? editor.innerText.slice(0, 4096) : null;
+        })()
+        """
+        let value = try? await webView.evaluateJavaScript(script)
+        guard generation == navigationGeneration, session.isConnected,
+              session.accountID == accountID, DayIdentity.key(.now) == day,
+              webView.url == url, isTodayEditor(url, day: day),
+              let text = value as? String,
+              let result = DailyNotePreview(accountID: accountID, day: day, editorText: text) else { return nil }
+        previewIdentity = result
+        preview = result.text
+        return result
+    }
+
+    private func isTodayEditor(_ url: URL, day: String) -> Bool {
+        let origin = session.origin
+        func port(_ value: URL) -> Int? { value.port ?? (value.scheme == "https" ? 443 : value.scheme == "http" ? 80 : nil) }
+        guard url.scheme == origin.scheme, url.host == origin.host, port(url) == port(origin),
+              ["/apple/editor", "/apple/editor/"].contains(url.path),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return components.queryItems?.first(where: { $0.name == "pane" })?.value == "document:daily:" + day
     }
     func start() {
         if webView.url?.scheme == "about" { load(); return }
@@ -50,6 +110,7 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
         load()
     }
     func load() {
+        clearPreview()
         previousDayNeedsSave = false
         error = nil
         loading = true
@@ -69,11 +130,13 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
         webView.evaluateJavaScript("document.documentElement.dataset.theme = '\(theme.rawValue)'; try { localStorage.setItem('apsides-theme', '\(theme.rawValue)'); } catch {}", completionHandler: nil)
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        clearPreview()
         loading = false
         error = "The editor stopped. Reconnect to reopen your saved workspace."
     }
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         navigationGeneration += 1
+        clearPreview()
         hasEditorDocument = false
         loading = true
         error = nil
@@ -92,6 +155,7 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
             }
             hasEditorDocument = true
             finishedLoads += 1
+            await refreshPreview()
         }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

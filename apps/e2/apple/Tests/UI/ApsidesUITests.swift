@@ -174,24 +174,64 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
     }
 
-    func testTodayTabRecentersTimelineOnEveryTap() {
+    func testTodayDockRecentersTimelineOnEveryTap() {
         launchDemo()
+        #if os(iOS)
         let timeline = app.scrollViews["dayTimelineScroll"]
         let now = app.otherElements["dayTimelineNow"]
         XCTAssertTrue(timeline.waitForExistence(timeout: 10))
         XCTAssertTrue(now.waitForExistence(timeout: 5))
         let initialY = now.frame.midY
-        timeline.swipeUp()
-        XCTAssertGreaterThan(abs(now.frame.midY - initialY), 80)
-        activate(app.tabBars.buttons["Today"])
-        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
-        timeline.swipeDown()
-        activate(app.tabBars.buttons["Captures"])
-        activate(app.tabBars.buttons["Today"])
-        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
-        timeline.swipeUp()
-        activate(app.tabBars.buttons["Today"])
-        XCTAssertEqual(now.frame.midY, initialY, accuracy: 8)
+        for _ in 0..<2 {
+            if Calendar.current.component(.hour, from: Date()) >= 12 { timeline.swipeDown() }
+            else { timeline.swipeUp() }
+            XCTAssertGreaterThan(abs(now.frame.midY - initialY), 80)
+            activate(app.buttons["recenterToday"])
+            let centered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                abs(now.frame.midY - initialY) < 8
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [centered], timeout: 5), .completed)
+        }
+        openDaySearch()
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 5))
+        activate(app.searchFields.firstMatch)
+        app.searchFields.firstMatch.typeText("Ada")
+        XCTAssertTrue(app.staticTexts["Ada Lovelace"].waitForExistence(timeout: 5))
+        captureScreenshot("Day search Ada")
+        if !app.buttons["closeDaySearch"].exists {
+            let cancelSearch = app.buttons["close"].firstMatch
+            XCTAssertTrue(cancelSearch.waitForExistence(timeout: 5))
+            activate(cancelSearch)
+        }
+        XCTAssertTrue(app.buttons["closeDaySearch"].waitForExistence(timeout: 5))
+        activate(app.buttons["closeDaySearch"])
+        XCTAssertTrue(app.buttons["recenterToday"].waitForExistence(timeout: 5))
+        #endif
+    }
+
+    func testWeekSelectionAndTodayDockReturnToCurrentDay() {
+        launchDemo()
+        #if os(iOS)
+        let today = Calendar.current.startOfDay(for: Date())
+        let week = Calendar.current.dateInterval(of: .weekOfYear, for: today)!
+        let other = Calendar.current.isDate(week.start, inSameDayAs: today)
+            ? Calendar.current.date(byAdding: .day, value: 1, to: today)! : week.start
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar.current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let otherButton = app.buttons["calendar-day-" + formatter.string(from: other)]
+        let todayButton = app.buttons["calendar-day-" + formatter.string(from: today)]
+        XCTAssertTrue(otherButton.waitForExistence(timeout: 10))
+        activate(otherButton)
+        XCTAssertTrue(otherButton.isSelected)
+        XCTAssertFalse(app.otherElements["dayTimelineNow"].exists)
+        captureScreenshot("Selected day in week")
+        activate(app.buttons["recenterToday"])
+        XCTAssertTrue(todayButton.isSelected)
+        XCTAssertTrue(app.otherElements["dayTimelineNow"].waitForExistence(timeout: 5))
+        captureScreenshot("Today restored from week")
+        #endif
     }
 
     func testDayActivityShowsMeaningfulGitHubDetails() {
@@ -205,45 +245,46 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(app.links["openGitHubActivity"].exists || app.buttons["openGitHubActivity"].exists)
         captureScreenshot("GitHub activity detail Dawn")
         activate(app.buttons["Done"])
-        activate(app.buttons["todaySettings"])
+        openContext("Account & appearance")
         let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
         activate(palette)
         chooseMenuItem("Rosé Pine Dark")
         activate(app.buttons["Done"])
+        #if os(iOS)
+        returnToPhoneDay()
+        #endif
         captureScreenshot("GitHub timeline mark Dark")
         activate(marker)
         captureScreenshot("GitHub activity detail Dark")
     }
 
-    func testDayTimelineAndNotesControlPreference() {
+    func testDayTimelineFloatingDockInBothPalettes() {
         launchDemo()
-        let control = app.buttons["openDailyNote"]
-        XCTAssertTrue(control.waitForExistence(timeout: 10))
+        #if os(iOS)
+        for id in ["openDailyNote", "dailyNotePreview", "daySearch", "recenterToday"] {
+            XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons[id].isHittable)
+        }
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertFalse(webEditor.exists, "Home must show the day before opening the editor")
-        captureScreenshot("Day timeline floating button")
-        activate(app.buttons["todaySettings"])
-        let picker = app.buttons["notesEntryStyle"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        activate(picker)
-        chooseMenuItem("Pull-up handle")
-        activate(app.buttons["Done"])
-        XCTAssertTrue(control.waitForExistence(timeout: 5))
-        captureScreenshot("Day timeline pull-up handle")
-        relaunchPreservingData()
-        activate(app.buttons["todaySettings"])
-        let restored = app.buttons["notesEntryStyle"]
-        XCTAssertTrue(restored.waitForExistence(timeout: 5))
-        XCTAssertTrue(restored.label.contains("Pull-up") || (restored.value as? String ?? "").contains("Pull-up"))
+        showSampleCalendarEvents()
+        captureScreenshot("Floating dock Dawn")
+        openContext("Account & appearance")
         let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(palette.waitForExistence(timeout: 5))
         activate(palette)
         chooseMenuItem("Rosé Pine Dark")
         activate(app.buttons["Done"])
-        captureScreenshot("Day timeline Dark pull-up handle")
-        activate(app.buttons["todaySettings"])
-        activate(app.buttons["notesEntryStyle"])
-        chooseMenuItem("Floating button")
-        activate(app.buttons["Done"])
-        captureScreenshot("Day timeline Dark floating button")
+        returnToPhoneDay()
+        showSampleCalendarEvents()
+        captureScreenshot("Floating dock Dark")
+        XCTAssertTrue(app.buttons["dailyNotePreview"].isHittable)
+        relaunchPreservingData()
+        openContext("Account & appearance")
+        let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 5))
+        XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
+        #endif
     }
 
     func testWebEditorHasOneDocumentHeadingAndNoDesktopChrome() throws {
@@ -377,13 +418,50 @@ final class ApsidesUITests: XCTestCase {
 
     private func openToday() {
         #if os(iOS)
-        let tab = app.tabBars.buttons["Today"]
-        if tab.exists { activate(tab); openDailyNoteIfNeeded(); return }
+        if app.buttons["daySearch"].exists || app.buttons["closeDaySearch"].exists || app.navigationBars.buttons["Search"].exists {
+            returnToPhoneDay()
+            activate(app.buttons["recenterToday"])
+            openDailyNoteIfNeeded()
+            return
+        }
         #endif
         let destination = app.staticTexts["Today"].firstMatch
         XCTAssertTrue(destination.waitForExistence(timeout: 5))
         activate(destination)
     }
+
+    #if os(iOS)
+    private func showSampleCalendarEvents() {
+        let event = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Design review,")).firstMatch
+        let timeline = app.scrollViews["dayTimelineScroll"]
+        XCTAssertTrue(timeline.waitForExistence(timeout: 5))
+        for _ in 0..<12 {
+            if event.exists && event.isHittable { break }
+            if Calendar.current.component(.hour, from: Date()) >= 12 { timeline.swipeDown() }
+            else { timeline.swipeUp() }
+        }
+        XCTAssertTrue(event.isHittable, "The calendar screenshot should include the sample design review")
+    }
+
+    private func returnToPhoneDay() {
+        let closeNote = app.buttons["closeDailyNote"]
+        if closeNote.exists { activate(closeNote) }
+        for _ in 0..<5 {
+            if app.buttons["daySearch"].isHittable { return }
+            let closeSearch = app.buttons["closeDaySearch"]
+            if closeSearch.exists && closeSearch.isHittable { activate(closeSearch); continue }
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            if back.exists && back.isHittable { activate(back) } else { break }
+        }
+        XCTAssertTrue(app.buttons["daySearch"].waitForExistence(timeout: 5))
+    }
+
+    private func openDaySearch() {
+        returnToPhoneDay()
+        activate(app.buttons["daySearch"])
+        XCTAssertTrue(app.buttons["closeDaySearch"].waitForExistence(timeout: 5))
+    }
+    #endif
 
     private func openDailyNoteIfNeeded() {
         #if os(iOS)
@@ -409,14 +487,9 @@ final class ApsidesUITests: XCTestCase {
         let closeNote = app.buttons["closeDailyNote"]
         if closeNote.exists { activate(closeNote) }
         #if os(iOS)
-        let context = app.tabBars.buttons["Context"]
-        if context.exists { activate(context) }
-        else if name == "Account & appearance" {
-            activate(app.buttons["Settings"])
-            return
-        }
+        openDaySearch()
         #endif
-        let destination = name == "Account & appearance" ? app.buttons[name].firstMatch : app.staticTexts[name].firstMatch
+        let destination = app.buttons[name].firstMatch.exists ? app.buttons[name].firstMatch : app.staticTexts[name].firstMatch
         XCTAssertTrue(destination.waitForExistence(timeout: 5))
         activate(destination)
     }
@@ -432,6 +505,9 @@ final class ApsidesUITests: XCTestCase {
     }
 
     private func openCapture() {
+        #if os(iOS)
+        openDaySearch()
+        #endif
         let capture = app.buttons["quickCapture"].firstMatch
         XCTAssertTrue(capture.waitForExistence(timeout: 10))
         activate(capture)
@@ -440,16 +516,12 @@ final class ApsidesUITests: XCTestCase {
 
     private func openCaptures() {
         #if os(iOS)
-        let tab = app.tabBars.buttons["Captures"]
-        if tab.exists {
-            activate(tab)
-            return
-        }
-        #endif
-        // The regular-width iPad and Mac use a sidebar instead of phone tabs.
+        openContext("Captures")
+        #else
         let destination = app.staticTexts["Captures"].firstMatch
         XCTAssertTrue(destination.waitForExistence(timeout: 5))
         activate(destination)
+        #endif
     }
 
     private func relaunchPreservingData() {
