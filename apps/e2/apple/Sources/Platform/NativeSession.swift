@@ -20,10 +20,11 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     private var nextGitHubCompletenessProbe = Date.distantPast
 
     public enum SessionError: LocalizedError {
-        case invalidOrigin, signInRequired, invalidResponse, responseTooLarge, invalidDocumentID, cancelled, captureConflict, voiceUnavailable, voiceNotPermitted
+        case invalidOrigin, signInRequired, invalidResponse, responseTooLarge, invalidDocumentID, cancelled, captureConflict, documentConflict, voiceUnavailable, voiceNotPermitted
 
         public var errorDescription: String? {
             switch self {
+            case .documentConflict: "This note changed elsewhere. Reload to see the latest version; your edits here were not uploaded."
             case .invalidOrigin: "Use the HTTPS address of your Enchiridion website, without a path."
             case .signInRequired: "Sign in to your Enchiridion website to load connected data."
             case .invalidResponse: "Enchiridion did not return valid account data."
@@ -171,6 +172,23 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         return try await read(path: "/api/documents/\(id)", limit: 17 * 1024 * 1024)
     }
 
+    /// Compare-and-set write of a whole canonical note. `expectedRevision` is nil only for a
+    /// document the server reported absent; a stale revision is a conflict, never a merge.
+    public func saveDocument(id: String, note: [String: Any], expectedRevision: Int?) async throws -> Int {
+        guard id.range(of: "^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$", options: .regularExpression) != nil else {
+            throw SessionError.invalidDocumentID
+        }
+        let operationGeneration = generation
+        let body = try JSONSerialization.data(withJSONObject: ["note": note, "expectedRevision": expectedRevision.map { $0 as Any } ?? NSNull()])
+        let response = try await request(path: "/api/documents/\(id)", body: body, limit: 17 * 1024 * 1024, allowConflict: true)
+        guard operationGeneration == generation else { throw SessionError.cancelled }
+        if response.status == 409 { throw SessionError.documentConflict }
+        guard let result = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+              let stored = result["document"] as? [String: Any], stored["id"] as? String == id,
+              let revision = stored["revision"] as? Int, revision > 0 else { throw SessionError.invalidResponse }
+        return revision
+    }
+
     public func entities(query: String) async throws -> Data {
         let body = try JSONSerialization.data(withJSONObject: [
             "query": "query AppleEntities($query: String!) { me { entities(query: $query, limit: 50) { id label bodyDocumentId tagIds rootId } } }",
@@ -289,6 +307,11 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     }
 
     func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false, allowCreated: Bool = false, voiceRequest: Bool = false, queryItems: [URLQueryItem] = []) async throws -> Data {
+        try await request(path: path, body: body, limit: limit, allowConflict: allowConflict, allowOlderTodaySchema: allowOlderTodaySchema,
+                          allowCreated: allowCreated, voiceRequest: voiceRequest, queryItems: queryItems).data
+    }
+
+    func request(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false, allowCreated: Bool = false, voiceRequest: Bool = false, queryItems: [URLQueryItem] = []) async throws -> (data: Data, status: Int) {
         let currentGeneration = generation
         var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !queryItems.isEmpty { components.queryItems = queryItems }
@@ -358,7 +381,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         if http.statusCode == 400 && !TodayQueryCompatibility.lacksGitHubCompleteness(result) {
             throw SessionError.invalidResponse
         }
-        return result
+        return (result, http.statusCode)
     }
 }
 
