@@ -58,10 +58,16 @@ provider HTTP and sideband attachment each have explicit finite deadlines.
   audio events are discarded. Disconnect alone does not release an uncertain
   call.
 - `reasoner.ts`: GPT-Live delegates reasoning to GPT-5 Mini with one Cloudflare
-  code-mode tool. The initial typed operation reads calendar and GitHub
-  activity; notes and write actions are not yet exposed. Reads check the active
-  session before and after execution. Generated code never receives the project
-  key.
+  code-mode tool for graph and day reads, tasks, Supertag definitions, and graph
+  item writes. Explicit requests and follow-up approvals carry through the
+  conversation; repeated approval is not required for the same scoped action.
+  Generated code never receives the project key.
+- `entity-tools.ts`: owner-bound item creation, readback and revision-checked
+  field updates, including bookmarks. The shared runner blocks further writes
+  after an uncertain outcome. Identical creation calls coalesce within one turn;
+  the entity API does not provide durable cross-turn creation idempotency.
+  Local migrated SQLite tests verify saved URLs and stale-edit rejection; this
+  is not evidence of a successful physical iPhone spoken mutation.
 - `execution-limits.ts`: network-denied sandbox loader, configured
   CPU/subrequest budgets and bounded model-facing results. Generated logs are
   discarded. Code-mode execution is stateless so tool results are not retained

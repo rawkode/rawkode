@@ -1,3 +1,4 @@
+import { createVoiceEntityTools, type VoiceEntityApi } from "./entity-tools.ts";
 import { createVoiceSchemaTools, type VoiceSchemaApi } from "./schema-tools.ts";
 import { z } from "zod";
 import { tool } from "ai";
@@ -36,7 +37,9 @@ const fields = {
 	linkedEntityIds: z.array(id).max(32).optional(),
 };
 export interface VoiceTaskBinding {
-	admin(owner: string): Promise<TasksApi & VoiceSchemaApi & Disposable>;
+	admin(
+		owner: string,
+	): Promise<TasksApi & VoiceSchemaApi & VoiceEntityApi & Disposable>;
 }
 export const createVoiceTaskTools = (options: {
 	binding: VoiceTaskBinding;
@@ -49,7 +52,7 @@ export const createVoiceTaskTools = (options: {
 	let uncertainWrite = false;
 	const run = async <T>(
 		write: boolean,
-		action: (api: TasksApi & VoiceSchemaApi) => Promise<T>,
+		action: (api: TasksApi & VoiceSchemaApi & VoiceEntityApi) => Promise<T>,
 	) => {
 		await options.check();
 		if (write && uncertainWrite) {
@@ -98,6 +101,7 @@ export const createVoiceTaskTools = (options: {
 	};
 	return {
 		...createVoiceSchemaTools({ owner: options.owner, run }),
+		...createVoiceEntityTools({ owner: options.owner, run }),
 		taskList: tool({
 			description:
 				"Read a page of the user's tasks. Follow nextCursor for more; a page is not all tasks.",

@@ -1,3 +1,4 @@
+import type { VoiceEntityApi } from "../src/entity-tools.ts";
 import type { VoiceSchemaApi } from "../src/schema-tools.ts";
 import { strict as assert } from "node:assert";
 import { createVoiceTaskTools } from "../src/task-tools.ts";
@@ -20,9 +21,12 @@ const setup = (
 	check: () => Promise<void> = () => Promise.resolve(),
 ) => {
 	const calls: unknown[] = [];
-	const api: TasksApi & VoiceSchemaApi & Disposable = {
+	const api: TasksApi & VoiceSchemaApi & VoiceEntityApi & Disposable = {
 		[Symbol.dispose]() {},
 		getTag: () => Promise.resolve(null),
+		getEntity: () => Promise.resolve(null),
+		createEntity: () => Promise.reject(new Error("Unused")),
+		setUserValues: () => Promise.reject(new Error("Unused")),
 		createUserTag: () => Promise.reject(new Error("Not used")),
 		defineField: () => Promise.reject(new Error("Unused")),
 		updateField: () => Promise.reject(new Error("Unused")),
@@ -107,7 +111,9 @@ Deno.test("voice task permission gate prevents writes", async () => {
 });
 
 Deno.test("voice task deadline prevents dispatch after delayed admin resolution", async () => {
-	let resolveAdmin!: (api: TasksApi & VoiceSchemaApi & Disposable) => void;
+	let resolveAdmin!: (
+		api: TasksApi & VoiceSchemaApi & VoiceEntityApi & Disposable,
+	) => void;
 	let writes = 0;
 	const tools = createVoiceTaskTools({
 		owner: "access:alice",
@@ -131,7 +137,7 @@ Deno.test("voice task deadline prevents dispatch after delayed admin resolution"
 				writes++;
 				return Promise.resolve({ ok: true, task });
 			},
-		} as unknown as TasksApi & VoiceSchemaApi & Disposable,
+		} as unknown as TasksApi & VoiceSchemaApi & VoiceEntityApi & Disposable,
 	);
 	await new Promise((resolve) => setTimeout(resolve, 1));
 	assert.equal(writes, 0);
