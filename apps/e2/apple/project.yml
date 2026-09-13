@@ -14,8 +14,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
 packages:
   WebRTC:
-    url: https://github.com/stasel/WebRTC.git
-    exactVersion: 153.0.0
+    path: Vendor/WebRTC
   ApsidesCore:
     path: .
 targets:

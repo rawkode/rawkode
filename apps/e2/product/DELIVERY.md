@@ -64,6 +64,18 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   `4C4C4496-5555-3144-A149-A7E882FEE780`. Symbol upload remains enabled. The next
   cloud distribution result must establish whether this resolves publishing;
   local archive success does not establish TestFlight availability.
+- Build 13 logs now confirm successful cloud archiving, WebRTC symbol
+  packaging, and all exports. Its exported App Store IPA passes distribution
+  signature verification, but records the original WebRTC SDK as unsigned.
+  The user requested signing it: P4X now publishes an explicitly identified,
+  timestamp-signed redistribution of the unchanged M153 XCFramework. Its
+  immutable ZIP checksum is pinned by `apple/Vendor/WebRTC`. This addresses SDK
+  signing provenance; Apple's final processing result remains the release gate.
+- Fresh resolution downloaded and cryptographically verified the P4X artifact.
+  The resulting iOS archive succeeded and records WebRTC SDK `signed: true`,
+  `signatureType: AppleDeveloperProgram`, and team `6KXCJGJ45W`, with the original
+  matching dSYM retained. Cloud publishing and TestFlight availability remain
+  unverified for this change.
 - Mac voice now builds with the shared authenticated transport, explicit
   microphone consent, a dedicated captions window, and keyboard controls. The
   iPhone regression build also passes. An actual hidden-window test verifies

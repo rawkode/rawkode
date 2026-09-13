@@ -145,6 +145,7 @@
 		513A50F329344A47E70A5AC4 /* CalendarColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarColor.swift; sourceTree = "<group>"; };
 		531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWatchApp.swift; sourceTree = "<group>"; };
 		64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWidget.swift; sourceTree = "<group>"; };
+		65DEAF02C8A45C90F662FBAC /* WebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebRTC; path = Vendor/WebRTC; sourceTree = SOURCE_ROOT; };
 		686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCaptureView.swift; sourceTree = "<group>"; };
 		6EA8086D3419903EC741D330 /* MeetingRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecorder.swift; sourceTree = "<group>"; };
 		6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
@@ -272,6 +273,7 @@
 			isa = PBXGroup;
 			children = (
 				11C9A845DC543F6478264ACF /* apple */,
+				65DEAF02C8A45C90F662FBAC /* WebRTC */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -489,8 +491,8 @@
 			mainGroup = 48E8564F5DC6848A3CC57E2E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				96219C170B6AEAE9E4951FE0 /* XCRemoteSwiftPackageReference "WebRTC" */,
 				B500C52D34887D66E6163DC1 /* XCLocalSwiftPackageReference "." */,
+				1D9428F63EA39FD1C690841C /* XCLocalSwiftPackageReference "Vendor/WebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 76F464A0A386540253CDCE5C /* Products */;
@@ -1063,22 +1065,15 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		1D9428F63EA39FD1C690841C /* XCLocalSwiftPackageReference "Vendor/WebRTC" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/WebRTC;
+		};
 		B500C52D34887D66E6163DC1 /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = .;
 		};
 /* End XCLocalSwiftPackageReference section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		96219C170B6AEAE9E4951FE0 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/stasel/WebRTC.git";
-			requirement = {
-				kind = exactVersion;
-				version = 153.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		14A63658B3EA59F83FB92B5B /* ApsidesCore */ = {
@@ -1095,12 +1090,10 @@
 		};
 		53AF96BC55A2445438CAF7FC /* WebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 96219C170B6AEAE9E4951FE0 /* XCRemoteSwiftPackageReference "WebRTC" */;
 			productName = WebRTC;
 		};
 		8280CA1FB8524F7B7DC3EECE /* WebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 96219C170B6AEAE9E4951FE0 /* XCRemoteSwiftPackageReference "WebRTC" */;
 			productName = WebRTC;
 		};
 		AA869EC6CD92F535B5CAFA73 /* ApsidesCore */ = {
