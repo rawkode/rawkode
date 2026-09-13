@@ -62,8 +62,9 @@ struct DayTimelineView: View {
                 HStack(spacing: 12) {
                     if let openSidebar {
                         Button(action: openSidebar) {
-                            Image(systemName: "line.3.horizontal").frame(width: 44, height: 44)
-                        }.buttonStyle(.glass)
+                            Image(systemName: "line.3.horizontal").font(.body.weight(.medium)).frame(width: 44, height: 44).contentShape(Circle())
+                        }.buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: .circle)
                             .accessibilityLabel("Open sidebar")
                             .accessibilityIdentifier("openWorkspaceSidebar")
                     }

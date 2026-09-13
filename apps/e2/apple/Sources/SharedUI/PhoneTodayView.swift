@@ -32,24 +32,26 @@ struct PhoneTodayView: View {
     var body: some View {
         DayTimelineView(store: store, recenter: recenter + dockRecenter, selectedDay: $selectedDay, openSidebar: { setSidebar(true) })
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack(alignment: .bottom, spacing: 10) {
+                GlassEffectContainer(spacing: 8) {
+                HStack(alignment: .center, spacing: 12) {
                     Button {
                         selectedDay = .now
                         dockRecenter += 1
                     } label: {
-                        VStack(spacing: 6) {
-                            Image(systemName: "arrow.counterclockwise").font(.title3)
-                            Text("Today").font(.caption.weight(.medium))
-                        }.frame(width: 64, height: 76).contentShape(Rectangle())
+                        Text("Today")
+                            .font(.body.weight(.medium))
+                            .padding(.horizontal, 20)
+                            .frame(minHeight: 50).contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.ink)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 26))
+                    .glassEffect(.regular.interactive(), in: .capsule)
                     .accessibilityLabel("Return to today")
                     .accessibilityHint("Centres the timeline on the current time")
                     .accessibilityIdentifier("recenterToday")
                     notesControl
-                }.padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 12)
+                }
+                }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
             }
             .accessibilityHidden(sidebarPresented)
             .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
@@ -111,25 +113,25 @@ struct PhoneTodayView: View {
     }
 
     private var notesControl: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 5) {
             Capsule().fill(theme.secondary.opacity(0.6)).frame(width: 32, height: 4)
                 .accessibilityHidden(true)
             Button { notesPresented = true } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "book.closed").font(.title3).frame(width: 36)
+                    Image(systemName: "book.closed").font(.body).frame(width: 24)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Today’s note").font(.caption).foregroundStyle(theme.secondary)
                         Text(notePreview)
-                            .font(.subheadline).lineLimit(2).multilineTextAlignment(.leading)
+                            .font(.subheadline).lineLimit(1).multilineTextAlignment(.leading)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.up").font(.caption)
                 }.frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("dailyNotePreview")
 
         }
-        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12)
+        .padding(.horizontal, 16).padding(.top, 7).padding(.bottom, 8)
         .foregroundStyle(theme.ink)
-        .glassEffect(.regular, in: .rect(cornerRadius: 30))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
             if value.translation.height < -35 && abs(value.translation.height) > abs(value.translation.width) {
                 notesPresented = true
