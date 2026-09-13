@@ -28,7 +28,7 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(note.isHittable)
         XCTAssertFalse(app.buttons["openDailyNote"].exists)
         openWorkspaceSidebar()
-        for id in ["openTasks", "openVoiceConversation", "recenterToday", "daySearch", "quickCapture", "todaySettings"] {
+        for id in ["openTasks", "openVoiceConversation", "daySearch", "quickCapture", "todaySettings"] {
             XCTAssertTrue(app.buttons[id].exists, "Missing sidebar action: \(id)")
         }
         captureScreenshot("Workspace sidebar Dawn")
@@ -322,7 +322,6 @@ final class ApsidesUITests: XCTestCase {
             if Calendar.current.component(.hour, from: Date()) >= 12 { timeline.swipeDown() }
             else { timeline.swipeUp() }
             XCTAssertGreaterThan(abs(now.frame.midY - initialY), 80)
-            openWorkspaceSidebar()
             activate(app.buttons["recenterToday"])
             let centered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 abs(now.frame.midY - initialY) < 8
@@ -364,7 +363,6 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(otherButton.isSelected)
         XCTAssertFalse(app.otherElements["dayTimelineNow"].exists)
         captureScreenshot("Selected day in week")
-        openWorkspaceSidebar()
         activate(app.buttons["recenterToday"])
         XCTAssertTrue(todayButton.isSelected)
         XCTAssertTrue(app.otherElements["dayTimelineNow"].waitForExistence(timeout: 5))
@@ -564,7 +562,6 @@ final class ApsidesUITests: XCTestCase {
         #if os(iOS)
         if app.buttons["openWorkspaceSidebar"].exists || app.buttons["closeDaySearch"].exists || app.navigationBars.buttons["Search"].exists {
             returnToPhoneDay()
-            openWorkspaceSidebar()
             activate(app.buttons["recenterToday"])
             openDailyNoteIfNeeded()
             return

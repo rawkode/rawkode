@@ -59,18 +59,18 @@ struct DayTimelineView: View {
     private var calendarHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text(selectedDay, format: .dateTime.month(.wide))
-                        .font(.system(size: monthSize, weight: .semibold, design: .serif))
-                        .accessibilityAddTraits(.isHeader)
-                    Spacer()
+                HStack(spacing: 12) {
                     if let openSidebar {
                         Button(action: openSidebar) {
-                            Image(systemName: "sidebar.left").frame(width: 44, height: 44)
+                            Image(systemName: "line.3.horizontal").frame(width: 44, height: 44)
                         }.buttonStyle(.glass)
                             .accessibilityLabel("Open sidebar")
                             .accessibilityIdentifier("openWorkspaceSidebar")
                     }
+                    Text(selectedDay, format: .dateTime.month(.wide))
+                        .font(.system(size: monthSize, weight: .semibold, design: .serif))
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 0)
                 }
                 HStack {
                     Text(selectedDay, format: .dateTime.year()).font(.subheadline)

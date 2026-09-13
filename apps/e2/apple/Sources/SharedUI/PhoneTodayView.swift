@@ -32,7 +32,24 @@ struct PhoneTodayView: View {
     var body: some View {
         DayTimelineView(store: store, recenter: recenter + dockRecenter, selectedDay: $selectedDay, openSidebar: { setSidebar(true) })
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                notesControl.padding(.top, 8).padding(.bottom, 12)
+                HStack(alignment: .bottom, spacing: 10) {
+                    Button {
+                        selectedDay = .now
+                        dockRecenter += 1
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise").font(.title3)
+                            Text("Today").font(.caption.weight(.medium))
+                        }.frame(width: 64, height: 76).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.ink)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 26))
+                    .accessibilityLabel("Return to today")
+                    .accessibilityHint("Centres the timeline on the current time")
+                    .accessibilityIdentifier("recenterToday")
+                    notesControl
+                }.padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 12)
             }
             .accessibilityHidden(sidebarPresented)
             .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
@@ -113,7 +130,6 @@ struct PhoneTodayView: View {
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12)
         .foregroundStyle(theme.ink)
         .glassEffect(.regular, in: .rect(cornerRadius: 30))
-        .padding(.horizontal, 12)
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
             if value.translation.height < -35 && abs(value.translation.height) > abs(value.translation.width) {
                 notesPresented = true
@@ -152,7 +168,6 @@ struct PhoneTodayView: View {
                     }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            sidebarAction("Today", symbol: "sun.max", id: "recenterToday") { selectedDay = .now; dockRecenter += 1 }
                             sidebarAction("Tasks", symbol: "checklist", id: "openTasks") { destination = .tasks }
                             sidebarAction("Voice", symbol: "waveform", id: "openVoiceConversation") { voicePresented = true }
                             sidebarAction("Search", symbol: "magnifyingglass", id: "daySearch") { searchPresented = true }
