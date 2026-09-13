@@ -5,7 +5,7 @@ import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import { fileURLToPath } from "node:url";
 import type { deploymentAccess } from "../../website/access.ts";
-import { StoredVoiceSecret } from "./stored-secret.ts";
+import { bindStoredVoiceSecret } from "./stored-secret.ts";
 
 export const workerSource = {
 	main: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
@@ -20,13 +20,13 @@ export default (
 		const stage = yield* Alchemy.Stage;
 		const domain = yield* Config.string("WEBSITE_DOMAIN");
 		const key = stage === "production"
-			? StoredVoiceSecret().pipe()
+			? undefined
 			: yield* Cloudflare.SecretsStore.Secret("agent-openai-api-key", {
 				store,
 				name: `e2-${stage}-agent-openai-api-key`,
 				value: Config.redacted("OPENAI_API_KEY"),
 			});
-		return yield* Cloudflare.Worker("integrations-agent", {
+		const worker = yield* Cloudflare.Worker("integrations-agent", {
 			name: workerName("integrations-agent", stage),
 			...workerSource,
 			workersDev: false,
@@ -35,7 +35,7 @@ export default (
 				VOICE_OWNERS: Cloudflare.DurableObject("VoiceOwner", {
 					className: "VoiceOwner",
 				}),
-				OPENAI_API_KEY: key,
+				...(key ? { OPENAI_API_KEY: key } : {}),
 				API: api,
 				WEBSITE_ORIGIN: `https://${domain}`,
 				ACCESS_TEAM_DOMAIN: access.teamDomain,
@@ -43,4 +43,6 @@ export default (
 				ADMIN_EMAILS: access.adminEmails,
 			},
 		});
+		if (stage === "production") yield* bindStoredVoiceSecret(worker);
+		return worker;
 	});

@@ -1,8 +1,9 @@
+import { deploymentSecret } from "../deployment-config.ts";
 import { workerName } from "../../naming.ts";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as Config from "effect/Config";
 import { fileURLToPath } from "node:url";
 
 export const workerSource = {
@@ -62,14 +63,22 @@ export default (
 				privateKey: Cloudflare.SecretsStore.Secret("github-app-private-key", {
 					store: app.store,
 					name: `e2-${stage}-github-app-private-key`,
-					value: Config.redacted("GITHUB_APP_PRIVATE_KEY"),
+					value: deploymentSecret(
+						"GITHUB_APP_PRIVATE_KEY",
+						"github-app-private-key",
+						`e2-${stage}-github-app-private-key`,
+					),
 				}),
 				webhookSecret: Cloudflare.SecretsStore.Secret(
 					"github-app-webhook-secret",
 					{
 						store: app.store,
 						name: `e2-${stage}-github-app-webhook-secret`,
-						value: Config.redacted("GITHUB_APP_WEBHOOK_SECRET"),
+						value: deploymentSecret(
+							"GITHUB_APP_WEBHOOK_SECRET",
+							"github-app-webhook-secret",
+							`e2-${stage}-github-app-webhook-secret`,
+						),
 					},
 				),
 			}).pipe(Effect.flatMap(({ privateKey, webhookSecret }) =>

@@ -17,6 +17,35 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
+### Latest verified status — 13 September, 17:48 BST
+
+- TestFlight Build 15 passed cloud archive, publishing and automatic internal
+  distribution. Apple reports `VALID` and `IN_BETA_TESTING`. The actual
+  rejection of Build 13 was ITMS-90683 (missing camera usage description from
+  the bundled WebRTC references), fixed in `47708b11`.
+- Native voice account recovery is pushed in `791189d7`; iPhone/Mac builds and
+  the sign-in/cancel UI test pass. This does not qualify a live conversation.
+- The user-supplied Cloudflare token is active. Production deployment can retain
+  the six Google/GitHub credentials from validated Alchemy state, keeping the
+  secret resources declared and unchanged. Plain GitHub app ID and slug were
+  checked against the deployed Worker. The original CI vault references remain a
+  separate configuration issue; the local authorized deployment bypasses them.
+- A real synthetic WebRTC session request to OpenAI failed with HTTP 400
+  `model_not_found` for `gpt-live-1`, including a fresh retry after the user
+  said the token was fixed. No session or received audio was recorded. The
+  supplied key versus a replacement key still needs clarification. No automatic
+  model substitution was made.
+- Production deployment completed: live Cloudflare metadata confirms the website
+  VOICE service points to apsides-integrations-agent and OPENAI_API_KEY is a
+  secrets_store_secret binding to the existing active secret. Runtime secret
+  retrieval and authenticated spoken conversation remain unverified.
+- Deployment verification caught the previous custom OpenAI binding being
+  serialized as JSON. It now uses Alchemy's explicit Worker binding API to bind
+  the existing Secrets Store secret without reading or changing its value.
+
+The entries below retain earlier investigation evidence and are superseded by
+this latest status where they describe TestFlight or credential availability.
+
 - Voice is the current release priority, followed strictly by tasks, meeting
   capture, and offline editing. The local iPhone WebRTC conversation screen and
   captions now compile; the signed-in server path, private Worker, session
@@ -41,18 +70,18 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 - The configured Xcode Cloud branch trigger started an archive automatically for
   `b9d18dc6`. It completed on 13 September at 14:30 UTC with
   `Preparing build for App Store Connect failed` (one error and four existing
-  meeting-audio concurrency warnings). The underlying distribution error is
-  only available in App Store Connect, whose browser session is signed out.
-  This build is not verified as TestFlight-available. Internal tester-group
+  meeting-audio concurrency warnings). The underlying distribution error is only
+  available in App Store Connect, whose browser session is signed out. This
+  build is not verified as TestFlight-available. Internal tester-group
   automation is deferred at the user's direction.
-- The following automatic archive for `db917c91` also stopped at preparation
-  for App Store Connect with the same generic error. The downloaded WebRTC 153
+- The following automatic archive for `db917c91` also stopped at preparation for
+  App Store Connect with the same generic error. The downloaded WebRTC 153
   XCFramework and device framework are unsigned, although its privacy manifest
   is present. This is a distribution risk, not a confirmed explanation of the
   cloud error; obtain the actual distribution/ITMS diagnostic before replacing
   the dependency or changing signing.
-- Release regression comparison: the `bb24547f` Apple check succeeded; the
-  next commit, `b9d18dc6`, introduced the WebRTC binary dependency and began the
+- Release regression comparison: the `bb24547f` Apple check succeeded; the next
+  commit, `b9d18dc6`, introduced the WebRTC binary dependency and began the
   preparation failures. Its pinned Swift package omits the separately published
   WebRTC dSYMs. Matching symbols must be included before archive export. Local
   browser sign-out does not establish a cloud authentication failure, and the
@@ -61,33 +90,33 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   downloads the original M153 dSYM asset with a pinned SHA256, verifies embedded
   architecture UUIDs, and copies it before export. A real unsigned iOS archive
   succeeded, with framework and archived dSYM both reporting UUID
-  `4C4C4496-5555-3144-A149-A7E882FEE780`. Symbol upload remains enabled. The next
-  cloud distribution result must establish whether this resolves publishing;
-  local archive success does not establish TestFlight availability.
-- Build 13 logs now confirm successful cloud archiving, WebRTC symbol
-  packaging, and all exports. Its exported App Store IPA passes distribution
-  signature verification, but records the original WebRTC SDK as unsigned.
-  The user requested signing it: P4X now publishes an explicitly identified,
+  `4C4C4496-5555-3144-A149-A7E882FEE780`. Symbol upload remains enabled. The
+  next cloud distribution result must establish whether this resolves
+  publishing; local archive success does not establish TestFlight availability.
+- Build 13 logs now confirm successful cloud archiving, WebRTC symbol packaging,
+  and all exports. Its exported App Store IPA passes distribution signature
+  verification, but records the original WebRTC SDK as unsigned. The user
+  requested signing it: P4X now publishes an explicitly identified,
   timestamp-signed redistribution of the unchanged M153 XCFramework. Its
   immutable ZIP checksum is pinned by `apple/Vendor/WebRTC`. This addresses SDK
   signing provenance; Apple's final processing result remains the release gate.
 - Fresh resolution downloaded and cryptographically verified the P4X artifact.
   The resulting iOS archive succeeded and records WebRTC SDK `signed: true`,
-  `signatureType: AppleDeveloperProgram`, and team `6KXCJGJ45W`, with the original
-  matching dSYM retained. Cloud publishing and TestFlight availability remain
-  unverified for this change.
+  `signatureType: AppleDeveloperProgram`, and team `6KXCJGJ45W`, with the
+  original matching dSYM retained. Cloud publishing and TestFlight availability
+  remain unverified for this change.
 - Mac voice now builds with the shared authenticated transport, explicit
   microphone consent, a dedicated captions window, and keyboard controls. The
   iPhone regression build also passes. An actual hidden-window test verifies
   synchronous owning-window close callbacks, unrelated-window isolation, and
   observer removal. Physical media teardown and provider interaction still
   require qualification.
-- Phone and Mac now receive a single coordinator from `WorkspaceStore`.
-  Account revocation clears captions and disconnects media centrally; explicit
-  presentation ownership prevents duplicate starts and cross-surface stops.
-  The iPhone voice-screen journey and Mac build pass. This is a prerequisite
-  for the design in `apple/docs/CARPLAY-VOICE.md`, not a CarPlay scene or a
-  verified spoken conversation.
+- Phone and Mac now receive a single coordinator from `WorkspaceStore`. Account
+  revocation clears captions and disconnects media centrally; explicit
+  presentation ownership prevents duplicate starts and cross-surface stops. The
+  iPhone voice-screen journey and Mac build pass. This is a prerequisite for the
+  design in `apple/docs/CARPLAY-VOICE.md`, not a CarPlay scene or a verified
+  spoken conversation.
 
 - `36bf4cc0`: floating dock implementation pushed to PR 35. Three targeted
   Simulator UI tests and 29 Core tests passed in the preceding delivery turn.

@@ -1,3 +1,4 @@
+import { deploymentSecret } from "../deployment-config.ts";
 import { workerName } from "../../naming.ts";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -60,21 +61,31 @@ export default (
 					GOOGLE_CLIENT_ID: Cloudflare.SecretsStore.Secret("google-client-id", {
 						store,
 						name: `e2-${stage}-google-client-id`,
-						value: Config.redacted("GOOGLE_CLIENT_ID"),
+						value: deploymentSecret(
+							"GOOGLE_CLIENT_ID",
+							"google-client-id",
+							`e2-${stage}-google-client-id`,
+						),
 					}),
 					GOOGLE_CLIENT_SECRET: Cloudflare.SecretsStore.Secret(
 						"google-client-secret",
 						{
 							store,
 							name: `e2-${stage}-google-client-secret`,
-							value: Config.redacted("GOOGLE_CLIENT_SECRET"),
+							value: deploymentSecret(
+								"GOOGLE_CLIENT_SECRET",
+								"google-client-secret",
+								`e2-${stage}-google-client-secret`,
+							),
 						},
 					),
 					GITHUB_CLIENT_ID: Cloudflare.SecretsStore.Secret("github-client-id", {
 						store,
 						name: `e2-${stage}-github-client-id`,
-						value: Config.redacted("GITHUB_CLIENT_ID").pipe(
-							Config.withDefault(Redacted.make("")),
+						value: deploymentSecret(
+							"GITHUB_CLIENT_ID",
+							"github-client-id",
+							`e2-${stage}-github-client-id`,
 						),
 					}),
 					GITHUB_CLIENT_SECRET: Cloudflare.SecretsStore.Secret(
@@ -82,8 +93,10 @@ export default (
 						{
 							store,
 							name: `e2-${stage}-github-client-secret`,
-							value: Config.redacted("GITHUB_CLIENT_SECRET").pipe(
-								Config.withDefault(Redacted.make("")),
+							value: deploymentSecret(
+								"GITHUB_CLIENT_SECRET",
+								"github-client-secret",
+								`e2-${stage}-github-client-secret`,
 							),
 						},
 					),
