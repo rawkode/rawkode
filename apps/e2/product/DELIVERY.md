@@ -17,6 +17,31 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
+- Voice is the current release priority, followed strictly by tasks, meeting
+  capture, and offline editing. The local iPhone WebRTC conversation screen and
+  captions now compile; the signed-in server path, private Worker, session
+  ledger, sideband delegation, and bounded Cloudflare code-mode day reads are
+  wired. These changes are not yet deployed or verified with a real spoken call.
+- The user supplied the OpenAI key directly after 1Password authorization timed
+  out. It is now verified active in Cloudflare Secrets Store as
+  `e2-production-agent-openai-api-key`, scoped to Workers. The production voice
+  deployment references it without requiring its value during deployment.
+- The supplied project key authenticates successfully to OpenAI model discovery.
+  `gpt-live-1` returned 404 and was absent from its available voice-model list;
+  a real SDP session request is still needed to qualify Live access. Do not
+  silently substitute Realtime or claim a spoken conversation works.
+- Current verification: 51 Apple Core tests, the native voice opening journey,
+  48 voice/proxy contract tests, repository regression tests and all seven
+  Worker bundles pass. Real local workerd confirms fixture reads, denied network
+  access, absent host secrets and asynchronous cancellation. Its CPU budget is
+  not enforced locally; deployed CPU-limit qualification remains open.
+- The synthetic real-provider audio test is prepared on loopback without
+  microphone access. Automatic approval review requires explicit approval for
+  its capped paid session; no Live session has been started.
+- The user configured the Xcode Cloud branch trigger remotely. `bb24547f` was
+  pushed afterward; cloud build/upload completion remains unverified. Internal
+  tester-group automation is deferred at the user's direction.
+
 - `36bf4cc0`: floating dock implementation pushed to PR 35. Three targeted
   Simulator UI tests and 29 Core tests passed in the preceding delivery turn.
   Cloud Build 8 was started; tester availability has not been confirmed. On 13

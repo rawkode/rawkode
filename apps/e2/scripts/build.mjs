@@ -17,6 +17,7 @@ for (
 		"integrations-oauth",
 		"integrations-google",
 		"integrations-github",
+		"integrations-agent",
 		"api",
 		"core-documents",
 		"core-entities",

@@ -20,7 +20,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     private var nextGitHubCompletenessProbe = Date.distantPast
 
     public enum SessionError: LocalizedError {
-        case invalidOrigin, signInRequired, invalidResponse, responseTooLarge, invalidDocumentID, cancelled, captureConflict
+        case invalidOrigin, signInRequired, invalidResponse, responseTooLarge, invalidDocumentID, cancelled, captureConflict, voiceUnavailable, voiceNotPermitted
 
         public var errorDescription: String? {
             switch self {
@@ -30,6 +30,8 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             case .responseTooLarge: "The response is too large to open on this device."
             case .invalidDocumentID: "This document address is invalid."
             case .cancelled: "The connection changed. Please try again."
+            case .voiceUnavailable: "Voice is unavailable right now. No automatic retry was started."
+            case .voiceNotPermitted: "A voice session cannot start right now. An earlier session may still be closing, or your voice limit has been reached."
             case .captureConflict: "This capture already exists with different content. Your local copy is safe."
             }
         }
@@ -255,7 +257,30 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         url.port ?? (url.scheme == "https" ? 443 : 80)
     }
 
-    private func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false) async throws -> Data {
+    func createVoiceSession(sdp: String, requestID: String) async throws -> (id: String, sdp: String) {
+        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp, "device": "iphone", "requestID": requestID, "timeZone": TimeZone.current.identifier])
+        let data = try await read(path: "api/voice/sessions", body: body, limit: 96_000, allowCreated: true, voiceRequest: true)
+        struct Answer: Decodable {
+            struct Session: Decodable { let id: String }
+            struct Transport: Decodable { let type: String; let sdp: String }
+            let session: Session; let transport: Transport
+        }
+        let answer = try JSONDecoder().decode(Answer.self, from: data)
+        guard !answer.session.id.isEmpty, answer.session.id.count <= 256,
+              answer.transport.type == "webrtc", answer.transport.sdp.hasPrefix("v=0") else {
+            throw SessionError.invalidResponse
+        }
+        return (answer.session.id, answer.transport.sdp)
+    }
+
+    func endVoiceSession(id: String) async throws {
+        guard id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }) else {
+            throw SessionError.invalidResponse
+        }
+        _ = try await read(path: "api/voice/sessions/\(id)/end", body: Data("{}".utf8), limit: 4_096, voiceRequest: true)
+    }
+
+    private func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false, allowCreated: Bool = false, voiceRequest: Bool = false) async throws -> Data {
         let currentGeneration = generation
         let url = origin.appendingPathComponent(path)
         guard matchesOrigin(url) else { throw SessionError.invalidOrigin }
@@ -296,6 +321,12 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse,
               let responseURL = http.url, matchesOrigin(responseURL) else { throw SessionError.invalidResponse }
+        if voiceRequest && (http.statusCode == 403 || http.statusCode == 409 || http.statusCode == 429) {
+            throw SessionError.voiceNotPermitted
+        }
+        if voiceRequest && (http.statusCode == 404 || http.statusCode >= 500) {
+            throw SessionError.voiceUnavailable
+        }
         if http.statusCode == 401 || http.statusCode == 403 || (300..<400).contains(http.statusCode) {
             if currentGeneration == generation {
                 isConnected = false
@@ -305,7 +336,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             }
             throw SessionError.signInRequired
         }
-        guard http.statusCode == 200 || (allowConflict && http.statusCode == 409) || (allowOlderTodaySchema && http.statusCode == 400),
+        guard http.statusCode == 200 || (allowCreated && http.statusCode == 201) || (allowConflict && http.statusCode == 409) || (allowOlderTodaySchema && http.statusCode == 400),
               http.mimeType?.lowercased() == "application/json" else { throw SessionError.invalidResponse }
         if http.expectedContentLength > limit { throw SessionError.responseTooLarge }
         var result = Data()

@@ -20,6 +20,24 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testVoiceOpensWithoutStartingMicrophone() throws {
+        #if os(iOS)
+        let voice = app.buttons["openVoiceConversation"]
+        XCTAssertTrue(voice.waitForExistence(timeout: 5))
+        activate(voice)
+        let start = app.buttons["startVoiceConversation"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled)
+        XCTAssertEqual(app.staticTexts["voiceStatus"].label, "Talk through your day.")
+        XCTAssertFalse(app.buttons["End"].exists)
+        captureScreenshot("Voice ready Dawn")
+        activate(app.buttons["Done"])
+        XCTAssertTrue(voice.waitForExistence(timeout: 5))
+        #else
+        throw XCTSkip("Voice transport is currently an iPhone surface")
+        #endif
+    }
+
     func testMeetingNotesPersistAndRecordingRequiresAwareness() throws {
         #if os(iOS)
         openContext("Meeting capture")

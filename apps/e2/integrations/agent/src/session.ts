@@ -1,3 +1,4 @@
+import { withinVoiceDeadline } from "./deadline.ts";
 import {
 	type AuthConfig,
 	authenticate,
@@ -21,6 +22,13 @@ export interface VoiceDependencies {
 		requestID: string,
 		device: VoiceDevice,
 	): Promise<SessionPermit | null>;
+	attach?(
+		identity: Identity,
+		requestID: string,
+		sessionID: string,
+		request: Request,
+		context: { timeZone: string },
+	): Promise<void>;
 	fetch?: typeof fetch;
 	authenticate?: typeof authenticate;
 }
@@ -40,6 +48,11 @@ const readJSON = async (
 ): Promise<unknown> => {
 	if (!body) throw new Error("Missing body");
 	const reader = body.getReader();
+	let expired = false;
+	const deadline = setTimeout(() => {
+		expired = true;
+		void reader.cancel("Body deadline").catch(() => {});
+	}, 5000);
 	let size = 0;
 	const chunks: Uint8Array[] = [];
 	try {
@@ -54,8 +67,10 @@ const readJSON = async (
 			chunks.push(value);
 		}
 	} finally {
+		clearTimeout(deadline);
 		reader.releaseLock();
 	}
+	if (expired) throw new Error("Body deadline");
 	const bytes = new Uint8Array(size);
 	let offset = 0;
 	for (const chunk of chunks) {
@@ -69,7 +84,7 @@ const object = (value: unknown): Record<string, unknown> =>
 		? value as Record<string, unknown>
 		: {};
 
-/** Unmounted foundation: route only through the existing trusted Access gateway.
+/** Route only through the existing trusted Access gateway.
  * The request cannot select an owner, model, tool, prompt, endpoint or credential. */
 export const fetchVoiceSession = async (
 	request: Request,
@@ -85,9 +100,8 @@ export const fetchVoiceSession = async (
 	if (!sameOriginPost(request, env.WEBSITE_ORIGIN)) {
 		return json({ error: "Forbidden" }, 403);
 	}
-	const identity = await (dependencies.authenticate ?? authenticate)(
-		request,
-		env,
+	const identity = await withinVoiceDeadline(() =>
+		(dependencies.authenticate ?? authenticate)(request, env)
 	);
 	if (!identity) return json({ error: "Unauthorized" }, 401);
 	if (!request.headers.get("Content-Type")?.startsWith("application/json")) {
@@ -99,16 +113,25 @@ export const fetchVoiceSession = async (
 	} catch {
 		return json({ error: "Invalid request" }, 400);
 	}
-	const { sdp, device, requestID } = input;
+	const { sdp, device, requestID, timeZone = "UTC" } = input;
+	try {
+		if (
+			typeof timeZone !== "string" || timeZone.length > 100 ||
+			/^[+-]/.test(timeZone)
+		) throw new Error();
+		new Intl.DateTimeFormat("en", { timeZone });
+	} catch {
+		return json({ error: "Invalid time zone" }, 400);
+	}
 	if (
 		Object.keys(input).some((key) =>
-			!["sdp", "device", "requestID"].includes(key)
+			!["sdp", "device", "requestID", "timeZone"].includes(key)
 		) ||
 		typeof sdp !== "string" || !sdp.startsWith("v=0") || sdp.length > 60_000 ||
 		!["iphone", "carplay", "mac"].includes(String(device)) ||
 		typeof requestID !== "string" || !/^[a-zA-Z0-9_-]{16,80}$/.test(requestID)
 	) return json({ error: "Invalid request" }, 400);
-	const key = await env.OPENAI_API_KEY.get();
+	const key = await withinVoiceDeadline(() => env.OPENAI_API_KEY.get());
 	if (!key) return json({ error: "Voice is not configured" }, 503);
 	const permit = await dependencies.reserve(
 		identity,
@@ -160,6 +183,13 @@ export const fetchVoiceSession = async (
 		}
 		await permit.record({ state: "created", sessionID: createdSessionID });
 		receiptRecorded = true;
+		await dependencies.attach?.(
+			identity,
+			requestID,
+			createdSessionID,
+			request,
+			{ timeZone: timeZone as string },
+		);
 		if (!await permit.isCurrent()) {
 			return json({ error: "Voice session permission changed" }, 403);
 		}

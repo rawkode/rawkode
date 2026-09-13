@@ -13,6 +13,7 @@ export default (
 	api: Cloudflare.Worker,
 	documents: Cloudflare.Worker,
 	access: Effect.Success<typeof deploymentAccess>,
+	voice: Cloudflare.Worker,
 ) =>
 	Effect.Do.pipe(
 		Effect.bind("stage", () => Alchemy.Stage),
@@ -38,6 +39,7 @@ export default (
 					GITHUB: github,
 					GITHUB_ADMIN: Cloudflare.WorkerEntrypoint(github, "GitHubAdmin"),
 					API: api,
+					VOICE: voice,
 					DOCUMENTS_ADMIN: Cloudflare.WorkerEntrypoint(
 						documents,
 						"DocumentsAdmin",

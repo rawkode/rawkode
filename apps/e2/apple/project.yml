@@ -13,6 +13,9 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
 packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 153.0.0
   ApsidesCore:
     path: .
 targets:
@@ -56,6 +59,7 @@ targets:
       - path: Configuration/PrivacyInfo.xcprivacy
         buildPhase: resources
     dependencies:
+      - package: WebRTC
       - package: ApsidesCore
       - target: ApsidesWatch
         embed: true
@@ -74,7 +78,7 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
-        NSMicrophoneUsageDescription: Enchiridion uses the microphone to transcribe meetings you choose to record.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for voice conversations and meetings you choose to record.
         NSSpeechRecognitionUsageDescription: Enchiridion turns meeting audio into notes while you record.
         UILaunchScreen: {}
         UIApplicationSceneManifest:

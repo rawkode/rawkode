@@ -272,3 +272,30 @@ Deno.test("session handler uses durable reservation to prevent a second provider
 	assert.equal(providerCalls, 1);
 	assert.equal((await ledger.receipts())[0]?.sessionID, "live_once");
 });
+
+Deno.test("closed receipt archival frees hot capacity without replaying archived requests", async () => {
+	const { storage } = fixtureStorage();
+	let now = Date.UTC(2026, 8, 13);
+	const ledger = createVoiceReservations(storage, owner.ownerId, {
+		...policy,
+		maximumRecords: 1,
+	}, () => now);
+	await ledger.setEnabled(true);
+	const first = await ledger.reserve(owner, id(1), "iphone");
+	assert.ok(first);
+	await first.record({ state: "created", sessionID: "session1" });
+	await ledger.reconcile(id(1), { state: "closed", sessionID: "session1" });
+	now += 86400000;
+	const second = await ledger.reserve(owner, id(2), "iphone");
+	assert.ok(second);
+	assert.equal(await ledger.reserve(owner, id(1), "iphone"), null);
+	await second.record({ state: "created", sessionID: "session2" });
+	await ledger.reconcile(id(2), { state: "closed", sessionID: "session2" });
+	const restored = createVoiceReservations(storage, owner.ownerId, {
+		...policy,
+		maximumRecords: 1,
+	}, () => now);
+	assert.equal(await restored.reserve(owner, id(1), "iphone"), null);
+	await first.record({ state: "created", sessionID: "session1" });
+	assert.equal(await restored.isSessionActive("session1"), false);
+});

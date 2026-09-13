@@ -5,6 +5,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import website from "./website/alchemy.ts";
 import api from "./api/alchemy.ts";
+import voice from "./integrations/agent/alchemy.ts";
 import { deploymentAccess } from "./website/access.ts";
 import oauth, { secretStore } from "./integrations/oauth/alchemy.ts";
 import google, {
@@ -51,8 +52,12 @@ export default Alchemy.Stack(
 				),
 		),
 		Effect.bind(
+			"voice",
+			({ api, access, store }) => voice(api, access, store),
+		),
+		Effect.bind(
 			"website",
-			({ oauth, integrations, api, access, documents }) =>
+			({ oauth, integrations, api, access, documents, voice }) =>
 				website(
 					oauth,
 					integrations.google,
@@ -60,15 +65,17 @@ export default Alchemy.Stack(
 					api,
 					documents,
 					access,
+					voice,
 				),
 		),
 		Effect.map((
-			{ oauth, integrations, website, api, documents, entities },
+			{ oauth, integrations, website, api, documents, entities, voice },
 		) => ({
 			documents: documents.workerName,
 			entities: entities.workerName,
 			website: website.url,
 			api: api.workerName,
+			voice: voice.workerName,
 			oauth: oauth.workerName,
 			google: integrations.google.workerName,
 			github: integrations.github.workerName,

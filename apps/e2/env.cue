@@ -15,7 +15,7 @@ tasks: {
 	install: schema.#Task & {
 		command: "deno"
 		args: ["install", "--frozen"]
-		inputs: ["deno.json", "deno.lock", "**/deno.json"]
+		inputs: ["deno.json", "deno.lock", "package.json", "**/deno.json"]
 		hermetic: false
 		cache: mode: "never"
 	}

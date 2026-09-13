@@ -69,7 +69,11 @@ export const createVoiceReservations = (
 		)
 	) throw new Error("Invalid voice policy");
 	const transact = <T>(
-		action: (ledger: Ledger, now: number) => T | Promise<T>,
+		action: (
+			ledger: Ledger,
+			now: number,
+			transaction: VoiceTransaction,
+		) => T | Promise<T>,
 	) =>
 		storage.transaction(async (transaction) => {
 			const now = clock();
@@ -89,7 +93,7 @@ export const createVoiceReservations = (
 					row.state = "unknown";
 				}
 			}
-			const result = await action(ledger, now);
+			const result = await action(ledger, now, transaction);
 			await transaction.put(key, ledger);
 			return result;
 		});
@@ -114,7 +118,20 @@ export const createVoiceReservations = (
 				!["iphone", "carplay", "mac"].includes(device)
 			) return null;
 			const nonce = crypto.randomUUID();
-			const admitted = await transact((ledger, now) => {
+			const admitted = await transact(async (ledger, now, transaction) => {
+				if (await transaction.get(`voice-closed:${requestID}`)) return false;
+				// Move prior-day closed receipts out of the bounded hot ledger without
+				// forgetting request IDs. Same-day rows retain daily-attempt accounting.
+				const archived = ledger.reservations.filter((row) =>
+					row.state === "closed" && utcDay(row.createdAt) !== utcDay(now)
+				);
+				for (const row of archived) {
+					await transaction.put(`voice-closed:${row.requestID}`, row);
+				}
+				ledger.reservations = ledger.reservations.filter((row) =>
+					!archived.includes(row)
+				);
+				if (archived.some((row) => row.requestID === requestID)) return false;
 				if (
 					!ledger.enabled || ledger.reservations.some((row) =>
 						row.requestID === requestID
@@ -152,11 +169,26 @@ export const createVoiceReservations = (
 						);
 					}),
 				record: (outcome: SessionOutcome) =>
-					transact((ledger) => {
-						const row = ledger.reservations.find((candidate) =>
+					transact(async (ledger, _now, transaction) => {
+						let row = ledger.reservations.find((candidate) =>
 							candidate.requestID === requestID && candidate.nonce === nonce
 						);
-						if (!row) throw new Error("Unknown voice reservation");
+						if (!row) {
+							const archived = await transaction.get<Reservation>(
+								`voice-closed:${requestID}`,
+							);
+							if (archived?.nonce === nonce) {
+								if (
+									archived.sessionID ===
+										(outcome.state === "created"
+											? outcome.sessionID
+											: undefined)
+								) return;
+								row = archived;
+								ledger.reservations.push(row);
+							}
+							if (!row) throw new Error("Unknown voice reservation");
+						}
 						if (outcome.state === "created") {
 							if (
 								!outcome.sessionID || outcome.sessionID.length > 256 ||
@@ -198,6 +230,15 @@ export const createVoiceReservations = (
 				row.state = "closed";
 				row.closedAt ??= now;
 			}),
+		/** Ongoing authorization is independent of the short creation lease. */
+		isSessionActive: (sessionID: string): Promise<boolean> =>
+			transact((ledger) =>
+				ledger.enabled &&
+				ledger.reservations.some((row) =>
+					row.sessionID === sessionID && row.state === "created" &&
+					row.grantVersion === ledger.grantVersion
+				)
+			),
 		/** Owner-scoped reconciliation view: never includes nonce, tokens or SDP. */
 		receipts: (): Promise<VoiceReceipt[]> =>
 			transact((ledger) => ledger.reservations.map(publicReceipt)),

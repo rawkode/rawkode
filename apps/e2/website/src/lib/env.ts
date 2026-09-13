@@ -25,6 +25,7 @@ interface GitHubAppAdminApi {
 
 export interface WebsiteEnv extends AuthConfig {
 	API: Fetcher;
+	VOICE: Fetcher;
 	DOCUMENTS_ADMIN: { admin(owner: string): Promise<Remote<DocumentsApi>> };
 	OAUTH: Fetcher;
 	OAUTH_ADMIN: { admin(owner: string): Promise<Remote<OAuthAdminApi>> };

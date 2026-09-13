@@ -32,7 +32,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Enchiridion uses the microphone to transcribe meetings you choose to record.</string>
+	<string>Enchiridion uses the microphone for voice conversations and meetings you choose to record.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Enchiridion turns meeting audio into notes while you record.</string>
 	<key>UIApplicationSceneManifest</key>

@@ -9,6 +9,7 @@ struct PhoneTodayView: View {
     @State private var selectedDay = Date()
     @State private var dockRecenter = 0
     @State private var searchPresented = false
+    @State private var voicePresented = false
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @StateObject private var editor: WebEditorController
     @State private var notesPresented = false
@@ -27,6 +28,7 @@ struct PhoneTodayView: View {
                 notesControl.padding(.top, 8).padding(.bottom, 12)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $voicePresented) { VoiceConversationView(session: store.session) }
             .sheet(isPresented: $searchPresented) {
                 DaySearchView(store: store)
             }
@@ -81,6 +83,8 @@ struct PhoneTodayView: View {
                     Image(systemName: "chevron.up").font(.caption)
                 }.frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("dailyNotePreview")
+            Button { voicePresented = true } label: { Label("Talk to Enchiridion", systemImage: "waveform").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }
+                .buttonStyle(.plain).accessibilityIdentifier("openVoiceConversation")
             Divider().overlay(theme.ink.opacity(0.06))
             HStack(spacing: 16) {
                 Button {
