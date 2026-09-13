@@ -22,12 +22,21 @@ final class ApsidesUITests: XCTestCase {
 
     func testVoiceOpensWithoutStartingMicrophone() throws {
         #if os(iOS)
+        app.terminate()
+        app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = "http://127.0.0.1:9"
+        app.launch()
         let voice = app.buttons["openVoiceConversation"]
         XCTAssertTrue(voice.waitForExistence(timeout: 5))
         activate(voice)
-        let start = app.buttons["startVoiceConversation"]
-        XCTAssertTrue(start.waitForExistence(timeout: 5))
-        XCTAssertFalse(start.isEnabled)
+        let signIn = app.buttons["voiceSignIn"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 25))
+        XCTAssertTrue(signIn.isEnabled)
+        XCTAssertFalse(app.buttons["startVoiceConversation"].exists)
+        XCTAssertTrue(app.buttons["voiceRetryConnection"].isEnabled)
+        activate(signIn)
+        XCTAssertTrue(app.buttons["Check connection"].waitForExistence(timeout: 5))
+        activate(app.buttons["Cancel"])
+        XCTAssertTrue(signIn.waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["voiceStatus"].label, "Talk through your day.")
         XCTAssertFalse(app.buttons["End"].exists)
         captureScreenshot("Voice ready Dawn")

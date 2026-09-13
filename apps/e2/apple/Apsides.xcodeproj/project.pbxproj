@@ -18,6 +18,7 @@
 		1D2F0B9C2C1710A1AA13D305 /* CaptureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */; };
 		215CD3D6E955492C1DD73D6F /* VoiceWindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */; };
 		223DE6C141386DDE5543C67E /* MeetingRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA8086D3419903EC741D330 /* MeetingRecorder.swift */; };
+		26ADFE7E087C046CAF95FDD4 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
 		3234CD0241817E0CA74578C7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BE1B8C546F541BE80A452D /* Theme.swift */; };
 		39B389E75543649FED8AB0BB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1EA8645593814310160E36B3 /* ApsidesCore */; };
 		43B89668E105556DE7A4E71F /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
@@ -49,6 +50,7 @@
 		9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
 		A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
+		A785BF9A9B0719A3E82525F5 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
 		A7FF93D129B2BBB759DE85BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
 		BC1DE2339B8F1B71CABD83E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		BCE3B588C96AD83010123AA0 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 53AF96BC55A2445438CAF7FC /* WebRTC */; };
@@ -144,6 +146,7 @@
 		4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorController.swift; sourceTree = "<group>"; };
 		513A50F329344A47E70A5AC4 /* CalendarColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarColor.swift; sourceTree = "<group>"; };
 		531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWatchApp.swift; sourceTree = "<group>"; };
+		60E30302D821BED417572F77 /* VoiceAccountConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAccountConnection.swift; sourceTree = "<group>"; };
 		64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWidget.swift; sourceTree = "<group>"; };
 		65DEAF02C8A45C90F662FBAC /* WebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebRTC; path = Vendor/WebRTC; sourceTree = SOURCE_ROOT; };
 		686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCaptureView.swift; sourceTree = "<group>"; };
@@ -294,6 +297,7 @@
 				3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */,
 				97BE1B8C546F541BE80A452D /* Theme.swift */,
 				6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */,
+				60E30302D821BED417572F77 /* VoiceAccountConnection.swift */,
 				D3938667AE812877F1896C8F /* VoiceCaptionList.swift */,
 				81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */,
 				ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */,
@@ -629,6 +633,7 @@
 				93753900B113140E073F5356 /* SettingsView.swift in Sources */,
 				3234CD0241817E0CA74578C7 /* Theme.swift in Sources */,
 				48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */,
+				A785BF9A9B0719A3E82525F5 /* VoiceAccountConnection.swift in Sources */,
 				C15C71579C939BE2BEC34009 /* VoiceCaptionList.swift in Sources */,
 				1B6DA89A30D1026BAC4985B1 /* VoiceConversation.swift in Sources */,
 				FDDA5065CF7CB81D5194E2E6 /* VoiceConversationView.swift in Sources */,
@@ -662,6 +667,7 @@
 				749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */,
 				7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */,
 				FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */,
+				26ADFE7E087C046CAF95FDD4 /* VoiceAccountConnection.swift in Sources */,
 				D2B9B3672FABA68F51E8A5A6 /* VoiceCaptionList.swift in Sources */,
 				D54D6264BB64AA351EB04168 /* VoiceConversation.swift in Sources */,
 				C6F1891578C1740B8F782100 /* VoiceConversationView.swift in Sources */,

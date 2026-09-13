@@ -44,13 +44,13 @@ struct VoiceConversationView: View {
                             Label(conversation.isMuted ? "Unmute" : "Mute", systemImage: conversation.isMuted ? "mic.slash" : "mic")
                         }.buttonStyle(.glass).disabled(conversation.phase != .connected)
                         Button("End", role: .destructive) { Task { await conversation.stop(surface: .iphone) } }.buttonStyle(.glassProminent)
-                    } else {
+                    } else if session.isConnected {
                         Button { conversation.start(surface: .iphone) } label: { Label("Start conversation", systemImage: "waveform") }
                             .buttonStyle(.glassProminent).disabled(!session.isConnected || conversation.surface != nil)
                             .accessibilityIdentifier("startVoiceConversation")
                     }
                 }.controlSize(.large)
-                if !session.isConnected { Text("Connect your account in Settings first.").font(.footnote) }
+                if !session.isConnected { VoiceAccountConnection(session: session) }
             }
             .padding(28).padding(.bottom, 24)
             .frame(maxWidth: .infinity).background(theme.canvas).foregroundStyle(theme.ink)

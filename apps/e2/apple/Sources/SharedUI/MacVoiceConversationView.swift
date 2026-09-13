@@ -42,14 +42,14 @@ struct MacVoiceConversationView: View {
                     Spacer()
                     Button("End conversation", role: .destructive) { Task { await conversation.stop(surface: .mac) } }
                         .buttonStyle(.glassProminent).keyboardShortcut(".", modifiers: .command)
-                } else {
-                    if !session.isConnected { Text("Connect your account in Settings first.").font(.footnote).foregroundStyle(theme.secondary) }
+                } else if session.isConnected {
                     Spacer()
                     Button { conversation.start(surface: .mac) } label: { Label("Start conversation", systemImage: "waveform") }
                         .buttonStyle(.glassProminent).keyboardShortcut(.return, modifiers: .command)
                         .disabled(!session.isConnected || conversation.surface != nil).accessibilityIdentifier("startVoiceConversation")
                 }
             }.controlSize(.large)
+            if !session.isConnected { VoiceAccountConnection(session: session) }
         }
         .padding(28).frame(minWidth: 480, minHeight: 400)
         .background(theme.canvas).foregroundStyle(theme.ink)
