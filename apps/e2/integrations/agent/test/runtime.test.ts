@@ -57,6 +57,52 @@ const start = () =>
 		device: "iphone",
 		requestID: "request-number-0001",
 	});
+Deno.test("voice status exposes only the verified owner's receipts without provider access", async () => {
+	const disk = storage();
+	const ledger = createVoiceReservations(disk, owner.ownerId);
+	await ledger.setEnabled(true);
+	const permit = await ledger.reserve(owner, "request-number-0001", "iphone");
+	assert.ok(permit);
+	await permit.record({ state: "created", sessionID: "live_owned" });
+	let current: typeof owner | null = owner;
+	let providerCalls = 0;
+	let secretReads = 0;
+	const handler = createOwnerVoiceRuntime(disk, owner, {
+		...env,
+		OPENAI_API_KEY: {
+			get: () => {
+				secretReads++;
+				throw new Error("Status must not read model credentials");
+			},
+		},
+	}, {
+		authenticate: () => Promise.resolve(current),
+		fetch: (() => {
+			providerCalls++;
+			throw new Error("Status must not call the provider");
+		}) as typeof fetch,
+	});
+	const response = await handler(request("/api/voice/status"));
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get("Cache-Control"), "no-store");
+	assert.deepEqual(await response.json(), {
+		receipts: await ledger.receipts(),
+	});
+	current = { ownerId: "access:bob", email: "bob@example.com" };
+	assert.equal((await handler(request("/api/voice/status"))).status, 401);
+	current = null;
+	assert.equal((await handler(request("/api/voice/status"))).status, 401);
+	current = owner;
+	const crossOrigin = request("/api/voice/status");
+	crossOrigin.headers.set("Origin", "https://foreign.example.com");
+	assert.equal((await handler(crossOrigin)).status, 403);
+	assert.equal(
+		(await handler(new Request(origin + "/api/voice/status"))).status,
+		403,
+	);
+	assert.equal(providerCalls, 0);
+	assert.equal(secretReads, 0);
+});
 Deno.test("owner runtime grants explicit start, verifies provider hangup, and idempotently ends", async () => {
 	const disk = storage();
 	const calls: string[] = [];

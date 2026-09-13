@@ -42,6 +42,9 @@ export const createOwnerVoiceRuntime = (
 			return json({ error: "Unauthorized" }, 401);
 		}
 		const path = new URL(request.url).pathname;
+		if (path === "/api/voice/status") {
+			return json({ receipts: await ledger.receipts() });
+		}
 		if (path === "/api/voice/sessions") {
 			return fetchVoiceSession(request, env, {
 				...dependencies,

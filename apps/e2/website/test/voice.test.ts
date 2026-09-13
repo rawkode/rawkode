@@ -3,6 +3,32 @@ import { forwardVoiceRequest } from "../src/lib/voice.ts";
 
 const origin = "https://apsides.rawkode.academy";
 
+Deno.test("voice proxy forwards POST status and rejects GET status", async () => {
+	let calls = 0;
+	const binding = {
+		fetch: (input: RequestInfo | URL) => {
+			calls++;
+			const forwarded = input as Request;
+			expect(forwarded.url).toBe(`${origin}/api/voice/status`);
+			expect(forwarded.method).toBe("POST");
+			return Promise.resolve(Response.json({ receipts: [] }));
+		},
+	};
+	const response = await forwardVoiceRequest(
+		new Request(`${origin}/api/voice/status`, { method: "POST" }),
+		binding,
+	);
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ receipts: [] });
+	expect(
+		(await forwardVoiceRequest(
+			new Request(`${origin}/api/voice/status`),
+			binding,
+		)).status,
+	).toBe(405);
+	expect(calls).toBe(1);
+});
+
 Deno.test("voice proxy preserves protocol authentication without forwarding ambient credentials", async () => {
 	const request = new Request(`${origin}/api/voice/sessions`, {
 		method: "POST",
