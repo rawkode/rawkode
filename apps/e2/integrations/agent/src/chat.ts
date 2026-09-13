@@ -1,3 +1,4 @@
+import { REASONING_DEADLINE_MS } from "./reasoner-budget.ts";
 import type {
 	VoiceDelegationRequest,
 	VoiceTranscriptFragment,
@@ -108,7 +109,7 @@ export const runChat = async (
 		request: VoiceDelegationRequest,
 		input: ChatInput,
 	) => Promise<string>,
-	milliseconds = 30000,
+	milliseconds = REASONING_DEADLINE_MS,
 ): Promise<string> => {
 	const controller = new AbortController();
 	const cancel = () => controller.abort();

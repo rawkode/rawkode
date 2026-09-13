@@ -223,7 +223,10 @@ Deno.test("oversized or failed results are redacted and wrong-session close cann
 	);
 	delegate(f);
 	await tick();
-	assert.equal(String(f.sent[1].content).includes("couldn't verify"), true);
+	assert.equal(
+		String(f.sent[1].content).includes("outcome is unconfirmed"),
+		true,
+	);
 	f.emit({ type: "session.closed", session: { id: "someone_else" } });
 	assert.equal((await control.finished).finalized, false);
 	assert.equal(saved, 0);
@@ -241,9 +244,99 @@ Deno.test("work and attach deadlines terminate adapters that ignore cancellation
 	);
 	delegate(f);
 	await new Promise((resolve) => setTimeout(resolve, 30));
-	assert.equal(String(f.sent[1].content).includes("couldn't verify"), true);
+	assert.equal(
+		String(f.sent[1].content).includes("outcome is unconfirmed"),
+		true,
+	);
 	f.finish();
 	await control.finished;
+});
+Deno.test("an unconfirmed write is not retried and late completion cannot replace its uncertainty result", async () => {
+	for (const failure of ["rejection", "deadline"] as const) {
+		const f = fixture();
+		let writes = 0;
+		let complete!: (value: string) => void;
+		let executionSignal: AbortSignal | undefined;
+		const diagnostics: { stage: string }[] = [];
+		const control = await attachLiveSideband(base(f, {
+			limits: { workMs: 5, closeMs: 10 },
+			diagnostic: (event) => diagnostics.push(event),
+			execute: ({ signal }) => {
+				writes++;
+				executionSignal = signal;
+				// Persistence happened before the response failed or its deadline expired.
+				return failure === "rejection"
+					? Promise.reject(new Error("private persisted value"))
+					: new Promise((resolve) => {
+						complete = resolve;
+					});
+			},
+		}));
+		delegate(f);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const results = () =>
+			f.sent.filter((event) => event.type === "session.commentary.append");
+		assert.equal(results().length, 1);
+		const content = String(results()[0].content);
+		assert.ok(content.includes("may already have been saved"));
+		assert.ok(content.includes("do not retry the change"));
+		assert.ok(content.includes("Verify the current state with a read"));
+		assert.ok(!content.includes("private persisted value"));
+		assert.ok(new TextEncoder().encode(content).length <= 480);
+		if (failure === "deadline") {
+			assert.equal(executionSignal?.aborted, true);
+			complete("Saved successfully.");
+		}
+		// Provider redelivery of the same delegation must not repeat the mutation.
+		delegate(f);
+		await tick();
+		assert.equal(writes, 1);
+		assert.equal(results().length, 1);
+		assert.ok(
+			!diagnostics.some((event) => event.stage === "execution_completed"),
+		);
+		f.finish();
+		await control.finished;
+	}
+});
+Deno.test("production default allows voice work beyond the previous twelve-second cutoff", async () => {
+	const f = fixture();
+	let completed = false;
+	let workTimer: ReturnType<typeof setTimeout> | undefined;
+	let executionSignal: AbortSignal | undefined;
+	let resultSent!: () => void;
+	const result = new Promise<void>((resolve) => {
+		resultSent = resolve;
+	});
+	const control = await attachLiveSideband(base(f, {
+		limits: { closeMs: 10 },
+		diagnostic: (event) => {
+			if (event.stage === "commentary_sent") resultSent();
+		},
+		execute: async ({ signal }) => {
+			executionSignal = signal;
+			await new Promise((resolve) => {
+				workTimer = setTimeout(resolve, 13_000);
+			});
+			completed = true;
+			return "Verified the saved change.";
+		},
+	}));
+	try {
+		delegate(f);
+		await result;
+		assert.equal(completed, true);
+		assert.equal(
+			f.sent.find((event) => event.type === "session.commentary.append")
+				?.content,
+			"Verified the saved change.",
+		);
+	} finally {
+		clearTimeout(workTimer);
+		f.finish();
+		await control.finished;
+		assert.equal(executionSignal?.aborted, true);
+	}
 });
 Deno.test("failed initial authorization never connects", async () => {
 	const f = fixture();

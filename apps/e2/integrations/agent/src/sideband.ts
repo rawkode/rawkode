@@ -1,5 +1,6 @@
 import { VoiceExecutionError } from "./execution-limits.ts";
 import { type ChatInput, parseChatInput } from "./chat.ts";
+import { REASONING_DEADLINE_MS } from "./reasoner-budget.ts";
 /** GPT-Live server-side control. Media remains on the primary WebRTC connection. */
 export interface LiveControlSocket {
 	accept(): void;
@@ -230,7 +231,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		typeof value === "number" && Number.isFinite(value) && value > 0
 			? Math.min(value, fallback)
 			: fallback;
-	const workMs = duration(options.limits?.workMs, 12_000);
+	const workMs = duration(options.limits?.workMs, REASONING_DEADLINE_MS);
 	const closeMs = duration(options.limits?.closeMs, 5_000);
 	if (!await bounded(() => options.authorize(), 2_000)) {
 		throw new Error("Voice permission unavailable");
@@ -555,7 +556,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 				if (!closing && !terminal) {
 					append(
 						delegationID,
-						"I couldn't verify that information. Please try again.",
+						"The operation's outcome is unconfirmed. A requested change may already have been saved. Tell the user you could not confirm completion; do not claim success or failure, and do not retry the change. Verify the current state with a read before proposing any further change.",
 						true,
 					);
 				}

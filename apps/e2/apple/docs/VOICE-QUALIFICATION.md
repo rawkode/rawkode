@@ -66,3 +66,14 @@ Fixture retained: `Enchiridion voice verification 2026-09-13`, URL
 production typed mutation and persistence, not native spoken mutation. The
 agent regression directory passed 93 tests; the SDK policy regression includes
 exactly-one-write and prior-result continuation assertions.
+
+## Spoken reasoning deadline parity
+
+Speak previously limited delegated work to 12 seconds while Type allowed 30.
+The live multi-step typed update took longer than the spoken limit. Both now
+use a shared 30-second reasoning bound; executor calls still have a 5-second
+limit and each turn retains the 12-connector-call budget. Ending a call cancels
+work immediately. Failure commentary now explains that a change may already
+have persisted and directs read-only verification before any further change,
+rather than inviting a retry. This is deployed backend behavior; actual native
+spoken completion remains to be qualified.
