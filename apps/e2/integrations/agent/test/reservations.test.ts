@@ -317,3 +317,87 @@ Deno.test("rejected attempts retain daily quota and cannot erase a known provide
 	await ledger.reconcile(id(2), { state: "closed", sessionID: "live_2" });
 	assert.equal(await ledger.reserve(owner, id(3), "iphone"), null);
 });
+
+Deno.test("explicit unknown recovery preserves uncertainty, replay history and daily quota", async () => {
+	let now = 1000;
+	const { storage } = fixtureStorage();
+	const ledger = createVoiceReservations(
+		storage,
+		owner.ownerId,
+		policy,
+		() => now,
+	);
+	await ledger.setEnabled(true);
+	const first = await ledger.reserve(owner, id(1), "iphone");
+	assert.ok(first);
+	await first.record({ state: "unknown" });
+	assert.equal(await ledger.recoverUnknown(owner, id(1), true), false);
+	now += policy.creationLeaseMs;
+	assert.equal(
+		await ledger.recoverUnknown(
+			{ ...owner, ownerId: "access:bob" },
+			id(1),
+			true,
+		),
+		false,
+	);
+	assert.equal(await ledger.recoverUnknown(owner, id(1), false), false);
+	assert.equal(await ledger.recoverUnknown(owner, id(1), true), true);
+	const recovered = (await ledger.receipts())[0];
+	assert.equal(recovered.state, "unknown");
+	assert.equal(recovered.recoveredAt, now);
+	assert.equal(recovered.closedAt, undefined);
+	assert.equal(await ledger.reserve(owner, id(1), "iphone"), null);
+	const second = await ledger.reserve(owner, id(2), "iphone");
+	assert.ok(second);
+	await second.record({ state: "unknown" });
+	now += policy.creationLeaseMs;
+	assert.equal(await ledger.recoverUnknown(owner, id(2), true), true);
+	assert.equal(await ledger.reserve(owner, id(3), "iphone"), null);
+	assert.equal((await ledger.receipts()).length, 2);
+});
+
+Deno.test("recovery refuses known sessions and late session receipts restore concurrency accounting", async () => {
+	let now = 1000;
+	const { storage } = fixtureStorage();
+	const ledger = createVoiceReservations(
+		storage,
+		owner.ownerId,
+		policy,
+		() => now,
+	);
+	await ledger.setEnabled(true);
+	const permit = await ledger.reserve(owner, id(1), "iphone");
+	assert.ok(permit);
+	now += policy.creationLeaseMs;
+	assert.equal(await ledger.recoverUnknown(owner, id(1), true), true);
+	await permit.record({ state: "created", sessionID: "live_late" });
+	assert.equal(await ledger.recoverUnknown(owner, id(1), true), false);
+	assert.equal((await ledger.receipts())[0].sessionID, "live_late");
+	assert.equal(await ledger.reserve(owner, id(2), "iphone"), null);
+});
+
+Deno.test("recovered attempt cannot regain authority after a replacement starts", async () => {
+	let now = 1000;
+	const { storage } = fixtureStorage();
+	const ledger = createVoiceReservations(
+		storage,
+		owner.ownerId,
+		policy,
+		() => now,
+	);
+	await ledger.setEnabled(true);
+	const old = await ledger.reserve(owner, id(1), "iphone");
+	assert.ok(old);
+	now += policy.creationLeaseMs;
+	assert.equal(await ledger.recoverUnknown(owner, id(1), true), true);
+	const replacement = await ledger.reserve(owner, id(2), "iphone");
+	assert.ok(replacement);
+	await replacement.record({ state: "created", sessionID: "live_new" });
+	await old.record({ state: "created", sessionID: "live_old" });
+	assert.equal(await old.isCurrent(), false);
+	assert.equal(await ledger.isSessionActive("live_old"), false);
+	assert.equal(await replacement.isCurrent(), true);
+	assert.equal(await ledger.isSessionActive("live_new"), true);
+	assert.equal((await ledger.receipts())[0].sessionID, "live_old");
+});

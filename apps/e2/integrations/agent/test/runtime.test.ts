@@ -274,3 +274,59 @@ Deno.test("explicit provider rejection releases concurrency while preserving req
 	assert.equal(rows[0].sessionID, undefined);
 	assert.equal(rows[1].state, "created");
 });
+
+Deno.test("recovery requires explicit owner acknowledgement and never calls the provider", async () => {
+	const disk = storage();
+	const ledger = createVoiceReservations(
+		disk,
+		owner.ownerId,
+		undefined,
+		() => 1000,
+	);
+	await ledger.setEnabled(true);
+	assert.ok(await ledger.reserve(owner, "request-number-0001", "iphone"));
+	let current = owner;
+	const handler = createOwnerVoiceRuntime(disk, owner, env, {
+		authenticate: () => Promise.resolve(current),
+		fetch: (() => {
+			throw new Error("Must not call provider");
+		}) as typeof fetch,
+	});
+	const payload = {
+		requestID: "request-number-0001",
+		acknowledgeUnconfirmedSession: true,
+	};
+	for (
+		const body of [{ requestID: payload.requestID }, {
+			...payload,
+			acknowledgeUnconfirmedSession: false,
+		}]
+	) {
+		assert.equal(
+			(await handler(request("/api/voice/recovery", body))).status,
+			400,
+		);
+	}
+	current = { ownerId: "access:bob", email: "bob@example.com" };
+	assert.equal(
+		(await handler(request("/api/voice/recovery", payload))).status,
+		401,
+	);
+	current = owner;
+	const response = await handler(request("/api/voice/recovery", payload));
+	assert.equal(response.status, 200);
+	const body = await response.json() as {
+		receipts: { state: string; recoveredAt?: number }[];
+	};
+	assert.equal(body.receipts[0].state, "unknown");
+	assert.equal(typeof body.receipts[0].recoveredAt, "number");
+	assert.equal(
+		(await handler(
+			request("/api/voice/recovery", {
+				...payload,
+				requestID: "request-number-9999",
+			}),
+		)).status,
+		409,
+	);
+});

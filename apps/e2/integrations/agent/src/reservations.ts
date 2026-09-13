@@ -32,6 +32,7 @@ export type VoiceReceipt = {
 	state: "reserved" | "unknown" | "created" | "closed";
 	sessionID?: string;
 	closedAt?: number;
+	recoveredAt?: number;
 };
 type Reservation = VoiceReceipt & { nonce: string; grantVersion: number };
 type Ledger = {
@@ -51,6 +52,7 @@ const publicReceipt = (row: Reservation): VoiceReceipt => ({
 	state: row.state,
 	...(row.sessionID ? { sessionID: row.sessionID } : {}),
 	...(row.closedAt === undefined ? {} : { closedAt: row.closedAt }),
+	...(row.recoveredAt === undefined ? {} : { recoveredAt: row.recoveredAt }),
 });
 
 /** One owner per Durable Object. Bind ownerID from verified identity, not any
@@ -137,7 +139,11 @@ export const createVoiceReservations = (
 						row.requestID === requestID
 					) ||
 					ledger.reservations.length >= policy.maximumRecords ||
-					ledger.reservations.filter((row) => row.state !== "closed").length >=
+					ledger.reservations.filter((row) =>
+							row.state !== "closed" &&
+							!(row.state === "unknown" && !row.sessionID &&
+								row.recoveredAt !== undefined)
+						).length >=
 						policy.maximumConcurrent ||
 					ledger.reservations.filter((row) =>
 							utcDay(row.createdAt) === utcDay(now)
@@ -162,7 +168,7 @@ export const createVoiceReservations = (
 							candidate.requestID === requestID && candidate.nonce === nonce
 						);
 						return Boolean(
-							ledger.enabled && row &&
+							ledger.enabled && row && row.recoveredAt === undefined &&
 								row.grantVersion === ledger.grantVersion &&
 								(row.state === "reserved" || row.state === "created") &&
 								row.leaseExpiresAt > now,
@@ -214,6 +220,27 @@ export const createVoiceReservations = (
 					}),
 			};
 		},
+		/** Explicit owner acceptance of uncertainty; never a provider-close receipt. */
+		recoverUnknown: (
+			identity: Identity,
+			requestID: string,
+			acknowledgeUnconfirmedSession: boolean,
+		): Promise<boolean> => {
+			if (
+				identity.ownerId !== ownerID || acknowledgeUnconfirmedSession !== true
+			) return Promise.resolve(false);
+			return transact((ledger, now) => {
+				const row = ledger.reservations.find((row) =>
+					row.requestID === requestID
+				);
+				if (
+					!row || row.state !== "unknown" || row.sessionID ||
+					row.leaseExpiresAt > now
+				) return false;
+				row.recoveredAt ??= now;
+				return true;
+			});
+		},
 		/** Reconciliation belongs to trusted lifecycle code, never generated code.
 		 * A provider-close receipt must match the known session. Unknown attempts
 		 * require independently verified no-session evidence before release. */
@@ -244,6 +271,7 @@ export const createVoiceReservations = (
 				ledger.enabled &&
 				ledger.reservations.some((row) =>
 					row.sessionID === sessionID && row.state === "created" &&
+					row.recoveredAt === undefined &&
 					row.grantVersion === ledger.grantVersion
 				)
 			),

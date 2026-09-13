@@ -6,6 +6,7 @@ export const forwardVoiceRequest = (
 	const path = new URL(request.url).pathname;
 	if (
 		path !== "/api/voice/status" &&
+		path !== "/api/voice/recovery" &&
 		path !== "/api/voice/sessions" &&
 		!/^\/api\/voice\/sessions\/[A-Za-z0-9_-]{1,200}\/(end|day)$/.test(path)
 	) return Promise.resolve(new Response("Not found", { status: 404 }));

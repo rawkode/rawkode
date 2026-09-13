@@ -23,6 +23,41 @@ const json = (body: unknown, status = 200) =>
 			"X-Content-Type-Options": "nosniff",
 		},
 	});
+const readSmallJSON = async (request: Request): Promise<unknown> => {
+	// Bound the streaming request before decoding; Content-Length is not trusted.
+	const reader = request.body?.getReader();
+	if (!reader) return json({ error: "Invalid request" }, 400);
+	let expired = false;
+	const deadline = setTimeout(() => {
+		expired = true;
+		void reader.cancel("Body deadline").catch(() => {});
+	}, 5000);
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			size += value.length;
+			if (size > 1024) {
+				await reader.cancel();
+				return json({ error: "Invalid request" }, 400);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		clearTimeout(deadline);
+		reader.releaseLock();
+	}
+	if (expired) return json({ error: "Request body deadline" }, 408);
+	const bytes = new Uint8Array(size);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return JSON.parse(new TextDecoder().decode(bytes));
+};
 /** Invoked only after JWT verification; every persisted ledger independently pins its owner. */
 export const createOwnerVoiceRuntime = (
 	storage: VoiceStorage,
@@ -44,6 +79,40 @@ export const createOwnerVoiceRuntime = (
 		const path = new URL(request.url).pathname;
 		if (path === "/api/voice/status") {
 			return json({ receipts: await ledger.receipts() });
+		}
+		if (path === "/api/voice/recovery") {
+			if (
+				!request.headers.get("Content-Type")?.startsWith("application/json")
+			) {
+				return json({ error: "Use application/json" }, 415);
+			}
+			let input: unknown;
+			try {
+				input = await readSmallJSON(request);
+			} catch {
+				return json({ error: "Invalid request" }, 400);
+			}
+			if (input instanceof Response) return input;
+			if (
+				!input || typeof input !== "object" || Array.isArray(input) ||
+				Object.keys(input).some((key) =>
+					!["requestID", "acknowledgeUnconfirmedSession"].includes(key)
+				) ||
+				!("requestID" in input) || typeof input.requestID !== "string" ||
+				!("acknowledgeUnconfirmedSession" in input) ||
+				input.acknowledgeUnconfirmedSession !== true
+			) {
+				return json({ error: "Explicit acknowledgement is required" }, 400);
+			}
+			const recovered = await ledger.recoverUnknown(
+				current,
+				input.requestID,
+				true,
+			);
+			return recovered ? json({ receipts: await ledger.receipts() }) : json({
+				error:
+					"Only an expired unknown attempt without a session can be recovered",
+			}, 409);
 		}
 		if (path === "/api/voice/sessions") {
 			return fetchVoiceSession(request, env, {
@@ -77,49 +146,21 @@ export const createOwnerVoiceRuntime = (
 			return json({ error: "Use application/json" }, 415);
 		}
 		try {
-			// Bound the streaming request before decoding; Content-Length is not trusted.
-			const reader = request.body?.getReader();
-			if (!reader) return json({ error: "Invalid request" }, 400);
-			let expired = false;
-			const deadline = setTimeout(() => {
-				expired = true;
-				void reader.cancel("Body deadline").catch(() => {});
-			}, 5000);
-			const chunks: Uint8Array[] = [];
-			let size = 0;
-			try {
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					size += value.length;
-					if (size > 1024) {
-						await reader.cancel();
-						return json({ error: "Invalid request" }, 400);
-					}
-					chunks.push(value);
-				}
-			} finally {
-				clearTimeout(deadline);
-				reader.releaseLock();
-			}
-			if (expired) return json({ error: "Request body deadline" }, 408);
-			const bytes = new Uint8Array(size);
-			let offset = 0;
-			for (const chunk of chunks) {
-				bytes.set(chunk, offset);
-				offset += chunk.length;
-			}
-			const input = JSON.parse(new TextDecoder().decode(bytes));
+			const input = await readSmallJSON(request);
+			if (input instanceof Response) return input;
 			if (
 				!input || typeof input !== "object" || Array.isArray(input) ||
 				Object.keys(input).some((key) => !["date", "timeZone"].includes(key)) ||
-				typeof input.date !== "string" ||
-				typeof input.timeZone !== "string"
+				!("date" in input) || typeof input.date !== "string" ||
+				!("timeZone" in input) || typeof input.timeZone !== "string"
 			) return json({ error: "Invalid request" }, 400);
 			const readDay = await createApiDayReader(request, env, env.API, {
 				authenticate: verify,
 			});
-			const day = await readDay(identity.ownerId, input, request.signal);
+			const day = await readDay(identity.ownerId, {
+				date: input.date,
+				timeZone: input.timeZone,
+			}, request.signal);
 			if (!await active(sessionID)) {
 				return json({ error: "Session is not active" }, 403);
 			}
