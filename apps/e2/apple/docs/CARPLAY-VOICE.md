@@ -1,9 +1,9 @@
-# CarPlay voice implementation plan
+# CarPlay voice implementation
 
-Status: researched 13 September 2026. This is an implementation plan, not a
-shipped CarPlay interface or a claim that the app appears in a vehicle. The
-entitlement exists in `Configuration/iOS.entitlements`; the scene and template
-adapter are not implemented by this document.
+Status: native scene implemented and Simulator build verified, 13 September 2026. The source
+now registers a CarPlay scene and shares the application's account and voice
+owner. This is not a claim that the app appears or works in a vehicle; signing,
+locked-phone authentication and vehicle interaction remain qualification gates.
 
 ## Apple contract
 
@@ -41,14 +41,16 @@ UISceneConfigurations:
 ```
 
 The delegate adopts `CPTemplateApplicationSceneDelegate`. Use the non-navigation
-`templateApplicationScene(_:didConnect:)` and matching disconnect callback; do
+`templateApplicationScene(_:didConnect:)` and
+`templateApplicationScene(_:didDisconnectInterfaceController:)`; do
 not create a custom CarPlay window or navigation dashboard scene. Source:
 [Displaying content in CarPlay](https://developer.apple.com/documentation/CarPlay/displaying-content-in-carplay?changes=_5_4).
 
 ## Purpose-built presentation
 
-Use one `CPVoiceControlTemplate` with Ready, Connecting, Listening, Muted,
-Ending and Unavailable states. Start is explicit; car connection does not start
+Use one `CPVoiceControlTemplate` with Ready, Connecting, Listening, Muted and
+Unavailable states; the SDK permits at most five. Closing uses the connecting
+presentation while the existing owner finishes cleanup. Start is explicit; car connection does not start
 capture. During a call, offer Mute/Unmute and End. Display state only, never
 captions, calendar rows answering a query, notes or a web editor. Speak useful
 calendar and integration answers through the existing voice pipeline.

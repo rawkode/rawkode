@@ -73,10 +73,11 @@ sign-in sheet depends on an identity provider that permits embedded sign-in;
 Google requires the planned external-browser authorization flow. No live sign-in
 or cloud round trip was qualified in this build.
 
-The CarPlay candidate is the small next-event widget, not a custom template app.
-CarPlay eligibility/runtime, voice interaction, paired Watch background
-delivery, real-device signing, accessibility sweeps, and distribution remain
-release gates. The PR must stay draft until those gates and document continuity
+CarPlay now has a native voice scene for iOS 26.4 and later, sharing the phone
+account and voice session. The next-event widget remains a separate surface.
+The scene builds for Simulator; vehicle appearance, audio routing, locked-phone
+authentication, paired Watch delivery, and accessibility remain qualification
+gates. See [voice qualification](docs/VOICE-QUALIFICATION.md) for exact evidence. The PR must stay draft until those gates and document continuity
 are satisfied.
 
 ## iPhone editor update (12 September)

@@ -18,6 +18,7 @@ final class VoiceConversation: NSObject, ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var message = "Talk through your day."
     @Published private(set) var isMuted = false
+    @Published private(set) var isEnding = false
     @Published private(set) var isSendingText = false
     private var textOperation: UUID?
     @Published private(set) var captions = VoiceCaptions()
@@ -76,7 +77,8 @@ final class VoiceConversation: NSObject, ObservableObject {
             .receive(on: RunLoop.main).sink { [weak self] notification in
                 guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                       AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
-                Task { @MainActor in await self?.stop(message: "Audio was interrupted. Start again when you’re ready.") }
+                guard let self, let surface = self.surface else { return }
+                self.stopForSurfaceLoss(surface, message: "Audio was interrupted. Start again when you’re ready.")
             }
         #endif
         #else
@@ -105,7 +107,9 @@ final class VoiceConversation: NSObject, ObservableObject {
                 #if ENCHIRIDION_VOICE_AUDIO_HARNESS
                 let permitted = harnessAudioDevice != nil
                 #elseif os(iOS)
-                let permitted = await AVAudioApplication.requestRecordPermission()
+                let permitted = requestedSurface == .carplay
+                    ? AVAudioApplication.shared.recordPermission == .granted
+                    : await AVAudioApplication.requestRecordPermission()
                 #else
                 let permitted = await AVCaptureDevice.requestAccess(for: .audio)
                 #endif
@@ -173,7 +177,7 @@ final class VoiceConversation: NSObject, ObservableObject {
     private func configureAudioOutput(defaultToSpeaker: Bool) throws {
         let configuration = RTCAudioSessionConfiguration.webRTC()
         configuration.category = AVAudioSession.Category.playAndRecord.rawValue
-        configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
+        configuration.mode = (surface == .carplay ? AVAudioSession.Mode.default : .voiceChat).rawValue
         configuration.categoryOptions = defaultToSpeaker ? [.allowBluetoothHFP, .defaultToSpeaker] : [.allowBluetoothHFP]
         RTCAudioSessionConfiguration.setWebRTC(configuration)
         let audio = RTCAudioSession.sharedInstance()
@@ -276,6 +280,13 @@ final class VoiceConversation: NSObject, ObservableObject {
         Task { await stop(message: "Your account changed. Start a new conversation.") }
     }
 
+    /// Stop media before yielding; ownership remains reserved until remote cleanup finishes.
+    func stopForSurfaceLoss(_ requestedSurface: VoiceSurface, message: String = "Conversation ended.") {
+        guard surface == requestedSurface, !localTeardownPending else { return }
+        disconnectLocalTransport()
+        Task { await stop(message: message) }
+    }
+
     #if os(macOS)
     /// Called synchronously by the owning NSWindow before it closes, even during connection setup.
     func stopForWindowClose() {
@@ -287,17 +298,22 @@ final class VoiceConversation: NSObject, ObservableObject {
 
     private func disconnectLocalTransport() {
         localTeardownPending = true
+        isEnding = true
         operation = nil
         microphone?.isEnabled = false
         channel?.delegate = nil; channel?.close(); channel = nil
         peer?.delegate = nil; peer?.close(); peer = nil
         microphone = nil; factory = nil
+        #if os(iOS) && !ENCHIRIDION_VOICE_AUDIO_HARNESS
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     private func stop(message: String = "Conversation ended.", failed: Bool = false) async {
         guard !stopping else { return }
         stopping = true
-        defer { stopping = false; localTeardownPending = false; surface = nil; activeAccountID = nil }
+        isEnding = true
+        defer { isEnding = false; stopping = false; localTeardownPending = false; surface = nil; activeAccountID = nil }
         operation = nil
         startTask = nil
         deadline?.cancel(); deadline = nil

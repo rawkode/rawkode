@@ -5,7 +5,12 @@ struct ApsidesApp: App {
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(ApsidesAppDelegate.self) private var applicationDelegate
+    private var store: WorkspaceStore { applicationDelegate.store }
+    #else
     @StateObject private var store = WorkspaceStore()
+    #endif
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     var body: some Scene {
         #if os(macOS)

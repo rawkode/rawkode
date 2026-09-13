@@ -98,7 +98,13 @@ targets:
         NSSpeechRecognitionUsageDescription: Enchiridion turns meeting audio into notes while you record.
         UILaunchScreen: {}
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneClassName: CPTemplateApplicationScene
+                UISceneConfigurationName: EnchiridionCarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
+        UIBackgroundModes: [audio]
         CFBundleURLTypes:
           - CFBundleURLSchemes: [enchiridion]
         UISupportedInterfaceOrientations: [
