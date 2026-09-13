@@ -98,6 +98,15 @@ fixture data and no paid provider. It checks owner-bound reads, network/key
 isolation and execution deadlines. Passing mocked tests is not a substitute for
 this runtime qualification or a deployed spoken conversation.
 
+Voice startup appends one brief English greeting after the server attaches to
+the created session. The model chooses natural wording using the
+conversation context, including whether it is starting or resuming. The greeting then yields to the
+caller. It does not look up personal data, change graph content, or repeat on
+reflected startup events. Acceptance and rejection are tracked without logging
+the spoken content, and rejection does not prevent the caller from speaking.
+As with tool replies, input audio must continue through silence for the greeting
+to play. See [greeting guidance](https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks).
+
 Relevant official contracts:
 
 - [GPT-Live WebRTC](https://developers.openai.com/api/docs/guides/voice-webrtc?api=live)

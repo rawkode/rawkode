@@ -82,6 +82,9 @@ const allowed = <T extends string>(
 export interface VoiceControlDiagnostic {
 	stage:
 		| "socket_accepted"
+		| "greeting_sent"
+		| "greeting_accepted"
+		| "greeting_rejected"
 		| "message_ignored"
 		| "transcript_accepted"
 		| "delegation_accepted"
@@ -270,6 +273,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 	const delegations = new Set<string>();
 	const seen = new Set<string>();
 	const sentCommentary = new Map<string, number>();
+	let pendingGreeting: { id: string; started: number } | undefined;
 	const cleanup = () => {
 		clearTimeout(closeTimer);
 		clearTimeout(lifeTimer);
@@ -283,6 +287,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		transcript.length = 0;
 		seen.clear();
 		sentCommentary.clear();
+		pendingGreeting = undefined;
 		delegations.clear();
 	};
 	const finish = (result: SidebandResult) => {
@@ -352,12 +357,36 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 			return;
 		}
 		if (
-			value.type === "session.commentary.appended" || value.type === "error"
+			value.type === "session.commentary.appended" ||
+			value.type === "session.instructions.appended" || value.type === "error"
 		) {
 			const error = record(value.error);
 			const clientID = value.type === "error"
 				? error.client_event_id ?? value.client_event_id
 				: value.client_event_id;
+			if (
+				pendingGreeting && clientID === pendingGreeting.id &&
+				value.type !== "session.commentary.appended"
+			) {
+				diagnostic({
+					stage: value.type === "error"
+						? "greeting_rejected"
+						: "greeting_accepted",
+					correlated: true,
+					elapsedMs: Date.now() - pendingGreeting.started,
+					...(value.type === "error"
+						? {
+							code: "provider_error",
+							providerCode: allowed(error.code, providerCodes),
+							providerType: allowed(error.type, providerTypes),
+							providerParam: allowed(error.param, providerParams),
+						}
+						: {}),
+				});
+				pendingGreeting = undefined;
+				return;
+			}
+			if (value.type === "session.instructions.appended") return;
 			const started = typeof clientID === "string"
 				? sentCommentary.get(clientID)
 				: undefined;
@@ -555,6 +584,25 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 	} catch {
 		finish({ finalized: false, reason: "attach_failed" });
 		throw new Error("Voice control connection unavailable");
+	}
+	// The HTTP session already exists. Attach does not replay session.started, so
+	// send once here, independently of reflected lifecycle events. This appends
+	// instructions without replacing the startup prompt or triggering graph work.
+	if (!terminal && !closing) {
+		pendingGreeting = { id: crypto.randomUUID(), started: Date.now() };
+		try {
+			socket.send(JSON.stringify({
+				type: "session.instructions.append",
+				event_id: pendingGreeting.id,
+				delegation_id: null,
+				content:
+					"Immediately greet the user naturally in English without waiting for them to speak. Choose your own brief wording appropriate to the conversation so far, including whether this is a new conversation or a continuation. Then pause and listen. Preserve all existing instructions. Do not look up data or delegate work for this greeting.",
+			}));
+			diagnostic({ stage: "greeting_sent" });
+		} catch {
+			pendingGreeting = undefined;
+			diagnostic({ stage: "greeting_rejected", code: "operation_failed" });
+		}
 	}
 	return { close, finished };
 };

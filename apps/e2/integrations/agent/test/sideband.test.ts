@@ -120,8 +120,8 @@ Deno.test("sideband attaches before return, orders transcripts, executes one own
 		"What's ",
 		"next?",
 	]);
-	assert.equal(f.sent[0].type, "session.commentary.append");
-	assert.equal(f.sent[0].delegation_id, "item_opaque");
+	assert.equal(f.sent[1].type, "session.commentary.append");
+	assert.equal(f.sent[1].delegation_id, "item_opaque");
 	assert.equal(JSON.stringify(requests).includes("SECRET_RAW_AUDIO"), false);
 	assert.equal(JSON.stringify(f.sent).includes("never-return-this"), false);
 	f.finish();
@@ -139,7 +139,7 @@ Deno.test("sideband close preserves transport until provider finalization and sa
 	}));
 	const pending = control.close();
 	assert.equal(f.disconnected(), false);
-	assert.equal(f.sent[0].type, "session.close");
+	assert.equal(f.sent[1].type, "session.close");
 	f.finish();
 	assert.equal((await pending).finalized, true);
 	assert.equal(saved, 1);
@@ -179,7 +179,10 @@ Deno.test("revocation while work runs closes and suppresses the late result", as
 	authorized = false;
 	complete("private late result");
 	await tick();
-	assert.deepEqual(f.sent.map((event) => event.type), ["session.close"]);
+	assert.deepEqual(f.sent.map((event) => event.type), [
+		"session.instructions.append",
+		"session.close",
+	]);
 	f.finish();
 	await control.finished;
 });
@@ -199,7 +202,10 @@ Deno.test("closing cancels work and suppresses late completion even if executor 
 	void control.close();
 	complete("late result");
 	await tick();
-	assert.deepEqual(f.sent.map((event) => event.type), ["session.close"]);
+	assert.deepEqual(f.sent.map((event) => event.type), [
+		"session.instructions.append",
+		"session.close",
+	]);
 	f.finish();
 	await control.finished;
 });
@@ -217,7 +223,7 @@ Deno.test("oversized or failed results are redacted and wrong-session close cann
 	);
 	delegate(f);
 	await tick();
-	assert.equal(String(f.sent[0].content).includes("couldn't verify"), true);
+	assert.equal(String(f.sent[1].content).includes("couldn't verify"), true);
 	f.emit({ type: "session.closed", session: { id: "someone_else" } });
 	assert.equal((await control.finished).finalized, false);
 	assert.equal(saved, 0);
@@ -235,7 +241,7 @@ Deno.test("work and attach deadlines terminate adapters that ignore cancellation
 	);
 	delegate(f);
 	await new Promise((resolve) => setTimeout(resolve, 30));
-	assert.equal(String(f.sent[0].content).includes("couldn't verify"), true);
+	assert.equal(String(f.sent[1].content).includes("couldn't verify"), true);
 	f.finish();
 	await control.finished;
 });
@@ -388,7 +394,7 @@ Deno.test("sideband correlates commentary acknowledgement and allowlists provide
 	delegate(f);
 	await tick();
 	await tick();
-	const sent = f.sent[0];
+	const sent = f.sent[1];
 	f.emit({
 		type: "session.commentary.appended",
 		client_event_id: sent.event_id,
@@ -402,7 +408,7 @@ Deno.test("sideband correlates commentary acknowledgement and allowlists provide
 	f.emit({
 		type: "error",
 		error: {
-			client_event_id: f.sent[1].event_id,
+			client_event_id: f.sent[2].event_id,
 			code: "invalid_delegation_id",
 			type: "invalid_request_error",
 			param: "delegation_id",
@@ -457,6 +463,94 @@ Deno.test("routine reflected audio and unrelated events do not emit diagnostics"
 	await tick();
 	await tick();
 	assert.ok(events.length > before);
+	f.finish();
+	await control.finished;
+});
+
+Deno.test("sideband sends one English greeting for new and resumed sessions without graph work", async () => {
+	for (
+		const history of [[], [{
+			role: "user" as const,
+			content: "Private earlier question",
+		}, { role: "assistant" as const, content: "Private earlier answer" }]]
+	) {
+		const f = fixture();
+		let executions = 0;
+		const diagnostics: unknown[] = [];
+		const control = await attachLiveSideband(
+			base(f, {
+				history,
+				diagnostic: (event) => diagnostics.push(event),
+				execute: () => {
+					executions++;
+					return Promise.resolve("unused");
+				},
+			}),
+		);
+		assert.equal(f.sent.length, 1);
+		const greeting = f.sent[0];
+		assert.equal(greeting.type, "session.instructions.append");
+		assert.equal(greeting.delegation_id, null);
+		assert.ok(
+			String(greeting.content).includes("Choose your own brief wording"),
+		);
+		assert.ok(String(greeting.content).includes("conversation so far"));
+		assert.ok(String(greeting.content).includes("English"));
+		assert.ok(String(greeting.content).includes("Then pause and listen"));
+		assert.ok(!String(greeting.content).includes("Private"));
+		f.emit({ type: "session.started" });
+		f.emit({ type: "session.started" });
+		f.emit({
+			type: "session.instructions.appended",
+			client_event_id: greeting.event_id,
+		});
+		f.emit({
+			type: "session.instructions.appended",
+			client_event_id: greeting.event_id,
+		});
+		await tick();
+		assert.equal(f.sent.length, 1);
+		assert.equal(executions, 0);
+		assert.equal(
+			diagnostics.filter((event) =>
+				(event as { stage: string }).stage === "greeting_accepted"
+			).length,
+			1,
+		);
+		assert.ok(!JSON.stringify(diagnostics).includes(String(greeting.event_id)));
+		f.finish();
+		await control.finished;
+	}
+});
+
+Deno.test("a rejected greeting is not retried and does not disable normal delegation", async () => {
+	const f = fixture();
+	const diagnostics: { stage: string }[] = [];
+	const control = await attachLiveSideband(
+		base(f, { diagnostic: (event) => diagnostics.push(event) }),
+	);
+	f.emit({
+		type: "error",
+		error: {
+			client_event_id: f.sent[0].event_id,
+			code: "server_error",
+			type: "server_error",
+			message: "private",
+		},
+	});
+	delegate(f);
+	await tick();
+	await tick();
+	assert.equal(
+		f.sent.filter((row) => row.type === "session.instructions.append").length,
+		1,
+	);
+	assert.equal(
+		f.sent.filter((row) => row.type === "session.commentary.append").length,
+		1,
+	);
+	assert.ok(diagnostics.some((row) => row.stage === "greeting_rejected"));
+	assert.equal(f.disconnected(), false);
 	f.finish();
 	await control.finished;
 });
