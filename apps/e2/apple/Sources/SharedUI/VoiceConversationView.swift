@@ -4,16 +4,12 @@ import SwiftUI
 
 struct VoiceConversationView: View {
     @ObservedObject var session: NativeSession
-    @StateObject private var conversation: VoiceConversation
+    @ObservedObject var conversation: VoiceConversation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
 
-    init(session: NativeSession) {
-        self.session = session
-        _conversation = StateObject(wrappedValue: VoiceConversation(session: session))
-    }
-    private var running: Bool { conversation.phase == .connecting || conversation.phase == .connected }
+    private var running: Bool { conversation.surface == .iphone && (conversation.phase == .connecting || conversation.phase == .connected) }
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
@@ -44,13 +40,13 @@ struct VoiceConversationView: View {
                 }
                 HStack(spacing: 24) {
                     if running {
-                        Button { conversation.toggleMute() } label: {
+                        Button { conversation.toggleMute(surface: .iphone) } label: {
                             Label(conversation.isMuted ? "Unmute" : "Mute", systemImage: conversation.isMuted ? "mic.slash" : "mic")
                         }.buttonStyle(.glass).disabled(conversation.phase != .connected)
-                        Button("End", role: .destructive) { Task { await conversation.stop() } }.buttonStyle(.glassProminent)
+                        Button("End", role: .destructive) { Task { await conversation.stop(surface: .iphone) } }.buttonStyle(.glassProminent)
                     } else {
-                        Button { conversation.start() } label: { Label("Start conversation", systemImage: "waveform") }
-                            .buttonStyle(.glassProminent).disabled(!session.isConnected)
+                        Button { conversation.start(surface: .iphone) } label: { Label("Start conversation", systemImage: "waveform") }
+                            .buttonStyle(.glassProminent).disabled(!session.isConnected || conversation.surface != nil)
                             .accessibilityIdentifier("startVoiceConversation")
                     }
                 }.controlSize(.large)
@@ -60,13 +56,12 @@ struct VoiceConversationView: View {
             .frame(maxWidth: .infinity).background(theme.canvas).foregroundStyle(theme.ink)
             .navigationTitle("Voice").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { Task { await conversation.stop(); dismiss() } }
+                Button("Done") { Task { await conversation.stop(surface: .iphone); dismiss() } }
             } }
         }
         .interactiveDismissDisabled(running)
-        .onChange(of: session.accountID) { _, _ in conversation.stopForAccountChange() }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { Task { await conversation.stop(message: "Conversation paused while the app is in the background.") } } }
-        .onDisappear { Task { await conversation.stop() } }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { Task { await conversation.stop(surface: .iphone) } } }
+        .onDisappear { Task { await conversation.stop(surface: .iphone) } }
     }
 }
 

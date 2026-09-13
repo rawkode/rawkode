@@ -28,7 +28,7 @@ struct PhoneTodayView: View {
                 notesControl.padding(.top, 8).padding(.bottom, 12)
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $voicePresented) { VoiceConversationView(session: store.session) }
+            .sheet(isPresented: $voicePresented) { VoiceConversationView(session: store.session, conversation: store.voice) }
             .sheet(isPresented: $searchPresented) {
                 DaySearchView(store: store)
             }

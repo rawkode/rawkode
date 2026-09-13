@@ -8,10 +8,13 @@ import AppKit
 #endif
 @preconcurrency import WebRTC
 
+enum VoiceSurface: String { case iphone, carplay, mac }
+
 /// Owns one foreground conversation. The server owns identity, model configuration and tools.
 @MainActor
 final class VoiceConversation: NSObject, ObservableObject {
     enum Phase: Equatable { case idle, connecting, connected, ended, failed }
+    @Published private(set) var surface: VoiceSurface?
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var message = "Talk through your day."
     @Published private(set) var isMuted = false
@@ -29,10 +32,24 @@ final class VoiceConversation: NSObject, ObservableObject {
     private var startTask: Task<Void, Never>?
     private var deadline: Task<Void, Never>?
     private var interruption: AnyCancellable?
+    private var authorization: AnyCancellable?
+    private var observedAccountID: String?
+    private var observedConnected = false
+    private var activeAccountID: String?
 
     init(session: NativeSession) {
         self.session = session
         super.init()
+        observedAccountID = session.accountID
+        observedConnected = session.isConnected
+        authorization = session.$accountID.combineLatest(session.$isConnected).sink { [weak self] accountID, connected in
+            guard let self else { return }
+            // @Published sends before assignment. Use the emitted identity and connection values.
+            let revoked = accountID != observedAccountID || (observedConnected && !connected)
+            observedAccountID = accountID
+            observedConnected = connected
+            if revoked && (surface != nil || !captions.rows.isEmpty) { stopForAccountChange() }
+        }
         #if os(iOS)
         interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
@@ -46,8 +63,10 @@ final class VoiceConversation: NSObject, ObservableObject {
         #endif
     }
 
-    func start() {
-        guard operation == nil, !stopping, !localTeardownPending else { return }
+    func start(surface requestedSurface: VoiceSurface) {
+        guard surface == nil, operation == nil, !stopping, !localTeardownPending else { return }
+        surface = requestedSurface
+        activeAccountID = session.accountID
         serverClosed = false
         captions = VoiceCaptions()
         let token = UUID()
@@ -96,7 +115,7 @@ final class VoiceConversation: NSObject, ObservableObject {
                 }
                 try check(token)
                 guard let sdp = peer.localDescription?.sdp else { throw VoiceError.connection }
-                let answer = try await session.createVoiceSession(sdp: sdp, requestID: token.uuidString)
+                let answer = try await session.createVoiceSession(sdp: sdp, requestID: token.uuidString, device: requestedSurface.rawValue)
                 // Stop during the HTTP request must still close a successfully created remote session.
                 guard operation == token else { try? await session.endVoiceSession(id: answer.id); return }
                 sessionID = answer.id
@@ -115,9 +134,14 @@ final class VoiceConversation: NSObject, ObservableObject {
         }
     }
 
-    func toggleMute() {
-        guard phase == .connected, !stopping else { return }
+    func toggleMute(surface requestedSurface: VoiceSurface) {
+        guard surface == requestedSurface, phase == .connected, !stopping else { return }
         isMuted.toggle(); microphone?.isEnabled = !isMuted
+    }
+
+    func stop(surface requestedSurface: VoiceSurface) async {
+        guard surface == requestedSurface else { return }
+        await stop()
     }
 
     /// Identity changes cannot leave a prior account's captions or media alive during remote cleanup.
@@ -130,6 +154,7 @@ final class VoiceConversation: NSObject, ObservableObject {
     #if os(macOS)
     /// Called synchronously by the owning NSWindow before it closes, even during connection setup.
     func stopForWindowClose() {
+        guard surface == .mac else { return }
         disconnectLocalTransport()
         Task { await stop() }
     }
@@ -144,10 +169,10 @@ final class VoiceConversation: NSObject, ObservableObject {
         microphone = nil; factory = nil
     }
 
-    func stop(message: String = "Conversation ended.", failed: Bool = false) async {
+    private func stop(message: String = "Conversation ended.", failed: Bool = false) async {
         guard !stopping else { return }
         stopping = true
-        defer { stopping = false; localTeardownPending = false }
+        defer { stopping = false; localTeardownPending = false; surface = nil; activeAccountID = nil }
         operation = nil
         startTask = nil
         deadline?.cancel(); deadline = nil
@@ -178,7 +203,7 @@ final class VoiceConversation: NSObject, ObservableObject {
 
     private func check(_ token: UUID) throws {
         try Task.checkCancellation()
-        guard operation == token else { throw CancellationError() }
+        guard operation == token, session.isConnected, session.accountID == activeAccountID else { throw CancellationError() }
     }
     private enum VoiceError: LocalizedError {
         case microphoneDenied, connection

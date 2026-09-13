@@ -4,14 +4,10 @@ import SwiftUI
 /// A separate workspace companion: captions remain readable while other app windows are in use.
 struct MacVoiceConversationView: View {
     @ObservedObject var session: NativeSession
-    @StateObject private var conversation: VoiceConversation
+    @ObservedObject var conversation: VoiceConversation
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
 
-    init(session: NativeSession) {
-        self.session = session
-        _conversation = StateObject(wrappedValue: VoiceConversation(session: session))
-    }
-    private var running: Bool { conversation.phase == .connecting || conversation.phase == .connected }
+    private var running: Bool { conversation.surface == .mac && (conversation.phase == .connecting || conversation.phase == .connected) }
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .top, spacing: 16) {
@@ -39,27 +35,26 @@ struct MacVoiceConversationView: View {
             Divider()
             HStack {
                 if running {
-                    Button { conversation.toggleMute() } label: {
+                    Button { conversation.toggleMute(surface: .mac) } label: {
                         Label(conversation.isMuted ? "Unmute" : "Mute", systemImage: conversation.isMuted ? "mic.slash" : "mic")
                     }.buttonStyle(.glass).keyboardShortcut("m", modifiers: [.command, .shift])
                         .disabled(conversation.phase != .connected).help("Mute or unmute microphone (⇧⌘M)")
                     Spacer()
-                    Button("End conversation", role: .destructive) { Task { await conversation.stop() } }
+                    Button("End conversation", role: .destructive) { Task { await conversation.stop(surface: .mac) } }
                         .buttonStyle(.glassProminent).keyboardShortcut(".", modifiers: .command)
                 } else {
                     if !session.isConnected { Text("Connect your account in Settings first.").font(.footnote).foregroundStyle(theme.secondary) }
                     Spacer()
-                    Button { conversation.start() } label: { Label("Start conversation", systemImage: "waveform") }
+                    Button { conversation.start(surface: .mac) } label: { Label("Start conversation", systemImage: "waveform") }
                         .buttonStyle(.glassProminent).keyboardShortcut(.return, modifiers: .command)
-                        .disabled(!session.isConnected).accessibilityIdentifier("startVoiceConversation")
+                        .disabled(!session.isConnected || conversation.surface != nil).accessibilityIdentifier("startVoiceConversation")
                 }
             }.controlSize(.large)
         }
         .padding(28).frame(minWidth: 480, minHeight: 400)
         .background(theme.canvas).foregroundStyle(theme.ink)
         .background { VoiceWindowCloseObserver { conversation.stopForWindowClose() }.frame(width: 0, height: 0) }
-        .onChange(of: session.accountID) { _, _ in conversation.stopForAccountChange() }
-        .onDisappear { Task { await conversation.stop() } }
+        .onDisappear { Task { await conversation.stop(surface: .mac) } }
     }
 }
 #endif

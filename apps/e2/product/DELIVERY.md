@@ -45,12 +45,24 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   only available in App Store Connect, whose browser session is signed out.
   This build is not verified as TestFlight-available. Internal tester-group
   automation is deferred at the user's direction.
+- The following automatic archive for `db917c91` also stopped at preparation
+  for App Store Connect with the same generic error. The downloaded WebRTC 153
+  XCFramework and device framework are unsigned, although its privacy manifest
+  is present. This is a distribution risk, not a confirmed explanation of the
+  cloud error; obtain the actual distribution/ITMS diagnostic before replacing
+  the dependency or changing signing.
 - Mac voice now builds with the shared authenticated transport, explicit
   microphone consent, a dedicated captions window, and keyboard controls. The
   iPhone regression build also passes. An actual hidden-window test verifies
   synchronous owning-window close callbacks, unrelated-window isolation, and
   observer removal. Physical media teardown and provider interaction still
   require qualification.
+- Phone and Mac now receive a single coordinator from `WorkspaceStore`.
+  Account revocation clears captions and disconnects media centrally; explicit
+  presentation ownership prevents duplicate starts and cross-surface stops.
+  The iPhone voice-screen journey and Mac build pass. This is a prerequisite
+  for the design in `apple/docs/CARPLAY-VOICE.md`, not a CarPlay scene or a
+  verified spoken conversation.
 
 - `36bf4cc0`: floating dock implementation pushed to PR 35. Three targeted
   Simulator UI tests and 29 Core tests passed in the preceding delivery turn.

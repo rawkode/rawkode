@@ -23,6 +23,7 @@ final class WorkspaceStore: ObservableObject {
     @Published private(set) var sending: Set<UUID> = []
     let disk: VaultPersistence
     let session: NativeSession
+    lazy var voice = VoiceConversation(session: session)
     let demo: Bool
     let isUITesting: Bool
     private var connectionGeneration = 0

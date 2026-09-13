@@ -23,7 +23,7 @@ struct ApsidesApp: App {
             }
         }
         Window("Voice — Enchiridion", id: "voice") {
-            MacVoiceConversationView(session: store.session)
+            MacVoiceConversationView(session: store.session, conversation: store.voice)
                 .tint(theme.accent).preferredColorScheme(theme.scheme)
         }
         .defaultSize(width: 560, height: 580)
