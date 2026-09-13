@@ -1,6 +1,6 @@
 # Tasks and voice graph tools — release candidate
 
-Status: locally implemented and verified; production deployment and TestFlight delivery pending approval. This document is not evidence of a live release.
+Status: backend deployed to production on 2026-09-13. Authenticated task list returned HTTP 200 with a valid response. Apple release push and TestFlight processing are tracked separately.
 
 ## User-facing changes
 
@@ -23,7 +23,7 @@ Status: locally implemented and verified; production deployment and TestFlight d
 
 The read-only Alchemy production plan reports five Worker updates (entities, agent, GitHub, Google, website), two private entity service bindings (agent and website), and twenty unchanged resources. No deletions. Managed secret resources remain unchanged. Deploy using the complete production stack and `--stage production`.
 
-Automatic approval review blocked production mutation setup. Await approval before applying this plan. Deploy and exercise the backend before pushing the Apple release to the automatic Xcode Cloud/TestFlight workflow.
+The user approved deployment and the complete production plan was applied successfully. Automatic approval review separately blocked creating a persistent production smoke-test task. Live write and provider-backed voice checks remain unverified; local tests cover those contracts. The Apple push triggers the automatic Xcode Cloud/TestFlight workflow.
 
 ## Deliberate limits
 
