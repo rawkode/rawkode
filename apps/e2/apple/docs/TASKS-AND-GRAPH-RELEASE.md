@@ -6,7 +6,7 @@ Status: locally implemented and verified; production deployment and TestFlight d
 
 - Native iPhone and Mac Tasks workspace: Inbox, Today and overdue, Upcoming, Completed; search, capture, due day, priority, completion and reopening.
 - Account-and-origin-scoped task cache and persistent outbox. Pending writes remain visible offline and survive relaunch. Revision conflicts preserve the local edit for review.
-- Voice code mode can search graph entities, inspect Supertags and fields, read bounded entity/note content, and list/read/create/update/complete tasks. Owner identity comes from authenticated host state.
+- Voice code mode can search graph entities, inspect Supertags and fields, read bounded entity/note content, and list/read/create/update/complete tasks. It can also create user Supertag fields and update labels, required flags, enum options, and defaults after reading the current revision. Owner identity comes from authenticated host state.
 - Tasks use canonical graph entities. Provider-imported issues and PRs are not automatically treated as personal tasks.
 
 ## Verification
@@ -16,7 +16,8 @@ Status: locally implemented and verified; production deployment and TestFlight d
 - iPhone and Mac builds passed. Simulator tests cover offline capture/relaunch and both Rosé Pine palettes.
 - An isolated harness compiling the actual native store checks stale account scope, cache isolation, durable pending identity and stale response rejection.
 - Independent source review found and verified fixes for asynchronous RPC disposal, draft account identity, and refresh/mutation races.
-- Live provider-backed graph/task voice actions and production task API behavior remain unverified until deployment.
+- 25 focused schema/task tests passed after adding Supertag field mutations; agent and deployment type checks passed.
+- Live provider-backed graph/task/schema voice actions and production task API behavior remain unverified until deployment.
 
 ## Deployment plan
 
@@ -26,4 +27,4 @@ Automatic approval review blocked production mutation setup. Await approval befo
 
 ## Deliberate limits
 
-Recurrence, reminders, subtasks, native project/link pickers, and task-linked note editing are not included. Existing manually supertagged graph tasks are not yet surfaced: this first task collection uses explicit creation receipts to distinguish personal tasks from provider imports. Graph and note tools are read-only except for the dedicated task mutations. Unknown voice write outcomes are not retried automatically.
+Recurrence, reminders, subtasks, native project/link pickers, and task-linked note editing are not included. Existing manually supertagged graph tasks are not yet surfaced: this first task collection uses explicit creation receipts to distinguish personal tasks from provider imports. Graph and note tools are read-only except for dedicated task and user Supertag field mutations. Field keys, types, and cardinality remain immutable. Unknown voice write outcomes are not retried automatically.

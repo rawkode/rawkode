@@ -1,3 +1,4 @@
+import type { VoiceSchemaApi } from "../src/schema-tools.ts";
 import { strict as assert } from "node:assert";
 import { createVoiceTaskTools } from "../src/task-tools.ts";
 import type { TasksApi } from "../../../packages/entities/src/tasks.ts";
@@ -19,8 +20,11 @@ const setup = (
 	check: () => Promise<void> = () => Promise.resolve(),
 ) => {
 	const calls: unknown[] = [];
-	const api: TasksApi & Disposable = {
+	const api: TasksApi & VoiceSchemaApi & Disposable = {
 		[Symbol.dispose]() {},
+		getTag: () => Promise.resolve(null),
+		defineField: () => Promise.reject(new Error("Unused")),
+		updateField: () => Promise.reject(new Error("Unused")),
 		listTasks: () =>
 			Promise.resolve({
 				tasks: [{ ...task, credential: "private" }],
@@ -102,7 +106,7 @@ Deno.test("voice task permission gate prevents writes", async () => {
 });
 
 Deno.test("voice task deadline prevents dispatch after delayed admin resolution", async () => {
-	let resolveAdmin!: (api: TasksApi & Disposable) => void;
+	let resolveAdmin!: (api: TasksApi & VoiceSchemaApi & Disposable) => void;
 	let writes = 0;
 	const tools = createVoiceTaskTools({
 		owner: "access:alice",
@@ -126,7 +130,7 @@ Deno.test("voice task deadline prevents dispatch after delayed admin resolution"
 				writes++;
 				return Promise.resolve({ ok: true, task });
 			},
-		} as unknown as TasksApi & Disposable,
+		} as unknown as TasksApi & VoiceSchemaApi & Disposable,
 	);
 	await new Promise((resolve) => setTimeout(resolve, 1));
 	assert.equal(writes, 0);

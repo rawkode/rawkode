@@ -1,3 +1,4 @@
+import { createVoiceSchemaTools, type VoiceSchemaApi } from "./schema-tools.ts";
 import { z } from "zod";
 import { tool } from "ai";
 import type { TasksApi } from "../../../packages/entities/src/tasks.ts";
@@ -35,7 +36,7 @@ const fields = {
 	linkedEntityIds: z.array(id).max(32).optional(),
 };
 export interface VoiceTaskBinding {
-	admin(owner: string): Promise<TasksApi & Disposable>;
+	admin(owner: string): Promise<TasksApi & VoiceSchemaApi & Disposable>;
 }
 export const createVoiceTaskTools = (options: {
 	binding: VoiceTaskBinding;
@@ -48,12 +49,12 @@ export const createVoiceTaskTools = (options: {
 	let uncertainWrite = false;
 	const run = async <T>(
 		write: boolean,
-		action: (api: TasksApi) => Promise<T>,
+		action: (api: TasksApi & VoiceSchemaApi) => Promise<T>,
 	) => {
 		await options.check();
 		if (write && uncertainWrite) {
 			throw new Error(
-				"Previous task change is uncertain; no further writes in this turn",
+				"Previous change is uncertain; no further writes in this turn",
 			);
 		}
 		let active = true;
@@ -75,7 +76,7 @@ export const createVoiceTaskTools = (options: {
 			}
 			return {
 				result,
-				source: "knowledge-graph-tasks",
+				source: "knowledge-graph",
 				observedAt: new Date().toISOString(),
 			};
 		} catch {
@@ -83,8 +84,8 @@ export const createVoiceTaskTools = (options: {
 			return {
 				outcome: write ? "unknown" : "unavailable",
 				message: write
-					? "Task change could not be confirmed. Do not retry automatically; read task state before claiming success or making another change."
-					: "Task data unavailable; do not treat this as an empty task list.",
+					? "Change could not be confirmed. Do not retry automatically; read current state before claiming success or making another change."
+					: "Requested data unavailable; do not treat this as an empty task list.",
 			};
 		} finally {
 			active = false;
@@ -96,6 +97,7 @@ export const createVoiceTaskTools = (options: {
 		rationale: "Task change requested by the authenticated user in voice.",
 	};
 	return {
+		...createVoiceSchemaTools({ owner: options.owner, run }),
 		taskList: tool({
 			description:
 				"Read a page of the user's tasks. Follow nextCursor for more; a page is not all tasks.",

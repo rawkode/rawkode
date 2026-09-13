@@ -719,3 +719,231 @@ Deno.test("task request IDs and entity links stay isolated between owner stores"
 		bob.database.close();
 	}
 });
+
+Deno.test("field metadata updates require defining user tag and atomic schema revision", () => {
+	const { database, entities } = fixture();
+	try {
+		const tag = entities.createUserTag({
+			name: "Action",
+			parentId: BASE_TAGS.task,
+		}, provenance);
+		const field = entities.defineField({
+			tagId: tag.id,
+			expectedTagRevision: 1,
+			key: "stage",
+			label: "Stage",
+			type: "enum",
+			cardinality: "single",
+			options: ["planned", "doing"],
+			defaultValue: "planned",
+		}, provenance);
+		assert.throws(
+			() =>
+				entities.defineField({
+					tagId: tag.id,
+					expectedTagRevision: 1,
+					key: "other",
+					label: "Other",
+					type: "text",
+					cardinality: "single",
+				}, provenance),
+			/revision conflict/,
+		);
+		assert.equal(
+			entities.getTag(tag.id)?.fields.filter((x) => x.key === "other").length,
+			0,
+		);
+		const child = entities.createUserTag(
+			{ name: "Child", parentId: tag.id },
+			provenance,
+		);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: child.id,
+					expectedTagRevision: 1,
+					label: "Wrong",
+				}, provenance),
+			/Inherited/,
+		);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: "field:task:title",
+					tagId: BASE_TAGS.task,
+					expectedTagRevision: 1,
+					label: "Wrong",
+				}, provenance),
+			/active user fields/,
+		);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: tag.id,
+					expectedTagRevision: 1,
+					label: "Stale",
+				}, provenance),
+			/revision conflict/,
+		);
+		assert.throws(
+			() =>
+				entities.updateField(
+					{
+						id: field.id,
+						tagId: tag.id,
+						expectedTagRevision: 2,
+						label: "Rename",
+						type: "number",
+					} as never,
+					provenance,
+				),
+			/Invalid field update/,
+		);
+		const updated = entities.updateField({
+			id: field.id,
+			tagId: tag.id,
+			expectedTagRevision: 2,
+			label: "Workflow stage",
+			options: ["planned", "doing", "done"],
+		}, provenance);
+		assert.equal(updated.label, "Workflow stage");
+		assert.equal(updated.key, "stage");
+		assert.equal(updated.type, "enum");
+		assert.equal(updated.defaultValue, "planned");
+		assert.equal(entities.getTag(tag.id)?.tag.revision, 3);
+		assert.equal(
+			entities.getTag(child.id)?.fields.find((x) => x.id === field.id)?.label,
+			"Workflow stage",
+		);
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("field option updates preserve stored values and validate retained defaults", () => {
+	const { database, entities } = fixture();
+	try {
+		const tag = entities.createUserTag({
+			name: "Work",
+			parentId: BASE_TAGS.task,
+		}, provenance);
+		const field = entities.defineField({
+			tagId: tag.id,
+			key: "stage",
+			label: "Stage",
+			type: "enum",
+			cardinality: "single",
+			options: ["planned", "doing"],
+			defaultValue: "planned",
+		}, provenance);
+		const entity = entities.createEntity({
+			label: "Ship",
+			tagIds: [tag.id],
+			values: { [field.id]: "doing" },
+		}, provenance);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: tag.id,
+					expectedTagRevision: 2,
+					options: ["doing"],
+				}, provenance),
+			/enum option/,
+		);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: tag.id,
+					expectedTagRevision: 2,
+					options: ["planned"],
+				}, provenance),
+			/enum option/,
+		);
+		assert.equal(entities.getTag(tag.id)?.tag.revision, 2);
+		assert.equal(entities.getEntity(entity.id)?.values[field.id], "doing");
+		const updated = entities.updateField({
+			id: field.id,
+			tagId: tag.id,
+			expectedTagRevision: 2,
+			options: ["doing", "done"],
+			defaultValue: "doing",
+		}, provenance);
+		assert.equal(updated.defaultValue, "doing");
+		assert.equal(entities.getEntity(entity.id)?.values[field.id], "doing");
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("required field changes check descendants and default removal rolls back safely", () => {
+	const { database, entities } = fixture();
+	try {
+		const tag = entities.createUserTag({
+			name: "Work",
+			parentId: BASE_TAGS.task,
+		}, provenance);
+		const child = entities.createUserTag({
+			name: "Project action",
+			parentId: tag.id,
+		}, provenance);
+		const field = entities.defineField({
+			tagId: tag.id,
+			key: "estimate",
+			label: "Estimate",
+			type: "number",
+			cardinality: "single",
+		}, provenance);
+		const entity = entities.createEntity(
+			{ label: "Ship", tagIds: [child.id] },
+			provenance,
+		);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: tag.id,
+					expectedTagRevision: 2,
+					required: true,
+				}, provenance),
+			/Required field/,
+		);
+		assert.equal(entities.getTag(tag.id)?.tag.revision, 2);
+		assert.equal(
+			entities.getTag(tag.id)?.fields.find((x) => x.id === field.id)?.required,
+			false,
+		);
+		entities.updateField({
+			id: field.id,
+			tagId: tag.id,
+			expectedTagRevision: 2,
+			required: true,
+			defaultValue: 1,
+		}, provenance);
+		assert.equal(entities.getEntity(entity.id)?.values[field.id], 1);
+		assert.throws(
+			() =>
+				entities.updateField({
+					id: field.id,
+					tagId: tag.id,
+					expectedTagRevision: 3,
+					defaultValue: null,
+				}, provenance),
+			/Required field/,
+		);
+		assert.equal(entities.getEntity(entity.id)?.values[field.id], 1);
+		entities.updateField({
+			id: field.id,
+			tagId: tag.id,
+			expectedTagRevision: 3,
+			required: false,
+			defaultValue: null,
+		}, provenance);
+		assert.equal(entities.getEntity(entity.id)?.values[field.id], undefined);
+	} finally {
+		database.close();
+	}
+});

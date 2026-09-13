@@ -153,6 +153,7 @@ export interface CreateUserTagInput {
 }
 
 export interface DefineFieldInput {
+	expectedTagRevision?: number;
 	tagId: string;
 	key: string;
 	label: string;
@@ -161,6 +162,17 @@ export interface DefineFieldInput {
 	required?: boolean;
 	options?: readonly string[];
 	defaultValue?: FieldValue;
+}
+
+export interface UpdateFieldInput {
+	id: string;
+	tagId: string;
+	expectedTagRevision: number;
+	label?: string;
+	required?: boolean;
+	options?: readonly string[];
+	/** null removes the default; omitted preserves it. */
+	defaultValue?: FieldValue | null;
 }
 
 export interface CreateEntityInput {
@@ -215,6 +227,10 @@ export interface EntitiesApi extends TasksApi {
 	): Promise<SupertagDetails>;
 	defineField(
 		input: DefineFieldInput,
+		provenance: MutationProvenance,
+	): Promise<FieldDefinition>;
+	updateField(
+		input: UpdateFieldInput,
 		provenance: MutationProvenance,
 	): Promise<FieldDefinition>;
 	archiveField(

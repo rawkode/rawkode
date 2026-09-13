@@ -24,6 +24,7 @@ import {
 	type ProjectionBatch,
 	type Supertag,
 	type SupertagDetails,
+	type UpdateFieldInput,
 } from "@e2/entities";
 import {
 	auditEvents,
@@ -1264,6 +1265,12 @@ export const createEntityStore = (
 				if (!tag || tag.kind !== "user" || tag.archived) {
 					throw new Error("Fields may be added only to active user tags");
 				}
+				if (input.expectedTagRevision !== undefined) {
+					validRevision(input.expectedTagRevision);
+					if (tag.revision !== input.expectedTagRevision) {
+						throw new Error("Tag revision conflict");
+					}
+				}
 				const allowedTypes: FieldType[] = [
 					"text",
 					"number",
@@ -1375,6 +1382,137 @@ export const createEntityStore = (
 					updatedAt: now(),
 				}).where(eq(supertags.id, tag.id)).run();
 				audit(tx, "supertag", tag.id, tag.revision + 1, provenance);
+				return field;
+			}),
+		updateField: (
+			input: UpdateFieldInput,
+			provenance: MutationProvenance,
+		): FieldDefinition =>
+			db.transaction((tx) => {
+				if (
+					!input || Object.keys(input).some((key) =>
+						![
+							"id",
+							"tagId",
+							"expectedTagRevision",
+							"label",
+							"required",
+							"options",
+							"defaultValue",
+						].includes(key)
+					) || !["label", "required", "options", "defaultValue"].some((key) =>
+						key in input
+					)
+				) {
+					throw new Error("Invalid field update");
+				}
+				validRevision(input.expectedTagRevision);
+				const current = tx.select().from(fieldDefinitions).where(
+					eq(fieldDefinitions.id, input.id),
+				).get();
+				if (!current || current.archived) {
+					throw new Error("Only active user fields may be updated");
+				}
+				const tag = tx.select().from(supertags).where(
+					eq(supertags.id, current.tagId),
+				).get();
+				if (!tag || tag.archived || tag.kind !== "user") {
+					throw new Error("Only active user fields may be updated");
+				}
+				if (input.tagId !== tag.id) {
+					throw new Error(
+						"Inherited fields must be updated on their defining tag",
+					);
+				}
+				if (tag.revision !== input.expectedTagRevision) {
+					throw new Error("Tag revision conflict");
+				}
+				const field = fieldView(current);
+				if ("label" in input) {
+					field.label = requiredText(input.label, "field label", 100);
+				}
+				if ("required" in input) {
+					if (typeof input.required !== "boolean") {
+						throw new Error("Invalid required flag");
+					}
+					field.required = input.required;
+				}
+				if ("options" in input) {
+					if (
+						field.type !== "enum" || !Array.isArray(input.options) ||
+						!input.options.length || input.options.length > 100
+					) {
+						throw new Error("Only enum fields accept nonempty options");
+					}
+					const options = input.options.map((value) =>
+						requiredText(value, "enum option", 200)
+					);
+					if (new Set(options).size !== options.length) {
+						throw new Error("Enum options must be distinct");
+					}
+					field.options = options;
+				}
+				if ("defaultValue" in input) {
+					field.defaultValue = input.defaultValue === null
+						? undefined
+						: validateValue(field, input.defaultValue);
+				}
+				if (field.defaultValue !== undefined) {
+					validateValue(field, field.defaultValue);
+				}
+				// Validate stored values, not just the winning value; overrides must not hide
+				// data that would become invalid if a preference changes later.
+				for (
+					const value of tx.select().from(entityUserValues).where(
+						eq(entityUserValues.fieldId, field.id),
+					).all()
+				) {
+					validateValue(field, parseJSON(value.value));
+				}
+				for (
+					const source of tx.select({ values: sourceObservations.values }).from(
+						sourceObservations,
+					).all()
+				) {
+					const values = parseJSON<Record<string, unknown>>(source.values);
+					if (field.id in values) {
+						validateValue(field, values[field.id]);
+					}
+				}
+				tx.update(fieldDefinitions).set({
+					label: field.label,
+					required: field.required,
+					options: field.options ? json(field.options) : null,
+					defaultValue: field.defaultValue === undefined
+						? null
+						: json(field.defaultValue),
+				}).where(eq(fieldDefinitions.id, field.id)).run();
+				// Resolve with the proposed definition inside the transaction; rejection
+				// rolls back metadata and never rewrites or deletes existing entity values.
+				const affected = descendantIds(tag.id, true);
+				const affectedEntities = new Set(
+					tx.select().from(entityTags).where(
+						inArray(entityTags.tagId, affected),
+					).all().map((row) =>
+						row.entityId
+					),
+				);
+				for (const entityId of affectedEntities) {
+					const entity = getEntity(entityId);
+					if (
+						field.required && entity && !(field.id in entity.values)
+					) {
+						throw new Error(
+							"Required field would be missing on an existing entity",
+						);
+					}
+				}
+				const revision = tag.revision + 1;
+				tx.update(supertags).set({ revision, updatedAt: now() }).where(
+					eq(supertags.id, tag.id),
+				).run();
+				audit(tx, "field-definition", field.id, revision, provenance);
+				audit(tx, "supertag", tag.id, revision, provenance);
 				return field;
 			}),
 		archiveField: (

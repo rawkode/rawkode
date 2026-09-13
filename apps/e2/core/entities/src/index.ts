@@ -13,6 +13,7 @@ import type {
 	MutationProvenance,
 	ProjectionBatch,
 	TaskPageOptions,
+	UpdateFieldInput,
 	UpdateTaskInput,
 } from "@e2/entities";
 import migrations from "../migrations/migrations.js";
@@ -91,6 +92,9 @@ export class Entities extends DurableObject<EntitiesEnv> {
 	}
 	defineField(input: DefineFieldInput, provenance: MutationProvenance) {
 		return this.#store.defineField(input, provenance);
+	}
+	updateField(input: UpdateFieldInput, provenance: MutationProvenance) {
+		return this.#store.updateField(input, provenance);
 	}
 	archiveField(
 		id: string,
@@ -224,6 +228,9 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 	}
 	defineField(input: DefineFieldInput, provenance: MutationProvenance) {
 		return this.#entities.defineField(input, provenance);
+	}
+	updateField(input: UpdateFieldInput, provenance: MutationProvenance) {
+		return this.#entities.updateField(input, provenance);
 	}
 	archiveField(
 		id: string,
