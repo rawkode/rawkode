@@ -33,9 +33,15 @@ targets:
     dependencies:
       - package: WebRTC
       - package: ApsidesCore
+    postBuildScripts:
+      - name: Include WebRTC debug symbols
+        script: '"${SRCROOT}/scripts/install-webrtc-dsym.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
     settings:
       base:
         PRODUCT_NAME: Enchiridion
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.mac
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Configuration/macOS.entitlements
@@ -68,9 +74,15 @@ targets:
         embed: true
       - target: ApsidesWidget
         embed: true
+    postBuildScripts:
+      - name: Include WebRTC debug symbols
+        script: '"${SRCROOT}/scripts/install-webrtc-dsym.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
     settings:
       base:
         PRODUCT_NAME: Enchiridion
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

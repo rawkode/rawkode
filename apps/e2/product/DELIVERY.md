@@ -51,6 +51,19 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   is present. This is a distribution risk, not a confirmed explanation of the
   cloud error; obtain the actual distribution/ITMS diagnostic before replacing
   the dependency or changing signing.
+- Release regression comparison: the `bb24547f` Apple check succeeded; the
+  next commit, `b9d18dc6`, introduced the WebRTC binary dependency and began the
+  preparation failures. Its pinned Swift package omits the separately published
+  WebRTC dSYMs. Matching symbols must be included before archive export. Local
+  browser sign-out does not establish a cloud authentication failure, and the
+  generic cloud check alone does not establish a compilation failure.
+- WebRTC symbol packaging is now repaired locally: an archive-only build phase
+  downloads the original M153 dSYM asset with a pinned SHA256, verifies embedded
+  architecture UUIDs, and copies it before export. A real unsigned iOS archive
+  succeeded, with framework and archived dSYM both reporting UUID
+  `4C4C4496-5555-3144-A149-A7E882FEE780`. Symbol upload remains enabled. The next
+  cloud distribution result must establish whether this resolves publishing;
+  local archive success does not establish TestFlight availability.
 - Mac voice now builds with the shared authenticated transport, explicit
   microphone consent, a dedicated captions window, and keyboard controls. The
   iPhone regression build also passes. An actual hidden-window test verifies

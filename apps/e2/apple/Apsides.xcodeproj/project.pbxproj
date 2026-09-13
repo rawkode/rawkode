@@ -349,6 +349,7 @@
 				FE13C692D9187B721DA90D55 /* Sources */,
 				D2D00A3E0BC631C9D248DF4F /* Resources */,
 				213E3E3F417B561B6919A71B /* Frameworks */,
+				459BF7422D7FA543177F2B11 /* Include WebRTC debug symbols */,
 			);
 			buildRules = (
 			);
@@ -409,6 +410,7 @@
 				EE4127611FC366798EF7BFEE /* Frameworks */,
 				87FA6ACFDD4FBA96741BB8EE /* Embed Foundation Extensions */,
 				4E1764A2C0F4AF0C344FE984 /* Embed Watch Content */,
+				61A746F1B52EDC3CB30B6597 /* Include WebRTC debug symbols */,
 			);
 			buildRules = (
 			);
@@ -533,6 +535,49 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		459BF7422D7FA543177F2B11 /* Include WebRTC debug symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Include WebRTC debug symbols";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/install-webrtc-dsym.sh\"";
+			showEnvVarsInLog = 0;
+		};
+		61A746F1B52EDC3CB30B6597 /* Include WebRTC debug symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Include WebRTC debug symbols";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/install-webrtc-dsym.sh\"";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		107C7BB8D47E7D629046BF97 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -653,6 +698,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/iOS-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -705,6 +751,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/iOS-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -725,6 +772,7 @@
 				CODE_SIGN_ENTITLEMENTS = Configuration/macOS.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Mac-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -922,6 +970,7 @@
 				CODE_SIGN_ENTITLEMENTS = Configuration/macOS.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Configuration/Mac-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
