@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
 import Fieldnotes from "./Fieldnotes.vue";
+import { entityFieldRows } from "../editor/entityFields";
 import { paneSearchParams } from "../editor/paneStack";
 import {
 	createSupertagClient,
@@ -46,6 +47,7 @@ const tags = ref<Supertag[]>([]);
 const fields = ref<EntityFieldDefinition[]>([]);
 const loading = ref(true);
 const error = ref("");
+const schemaWarning = ref("");
 const heading = ref<HTMLHeadingElement>();
 const documentEditor = ref<{ prepareForTransition: () => Promise<boolean> }>();
 
@@ -75,38 +77,28 @@ const request = async () => {
 	emit("title", result.data.me.entity.label);
 	backlinks.value = result.data.me.entityBacklinks;
 	const [availableTags, tagDetails] = await Promise.all([
-		supertagClient.list().catch(() => []),
-		Promise.all(
-			result.data.me.entity.tagIds.map((id) =>
-				supertagClient.details(id).catch(() => null)
-			),
+		Promise.allSettled([supertagClient.list()]),
+		Promise.allSettled(
+			result.data.me.entity.tagIds.map((id) => supertagClient.details(id)),
 		),
 	]);
-	tags.value = availableTags;
-	fields.value = tagDetails.flatMap((details) => details?.fields ?? []);
+	const tagList = availableTags[0]!;
+	tags.value = tagList.status === "fulfilled" ? tagList.value : [];
+	fields.value = tagDetails.flatMap((details) =>
+		details.status === "fulfilled" ? details.value?.fields ?? [] : []
+	);
+	if (tagList.status === "rejected" || tagDetails.some((details) =>
+		details.status === "rejected" || !details.value
+	)) {
+		schemaWarning.value = "Some field definitions could not load. Fields or labels may be incomplete.";
+	}
 };
 
 const tagNames = computed(() => {
 	const names = new Map(tags.value.map((tag) => [tag.id, tag.name]));
 	return entity.value?.tagIds.map((id) => names.get(id) ?? id) ?? [];
 });
-const valueText = (value: EntityValue): string => {
-	for (const candidate of [
-		value.text,
-		value.number,
-		value.boolean,
-		value.strings,
-		value.numbers,
-		value.booleans,
-	]) {
-		if (candidate !== null) {
-			return Array.isArray(candidate) ? candidate.join(", ") : String(candidate);
-		}
-	}
-	return "";
-};
-const fieldLabel = (fieldId: string): string =>
-	fields.value.find((field) => field.id === fieldId)?.label ?? fieldId;
+const fieldRows = computed(() => entityFieldRows(fields.value, entity.value?.values ?? []));
 const documentHref = (id: string): string => {
 	const params = paneSearchParams(new URLSearchParams(), [{ kind: "document", id }]);
 	return `/?${params.toString()}`;
@@ -147,12 +139,14 @@ onMounted(async () => {
 				<span v-if="entity.archived" class="entity-archived">Archived</span>
 			</header>
 
-			<section v-if="entity.values.length" class="entity-fields" aria-labelledby="entity-fields-heading">
+			<p v-if="schemaWarning" class="pane-status" role="status">{{ schemaWarning }}</p>
+
+			<section v-if="fieldRows.length" class="entity-fields" aria-labelledby="entity-fields-heading">
 				<h3 id="entity-fields-heading">Fields</h3>
 				<dl>
-					<template v-for="value in entity.values" :key="value.fieldId">
-						<dt>{{ fieldLabel(value.fieldId) }}</dt>
-						<dd>{{ valueText(value) }}</dd>
+					<template v-for="field in fieldRows" :key="field.id">
+						<dt>{{ field.label }}</dt>
+						<dd>{{ field.text }}</dd>
 					</template>
 				</dl>
 			</section>

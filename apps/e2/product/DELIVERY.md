@@ -187,6 +187,16 @@ this latest status where they describe TestFlight or credential availability.
 - Internal-group automatic distribution is not configured. App Store Connect
   authentication was the last known blocker and must be freshly checked.
 
+## Entity field visibility correction — 13 September
+
+The entity pane previously rendered only stored values, hiding empty inherited
+fields. It now renders all active effective fields, deduplicates inherited
+fields across tags and retains saved values whose definitions are unavailable.
+Empty values say “Not set”; zero and false remain visible. Partial schema-load
+failures show a warning. Two regressions and the editor typecheck pass; the web
+fix is deployed. The Google.com item has only Title stored; its URL is unset,
+not lost by this change. No entity data was changed.
+
 ## Current ownership and acceptance
 
 | Priority | Work | Owner | Verified state / remaining gate |
