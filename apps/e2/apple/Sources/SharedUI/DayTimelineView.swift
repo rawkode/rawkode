@@ -161,15 +161,21 @@ struct DayTimelineView: View {
         if let error = store.connectionError {
             Text(error).font(.callout).padding(.horizontal, 24).padding(.vertical, 8)
         }
-        if selectedContext?.partial == true {
-            Label("Some services could not refresh", systemImage: "exclamationmark.triangle")
-                .font(.callout).padding(.horizontal, 24).padding(.vertical, 8)
+        let calendar = selectedContext?.freshness?.calendar
+        let calendarPartial = calendar?.isPartial ?? (selectedContext?.partial == true)
+        let success = calendar?.lastSuccessAt ?? (calendar == nil ? snapshot.fetchedAt : nil)
+        if calendarPartial || store.contextRefreshError != nil || success.map({ now.timeIntervalSince($0) > 15 * 60 }) == true {
+            ContextFreshnessCaption(freshness: calendar, legacyDate: snapshot.fetchedAt,
+                refreshFailed: store.contextRefreshError != nil, legacyPartial: calendarPartial)
+                .padding(8)
         }
-        if store.connectionError != nil || now.timeIntervalSince(snapshot.fetchedAt) > 15 * 60 {
-            Text("Last updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
-                .font(.caption).foregroundStyle(theme.secondary).padding(8)
+        if let github = selectedContext?.freshness?.github, github.isPartial {
+            HStack(spacing: 4) {
+                Text("GitHub ·").font(.caption).foregroundStyle(theme.secondary)
+                ContextFreshnessCaption(freshness: github)
+            }.padding(.horizontal, 24).padding(.bottom, 8)
         }
-        if snapshot.events.isEmpty && selectedContext?.partial != true {
+        if snapshot.events.isEmpty && !calendarPartial {
             Text("Nothing scheduled. Your day has room.")
                 .font(.callout).foregroundStyle(theme.secondary).padding(16)
         }

@@ -17,6 +17,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
 
     private let websiteDataStore: WKWebsiteDataStore
     private var generation = 0
+    private var nextGitHubCompletenessProbe = Date.distantPast
 
     public enum SessionError: LocalizedError {
         case invalidOrigin, signInRequired, invalidResponse, responseTooLarge, invalidDocumentID, cancelled, captureConflict
@@ -134,6 +135,8 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     /// Returns the existing GraphQL envelope, including partial-data/errors information.
     public func today(date: String, from: Date, to: Date) async throws -> Data {
         let formatter = ISO8601DateFormatter()
+        let includesGitHubCompleteness = Date.now >= nextGitHubCompletenessProbe
+        func requestBody(includeCompleteness: Bool) throws -> Data {
         let query = """
         query AppleToday($date: String!, $from: String!, $to: String!) {
           me { today(date: $date, from: $from, to: $to) {
@@ -141,14 +144,22 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             googleEventsPartial
             googlePeople { connectionId id displayName emails }
             githubActivity { connectionId id resourceId kind title summary number url repository actor createdAt action }
+            \(includeCompleteness ? "githubActivityPartial" : "")
           } }
         }
         """
-        let body = try JSONSerialization.data(withJSONObject: [
+        return try JSONSerialization.data(withJSONObject: [
             "query": query,
             "variables": ["date": date, "from": formatter.string(from: from), "to": formatter.string(from: to)],
         ])
-        return try await read(path: "/api/graphql", body: body, limit: 4 * 1024 * 1024)
+        }
+        let data = try await read(path: "/api/graphql", body: requestBody(includeCompleteness: includesGitHubCompleteness),
+                                  limit: 4 * 1024 * 1024, allowOlderTodaySchema: true)
+        if includesGitHubCompleteness && TodayQueryCompatibility.lacksGitHubCompleteness(data) {
+            nextGitHubCompletenessProbe = .now.addingTimeInterval(300)
+            return try await read(path: "/api/graphql", body: requestBody(includeCompleteness: false), limit: 4 * 1024 * 1024)
+        }
+        return data
     }
 
     public func document(id: String) async throws -> Data {
@@ -244,7 +255,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         url.port ?? (url.scheme == "https" ? 443 : 80)
     }
 
-    private func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false) async throws -> Data {
+    private func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false) async throws -> Data {
         let currentGeneration = generation
         let url = origin.appendingPathComponent(path)
         guard matchesOrigin(url) else { throw SessionError.invalidOrigin }
@@ -294,7 +305,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             }
             throw SessionError.signInRequired
         }
-        guard http.statusCode == 200 || (allowConflict && http.statusCode == 409),
+        guard http.statusCode == 200 || (allowConflict && http.statusCode == 409) || (allowOlderTodaySchema && http.statusCode == 400),
               http.mimeType?.lowercased() == "application/json" else { throw SessionError.invalidResponse }
         if http.expectedContentLength > limit { throw SessionError.responseTooLarge }
         var result = Data()
@@ -303,6 +314,9 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             result.append(byte)
         }
         guard currentGeneration == generation else { throw SessionError.cancelled }
+        if http.statusCode == 400 && !TodayQueryCompatibility.lacksGitHubCompleteness(result) {
+            throw SessionError.invalidResponse
+        }
         return result
     }
 }

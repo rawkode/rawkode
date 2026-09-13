@@ -23,8 +23,8 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   On 13 September Xcode reports Unable to Access Xcode Cloud and requires
   a fresh team Apple Account sign-in; release verification is blocked.
 - Saved day context survives offline restart. The remote rich-text editor is
-  not yet qualified for full offline editing. Partial integration failures can
-  still replace a section with empty data; this needs separate cache handling.
+  not yet qualified for full offline editing. Partial integration cache retention is now implemented and tested locally;
+  the GitHub completeness field still needs backend deployment.
 - CarPlay entitlement exists; no verified conversational CarPlay scene or
   installed car launcher experience. Do not equate a widget with a CarPlay app.
 - Internal-group automatic distribution is not configured. App Store Connect
@@ -35,7 +35,7 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 | ID | Priority | Work | Owner | Acceptance gate |
 | --- | --- | --- | --- | --- |
 | REL-01 | P0 | Reliable TestFlight delivery | Product owner | Signed build processed, attached to existing internal group, tester availability observed; no claim based only on archive success |
-| DATA-01 | P0 | Independent offline projections | Next implementation | Cold offline launch reads local state; service failure retains its last known data and reports freshness; account changes cannot reveal another account's cache |
+| DATA-01 | P0 | Independent offline projections | Implemented; deployment pending | Cold offline launch reads local state; service failure retains its last known data and reports freshness; account changes cannot reveal another account's cache |
 | VOICE-01 | P0 | GPT Live conversation foundation | Voice agent | Verified public transport/auth contract; server-owned credentials; authenticated, bounded sessions; tested ownership and failure behavior |
 | VOICE-02 | P0 | Talk to the day on iPhone | After VOICE-01 | Real microphone input and spoken response grounded in calendar/notes; visible recording/mute/end; interruption and reconnect tested on device |
 | VOICE-03 | P0 | Code-mode tools | After VOICE-01 | Discoverable typed integration API; bounded isolated execution; owner-scoped read access; no ambient secrets; writes are explicit and idempotent |
@@ -89,8 +89,43 @@ limitations belong in the acceptance evidence.
   typed integration adapters and live voice transport remain unmounted.
 - Independent meeting review found no blocking issue in the single-editor flow.
   Full archive writes per revision still need long-meeting performance checks.
-- Active next task: preserve per-service cached context during partial refresh,
-  including an explicit GitHub completeness signal and older API compatibility.
+- `b64a7167` is pushed to PR 35. This batch is not yet available in TestFlight.
+
+## Partial-refresh integration — 13 September
+
+- Native calendar, people and GitHub sections retain missing cached items on
+  incomplete responses; explicit successful empty results still clear data.
+  Owner/day mismatches cannot reuse a cache. Each section exposes its own last
+  successful refresh and cached/partial status.
+- GitHub now reports `Today.githubActivityPartial` from the same memoized fetch
+  as its rows. Timeouts, account errors and pagination truncation are incomplete;
+  successfully disconnected or empty accounts are complete. This API change is
+  not deployed yet.
+- The native client retries only the exact unknown-field validation error from
+  an older Today schema, then waits five minutes before probing again. Legacy
+  GitHub results remain conservative rather than proving cached rows deleted.
+- Watch and widget publication require a complete calendar, including restored
+  startup context. Independent review found and fixed the startup bypass.
+- Forty-nine Core tests pass, six focused GitHub deadline/schema tests pass,
+  backend typecheck/lint pass, and the integrated Simulator build passes. The
+  legacy offline cache relaunch/navigation UI journey passes. Freshness errors
+  are separated from capture/widget warnings so those warnings do not imply a
+  context refresh failure.
+- Fresh Xcode check still reports team-account sign-in required. Latest branch
+  changes are not verified as cloud-built, delivered to the internal group, or
+  available in TestFlight.
+
+## Next bounded work
+
+1. Wire a verified owner-scoped day service adapter into the voice capability;
+   keep authenticated API access and generated-code execution separate.
+2. Mount the real voice coordinator and qualify provider close/reconciliation,
+   explicit session enablement, and server-held credentials before paid calls.
+3. Qualify meeting microphone, language assets, interruptions and long recordings
+   on supported hardware. Optimize transcript persistence if profiling warrants.
+4. Deploy the GitHub completeness API through the existing Alchemy production
+   workflow, and resume cloud release/internal-group verification when Apple
+   authentication is available.
 
 ## Next release slices
 

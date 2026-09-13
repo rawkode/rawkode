@@ -29,23 +29,38 @@ const connections = (context: ApiContext) =>
 		"github.connections",
 		() => read(context, (api) => api.listConnections()),
 	);
-export const loadGitHubActivity = async (
+type ActivityRow = NonNullable<ReturnType<typeof normalizeGitHubActivity>> & {
+	connectionId: string;
+};
+export interface GitHubActivityResult {
+	rows: ActivityRow[];
+	partial: boolean;
+}
+const fetchActivityResult = async (
 	context: ApiContext,
-	budgetMs = 8_000,
-) => {
+	budgetMs: number,
+): Promise<GitHubActivityResult> => {
 	const deadline = Date.now() + budgetMs;
-	const accounts = await beforeDeadline(connections(context), deadline);
-	if (!accounts || !context.env.GITHUB_ADMIN) return [];
+	let accounts: Connection[] | undefined;
+	try {
+		accounts = await beforeDeadline(connections(context), deadline);
+	} catch {
+		return { rows: [], partial: true };
+	}
+	if (!accounts || !context.env.GITHUB_ADMIN) {
+		return { rows: [], partial: true };
+	}
 	const results = await Promise.all(accounts.map(async (account) => {
 		const rows: Record<string, unknown>[] = [];
+		let page: number | undefined = 1;
+		let partial = false;
 		try {
 			const session = context.env.GITHUB_ADMIN!.admin(context.identity.ownerId);
 			using api = await beforeDeadline(session, deadline);
 			if (!api) {
 				void session.then((late) => late[Symbol.dispose]()).catch(() => {});
-				return rows;
+				return { rows, partial: true };
 			}
-			let page: number | undefined = 1;
 			for (
 				let request = 0;
 				request < 5 && page && Date.now() < deadline;
@@ -61,19 +76,38 @@ export const loadGitHubActivity = async (
 				page = result.nextPage ?? undefined;
 			}
 		} catch {
-			// A slow/unavailable later page must not discard completed pages.
+			partial = true;
 		}
-		return rows;
+		return { rows, partial: partial || page !== undefined };
 	}));
-	return results.flatMap((rows, index) =>
-		rows.flatMap((row) => {
-			const item = normalizeGitHubActivity(row);
-			return item ? [{ ...item, connectionId: accounts[index]?.id ?? "" }] : [];
-		})
-	);
+	return {
+		rows: results.flatMap((result, index) =>
+			result.rows.flatMap((row) => {
+				const item = normalizeGitHubActivity(row);
+				return item
+					? [{ ...item, connectionId: accounts[index]?.id ?? "" }]
+					: [];
+			})
+		),
+		partial: results.some((result) => result.partial),
+	};
 };
-const activityRows = (context: ApiContext) =>
-	requestMemo(context, "github.activity", () => loadGitHubActivity(context));
+/** Rows and completion metadata share the same request and deadline, even when
+ * GraphQL resolves the two fields concurrently or in a different order. */
+export const loadGitHubActivityResult = (
+	context: ApiContext,
+	budgetMs = 8_000,
+): Promise<GitHubActivityResult> =>
+	requestMemo(
+		context,
+		"github.activity.result",
+		() => fetchActivityResult(context, budgetMs),
+	);
+export const loadGitHubActivity = async (
+	context: ApiContext,
+	budgetMs = 8_000,
+) => (await loadGitHubActivityResult(context, budgetMs)).rows;
+const activityRows = (context: ApiContext) => loadGitHubActivity(context);
 export const githubGraphql: IntegrationSchema = {
 	typeDefs: `
     extend type User { githubAccounts: [GitHubAccount!]! githubAccount(connectionId: ID!): GitHubAccount }
@@ -82,9 +116,11 @@ export const githubGraphql: IntegrationSchema = {
     type GitHubRepositoryPage { items: [GitHubRepository!]! nextPage: Int }
     type GitHubActivity { connectionId: ID! id: ID! resourceId: ID! kind: String! title: String! url: String! repository: String! actor: String! createdAt: String! action: String! summary: String! number: Int eventType: String! }
     extend type User { githubActivity(query: String!): [GitHubActivity!]! }
-    extend type Today { githubActivity: [GitHubActivity!]! }
+    extend type Today { githubActivity: [GitHubActivity!]! githubActivityPartial: Boolean! }
   `,
 	fields: {
+		"Today.githubActivityPartial": async (_source, _args, context) =>
+			(await loadGitHubActivityResult(context)).partial,
 		"User.githubAccounts": (_source, _args, context) => connections(context),
 		"User.githubAccount": async (_source, args, context) =>
 			(await connections(context)).find((row) =>

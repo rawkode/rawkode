@@ -505,6 +505,14 @@ Deno.test("GitHub Today includes supported resources across activity pages", asy
 							id: "push-activity",
 							type: "PushEvent",
 							created_at: "2026-09-10T09:00:00Z",
+							payload: {
+								head: "abcdef1234567",
+								ref: "refs/heads/main",
+								commits: [{
+									sha: "abcdef1234567",
+									message: "Ship calendar colors",
+								}],
+							},
 						}, {
 							id: "issue-activity",
 							type: "IssuesEvent",
@@ -595,6 +603,7 @@ Deno.test("GitHub Today includes supported resources across activity pages", asy
 					to: "2026-09-11T00:00:00.000Z"
 				) {
 					githubActivity { id resourceId kind title }
+					githubActivityPartial
 				}
 			}
 		}
@@ -615,6 +624,12 @@ Deno.test("GitHub Today includes supported resources across activity pages", asy
 		{
 			me: {
 				all: [
+					{
+						id: "push-activity",
+						resourceId: "abcdef1234567",
+						kind: "commit",
+						title: "Ship calendar colors",
+					},
 					{
 						id: "issue-activity",
 						resourceId: "issue-node",
@@ -641,7 +656,14 @@ Deno.test("GitHub Today includes supported resources across activity pages", asy
 					},
 				],
 				today: {
+					githubActivityPartial: false,
 					githubActivity: [
+						{
+							id: "push-activity",
+							resourceId: "abcdef1234567",
+							kind: "commit",
+							title: "Ship calendar colors",
+						},
 						{
 							id: "issue-activity",
 							resourceId: "issue-node",

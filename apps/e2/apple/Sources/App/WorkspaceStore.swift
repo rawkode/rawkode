@@ -13,6 +13,7 @@ final class WorkspaceStore: ObservableObject {
     @Published private(set) var calendarContext: ConnectedContext?
     @Published private(set) var refreshing = false
     @Published var connectionError: String?
+    @Published private(set) var contextRefreshError: String?
     @Published var capturePresented = false
     @Published var settingsPresented = false
     @Published private(set) var meetingArchive = MeetingArchive()
@@ -92,7 +93,9 @@ final class WorkspaceStore: ObservableObject {
             try self.commit(next)
         }, onContext: { _ in }, onReceipt: { _ in })
         watchBridge?.start()
-        if let snapshot = vault.context { watchBridge?.sendContext(snapshot) }
+        if let snapshot = vault.context, vault.connectedContext?.canPublishCalendar != false {
+            watchBridge?.sendContext(snapshot)
+        }
         }
         #endif
     }
@@ -194,7 +197,8 @@ final class WorkspaceStore: ObservableObject {
         let generation = connectionGeneration
         let id = UUID()
         refreshID = id
-        refreshing = true; connectionError = nil
+        refreshing = true; connectionError = nil; contextRefreshError = nil
+        var receivedContext = false
         // This also bounds WebKit cookie retrieval, which has no cancellation API.
         // A late response is fenced out before it can replace a newer refresh.
         let deadline = Task { [weak self] in
@@ -203,6 +207,7 @@ final class WorkspaceStore: ObservableObject {
             self.refreshID = nil
             self.refreshing = false
             self.connectionError = "Your day is taking too long to load. Please try again."
+            self.contextRefreshError = self.connectionError
         }
         defer {
             deadline.cancel()
@@ -215,24 +220,32 @@ final class WorkspaceStore: ObservableObject {
             let key = DayIdentity.key(date), bounds = DayIdentity.bounds(date)
             let data = try await session.today(date: key, from: bounds.0, to: bounds.1)
             guard refreshID == id, generation == connectionGeneration, session.accountID == account else { return }
-            let next = try ConnectedContext.decode(data, day: key)
+            let previous = [calendarContext, context, vault.connectedContext].compactMap { $0 }.first { $0.snapshot.day == key }
+            let next = try ConnectedContext.decode(data, day: key, ownerID: account,
+                previousOwnerID: vault.accountID, previous: previous)
             calendarContext = next
             if Calendar.current.isDateInToday(date) {
                 var updated = vault; updated.context = next.snapshot; updated.connectedContext = next
                 try commit(updated)
                 context = next
-                publishWidget(next.snapshot)
+                // A partial calendar cannot establish a fresh complete snapshot for
+                // surfaces that do not yet carry section-level freshness metadata.
+                if next.canPublishCalendar { publishWidget(next.snapshot) }
                 #if os(iOS)
-                watchBridge?.sendContext(next.snapshot)
+                if next.canPublishCalendar { watchBridge?.sendContext(next.snapshot) }
                 #endif
             }
             // The day is usable now; capture synchronization must not hold its spinner.
+            receivedContext = true
             refreshing = false
             deadline.cancel()
             try await receiveCaptures(account: account, generation: generation, refresh: id)
         } catch {
             guard refreshID == id, generation == connectionGeneration else { return }
-            if !Task.isCancelled { connectionError = error.localizedDescription }
+            if !Task.isCancelled {
+                connectionError = error.localizedDescription
+                if !receivedContext { contextRefreshError = connectionError }
+            }
         }
     }
     func send(_ capture: Capture) async {
@@ -254,6 +267,7 @@ final class WorkspaceStore: ObservableObject {
         refreshID = nil
         refreshing = false
         connectionError = nil
+        contextRefreshError = nil
         context = nil
         do { try bindAccount(nil) } catch { storageError = "Sign-out cleared the visible account data, but its cache could not be removed from disk. \(error.localizedDescription)" }
         #if os(iOS)

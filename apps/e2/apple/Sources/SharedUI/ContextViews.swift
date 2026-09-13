@@ -1,20 +1,46 @@
 import ApsidesCore
 import SwiftUI
 
+/// A section's own success time; old caches deliberately make no freshness claim.
+struct ContextFreshnessCaption: View {
+    let freshness: ContextSectionFreshness?
+    var legacyDate: Date? = nil
+    var refreshFailed = false
+    var legacyPartial = false
+    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+
+    private var message: String {
+        let success = freshness?.lastSuccessAt ?? (freshness == nil ? legacyDate : nil)
+        let partial = freshness?.isPartial ?? legacyPartial
+        let prefix = refreshFailed || freshness?.retainedCache == true ? "Cached · " : (partial ? "Partial · " : "")
+        if let success {
+            return prefix + "Last updated " + success.formatted(date: .abbreviated, time: .shortened)
+        }
+        if partial { return "Refresh incomplete" }
+        if refreshFailed { return "Cached · Refresh unavailable" }
+        return "Saved context · Update time unavailable"
+    }
+    var body: some View {
+        Text(message).font(.caption).foregroundStyle(theme.secondary)
+            .accessibilityIdentifier("contextFreshness")
+    }
+}
+
 struct ContextConnectionView: View {
     @ObservedObject var store: WorkspaceStore
+    var freshness: ContextSectionFreshness? = nil
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let snapshot = store.snapshot {
-                Text("Updated \(snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(theme.ink)
+            if store.snapshot != nil {
+                ContextFreshnessCaption(freshness: freshness, refreshFailed: store.contextRefreshError != nil,
+                                        legacyPartial: store.context?.partial == true)
             } else {
                 Text("Bring your day into focus").font(.system(.title2, design: .serif))
                 Text("Connect your Enchiridion account for calendar, people, and GitHub context. Your local writing stays available offline.").foregroundStyle(theme.ink)
                 Button("Connect account") { store.settingsPresented = true }
             }
-            if let error = store.connectionError { Text(error).font(.callout).foregroundStyle(theme.ink) }
-            if store.context?.partial == true { Label("Some services could not refresh.", systemImage: "exclamationmark.triangle").font(.callout) }
+            if let error = store.connectionError { Text(error).font(.callout) }
         }.padding(.vertical, 8).foregroundStyle(theme.ink).listRowBackground(theme.canvas)
     }
 }
@@ -24,7 +50,7 @@ struct PeopleView: View {
     @State private var query = ""
     var body: some View {
         List {
-            ContextConnectionView(store: store)
+            ContextConnectionView(store: store, freshness: store.context?.freshness?.people)
             ForEach((store.context?.people ?? []).filter { query.isEmpty || ($0.name + $0.emails.joined()).localizedCaseInsensitiveContains(query) }.sorted { $0.name < $1.name }) { person in
                 NavigationLink { PersonDetailView(person: person) } label: {
                     VStack(alignment: .leading, spacing: 5) {
@@ -51,10 +77,10 @@ struct RepositoryListView: View {
     }
     private var repositoryList: some View {
             List {
-                ContextConnectionView(store: store)
+                ContextConnectionView(store: store, freshness: store.context?.freshness?.github)
                 ForEach(repositories.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { repository in
                     NavigationLink {
-                        RepositoryTimeline(repository: repository, items: (store.context?.activity ?? []).filter { $0.repository == repository })
+                        RepositoryTimeline(repository: repository, items: (store.context?.activity ?? []).filter { $0.repository == repository }, freshness: store.context?.freshness?.github, refreshFailed: store.contextRefreshError != nil)
                     } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(repository).font(.body.weight(.medium))
@@ -70,9 +96,12 @@ struct RepositoryTimeline: View {
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     let repository: String
     let items: [RepositoryActivity]
+    var freshness: ContextSectionFreshness? = nil
+    var refreshFailed = false
     @State private var type = ""
     var body: some View {
         List {
+            ContextFreshnessCaption(freshness: freshness, refreshFailed: refreshFailed).listRowBackground(theme.canvas)
             Picker("Activity type", selection: $type) {
                 Text("All types").tag("")
                 ForEach(Array(Set(items.map(\.kind))).sorted(), id: \.self) { Text(activityKind($0, plural: true)).tag($0) }

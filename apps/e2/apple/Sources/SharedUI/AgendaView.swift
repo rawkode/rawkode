@@ -9,6 +9,11 @@ struct AgendaView: View {
     @State private var showList = false
     @State private var selectedEvent: AgendaEvent?
 
+    private var selectedContext: ConnectedContext? {
+        let key = DayIdentity.key(day)
+        if let context = store.calendarContext, context.snapshot.day == key { return context }
+        return store.context.flatMap { $0.snapshot.day == key ? $0 : nil }
+    }
     private var snapshot: ContextSnapshot? {
         if let calendar = store.calendarContext?.snapshot, calendar.day == DayIdentity.key(day) { return calendar }
         return store.snapshot.flatMap { $0.day == DayIdentity.key(day) ? $0 : nil }
@@ -30,11 +35,11 @@ struct AgendaView: View {
             } else {
                 ScrollView { ContextConnectionView(store: store).padding(24) }
             }
-            if let error = store.connectionError {
-                Text(error).font(.callout).padding().frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if store.calendarContext?.partial == true {
-                Label("Some calendars could not refresh.", systemImage: "exclamationmark.triangle").font(.callout).padding()
+            if let snapshot {
+                ContextFreshnessCaption(freshness: selectedContext?.freshness?.calendar,
+                    legacyDate: snapshot.fetchedAt, refreshFailed: store.contextRefreshError != nil,
+                    legacyPartial: selectedContext?.partial == true)
+                    .padding(.horizontal, 24).padding(.vertical, 8)
             }
         }
         .background(theme.canvas).foregroundStyle(theme.ink)
