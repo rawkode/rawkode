@@ -17,7 +17,38 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
-### Latest verified status — 13 September, 20:24 BST
+### Latest verified status — 13 September, 21:32 BST
+
+- Build 32 is available to the existing internal TestFlight audience. Apple
+  reports `VALID`, `IN_BETA_TESTING`, and automatic notification enabled.
+  Archive and internal distribution succeeded. All application/backend changes
+  through `6cd85b7f` are pushed; the voice backend is deployed in production.
+- Voice tools can create graph items and update their field values, as well as
+  create/edit Supertags. A production typed test created a bookmark but returned
+  an uncertain outcome. Direct GraphQL inspection confirmed persistence. The
+  SDK regression reproduced the missing final-answer step; reserving a fifth,
+  tool-free answer step fixed that path. A live update then returned HTTP 200,
+  independently verified at revision 2. The failed creation was not retried.
+- Spoken and typed reasoning share a 30-second limit; individual executor calls
+  remain limited to five seconds and a turn to 12 connector calls. Uncertain
+  outcomes no longer invite a duplicate write. The 94-test agent regression
+  passed, followed by a real 13-second default-deadline regression that passed.
+- The agent chooses its initial greeting. Authenticated browser audio and graph
+  lookup were verified; this is not physical iPhone or native Mac voice proof.
+- Native CarPlay scene and Mac Speak/Type are integrated, reviewed and build
+  verified. Build 30's actual App Store IPA contains the CarPlay scene and signed
+  voice entitlement; its provisioning profile grants that entitlement. Vehicle
+  appearance, audio routing and locked-phone operation remain unverified.
+- Current goal status is blocked on native access: the Mac was locked and the
+  paired iPhone unavailable at the last direct check. Do not substitute further
+  source reviews for a spoken native write, or advance lower priorities as if
+  voice were accepted. Unlocking the Mac enables Simulator/Mac interaction;
+  physical iPhone and CarPlay qualification still requires the devices.
+- Detailed evidence and remaining acceptance checks are in
+  [voice qualification](../apple/docs/VOICE-QUALIFICATION.md). The named
+  production verification bookmark remains in the graph as evidence.
+
+### Earlier status — 13 September, 20:24 BST
 
 - TestFlight Build 26 is available to internal testers (`VALID`,
   `IN_BETA_TESTING`); Xcode Cloud archive and internal distribution succeeded.
@@ -156,27 +187,20 @@ this latest status where they describe TestFlight or credential availability.
 - Internal-group automatic distribution is not configured. App Store Connect
   authentication was the last known blocker and must be freshly checked.
 
-## Work in progress
+## Current ownership and acceptance
 
-| ID       | Priority | Work                             | Owner                           | Acceptance gate                                                                                                                                                         |
-| -------- | -------- | -------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| REL-01   | P0       | Reliable TestFlight delivery     | Product owner                   | Signed build processed, attached to existing internal group, tester availability observed; no claim based only on archive success                                       |
-| DATA-01  | P0       | Independent offline projections  | Implemented; deployment pending | Cold offline launch reads local state; service failure retains its last known data and reports freshness; account changes cannot reveal another account's cache         |
-| VOICE-01 | P0       | GPT Live conversation foundation | Voice agent                     | Verified public transport/auth contract; server-owned credentials; authenticated, bounded sessions; tested ownership and failure behavior                               |
-| VOICE-02 | P0       | Talk to the day on iPhone        | After VOICE-01                  | Real microphone input and spoken response grounded in calendar/notes; visible recording/mute/end; interruption and reconnect tested on device                           |
-| VOICE-03 | P0       | Code-mode tools                  | After VOICE-01                  | Discoverable typed integration API; bounded isolated execution; owner-scoped read access; no ambient secrets; writes are explicit and idempotent                        |
-| MEET-01  | P0       | Durable meeting transcript       | Meeting agent                   | Stable segment IDs, provisional/final revisions, timestamps, interrupted-session recovery; persisted transcript is not silently replaced by a summary                   |
-| MEET-02  | P0       | Live meeting notes               | After MEET-01 and transport     | Start/pause/stop is visible; real audio produces retained text; user can correct it; summary and proposed tasks link to transcript evidence                             |
-| CAR-01   | P1       | CarPlay conversation             | After VOICE-02                  | Approved scene appears in car; voice-only useful interaction, short responses, audio interruption/locked-phone behavior verified in Simulator and real vehicle          |
-| MAC-01   | P1       | Desktop voice and meetings       | After VOICE-02 / MEET-02        | Native Mac capture controls, explicit audio source, permission handling, meeting capture and agent coexist without feedback loops                                       |
-| GRAPH-01 | P1       | Tana/Fibery capability matrix    | Capability agent                | Official source-linked families mapped to actual repo behavior, missing capabilities and testable release slices                                                        |
-| TASK-01  | P1       | Reliable commitments             | After GRAPH-01                  | Typed tasks with status, due/scheduled dates, ownership, views, recurrence/reminders and durable completion semantics                                                   |
-| BOOK-01  | P2       | Public booking links             | After calendar write contract   | Availability, timezone/buffer/conflict correctness; idempotent booking and cancel/reschedule; Google write consent; anonymous pages isolated from private graph and PDS |
+| Priority | Work | Owner | Verified state / remaining gate |
+| --- | --- | --- | --- |
+| 1 | Voice on iPhone, then Mac and CarPlay | Product owner; completed implementation handoffs below | Backend deployed, browser audio/read and typed mutation verified, native builds and signed CarPlay packaging verified. Native spoken mutation and device interaction remain blocked on access. |
+| 2 | First-class tasks | Product owner / task owner | Existing implementation requires status/due/project/day and restart acceptance after voice. |
+| 3 | Meeting capture | Meeting owner | Transcript foundation exists; real microphone, interruption recovery and retained editable notes remain required. |
+| 4 | Offline notes and tasks | Data owner | Cached context is partial evidence only; durable offline edits and safe reconnection remain required. |
+| Supporting | Release delivery | Product owner | Build 32 verified in internal TestFlight. No release job is needed for unchanged app behavior. |
+| Backlog | Booking links and wider Tana/Fibery parity | Product owner | Follow ordered priorities; require public/private isolation and calendar-write authorization. |
 
-P0 voice and meeting work are distinct streams: a conversational assistant is
-not automatically a meeting recorder, and an audio stream is not automatically a
-durable transcript. Phone-call capture is not assumed available. Platform
-limitations belong in the acceptance evidence.
+Voice and meeting capture are separate capabilities. A conversational assistant
+is not automatically a recorder, and an audio stream is not a durable transcript.
+The following dated handoffs are historical evidence, not current ownership.
 
 ## First delegated handoff — 13 September
 
@@ -275,29 +299,32 @@ limitations belong in the acceptance evidence.
 
 ## Next bounded work
 
-1. Integrate the tested owner-scoped day reader with the voice coordinator; keep
-   authenticated API access and generated-code execution separate.
-2. Mount the real voice coordinator and qualify provider close/reconciliation,
-   explicit session enablement, and server-held credentials before paid calls.
-3. Qualify meeting microphone, language assets, interruptions and long
-   recordings on supported hardware. Optimize transcript persistence if
-   profiling warrants.
-4. Deploy the GitHub completeness API through the existing Alchemy production
-   workflow, and resume cloud release/internal-group verification when Apple
-   authentication is available.
+1. **Voice, current gate — product owner.** With native access restored, sign in
+   normally, receive the model-chosen greeting, perform a spoken graph lookup
+   and approved item write, independently inspect persistence, then verify
+   speaker/Bluetooth, mute/end, interruption and Speak/Type transitions. Follow
+   with Mac keyboard/audio and CarPlay cold-launch, locked-phone and disconnect
+   checks. Completed implementation owners: graph_voice_tools (tool/answer
+   policy), native_tasks (Mac typing), pane_review (CarPlay), with independent
+   voice_timeout_review. Their source/build handoffs are integrated; hardware
+   acceptance is still open.
+2. **Tasks, after voice acceptance — product owner/task owner.** Qualify durable
+   status changes, due dates, project links and day/calendar presentation across
+   restart and real account data before adding more task features.
+3. **Meeting capture, after tasks — meeting owner.** Verify real microphone live
+   transcription, interruptions, retained editable notes and source-linked
+   summaries/proposed tasks. Do not equate the transcript model with capture.
+4. **Offline, after meeting capture — data owner.** Verify immediate offline
+   launch, note/task editing, durable changes and conflict-safe reconnection.
+   Cached day context alone does not satisfy editable offline operation.
 
 ## Next release slices
 
-1. Stabilize daily use and distribution while landing tested voice/transcript
-   foundations. A foundation may ship as dormant code; describe it that way.
-2. A usable iPhone voice vertical slice: ask about the day, retrieve a note, and
-   propose one explicit follow-up through the typed tool boundary.
-3. Live meeting capture with editable transcript, linked summary and proposed
-   action items. Proposals become tasks only through a clear user action.
-4. CarPlay and Mac delivery against the same authenticated agent and graph, with
-   device-specific audio and interaction qualification.
-5. Expand typed graph, query/view, automation and collaboration capabilities
-   according to the capability matrix, not superficial feature checkmarks.
+The order is voice → tasks → meeting capture → offline. Native voice remains the
+next acceptance slice; its server fixes are already deployed and its app is in
+TestFlight. Do not create cosmetic changes or repeated builds to stand in for
+blocked device verification. Booking links and broader graph parity remain
+backlog work behind these priorities.
 
 ## Delivery cadence and evidence
 
