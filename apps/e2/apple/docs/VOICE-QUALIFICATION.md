@@ -77,3 +77,15 @@ work immediately. Failure commentary now explains that a change may already
 have persisted and directs read-only verification before any further change,
 rather than inviting a retry. This is deployed backend behavior; actual native
 spoken completion remains to be qualified.
+
+## Build 30 App Store artifact inspection
+
+Downloaded the actual Xcode Cloud App Store export, unpacked its IPA, and
+verified bundle version 30 / marketing version 0.1.0. Its built Info.plist has
+the CarPlay scene role, Enchiridion.CarPlaySceneDelegate, and audio background
+mode. `codesign -d --entitlements <output>` decoded the signed entitlement
+`com.apple.developer.carplay-voice-based-conversation = true`; the embedded
+App Store provisioning profile also grants it and disables get-task-allow.
+The local Mac's deep signature trust check returned CSSMERR_TP_NOT_TRUSTED,
+so this inspection does not claim local trust-chain or physical launch proof.
+Apple processed this build successfully and confirmed IN_BETA_TESTING.
