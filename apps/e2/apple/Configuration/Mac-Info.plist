@@ -31,6 +31,8 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Enchiridion includes a communication library with camera support. Voice conversations are audio-only and do not access your camera.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Enchiridion uses the microphone for voice conversations you choose to start.</string>
 </dict>

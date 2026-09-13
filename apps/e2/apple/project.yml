@@ -52,6 +52,7 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
+        NSCameraUsageDescription: Enchiridion includes a communication library with camera support. Voice conversations are audio-only and do not access your camera.
         NSMicrophoneUsageDescription: Enchiridion uses the microphone for voice conversations you choose to start.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [enchiridion]
@@ -92,6 +93,7 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
+        NSCameraUsageDescription: Enchiridion includes a communication library with camera support. Voice conversations are audio-only and do not access your camera.
         NSMicrophoneUsageDescription: Enchiridion uses the microphone for voice conversations and meetings you choose to record.
         NSSpeechRecognitionUsageDescription: Enchiridion turns meeting audio into notes while you record.
         UILaunchScreen: {}
