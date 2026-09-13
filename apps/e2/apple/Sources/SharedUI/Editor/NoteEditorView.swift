@@ -27,6 +27,7 @@ struct NoteEditorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
+        .accessibilityIdentifier("nativeNoteEditor")
         .background(theme.canvas)
         .foregroundStyle(theme.ink)
         .tint(theme.accent)
@@ -113,6 +114,7 @@ struct NoteEditorToolbar: View {
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
         .foregroundStyle(theme.ink)
+        .accessibilityIdentifier("noteToolbar")
         .accessibilityLabel("Formatting")
     }
 

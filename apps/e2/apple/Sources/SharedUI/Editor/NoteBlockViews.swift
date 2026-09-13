@@ -162,6 +162,7 @@ struct NoteTextSegmentView: View {
             .onChange(of: model.pendingCaret) { _, _ in adoptPendingCaret() }
             .onChange(of: isFocused) { _, focused in if focused { adoptPendingCaret(); report(selection) } }
             .onAppear { adoptPendingCaret() }
+            .accessibilityIdentifier("noteText")
             .accessibilityLabel(block.node.type == .heading ? "Heading \(block.node.attrs?.level ?? 1)" : "Paragraph")
     }
 
@@ -293,6 +294,7 @@ struct NoteCodeBlockView: View {
                     }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 4)
+                .accessibilityIdentifier("noteCode")
                 .accessibilityLabel("Code block")
         }
         .background(theme.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))

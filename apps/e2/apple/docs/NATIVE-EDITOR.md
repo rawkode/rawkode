@@ -100,6 +100,41 @@ see `OFFLINE-EDITOR.md` for the contract that would add one.
 swift test --package-path apple   # 75 tests incl. 23 for the note model
 ```
 
+## Screenshots
+
+None exist yet. This change was written without Xcode, so no screenshot is
+claimed. Four UI journeys in `Tests/UI/ApsidesUITests.swift` capture them
+against the same authenticated website fixture the web-editor journeys use:
+heading and paragraph typing with save and relaunch, the slash menu and a
+checklist, an `@` mention of the fixture entity, and a drawing card in both
+palettes. Run them on an iPhone simulator:
+
+```sh
+cd apps/e2
+deno task build && node website/test/runtime.mjs --serve --dense   # prints WEBSITE_BROWSER_URL
+xcodegen generate --spec apple/project.yml
+xcodebuild test -project apple/Apsides.xcodeproj -scheme ApsidesIOS \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -resultBundlePath /tmp/apsides-native-editor.xcresult \
+  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorTypesHeadingAndSavesAcrossRelaunch \
+  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorSlashMenuInsertsChecklist \
+  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorMentionInsertsCanonicalEntity \
+  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorInsertsDrawingAndRendersDarkPalette \
+  APSIDES_EDITOR_TEST_ORIGIN="$WEBSITE_BROWSER_URL"
+```
+
+The attachments in the result bundle are the screenshots (*Native editor
+Dawn*, *Native editor slash menu*, *Native editor checklist*, *Native editor
+mention suggestions*, *Native editor mention*, *Native drawing editor*,
+*Native editor drawing card*, *Native editor Dark*). Export the ones worth
+keeping to `docs/screenshots/` and link them here.
+
+The fixture proxy asserts the owner identity server-side and sets no
+`CF_Authorization` cookie, which the native session otherwise requires. Debug
+builds launched with `--ui-testing` against an `http://` loopback origin set
+`NativeSession.trustsLoopbackFixture`, which lets requests proceed without the
+cookie for that origin only. Release builds and HTTPS origins are unaffected.
+
 The core tests round-trip `Tests/Core/Fixtures/tiptap.native-note` (the same
 fixture the web interop check uses), a canonical-entity document, rejection
 cases, and each editing operation. No Xcode build, simulator run, VoiceOver or

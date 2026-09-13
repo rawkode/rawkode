@@ -15,6 +15,10 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     @Published public private(set) var email: String?
     public var status: String { isVerifying ? "Checking connection…" : (isConnected ? "Connected to Enchiridion" : "Not connected") }
 
+    /// Debug UI tests only: let API requests reach a loopback website fixture that
+    /// supplies the Access identity itself. Ignored for any non-loopback origin.
+    public var trustsLoopbackFixture = false
+
     private let websiteDataStore: WKWebsiteDataStore
     private var generation = 0
     private var nextGitHubCompletenessProbe = Date.distantPast
@@ -328,7 +332,13 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
                 (cookie.isSecure || origin.scheme == "http")
         }
         // No fallback to a team-domain token or a caller-supplied JWT assertion.
-        guard let cookie = eligible.sorted(by: { $0.path.count > $1.path.count }).first else {
+        let cookie = eligible.sorted(by: { $0.path.count > $1.path.count }).first
+        var fixtureWithoutCookie = false
+        #if DEBUG
+        // The website runtime fixture asserts the identity server-side and never sets a cookie.
+        fixtureWithoutCookie = cookie == nil && trustsLoopbackFixture && ["localhost", "127.0.0.1"].contains(origin.host ?? "")
+        #endif
+        guard cookie != nil || fixtureWithoutCookie else {
             isConnected = false
             accountID = nil
             email = nil
@@ -340,7 +350,7 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(origin.absoluteString, forHTTPHeaderField: "Origin")
-        request.setValue(HTTPCookie.requestHeaderFields(with: [cookie])["Cookie"], forHTTPHeaderField: "Cookie")
+        if let cookie { request.setValue(HTTPCookie.requestHeaderFields(with: [cookie])["Cookie"], forHTTPHeaderField: "Cookie") }
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = path == "api/voice/chat" ? 45 : 15
 

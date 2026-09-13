@@ -107,6 +107,8 @@ final class NativeNoteController: ObservableObject {
         conflict = false
         saveError = nil
         let session = store.session
+        // A relaunch keeps the sign-in cookie but not the verified identity.
+        if !session.isConnected { try? await session.verifyConnection() }
         guard session.isConnected, let account = session.accountID else {
             state = .failed("Sign in to your Enchiridion website to open today’s note.")
             return

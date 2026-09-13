@@ -52,6 +52,14 @@ final class WorkspaceStore: ObservableObject {
         }
         #endif
         session = try! NativeSession(origin: editorOrigin)
+        #if DEBUG
+        if isUITesting, editorOrigin.scheme == "http" {
+            session.trustsLoopbackFixture = true
+        }
+        if isUITesting, arguments.contains("--native-editor") {
+            ApsidesPreferences.store.set(true, forKey: "apsidesNativeEditor")
+        }
+        #endif
         do {
             #if DEBUG
             if isUITesting && arguments.contains("--seed-cached-context") {
