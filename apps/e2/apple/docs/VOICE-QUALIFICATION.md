@@ -50,3 +50,19 @@ not microphone permission, speaker/Bluetooth behavior, or vehicle behavior.
 The paired physical iPhone was unavailable and the Mac was locked at the latest
 interactive verification attempt. Do not weaken credential protection or use
 simulated account identity to pass those gates.
+
+## Production write verification, 13 September
+
+The authenticated typed endpoint reproduced HTTP 503 after creating a web-link
+fixture. A direct GraphQL read proved its title and URL persisted at revision 1.
+The SDK regression reproduced a four-tool-step chain ending without answer text.
+The deployed policy now reserves a fifth, tool-free answer step while retaining
+wall-clock and connector-call limits. Updating the same fixture through the live
+agent returned HTTP 200 with a complete answer; an independent GraphQL read
+confirmed the updated URL at revision 2. No failed creation was retried.
+
+Fixture retained: `Enchiridion voice verification 2026-09-13`, URL
+`https://example.com/enchiridion-voice-verified`. This establishes authenticated
+production typed mutation and persistence, not native spoken mutation. The
+agent regression directory passed 93 tests; the SDK policy regression includes
+exactly-one-write and prior-result continuation assertions.

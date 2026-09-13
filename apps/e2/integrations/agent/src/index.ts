@@ -64,6 +64,8 @@ export class VoiceOwner extends DurableObject<Env> {
 					createApiGraphReader(original, this.env, this.env.API),
 				]);
 				const execute = createVoiceReasoner({
+					diagnostic: (event) =>
+						console.info({ event: "agent_reasoning", ...event }),
 					responseMode: "text",
 					timeZone: input.timeZone,
 					owner: identity.ownerId,
@@ -92,6 +94,8 @@ export class VoiceOwner extends DurableObject<Env> {
 					);
 					const isCurrent = () => ledger.isSessionActive(sessionID);
 					const execute = createVoiceReasoner({
+						diagnostic: (event) =>
+							console.info({ event: "agent_reasoning", ...event }),
 						timeZone: context.timeZone,
 						owner: identity.ownerId,
 						tasks: this.env.ENTITIES_ADMIN,

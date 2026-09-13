@@ -1,8 +1,13 @@
+import {
+	type ReasonerDiagnostic,
+	reasonerDiagnostic,
+	reasonerStepPolicy,
+} from "./reasoner-steps.ts";
 import { createVoiceTaskTools, type VoiceTaskBinding } from "./task-tools.ts";
 import { createOpenAI } from "@ai-sdk/openai";
 import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { createCodeTool } from "@cloudflare/codemode/ai";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, tool } from "ai";
 import { z } from "zod";
 import type { VoiceDelegationRequest } from "./sideband.ts";
 import { graphReadInputs, type GraphReadKind } from "./graph-reader.ts";
@@ -14,6 +19,7 @@ import {
 
 export interface VoiceReasonerOptions {
 	responseMode?: "text" | "voice";
+	diagnostic?(event: ReasonerDiagnostic): void;
 	timeZone?: string;
 	owner: string;
 	tasks: VoiceTaskBinding;
@@ -145,6 +151,12 @@ export const createVoiceReasoner =
 				return boundedVoiceToolResult(output);
 			},
 		};
+		let completedSteps = 0;
+		const diagnose = (event: ReasonerDiagnostic) => {
+			try {
+				options.diagnostic?.(event);
+			} catch { /* Observability cannot alter actions. */ }
+		};
 		const result = await generateText({
 			model: createOpenAI({ apiKey: options.apiKey })("gpt-5-mini"),
 			system: (options.responseMode === "text"
@@ -157,7 +169,10 @@ export const createVoiceReasoner =
 				timeZone: options.timeZone,
 			}),
 			tools: { codemode: boundedCodeTool },
-			stopWhen: stepCountIs(4),
+			...reasonerStepPolicy,
+			onStepFinish: (step) => {
+				diagnose(reasonerDiagnostic("model_step", ++completedSteps, step));
+			},
 			maxOutputTokens: 1200,
 			maxRetries: 0,
 			abortSignal: request.signal,
@@ -165,6 +180,9 @@ export const createVoiceReasoner =
 				openai: { store: false, reasoningEffort: "minimal" },
 			},
 		});
+		diagnose(
+			reasonerDiagnostic("model_completed", result.steps.length, result),
+		);
 		if (request.signal.aborted || !await options.isCurrent()) {
 			throw new Error("Voice permission expired");
 		}
