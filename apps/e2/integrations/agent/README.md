@@ -70,9 +70,10 @@ absent from the interface.
 
 This module does not evaluate JavaScript. Register its narrow read operation
 inside a qualified Cloudflare connector; expose `runtime.tool()` once to the
-reasoning model. Keep generated code outside the privileged gateway. Actual
-calendar/GitHub adapters remain to be wired through the existing private service
-bindings, with the trusted owner supplied by the coordinator.
+reasoning model. Keep generated code outside the privileged gateway.
+`src/day-reader.ts` now implements the calendar/GitHub adapter through the
+existing private API binding, with verified owner and Access assertion captured
+by its factory. The service binding still needs deployment wiring.
 
 ## Root integration and release gates
 
@@ -115,13 +116,13 @@ parser or trust in an arbitrary owner header.
 ## Verification
 
 ```sh
-deno test integrations/agent/test
+deno test --allow-env integrations/agent/test
 deno check integrations/agent/src/durable-storage.ts
 deno lint integrations/agent
 deno fmt --check integrations/agent
 ```
 
-Seventeen tests pass. The eight broker/capability tests cover:
+Twenty-seven tests pass. The eight broker/capability tests cover:
 unauthenticated/cross-origin denial before reservation, exact provider request
 and reduced response contract, forbidden client configuration and oversized SDP,
 redacted failure with unknown receipt/no retry, grant revocation during reads,
@@ -129,8 +130,9 @@ invalid date/timezone/owner arguments and call budget, nested result projection
 that drops internal fields, and preservation of a known session receipt when
 post-creation permission checking fails. These tests perform no network
 requests, start no paid sessions and do not test an executor or physical audio.
-They are isolated from the root test runner until this integration is
-intentionally added to the workspace.
+The root test runner now includes these tests, and the root typecheck includes
+the broker, day reader and Cloudflare storage adapter. This does not mount or
+deploy an agent Worker.
 
 ## Durable session reservations
 
@@ -188,3 +190,65 @@ provider request during a duplicate race. The storage fixture serializes and
 atomically commits durable bytes across simulated instances; no deployed Durable
 Object or real provider was contacted. The production adapter separately
 typechecks against installed Cloudflare runtime types.
+
+## Authenticated day reader
+
+`createApiDayReader(request, config, API)` authenticates an existing trusted
+website request using the same Access verifier as the API. It captures the
+verified owner and assertion in a private closure. The returned `readDay`
+function fits `createDayCapabilities`; its owner argument is supplied by that
+trusted capability broker, never exposed as generated-code input. The reader
+rejects a mismatching host owner before calling a service and verifies
+`data.me.id` again before releasing results. Assertions and provider credentials
+are absent from its return value.
+
+Both fixed queries are validated against the current Google/GitHub GraphQL
+schema. It calls only `API.fetch` at the configured website origin's
+`/api/graphql` path; there is no model-selected URL, query or authorization
+header. Calendar and GitHub run concurrently as separate requests, each
+requiring its own completion metadata. Missing metadata, transport failures, or
+GraphQL error envelopes mark only that section unavailable and partial;
+successful sections remain usable. Every response independently verifies the
+bound owner and exact day range. A foreign owner or HTTP 401/403 rejects the
+entire operation. Mount only after the API partial-metadata change is deployed.
+
+Civil day boundaries use pinned `@js-temporal/polyfill` 0.5.1. Convert the
+requested PlainDate and next PlainDate separately to zoned starts of day, then
+to instants. This handles short/long DST days without adding 24 hours to UTC. A
+civil date skipped by a timezone transition is rejected if conversion changes
+its PlainDate. The API behavior is specified in
+[Temporal's PlainDate documentation](https://tc39.es/proposal-temporal/docs/plaindate.html#toZonedDateTime);
+the pinned implementation is the
+[Temporal polyfill project](https://github.com/js-temporal/temporal-polyfill).
+The root import map now explicitly pins this dependency; its direct-specifier
+lock entry was added through Deno.
+
+Calendar all-day items carry `allDay: true`. Their exclusive date-only end is
+converted in the requested timezone and preserved as the end boundary; clients
+must present them as all-day items rather than midnight appointments. Missing or
+malformed items are omitted with their section marked partial. Source IDs are
+stable provider-prefixed hashes of validated connection/resource identities,
+with matching event/activity IDs and safe HTTPS source links. No extra provider
+fields are forwarded.
+
+`fetchedAt` records when the API read attempt finishes; an available section has
+`observedAt`, its **API response observation time**. An unavailable section has
+no observation timestamp and has `status: "unavailable"` plus `partial: true`.
+They are not provider synchronization times. The current schema offers no source
+sync timestamp, so `sourceFreshness: "unknown"` remains explicit. Calendar and
+GitHub section partial flags survive projection, and overall `partial` is true
+if either section is incomplete or truncated. The adapter has a 256 KiB incoming
+body cap per source, at most twenty entries per section, and a 20 KiB result
+cap. Each source has an actual abort signal and a two-second hard deadline,
+within the overall five-second budget. Caller cancellation aborts both requests
+and rejects the whole operation. An injected binding that ignores AbortSignal
+cannot keep the caller waiting indefinitely.
+
+Ten adapter tests cover exact GraphQL query/variables/authentication forwarding,
+real-schema validation, a 23-hour and 25-hour London day, the skipped Samoa
+civil date, all-day semantics, observation time and section metadata,
+cross-owner rejection, GraphQL errors/missing completeness metadata, ignored
+cancellation, fast-calendar/hung-GitHub isolation, successful empty days, and
+oversized bodies. Authentication is injected only in transport fixtures;
+production defaults to the existing JWT verifier. No live account data or paid
+voice service was accessed by these tests.

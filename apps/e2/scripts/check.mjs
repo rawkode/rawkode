@@ -10,6 +10,9 @@ const denoCheck = (file) => {
 const workspaceEntrypoints = [
 	"alchemy.run.ts",
 	"api/src/index.ts",
+	"integrations/agent/src/day-reader.ts",
+	"integrations/agent/src/session.ts",
+	"integrations/agent/src/durable-storage.ts",
 	...readdirSync("integrations", { withFileTypes: true }).flatMap((entry) =>
 		entry.isDirectory()
 			? [

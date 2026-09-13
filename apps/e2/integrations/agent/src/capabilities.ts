@@ -1,10 +1,23 @@
+export interface BriefingSection {
+	partial: boolean;
+	observedAt?: string;
+	status: "available" | "unavailable";
+	sourceFreshness: "unknown";
+}
 export interface DayBriefing {
 	date: string;
 	timeZone: string;
 	fetchedAt: string;
 	partial: boolean;
 	sources: { id: string; title: string; url?: string }[];
-	events: { id: string; title: string; start: string; end: string }[];
+	events: {
+		id: string;
+		title: string;
+		start: string;
+		end: string;
+		allDay?: boolean;
+	}[];
+	sections?: { calendar: BriefingSection; github: BriefingSection };
 	github: { id: string; title: string; action: string }[];
 }
 export interface AgentGrant {
@@ -57,12 +70,35 @@ const sourceURL = (value: unknown): string | undefined => {
 };
 /** Project each nested record; TypeScript alone cannot prevent runtime adapters
  * from returning internal credentials or other out-of-contract properties. */
+const section = (value: unknown): BriefingSection => {
+	const row = record(value);
+	if (
+		typeof row.partial !== "boolean" || row.sourceFreshness !== "unknown" ||
+		!["available", "unavailable"].includes(String(row.status))
+	) {
+		throw new Error("Invalid briefing freshness");
+	}
+	return {
+		partial: row.partial,
+		status: row.status as "available" | "unavailable",
+		...(row.status === "available"
+			? { observedAt: timestamp(row.observedAt) }
+			: {}),
+		sourceFreshness: "unknown",
+	};
+};
 const projectBriefing = (value: unknown): DayBriefing => {
 	const row = record(value);
 	if (typeof row.partial !== "boolean") {
 		throw new Error("Invalid briefing result");
 	}
 	return {
+		...(row.sections === undefined ? {} : {
+			sections: {
+				calendar: section(record(row.sections).calendar),
+				github: section(record(row.sections).github),
+			},
+		}),
 		date: text(row.date, 10),
 		timeZone: text(row.timeZone, 100),
 		fetchedAt: timestamp(row.fetchedAt),
@@ -80,6 +116,7 @@ const projectBriefing = (value: unknown): DayBriefing => {
 			title: text(event.title),
 			start: timestamp(event.start),
 			end: timestamp(event.end),
+			...(typeof event.allDay === "boolean" ? { allDay: event.allDay } : {}),
 		})),
 		github: list(row.github).map((activity) => ({
 			id: text(activity.id, 256),

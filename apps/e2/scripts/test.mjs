@@ -10,6 +10,7 @@ const testFiles = (root) =>
 const files = [
 	...testFiles("test"),
 	...testFiles("website/test"),
+	...testFiles("integrations/agent/test"),
 	"api/src/schema.test.ts",
 	"integrations/google/graphql.test.ts",
 	"core/documents/graphql.test.ts",

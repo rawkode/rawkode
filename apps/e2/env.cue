@@ -19,6 +19,15 @@ tasks: {
 		hermetic: false
 		cache: mode: "never"
 	}
+	validate: schema.#Task & {
+		description: "Validate formatting, types, and tests before production deployment"
+		command:     "deno"
+		args: ["task", "verify"]
+		inputs: ["**/*"]
+		dependsOn: [install]
+		hermetic: false
+		cache: mode: "never"
+	}
 	productionPlan: schema.#Task & {
 		description: "Inspect production changes without applying them"
 		command:     "deno"
@@ -26,6 +35,15 @@ tasks: {
 		// CI selects tasks from changed inputs; uncached does not mean always selected.
 		inputs: ["**/*"]
 		dependsOn: [install]
+		hermetic: false
+		cache: mode: "never"
+	}
+	productionDeploy: schema.#Task & {
+		description: "Apply the validated production stack noninteractively"
+		command:     "deno"
+		args: ["task", "deploy", "--stage", "production", "--yes"]
+		inputs: ["**/*"]
+		dependsOn: [validate, productionPlan]
 		hermetic: false
 		cache: mode: "never"
 	}
@@ -38,13 +56,20 @@ ci: {
 		checks:          "none"
 		"pull-requests": "none"
 	}
-	pipelines: productionPlan: {
-		environment: "production"
-		when: branch: "spike/native-web-rich-editor"
-		derivePaths: false
-		tasks: [_t.productionPlan]
-		provider: github: {
-			runner: "ubuntu-latest"
+	pipelines: {
+		productionPlan: {
+			environment: "production"
+			when: branch: "spike/native-web-rich-editor"
+			derivePaths: false
+			tasks: [_t.productionPlan]
+			provider: github: runner: "ubuntu-latest"
+		}
+		productionDeploy: {
+			environment: "production"
+			when: manual: true
+			derivePaths: false
+			tasks: [_t.productionDeploy]
+			provider: github: runner: "ubuntu-latest"
 		}
 	}
 	contributors: [ciContributors.#CuenvRelease, ciContributors.#OnePassword, {
@@ -73,7 +98,7 @@ ci: {
 env: schema.#Env & {
 	CLOUDFLARE_ACCOUNT_ID: "0aeb879de8e3cdde5fb3d413025222ce"
 	CLOUDFLARE_API_TOKEN: schema.#OnePasswordRef & {
-		ref: "op://Employee/Cloudflare/api-tokens/all-access"
+		ref: "op://sa.rawkode.academy/cloudflare/api-tokens/workers"
 	}
 	environment: {
 		production: {
