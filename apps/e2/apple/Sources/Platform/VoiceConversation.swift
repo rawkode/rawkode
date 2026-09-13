@@ -19,6 +19,16 @@ final class VoiceConversation: NSObject, ObservableObject {
     @Published private(set) var message = "Talk through your day."
     @Published private(set) var isMuted = false
     @Published private(set) var captions = VoiceCaptions()
+    #if os(iOS)
+    struct AudioOutput: Identifiable {
+        let id: String
+        let name: String
+    }
+    @Published private(set) var audioOutputName = "Speaker"
+    @Published private(set) var audioOutputs: [AudioOutput] = []
+    @Published private(set) var audioOutputError: String?
+    private var routeObservation: AnyCancellable?
+    #endif
     private let session: NativeSession
     private var factory: RTCPeerConnectionFactory?
     private var peer: RTCPeerConnection?
@@ -51,6 +61,10 @@ final class VoiceConversation: NSObject, ObservableObject {
             if revoked && (surface != nil || !captions.rows.isEmpty) { stopForAccountChange() }
         }
         #if os(iOS)
+        routeObservation = NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
+            .receive(on: RunLoop.main).sink { [weak self] _ in
+                self?.refreshAudioOutputs()
+            }
         interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
                 Task { @MainActor in await self?.stop(message: "Audio was interrupted. Start again when you’re ready.") }
@@ -87,8 +101,12 @@ final class VoiceConversation: NSObject, ObservableObject {
                 }
                 try check(token)
                 #if os(iOS)
-                try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+                // WebRTC reapplies this configuration when its audio device starts.
+                // Setting AVAudioSession alone loses defaultToSpeaker at that point.
+                try configureAudioOutput(defaultToSpeaker: requestedSurface == .iphone)
                 try AVAudioSession.sharedInstance().setActive(true)
+                audioOutputError = nil
+                refreshAudioOutputs()
                 #endif
                 RTCInitializeSSL()
                 let factory = RTCPeerConnectionFactory()
@@ -133,6 +151,59 @@ final class VoiceConversation: NSObject, ObservableObject {
             }
         }
     }
+
+    #if os(iOS)
+    private func configureAudioOutput(defaultToSpeaker: Bool) throws {
+        let configuration = RTCAudioSessionConfiguration.webRTC()
+        configuration.category = AVAudioSession.Category.playAndRecord.rawValue
+        configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
+        configuration.categoryOptions = defaultToSpeaker ? [.allowBluetoothHFP, .defaultToSpeaker] : [.allowBluetoothHFP]
+        RTCAudioSessionConfiguration.setWebRTC(configuration)
+        let audio = RTCAudioSession.sharedInstance()
+        audio.lockForConfiguration()
+        defer { audio.unlockForConfiguration() }
+        try audio.setConfiguration(configuration)
+    }
+
+    private func refreshAudioOutputs() {
+        let audio = AVAudioSession.sharedInstance()
+        audioOutputs = (audio.availableInputs ?? []).filter { $0.portType != .builtInMic }
+            .map { AudioOutput(id: $0.uid, name: $0.portName) }
+        guard surface == .iphone else { return }
+        audioOutputName = audio.currentRoute.outputs.map {
+            switch $0.portType {
+            case .builtInSpeaker: "Speaker"
+            case .builtInReceiver: "iPhone"
+            default: $0.portName
+            }
+        }.joined(separator: ", ")
+        if audioOutputName.isEmpty { audioOutputName = "Audio" }
+    }
+
+    /// Route selection is explicit; automatic route changes continue to respect accessories.
+    func selectAudioOutput(_ id: String) {
+        guard surface == .iphone, phase == .connected || phase == .connecting, !stopping else { return }
+        let session = AVAudioSession.sharedInstance()
+        let input = id == "speaker" || id == "receiver"
+            ? session.availableInputs?.first { $0.portType == .builtInMic }
+            : session.availableInputs?.first { $0.uid == id }
+        guard let input else { audioOutputError = "That audio device is no longer available."; return }
+        do {
+            try configureAudioOutput(defaultToSpeaker: id == "speaker")
+            let audio = RTCAudioSession.sharedInstance()
+            audio.lockForConfiguration()
+            defer { audio.unlockForConfiguration() }
+            try audio.overrideOutputAudioPort(.none)
+            try audio.setPreferredInput(input)
+            if id == "speaker" { try audio.overrideOutputAudioPort(.speaker) }
+            audioOutputError = nil
+            refreshAudioOutputs()
+        } catch {
+            audioOutputError = "Couldn’t switch audio. Try choosing the output again."
+            refreshAudioOutputs()
+        }
+    }
+    #endif
 
     func toggleMute(surface requestedSurface: VoiceSurface) {
         guard surface == requestedSurface, phase == .connected, !stopping else { return }
@@ -192,7 +263,14 @@ final class VoiceConversation: NSObject, ObservableObject {
         phase = failed ? .failed : .ended
         self.message = message
         #if os(iOS)
+        let audio = RTCAudioSession.sharedInstance()
+        audio.lockForConfiguration()
+        try? audio.overrideOutputAudioPort(.none)
+        // The SDK wrapper marks this argument nonnull; AVAudioSession accepts nil to reset it.
+        try? AVAudioSession.sharedInstance().setPreferredInput(nil)
+        audio.unlockForConfiguration()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        audioOutputError = nil
         #endif
         let id = sessionID; sessionID = nil
         if let id {

@@ -38,6 +38,21 @@ struct VoiceConversationView: View {
                     Text(conversation.message).font(.footnote).foregroundStyle(theme.secondary)
                         .accessibilityIdentifier("voiceStatus")
                 }
+                if running {
+                    Menu {
+                        Button("Speaker", systemImage: "speaker.wave.2") { conversation.selectAudioOutput("speaker") }
+                        Button("iPhone", systemImage: "iphone") { conversation.selectAudioOutput("receiver") }
+                        ForEach(conversation.audioOutputs) { output in
+                            Button(output.name, systemImage: "headphones") { conversation.selectAudioOutput(output.id) }
+                        }
+                    } label: {
+                        Label(conversation.audioOutputName, systemImage: "speaker.wave.2")
+                            .frame(minHeight: 44)
+                    }.buttonStyle(.glass).accessibilityIdentifier("voiceAudioOutput")
+                    if let error = conversation.audioOutputError {
+                        Text(error).font(.caption).foregroundStyle(theme.secondary)
+                    }
+                }
                 HStack(spacing: 24) {
                     if running {
                         Button { conversation.toggleMute(surface: .iphone) } label: {
