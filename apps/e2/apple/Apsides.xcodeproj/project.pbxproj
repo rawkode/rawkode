@@ -16,10 +16,12 @@
 		1B5EC9ADBFE1EE772F991E89 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354AC8040C6FF7BB1C216F9A /* NativeSession.swift */; };
 		1B6DA89A30D1026BAC4985B1 /* VoiceConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D25FFF26A60C97EF0BF8FF /* VoiceConversation.swift */; };
 		1D2F0B9C2C1710A1AA13D305 /* CaptureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */; };
+		215CD3D6E955492C1DD73D6F /* VoiceWindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */; };
 		223DE6C141386DDE5543C67E /* MeetingRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA8086D3419903EC741D330 /* MeetingRecorder.swift */; };
 		3234CD0241817E0CA74578C7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BE1B8C546F541BE80A452D /* Theme.swift */; };
 		39B389E75543649FED8AB0BB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1EA8645593814310160E36B3 /* ApsidesCore */; };
 		43B89668E105556DE7A4E71F /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
+		4749BF77870E9F24C61FA696 /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
 		48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */; };
 		4D4903F9387256FB7DF03B15 /* ApsidesWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */; };
 		4E1E4857A2E5402D37AE55BD /* ContextViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500427B31BBB3B632B18DC1 /* ContextViews.swift */; };
@@ -43,19 +45,23 @@
 		93753900B113140E073F5356 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */; };
 		940D6BB310B75A894CD56C56 /* WebEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */; };
 		94A347A9C913A44C3DB321E3 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354AC8040C6FF7BB1C216F9A /* NativeSession.swift */; };
+		959695C479172277F7554932 /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 14A63658B3EA59F83FB92B5B /* ApsidesCore */; };
 		9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
 		A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		A7FF93D129B2BBB759DE85BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
 		BC1DE2339B8F1B71CABD83E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
-		BCE3B588C96AD83010123AA0 /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 14A63658B3EA59F83FB92B5B /* ApsidesCore */; };
+		BCE3B588C96AD83010123AA0 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 53AF96BC55A2445438CAF7FC /* WebRTC */; };
+		C15C71579C939BE2BEC34009 /* VoiceCaptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3938667AE812877F1896C8F /* VoiceCaptionList.swift */; };
 		C18BE9B33E4B4E668CC51D25 /* MacAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */; };
 		C278B4B6920D6FC9271AEAA4 /* CalendarColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513A50F329344A47E70A5AC4 /* CalendarColor.swift */; };
 		C583934A6EEF52563C18D434 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		C6F1891578C1740B8F782100 /* VoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */; };
 		C82A6683C503096AC1348FE4 /* ApsidesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */; };
+		C95D53C8B7FA660E767959C4 /* VoiceWindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */; };
 		D038938E8A2F0BCF1DA909F6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		D0E3C0CF1201733793833340 /* MeetingCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */; };
+		D2B9B3672FABA68F51E8A5A6 /* VoiceCaptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3938667AE812877F1896C8F /* VoiceCaptionList.swift */; };
 		D2CD43E95B7B408A8DD474E1 /* DemoContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9A1EBBC62157B945574E86 /* DemoContent.swift */; };
 		D4221FD8FCC62C4CD02AD389 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
 		D54D6264BB64AA351EB04168 /* VoiceConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D25FFF26A60C97EF0BF8FF /* VoiceConversation.swift */; };
@@ -66,6 +72,7 @@
 		E8CB9DB0ABD08C268963D387 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */; };
 		EE96D69883EF5F396989FFCA /* MeetingCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */; };
 		EF46BF728F689773AF42C0ED /* WatchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3AD27230C2A97DD1EEE835 /* WatchStore.swift */; };
+		FB239DCC5A0D070DE125738D /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
 		FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */; };
 		FCCC40858B23751CA526DB1E /* PersonDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162ACC4946122F75142724F2 /* PersonDetailView.swift */; };
 		FDDA5065CF7CB81D5194E2E6 /* VoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */; };
@@ -142,6 +149,7 @@
 		6EA8086D3419903EC741D330 /* MeetingRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecorder.swift; sourceTree = "<group>"; };
 		6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = MacAssets.xcassets; sourceTree = "<group>"; };
+		742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWindowCloseObserver.swift; sourceTree = "<group>"; };
 		75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ApsidesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceConversationView.swift; sourceTree = "<group>"; };
 		83D84418589D887D76F550C8 /* ApsidesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ApsidesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -151,12 +159,14 @@
 		9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesUITests.swift; sourceTree = "<group>"; };
 		9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViews.swift; sourceTree = "<group>"; };
 		A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVoiceConversationView.swift; sourceTree = "<group>"; };
 		ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		B500427B31BBB3B632B18DC1 /* ContextViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextViews.swift; sourceTree = "<group>"; };
 		BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDaybookView.swift; sourceTree = "<group>"; };
 		BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		C812172F3A7C19D4C18E10AD /* AgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaView.swift; sourceTree = "<group>"; };
+		D3938667AE812877F1896C8F /* VoiceCaptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCaptionList.swift; sourceTree = "<group>"; };
 		D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneTodayView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -173,7 +183,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BCE3B588C96AD83010123AA0 /* ApsidesCore in Frameworks */,
+				BCE3B588C96AD83010123AA0 /* WebRTC in Frameworks */,
+				959695C479172277F7554932 /* ApsidesCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +260,7 @@
 				6EA8086D3419903EC741D330 /* MeetingRecorder.swift */,
 				354AC8040C6FF7BB1C216F9A /* NativeSession.swift */,
 				09D25FFF26A60C97EF0BF8FF /* VoiceConversation.swift */,
+				742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */,
 				BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */,
 				4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */,
 			);
@@ -273,12 +285,14 @@
 				B500427B31BBB3B632B18DC1 /* ContextViews.swift */,
 				3EF9AB0ABD77982D2EBFD026 /* DayTimelineView.swift */,
 				BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */,
+				A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */,
 				686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */,
 				162ACC4946122F75142724F2 /* PersonDetailView.swift */,
 				D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */,
 				3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */,
 				97BE1B8C546F541BE80A452D /* Theme.swift */,
 				6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */,
+				D3938667AE812877F1896C8F /* VoiceCaptionList.swift */,
 				81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */,
 				ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */,
 			);
@@ -342,6 +356,7 @@
 			);
 			name = ApsidesMac;
 			packageProductDependencies = (
+				53AF96BC55A2445438CAF7FC /* WebRTC */,
 				14A63658B3EA59F83FB92B5B /* ApsidesCore */,
 			);
 			productName = ApsidesMac;
@@ -558,6 +573,7 @@
 				0091CD34FBA34FDFA7C0493A /* DayTimelineView.swift in Sources */,
 				D2CD43E95B7B408A8DD474E1 /* DemoContent.swift in Sources */,
 				5DD9CA9CBCD42075DF91F9C9 /* LocalDaybookView.swift in Sources */,
+				FB239DCC5A0D070DE125738D /* MacVoiceConversationView.swift in Sources */,
 				D0E3C0CF1201733793833340 /* MeetingCaptureView.swift in Sources */,
 				223DE6C141386DDE5543C67E /* MeetingRecorder.swift in Sources */,
 				94A347A9C913A44C3DB321E3 /* NativeSession.swift in Sources */,
@@ -566,8 +582,10 @@
 				93753900B113140E073F5356 /* SettingsView.swift in Sources */,
 				3234CD0241817E0CA74578C7 /* Theme.swift in Sources */,
 				48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */,
+				C15C71579C939BE2BEC34009 /* VoiceCaptionList.swift in Sources */,
 				1B6DA89A30D1026BAC4985B1 /* VoiceConversation.swift in Sources */,
 				FDDA5065CF7CB81D5194E2E6 /* VoiceConversationView.swift in Sources */,
+				C95D53C8B7FA660E767959C4 /* VoiceWindowCloseObserver.swift in Sources */,
 				73DC0349B9E32FFAECE485B5 /* WatchBridge.swift in Sources */,
 				6401C43EE444CCD4C26C23C1 /* WebEditorController.swift in Sources */,
 				E8CB9DB0ABD08C268963D387 /* WorkspaceStore.swift in Sources */,
@@ -588,6 +606,7 @@
 				194ACBFE740ED532BCCAA961 /* DayTimelineView.swift in Sources */,
 				8499DB45A68E4B5FFEF47CD1 /* DemoContent.swift in Sources */,
 				01FAAB784E0492C20E2B5344 /* LocalDaybookView.swift in Sources */,
+				4749BF77870E9F24C61FA696 /* MacVoiceConversationView.swift in Sources */,
 				EE96D69883EF5F396989FFCA /* MeetingCaptureView.swift in Sources */,
 				700041508702093FC503305A /* MeetingRecorder.swift in Sources */,
 				1B5EC9ADBFE1EE772F991E89 /* NativeSession.swift in Sources */,
@@ -596,8 +615,10 @@
 				749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */,
 				7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */,
 				FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */,
+				D2B9B3672FABA68F51E8A5A6 /* VoiceCaptionList.swift in Sources */,
 				D54D6264BB64AA351EB04168 /* VoiceConversation.swift in Sources */,
 				C6F1891578C1740B8F782100 /* VoiceConversationView.swift in Sources */,
+				215CD3D6E955492C1DD73D6F /* VoiceWindowCloseObserver.swift in Sources */,
 				8E971567242E0FC676F26534 /* WatchBridge.swift in Sources */,
 				940D6BB310B75A894CD56C56 /* WebEditorController.swift in Sources */,
 				526216E5FB65363AFAEA4512 /* WorkspaceStore.swift in Sources */,
@@ -701,6 +722,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/macOS.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -897,6 +919,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/macOS.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1020,6 +1043,11 @@
 		3F74FC662D9F3E7F5865B333 /* ApsidesCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ApsidesCore;
+		};
+		53AF96BC55A2445438CAF7FC /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 96219C170B6AEAE9E4951FE0 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
 		};
 		8280CA1FB8524F7B7DC3EECE /* WebRTC */ = {
 			isa = XCSwiftPackageProductDependency;

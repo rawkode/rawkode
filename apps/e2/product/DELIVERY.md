@@ -38,9 +38,19 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 - The synthetic real-provider audio test is prepared on loopback without
   microphone access. Automatic approval review requires explicit approval for
   its capped paid session; no Live session has been started.
-- The user configured the Xcode Cloud branch trigger remotely. `bb24547f` was
-  pushed afterward; cloud build/upload completion remains unverified. Internal
-  tester-group automation is deferred at the user's direction.
+- The configured Xcode Cloud branch trigger started an archive automatically for
+  `b9d18dc6`. It completed on 13 September at 14:30 UTC with
+  `Preparing build for App Store Connect failed` (one error and four existing
+  meeting-audio concurrency warnings). The underlying distribution error is
+  only available in App Store Connect, whose browser session is signed out.
+  This build is not verified as TestFlight-available. Internal tester-group
+  automation is deferred at the user's direction.
+- Mac voice now builds with the shared authenticated transport, explicit
+  microphone consent, a dedicated captions window, and keyboard controls. The
+  iPhone regression build also passes. An actual hidden-window test verifies
+  synchronous owning-window close callbacks, unrelated-window isolation, and
+  observer removal. Physical media teardown and provider interaction still
+  require qualification.
 
 - `36bf4cc0`: floating dock implementation pushed to PR 35. Three targeted
   Simulator UI tests and 29 Core tests passed in the preceding delivery turn.

@@ -10,6 +10,9 @@ enum WorkspaceDestination: String, CaseIterable, Identifiable, Hashable {
 struct WorkspaceView: View {
     @ObservedObject var store: WorkspaceStore
     @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @State private var selection: WorkspaceDestination? = .today
     @State private var todayRecenter = 0
     @State private var contextPath: [WorkspaceDestination] = []
@@ -59,7 +62,15 @@ struct WorkspaceView: View {
             }
         } detail: {
             destination(selection ?? .today)
-                .toolbar { captureButton }
+                .toolbar {
+                    captureButton
+                    #if os(macOS)
+                    ToolbarItem {
+                        Button { openWindow(id: "voice") } label: { Label("Voice", systemImage: "waveform") }
+                            .help("Open voice conversation (⇧⌘V)").accessibilityIdentifier("openVoiceConversation")
+                    }
+                    #endif
+                }
         }
     }
     #if os(iOS)

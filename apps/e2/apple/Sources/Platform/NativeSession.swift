@@ -258,7 +258,12 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
     }
 
     func createVoiceSession(sdp: String, requestID: String) async throws -> (id: String, sdp: String) {
-        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp, "device": "iphone", "requestID": requestID, "timeZone": TimeZone.current.identifier])
+        #if os(macOS)
+        let device = "mac"
+        #else
+        let device = "iphone"
+        #endif
+        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp, "device": device, "requestID": requestID, "timeZone": TimeZone.current.identifier])
         let data = try await read(path: "api/voice/sessions", body: body, limit: 96_000, allowCreated: true, voiceRequest: true)
         struct Answer: Decodable {
             struct Session: Decodable { let id: String }

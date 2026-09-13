@@ -31,12 +31,14 @@ targets:
       - path: Configuration/PrivacyInfo.xcprivacy
         buildPhase: resources
     dependencies:
+      - package: WebRTC
       - package: ApsidesCore
     settings:
       base:
         PRODUCT_NAME: Enchiridion
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.mac
         ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: Configuration/macOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
@@ -45,6 +47,7 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for voice conversations you choose to start.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [enchiridion]
   ApsidesIOS:

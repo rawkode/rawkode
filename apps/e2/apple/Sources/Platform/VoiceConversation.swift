@@ -1,8 +1,11 @@
-#if os(iOS)
+#if os(iOS) || os(macOS)
 import ApsidesCore
 import AVFoundation
 import Combine
 import Foundation
+#if os(macOS)
+import AppKit
+#endif
 @preconcurrency import WebRTC
 
 /// Owns one foreground conversation. The server owns identity, model configuration and tools.
@@ -21,6 +24,7 @@ final class VoiceConversation: NSObject, ObservableObject {
     private var sessionID: String?
     private var operation: UUID?
     private var stopping = false
+    private var localTeardownPending = false
     private var serverClosed = false
     private var startTask: Task<Void, Never>?
     private var deadline: Task<Void, Never>?
@@ -29,14 +33,21 @@ final class VoiceConversation: NSObject, ObservableObject {
     init(session: NativeSession) {
         self.session = session
         super.init()
+        #if os(iOS)
         interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
                 Task { @MainActor in await self?.stop(message: "Audio was interrupted. Start again when you’re ready.") }
             }
+        #else
+        interruption = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)
+            .receive(on: RunLoop.main).sink { [weak self] _ in
+                Task { @MainActor in await self?.stop(message: "The Mac went to sleep. Start again when you’re ready.") }
+            }
+        #endif
     }
 
     func start() {
-        guard operation == nil, !stopping else { return }
+        guard operation == nil, !stopping, !localTeardownPending else { return }
         serverClosed = false
         captions = VoiceCaptions()
         let token = UUID()
@@ -47,12 +58,19 @@ final class VoiceConversation: NSObject, ObservableObject {
             guard let self else { return }
             do {
                 guard session.isConnected, session.accountID != nil else { throw NativeSession.SessionError.signInRequired }
-                guard await AVAudioApplication.requestRecordPermission() else {
+                #if os(iOS)
+                let permitted = await AVAudioApplication.requestRecordPermission()
+                #else
+                let permitted = await AVCaptureDevice.requestAccess(for: .audio)
+                #endif
+                guard permitted else {
                     throw VoiceError.microphoneDenied
                 }
                 try check(token)
+                #if os(iOS)
                 try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try AVAudioSession.sharedInstance().setActive(true)
+                #endif
                 RTCInitializeSSL()
                 let factory = RTCPeerConnectionFactory()
                 self.factory = factory
@@ -102,10 +120,34 @@ final class VoiceConversation: NSObject, ObservableObject {
         isMuted.toggle(); microphone?.isEnabled = !isMuted
     }
 
+    /// Identity changes cannot leave a prior account's captions or media alive during remote cleanup.
+    func stopForAccountChange() {
+        disconnectLocalTransport()
+        captions = VoiceCaptions()
+        Task { await stop(message: "Your account changed. Start a new conversation.") }
+    }
+
+    #if os(macOS)
+    /// Called synchronously by the owning NSWindow before it closes, even during connection setup.
+    func stopForWindowClose() {
+        disconnectLocalTransport()
+        Task { await stop() }
+    }
+    #endif
+
+    private func disconnectLocalTransport() {
+        localTeardownPending = true
+        operation = nil
+        microphone?.isEnabled = false
+        channel?.delegate = nil; channel?.close(); channel = nil
+        peer?.delegate = nil; peer?.close(); peer = nil
+        microphone = nil; factory = nil
+    }
+
     func stop(message: String = "Conversation ended.", failed: Bool = false) async {
         guard !stopping else { return }
         stopping = true
-        defer { stopping = false }
+        defer { stopping = false; localTeardownPending = false }
         operation = nil
         startTask = nil
         deadline?.cancel(); deadline = nil
@@ -114,7 +156,7 @@ final class VoiceConversation: NSObject, ObservableObject {
             let command = Data("{\"type\":\"session.close\"}".utf8)
             _ = channel.sendData(RTCDataBuffer(data: command, isBinary: false))
             let end = Date().addingTimeInterval(3)
-            while !serverClosed, Date() < end, !Task.isCancelled {
+            while !serverClosed, channel.readyState == .open, Date() < end, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
@@ -124,7 +166,9 @@ final class VoiceConversation: NSObject, ObservableObject {
         isMuted = false
         phase = failed ? .failed : .ended
         self.message = message
+        #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
         let id = sessionID; sessionID = nil
         if let id {
             do { try await session.endVoiceSession(id: id) }
