@@ -543,3 +543,179 @@ Deno.test("Supertag management reports inherited origins and archives with revie
 		database.close();
 	}
 });
+
+Deno.test("tasks are canonical entities with durable idempotent creation and revision conflicts", () => {
+	const { database, entities } = fixture();
+	try {
+		const input = {
+			requestId: "abcdefab-1234-4234-8234-abcdefabcdef",
+			title: "Ship voice",
+			dueDate: "2026-09-14",
+			priority: "high" as const,
+		};
+		const created = entities.createTask(input, provenance);
+		assert.equal(created.ok, true);
+		if (!created.ok) throw new Error("creation failed");
+		assert.equal(
+			entities.getEntity(created.task.id)?.values["field:task:due_date"],
+			"2026-09-14",
+		);
+		assert.equal(created.task.status, "open");
+		const completed = entities.updateTask(created.task.id, {
+			expectedRevision: 1,
+			status: "completed",
+		}, provenance);
+		assert.equal(completed.ok, true);
+		const replay = entities.createTask(input, provenance);
+		assert.equal(replay.ok, true);
+		if (replay.ok) {
+			assert.equal(replay.task.status, "completed");
+			assert.equal(replay.task.revision, 2);
+		}
+		assert.equal(entities.listTasks().tasks.length, 1);
+		assert.equal(
+			entities.createTask({ ...input, title: "Different payload" }, provenance)
+				.ok,
+			false,
+		);
+		const conflict = entities.updateTask(created.task.id, {
+			expectedRevision: 1,
+			title: "stale",
+		}, provenance);
+		assert.equal(conflict.ok, false);
+		if (!conflict.ok) {
+			assert.equal(conflict.error, "conflict");
+			assert.equal(conflict.task?.title, "Ship voice");
+		}
+		const reopened = entities.updateTask(created.task.id, {
+			expectedRevision: 2,
+			status: "open",
+			dueDate: null,
+		}, provenance);
+		assert.equal(reopened.ok, true);
+		if (reopened.ok) {
+			assert.equal(reopened.task.dueDate, null);
+			assert.equal(reopened.task.status, "open");
+		}
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("tasks exclude imported entities and enforce owner-local references and valid dates", () => {
+	const { database, entities } = fixture();
+	try {
+		const imported = entities.createEntity({
+			label: "GitHub item",
+			tagIds: [INTEGRATION_TAGS.githubIssue],
+		}, provenance);
+		assert.equal(entities.getTask(imported.id), null);
+		assert.deepEqual(entities.listTasks().tasks, []);
+		assert.equal(
+			entities.updateTask(imported.id, {
+				expectedRevision: 1,
+				status: "completed",
+			}, provenance).ok,
+			false,
+		);
+		const requestId = "abcdefab-1234-4234-8234-abcdefabcdef";
+		for (
+			const dueDate of ["2026-02-30", "2025-02-29", "0000-01-01", "2026-9-1"]
+		) {
+			assert.throws(() =>
+				entities.createTask(
+					{ requestId, title: "Invalid", dueDate },
+					provenance,
+				)
+			);
+		}
+		assert.throws(() =>
+			entities.createTask({
+				requestId,
+				title: "Missing link",
+				linkedEntityIds: ["bbbbbbbb-1234-4234-8234-abcdefabcdef"],
+			}, provenance)
+		);
+		assert.throws(() =>
+			entities.createTask({
+				requestId,
+				title: "Wrong project",
+				projectId: imported.id,
+			}, provenance)
+		);
+		assert.equal(entities.getEntity(requestId), null);
+		const project = entities.createEntity({
+			label: "Launch",
+			tagIds: [BASE_TAGS.project],
+		}, provenance);
+		const result = entities.createTask({
+			requestId,
+			title: "Ship",
+			dueDate: "2028-02-29",
+			projectId: project.id,
+			linkedEntityIds: [imported.id],
+		}, provenance);
+		assert.equal(result.ok, true);
+		if (result.ok) {
+			assert.equal(result.task.projectId, project.id);
+			assert.deepEqual(result.task.linkedEntityIds, [imported.id]);
+		}
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("task pages preserve every task and receipts survive store restart", () => {
+	const { database, entities } = fixture();
+	try {
+		for (let i = 1; i <= 3; i++) {
+			entities.createTask({
+				requestId: `abcdefab-1234-4234-8234-${String(i).padStart(12, "0")}`,
+				title: `Task ${i}`,
+			}, provenance);
+		}
+		const page1 = entities.listTasks({ limit: 2 });
+		assert.equal(page1.tasks.length, 2);
+		assert.ok(page1.nextCursor);
+		const page2 = entities.listTasks({ limit: 2, cursor: page1.nextCursor });
+		assert.equal(page2.tasks.length, 1);
+		assert.equal(page2.nextCursor, null);
+		const restarted = createEntityStore(
+			drizzle({ client: database }) as unknown as EntityDatabase,
+		);
+		const replay = restarted.createTask({
+			requestId: page1.tasks[0].id,
+			title: "Task 1",
+		}, provenance);
+		assert.equal(replay.ok, true);
+		assert.equal(restarted.listTasks().tasks.length, 3);
+	} finally {
+		database.close();
+	}
+});
+
+Deno.test("task request IDs and entity links stay isolated between owner stores", () => {
+	const alice = fixture(), bob = fixture();
+	try {
+		const requestId = "abcdefab-1234-4234-8234-abcdefabcdef";
+		alice.entities.createTask({ requestId, title: "Alice task" }, provenance);
+		assert.equal(bob.entities.getTask(requestId), null);
+		assert.throws(() =>
+			bob.entities.createTask({
+				requestId,
+				title: "Bob task",
+				linkedEntityIds: [requestId],
+			}, provenance)
+		);
+		const own = bob.entities.createTask(
+			{ requestId, title: "Bob task" },
+			provenance,
+		);
+		assert.equal(own.ok, true);
+		if (own.ok) assert.equal(own.task.title, "Bob task");
+		assert.equal(alice.entities.getTask(requestId)?.title, "Alice task");
+	} finally {
+		alice.database.close();
+		bob.database.close();
+	}
+});

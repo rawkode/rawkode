@@ -1,3 +1,4 @@
+import type { VoiceTaskBinding } from "./task-tools.ts";
 import { withinVoiceDeadline } from "./deadline.ts";
 import { DurableObject } from "cloudflare:workers";
 import { authenticate, sameOriginPost } from "../../../website/src/lib/auth.ts";
@@ -8,6 +9,7 @@ import {
 	type VoiceRuntimeEnv,
 } from "./runtime.ts";
 import { createVoiceReservations } from "./reservations.ts";
+import { createApiGraphReader } from "./graph-reader.ts";
 import { createApiDayReader } from "./day-reader.ts";
 import { attachLiveSideband } from "./sideband.ts";
 import { createVoiceReasoner } from "./reasoner.ts";
@@ -40,6 +42,7 @@ const traceStage = async <T>(
 interface Env extends VoiceRuntimeEnv {
 	VOICE_OWNERS: DurableObjectNamespace;
 	LOADER: WorkerLoader;
+	ENTITIES_ADMIN: VoiceTaskBinding;
 }
 export class VoiceOwner extends DurableObject<Env> {
 	override async fetch(request: Request): Promise<Response> {
@@ -61,13 +64,20 @@ export class VoiceOwner extends DurableObject<Env> {
 					const read = await withinVoiceDeadline(() =>
 						createApiDayReader(original, this.env, this.env.API)
 					);
+					const readGraph = await withinVoiceDeadline(() =>
+						createApiGraphReader(original, this.env, this.env.API)
+					);
 					const isCurrent = () => ledger.isSessionActive(sessionID);
 					const execute = createVoiceReasoner({
 						timeZone: context.timeZone,
+						owner: identity.ownerId,
+						tasks: this.env.ENTITIES_ADMIN,
 						loader: this.env.LOADER,
 						apiKey: key,
 						isCurrent,
 						readDay: (input, signal) => read(identity.ownerId, input, signal),
+						readGraph: (kind, input, signal) =>
+							readGraph(identity.ownerId, kind, input, signal),
 					});
 					const controller = await traceStage(
 						"sideband_attach",

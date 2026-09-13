@@ -23,6 +23,7 @@ final class WorkspaceStore: ObservableObject {
     @Published private(set) var sending: Set<UUID> = []
     let disk: VaultPersistence
     let session: NativeSession
+    lazy var tasks = TasksStore(session: session, directory: disk.url.deletingLastPathComponent())
     lazy var voice = VoiceConversation(session: session)
     let demo: Bool
     let isUITesting: Bool

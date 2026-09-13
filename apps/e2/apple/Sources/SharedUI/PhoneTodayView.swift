@@ -83,8 +83,11 @@ struct PhoneTodayView: View {
                     Image(systemName: "chevron.up").font(.caption)
                 }.frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("dailyNotePreview")
-            Button { voicePresented = true } label: { Label("Talk to Enchiridion", systemImage: "waveform").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }
+            HStack {
+                NavigationLink { TasksView(workspace: store) } label: { Label("Tasks", systemImage: "checklist").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }.buttonStyle(.plain).accessibilityIdentifier("openTasks")
+            Button { voicePresented = true } label: { Label("Voice", systemImage: "waveform").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }
                 .buttonStyle(.plain).accessibilityIdentifier("openVoiceConversation")
+            }
             Divider().overlay(theme.ink.opacity(0.06))
             HStack(spacing: 16) {
                 Button {
@@ -137,6 +140,7 @@ private struct DaySearchView: View {
             List {
                 if query.isEmpty {
                     Section("Browse") {
+                        NavigationLink("Tasks") { TasksView(workspace: store) }
                         NavigationLink("Day calendar") { AgendaView(store: store) }
                         NavigationLink("People") { PeopleView(store: store) }
                         NavigationLink("GitHub") { RepositoryListView(store: store) }

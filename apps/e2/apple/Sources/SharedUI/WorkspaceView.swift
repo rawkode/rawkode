@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum WorkspaceDestination: String, CaseIterable, Identifiable, Hashable {
-    case today = "Today", localNotes = "On this device", inbox = "Captures", agenda = "Day calendar", people = "People", github = "GitHub"
+    case tasks = "Tasks", today = "Today", localNotes = "On this device", inbox = "Captures", agenda = "Day calendar", people = "People", github = "GitHub"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .today: "sun.max"; case .localNotes: "internaldrive"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
+        switch self { case .tasks: "checklist"; case .today: "sun.max"; case .localNotes: "internaldrive"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
     }
 }
 struct WorkspaceView: View {
@@ -91,6 +91,7 @@ struct WorkspaceView: View {
     }
     @ViewBuilder private func destination(_ selected: WorkspaceDestination) -> some View {
         switch selected {
+        case .tasks: TasksView(workspace: store)
         case .localNotes: LocalDaybookView(store: store, showAgenda: showAgenda)
         case .today: TodayView(store: store, showAgenda: showAgenda)
         case .inbox: CaptureListView(store: store)

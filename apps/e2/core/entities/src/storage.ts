@@ -1,3 +1,4 @@
+import { createTaskStore } from "./tasks.ts";
 import { and, asc, desc, eq, exists, gte, inArray, lt, or } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/durable-sqlite";
 import {
@@ -223,6 +224,22 @@ const seedFields: readonly SeedField[] = [
 		true,
 	],
 	["field:task:status", BASE_TAGS.task, "status", "Status", "text", "single"],
+	[
+		"field:task:priority",
+		BASE_TAGS.task,
+		"priority",
+		"Priority",
+		"text",
+		"single",
+	],
+	[
+		"field:task:links",
+		BASE_TAGS.task,
+		"links",
+		"Linked entities",
+		"entityReference",
+		"multiple",
+	],
 	[
 		"field:task:due_date",
 		BASE_TAGS.task,
@@ -1041,7 +1058,7 @@ export const createEntityStore = (
 	};
 
 	seed();
-	return {
+	const store = {
 		listTags: () =>
 			db.select().from(supertags).orderBy(asc(supertags.id)).all().map(tagView),
 		getTag,
@@ -1858,6 +1875,10 @@ export const createEntityStore = (
 				}
 				return { changed };
 			}),
+	};
+	return {
+		...store,
+		...createTaskStore({ db, store, createEntityRows, now, id }),
 	};
 };
 

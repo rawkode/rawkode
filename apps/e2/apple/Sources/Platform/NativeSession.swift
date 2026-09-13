@@ -281,9 +281,11 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         _ = try await read(path: "api/voice/sessions/\(id)/end", body: Data("{}".utf8), limit: 4_096, voiceRequest: true)
     }
 
-    private func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false, allowCreated: Bool = false, voiceRequest: Bool = false) async throws -> Data {
+    func read(path: String, body: Data? = nil, limit: Int, allowConflict: Bool = false, allowOlderTodaySchema: Bool = false, allowCreated: Bool = false, voiceRequest: Bool = false, queryItems: [URLQueryItem] = []) async throws -> Data {
         let currentGeneration = generation
-        let url = origin.appendingPathComponent(path)
+        var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        if !queryItems.isEmpty { components.queryItems = queryItems }
+        guard let url = components.url else { throw SessionError.invalidOrigin }
         guard matchesOrigin(url) else { throw SessionError.invalidOrigin }
         let cookies = await websiteDataStore.httpCookieStore.allCookies()
         guard currentGeneration == generation else { throw SessionError.cancelled }

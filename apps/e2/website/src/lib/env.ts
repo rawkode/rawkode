@@ -1,3 +1,4 @@
+import type { EntitiesApi } from "@e2/entities";
 import type { DocumentsApi } from "../../../core/documents/src/types.ts";
 import { env } from "cloudflare:workers";
 import type { OAuthAdminApi } from "@e2/oauth-client/contracts";
@@ -25,6 +26,7 @@ interface GitHubAppAdminApi {
 
 export interface WebsiteEnv extends AuthConfig {
 	API: Fetcher;
+	ENTITIES_ADMIN: { admin(owner: string): Promise<Remote<EntitiesApi>> };
 	VOICE: Fetcher;
 	DOCUMENTS_ADMIN: { admin(owner: string): Promise<Remote<DocumentsApi>> };
 	OAUTH: Fetcher;

@@ -20,6 +20,7 @@
 		223DE6C141386DDE5543C67E /* MeetingRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA8086D3419903EC741D330 /* MeetingRecorder.swift */; };
 		26ADFE7E087C046CAF95FDD4 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
 		3234CD0241817E0CA74578C7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BE1B8C546F541BE80A452D /* Theme.swift */; };
+		3923DC0CBCBE3E3C356149A8 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330102EFA2A403311173C2A6 /* TasksView.swift */; };
 		39B389E75543649FED8AB0BB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1EA8645593814310160E36B3 /* ApsidesCore */; };
 		43B89668E105556DE7A4E71F /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
 		4749BF77870E9F24C61FA696 /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
@@ -41,6 +42,7 @@
 		7CCF5422835131563D562DC8 /* CaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01101CE06932177CF893D8F3 /* CaptureIntent.swift */; };
 		83C5F549626D8DC03AD17034 /* ContextViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500427B31BBB3B632B18DC1 /* ContextViews.swift */; };
 		8499DB45A68E4B5FFEF47CD1 /* DemoContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9A1EBBC62157B945574E86 /* DemoContent.swift */; };
+		87DCF2447BBD1CF8522F7CB9 /* TasksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */; };
 		8E971567242E0FC676F26534 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
 		92665A0F747A5D2560D01DF0 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		93753900B113140E073F5356 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */; };
@@ -52,6 +54,7 @@
 		A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		A785BF9A9B0719A3E82525F5 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
 		A7FF93D129B2BBB759DE85BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */; };
+		BB7CA598ED56E96340B252C6 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330102EFA2A403311173C2A6 /* TasksView.swift */; };
 		BC1DE2339B8F1B71CABD83E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		BCE3B588C96AD83010123AA0 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 53AF96BC55A2445438CAF7FC /* WebRTC */; };
 		C15C71579C939BE2BEC34009 /* VoiceCaptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3938667AE812877F1896C8F /* VoiceCaptionList.swift */; };
@@ -72,6 +75,7 @@
 		E15BB472DAE847B42414E8CB /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 8280CA1FB8524F7B7DC3EECE /* WebRTC */; };
 		E6222213B492B702E9D33154 /* CaptureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */; };
 		E8CB9DB0ABD08C268963D387 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */; };
+		E92F35AABF0ADA1BB2B36827 /* TasksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */; };
 		EE96D69883EF5F396989FFCA /* MeetingCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */; };
 		EF46BF728F689773AF42C0ED /* WatchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3AD27230C2A97DD1EEE835 /* WatchStore.swift */; };
 		FB239DCC5A0D070DE125738D /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
@@ -139,6 +143,7 @@
 		162ACC4946122F75142724F2 /* PersonDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonDetailView.swift; sourceTree = "<group>"; };
 		1D06C340DEE3D3A23068E941 /* ApsidesMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ApsidesMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3045B1CAC13E5377DB178446 /* ApsidesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesApp.swift; sourceTree = "<group>"; };
+		330102EFA2A403311173C2A6 /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
 		3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		354AC8040C6FF7BB1C216F9A /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
 		38997F6D4D948D13A4974CC7 /* ApsidesUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ApsidesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -172,6 +177,7 @@
 		C812172F3A7C19D4C18E10AD /* AgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaView.swift; sourceTree = "<group>"; };
 		D3938667AE812877F1896C8F /* VoiceCaptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCaptionList.swift; sourceTree = "<group>"; };
 		D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneTodayView.swift; sourceTree = "<group>"; };
+		F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -295,6 +301,7 @@
 				162ACC4946122F75142724F2 /* PersonDetailView.swift */,
 				D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */,
 				3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */,
+				330102EFA2A403311173C2A6 /* TasksView.swift */,
 				97BE1B8C546F541BE80A452D /* Theme.swift */,
 				6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */,
 				60E30302D821BED417572F77 /* VoiceAccountConnection.swift */,
@@ -339,6 +346,7 @@
 			children = (
 				3045B1CAC13E5377DB178446 /* ApsidesApp.swift */,
 				8D9A1EBBC62157B945574E86 /* DemoContent.swift */,
+				F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */,
 				C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */,
 			);
 			name = App;
@@ -631,6 +639,8 @@
 				FEFC770E4DBE85C644F6D383 /* PersonDetailView.swift in Sources */,
 				E1522173715586AC708385B4 /* PhoneTodayView.swift in Sources */,
 				93753900B113140E073F5356 /* SettingsView.swift in Sources */,
+				E92F35AABF0ADA1BB2B36827 /* TasksStore.swift in Sources */,
+				3923DC0CBCBE3E3C356149A8 /* TasksView.swift in Sources */,
 				3234CD0241817E0CA74578C7 /* Theme.swift in Sources */,
 				48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */,
 				A785BF9A9B0719A3E82525F5 /* VoiceAccountConnection.swift in Sources */,
@@ -665,6 +675,8 @@
 				FCCC40858B23751CA526DB1E /* PersonDetailView.swift in Sources */,
 				5A6784BDDF18C12B94B8D077 /* PhoneTodayView.swift in Sources */,
 				749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */,
+				87DCF2447BBD1CF8522F7CB9 /* TasksStore.swift in Sources */,
+				BB7CA598ED56E96340B252C6 /* TasksView.swift in Sources */,
 				7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */,
 				FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */,
 				26ADFE7E087C046CAF95FDD4 /* VoiceAccountConnection.swift in Sources */,

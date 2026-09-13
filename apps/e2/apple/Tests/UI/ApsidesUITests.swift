@@ -20,6 +20,43 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testTasksCaptureRemainsVisibleOffline() throws {
+        app.terminate()
+        app.launchArguments += ["--demo"]
+        app.launch()
+        let tasks = app.buttons["openTasks"]
+        XCTAssertTrue(tasks.waitForExistence(timeout: 5))
+        activate(tasks)
+        XCTAssertTrue(app.staticTexts["Shape the voice workspace"].waitForExistence(timeout: 5))
+        captureScreenshot("Tasks Dawn")
+        activate(app.buttons["newTask"])
+        let title = app.textFields["taskTitle"].exists ? app.textFields["taskTitle"] : app.textViews["taskTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap(); title.typeText("Keep this task offline")
+        activate(app.buttons["saveTask"])
+        XCTAssertTrue(app.staticTexts["Keep this task offline"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Waiting to sync"].exists)
+        captureScreenshot("Tasks offline pending")
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "--reset-test-data" }
+        app.launch()
+        activate(app.buttons["openTasks"])
+        XCTAssertTrue(app.staticTexts["Keep this task offline"].waitForExistence(timeout: 5))
+    }
+
+    func testTasksDarkPalette() {
+        launchDemo()
+        openContext("Account & appearance")
+        let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(palette.waitForExistence(timeout: 5))
+        activate(palette); chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        relaunchPreservingData()
+        activate(app.buttons["openTasks"])
+        XCTAssertTrue(app.staticTexts["Shape the voice workspace"].waitForExistence(timeout: 5))
+        captureScreenshot("Tasks Dark")
+    }
+
     func testVoiceOpensWithoutStartingMicrophone() throws {
         #if os(iOS)
         app.terminate()

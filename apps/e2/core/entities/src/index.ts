@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import type {
 	CreateEntityInput,
+	CreateTaskInput,
 	CreateUserTagInput,
 	DefineFieldInput,
 	EntitiesApi,
@@ -11,6 +12,8 @@ import type {
 	EntitySource,
 	MutationProvenance,
 	ProjectionBatch,
+	TaskPageOptions,
+	UpdateTaskInput,
 } from "@e2/entities";
 import migrations from "../migrations/migrations.js";
 import { type createEntityStore, initializeEntityStore } from "./storage.ts";
@@ -36,6 +39,22 @@ export class Entities extends DurableObject<EntitiesEnv> {
 				() => migrate(db, migrations),
 			);
 		});
+	}
+	listTasks(options?: TaskPageOptions) {
+		return this.#store.listTasks(options);
+	}
+	getTask(id: string) {
+		return this.#store.getTask(id);
+	}
+	createTask(input: CreateTaskInput, provenance: MutationProvenance) {
+		return this.#store.createTask(input, provenance);
+	}
+	updateTask(
+		id: string,
+		input: UpdateTaskInput,
+		provenance: MutationProvenance,
+	) {
+		return this.#store.updateTask(id, input, provenance);
 	}
 	listTags() {
 		return this.#store.listTags();
@@ -86,7 +105,10 @@ export class Entities extends DurableObject<EntitiesEnv> {
 			provenance,
 		);
 	}
-	createEntity(input: CreateEntityInput, provenance: MutationProvenance) {
+	createEntity(
+		input: CreateEntityInput,
+		provenance: MutationProvenance,
+	) {
 		return this.#store.createEntity(input, provenance);
 	}
 	getEntity(id: string) {
@@ -151,6 +173,22 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 		super();
 		this.#entities = stub as unknown as EntitiesApi;
 	}
+	listTasks(options?: TaskPageOptions) {
+		return this.#entities.listTasks(options);
+	}
+	getTask(id: string) {
+		return this.#entities.getTask(id);
+	}
+	createTask(input: CreateTaskInput, provenance: MutationProvenance) {
+		return this.#entities.createTask(input, provenance);
+	}
+	updateTask(
+		id: string,
+		input: UpdateTaskInput,
+		provenance: MutationProvenance,
+	) {
+		return this.#entities.updateTask(id, input, provenance);
+	}
 	listTags() {
 		return this.#entities.listTags();
 	}
@@ -200,7 +238,10 @@ class OwnerEntities extends RpcTarget implements EntitiesApi {
 			provenance,
 		);
 	}
-	createEntity(input: CreateEntityInput, provenance: MutationProvenance) {
+	createEntity(
+		input: CreateEntityInput,
+		provenance: MutationProvenance,
+	) {
 		return this.#entities.createEntity(input, provenance);
 	}
 	getEntity(id: string) {

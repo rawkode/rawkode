@@ -53,11 +53,11 @@ export default Alchemy.Stack(
 		),
 		Effect.bind(
 			"voice",
-			({ api, access, store }) => voice(api, access, store),
+			({ api, access, store, entities }) => voice(api, access, store, entities),
 		),
 		Effect.bind(
 			"website",
-			({ oauth, integrations, api, access, documents, voice }) =>
+			({ oauth, integrations, api, access, documents, voice, entities }) =>
 				website(
 					oauth,
 					integrations.google,
@@ -66,6 +66,7 @@ export default Alchemy.Stack(
 					documents,
 					access,
 					voice,
+					entities,
 				),
 		),
 		Effect.map((

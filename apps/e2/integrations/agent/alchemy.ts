@@ -15,6 +15,7 @@ export default (
 	api: Cloudflare.Worker,
 	access: Effect.Success<typeof deploymentAccess>,
 	store: Cloudflare.SecretsStore.Store,
+	entities: Cloudflare.Worker,
 ) =>
 	Effect.gen(function* () {
 		const stage = yield* Alchemy.Stage;
@@ -37,6 +38,7 @@ export default (
 				}),
 				...(key ? { OPENAI_API_KEY: key } : {}),
 				API: api,
+				ENTITIES_ADMIN: Cloudflare.WorkerEntrypoint(entities, "EntitiesAdmin"),
 				WEBSITE_ORIGIN: `https://${domain}`,
 				ACCESS_TEAM_DOMAIN: access.teamDomain,
 				ACCESS_AUDIENCE: access.audience,

@@ -1,3 +1,5 @@
+import type { TasksApi } from "./tasks.ts";
+export * from "./tasks.ts";
 export const BASE_TAGS = {
 	person: "base:person",
 	event: "base:event",
@@ -187,7 +189,7 @@ export interface ProjectionBatch {
 	provenance: MutationProvenance;
 }
 
-export interface EntitiesApi {
+export interface EntitiesApi extends TasksApi {
 	listTags(): Promise<Supertag[]>;
 	getTag(id: string): Promise<SupertagDetails | null>;
 	getTagArchiveImpact(id: string): Promise<ArchiveImpact>;
