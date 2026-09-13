@@ -17,6 +17,25 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
+### Daily-note task creation — 13 September, 22:00 BST
+
+- The production editor now offers **New task** in the touch formatting menu
+  and `/task` in the slash menu. It creates a canonical task and inserts its
+  entity link at the saved selection; the daily note's date is the default due date.
+  Checklists remain separate and are labelled **Checklist**.
+- Live verification created `Daily note task verification`
+  (`4f93a0cd-9f74-414a-95af-27054df6946b`). The note link survived reload and
+  the individual task endpoint returned the matching open task due 13 September.
+  This named test task and note link remain as evidence.
+- Opening and cancelling the composer on untouched 15 September left that
+  document absent, verified before and after. Five regression tests passed,
+  including real SQLite task persistence, uncertain-response retry identity and
+  Tiptap update suppression. Vue typecheck passed. Both production deployments
+  completed successfully; no native release is required for this editor change.
+- Native screen source audits are recorded in [core](native-screen-audit-core.md)
+  and [companion](native-screen-audit-companion.md). Implementation and runtime
+  qualification are in progress, not yet a completed visual review.
+
 ### Latest verified status — 13 September, 21:32 BST
 
 - Build 32 is available to the existing internal TestFlight audience. Apple

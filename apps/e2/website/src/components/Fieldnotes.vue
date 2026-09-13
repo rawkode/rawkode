@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import TaskComposer from "./TaskComposer.vue";
+import { taskReference, setTaskEditorEditable } from "../editor/taskComposer";
+import type { Task } from "../../../packages/entities/src/tasks.ts";
+import type { SelectionBookmark } from "@tiptap/pm/state";
 import ThemeToggle from "./ThemeToggle.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { Editor, EditorContent, VueNodeViewRenderer } from "@tiptap/vue-3";
@@ -79,6 +83,88 @@ const slash = ref<{
 }>();
 const slashIndex = ref(0);
 const insertOpen = ref(false);
+const taskDraft = shallowRef<{
+	editor: Editor;
+	document: PMNode;
+	bookmark: SelectionBookmark;
+	editable: boolean;
+	initialTitle: string;
+	initialDueDate: string;
+	from: number;
+	to: number;
+}>();
+let disposed = false;
+const openTaskComposer = () => {
+	const current = editor.value;
+	if (
+		!current ||
+		!current.isEditable ||
+		current.isDestroyed ||
+		current.view.composing ||
+		taskDraft.value
+	)
+		return;
+	const range = slash.value ?? current.state.selection;
+	taskDraft.value = {
+		editor: current,
+		document: current.state.doc,
+		bookmark: current.state.selection.getBookmark(),
+		editable: current.isEditable,
+		from: range.from,
+		to: range.to,
+		initialTitle: slash.value
+			? ""
+			: current.state.doc.textBetween(range.from, range.to, " ").slice(0, 500),
+		initialDueDate: /^daily:\d{4}-\d{2}-\d{2}$/.test(documentId)
+			? documentId.slice(6)
+			: "",
+	};
+	slash.value = undefined;
+	insertOpen.value = false;
+	closeEntityMenu();
+	setTaskEditorEditable(current, false);
+};
+const closeTaskComposer = () => {
+	const draft = taskDraft.value;
+	taskDraft.value = undefined;
+	if (draft && !draft.editor.isDestroyed) {
+		setTaskEditorEditable(draft.editor, draft.editable && !saveBlocked.value);
+		draft.editor.commands.focus();
+	}
+};
+const finishTaskComposer = (task: Task) => {
+	const draft = taskDraft.value;
+	if (
+		disposed ||
+		!draft ||
+		editor.value !== draft.editor ||
+		draft.editor.isDestroyed
+	)
+		return;
+	if (saveBlocked.value || draft.editor.state.doc !== draft.document) {
+		error.value =
+			"Task created in Tasks. This note changed, so its link was not inserted.";
+		closeTaskComposer();
+		return;
+	}
+	setTaskEditorEditable(draft.editor, true);
+	draft.editor.view.dispatch(
+		draft.editor.state.tr.setSelection(
+			draft.bookmark.resolve(draft.editor.state.doc),
+		),
+	);
+	const inserted = draft.editor
+		.chain()
+		.focus()
+		.deleteRange({ from: draft.from, to: draft.to })
+		.insertContent({ type: "entity", attrs: { entity: taskReference(task) } })
+		.run();
+	if (!inserted)
+		error.value =
+			"Task created in Tasks. Its link could not be inserted into this note.";
+	closeTaskComposer();
+	window.dispatchEvent(new CustomEvent("e2-tasks-changed"));
+};
 const entityMenu = ref<EntityComposerMatch & {
 	x: number;
 	y: number;
@@ -129,7 +215,7 @@ const canonicalEntitySearch = createLatestEntitySearch(
 		searchCanonicalEntities(input.query, input.rootId, signal),
 );
 
-type Block = { label: string; detail: string; icon: string; run: () => void };
+type Block = { kind?: "task"; label: string; detail: string; icon: string; run: () => void };
 const blocks: Block[] = [
 	{
 		label: "Text",
@@ -162,8 +248,15 @@ const blocks: Block[] = [
 		run: () => editor.value?.chain().focus().toggleOrderedList().run(),
 	},
 	{
-		label: "To-do list",
-		detail: "Type [] followed by space",
+		kind: "task",
+		label: "New task",
+		detail: "Create a task and link it here",
+		icon: "✓",
+		run: openTaskComposer,
+	},
+	{
+		label: "Checklist",
+		detail: "Checkboxes in this note · type [] then space",
 		icon: "☐",
 		run: () => editor.value?.chain().focus().toggleTaskList().run(),
 	},
@@ -278,6 +371,10 @@ const insertComponent = (kind: "diagram" | "mermaid" | "drawing" | "link") => {
 		.run();
 };
 const choose = (block: Block) => {
+	if (block.kind === "task") {
+		openTaskComposer();
+		return;
+	}
 	if (slash.value)
 		editor.value
 			?.chain()
@@ -403,6 +500,7 @@ const createEntityFromMenu = async () => {
 	}
 };
 const insertExternalEntity = (event: Event) => {
+	if (taskDraft.value) return;
 	const frame = editor.value?.view.dom.closest(".pane-frame");
 	if (frame && !frame.classList.contains("is-active")) return;
 	if (!(event instanceof CustomEvent)) return;
@@ -543,7 +641,7 @@ const prepareForTransition = async (): Promise<boolean> => {
 	// Do not schedule an unchanged lazy document merely because its pane closes.
 	// Composition must finish so the editor's normal update hook has captured the
 	// final DOM input before the pending save is flushed.
-	if (editor.value?.view.composing || invalidChanges.value) return false;
+	if (taskDraft.value || editor.value?.view.composing || invalidChanges.value) return false;
 	return await saver?.flush() ?? true;
 };
 const focusHeading = () => {
@@ -656,7 +754,7 @@ const confirmReplacement = () => {
 	editor.value?.commands.focus();
 };
 const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
-  if (!invalidChanges.value && !saver?.hasUnsavedChanges()) return;
+  if (!taskDraft.value && !invalidChanges.value && !saver?.hasUnsavedChanges()) return;
   event.preventDefault();
   event.returnValue = "";
 };
@@ -880,6 +978,7 @@ onMounted(() => {
 	void loadToday();
 });
 onBeforeUnmount(() => {
+    disposed = true;
 	window.visualViewport?.removeEventListener("resize", updateKeyboardInset);
 	window.visualViewport?.removeEventListener("scroll", updateKeyboardInset);
 	window.removeEventListener("beforeunload", warnBeforeLeaving);
@@ -962,6 +1061,9 @@ onBeforeUnmount(() => {
 		</div>
 		<details v-if="editor" class="formatting-controls"><summary>Format text</summary>
 		<nav class="editor-toolbar" aria-label="Text formatting">
+			<button type="button" @pointerdown.prevent @click="openTaskComposer">
+				New task
+			</button>
 			<select
 				aria-label="Paragraph style"
 				:value="activeStyle"
@@ -1031,8 +1133,8 @@ onBeforeUnmount(() => {
 				1. ≡
 			</button>
 			<button
-				aria-label="To-do list"
-				title="To-do list"
+				aria-label="Checklist"
+				title="Checklist"
 				:aria-pressed="active('taskList')"
 				@click="editor.chain().focus().toggleTaskList().run()"
 			>
@@ -1216,5 +1318,12 @@ onBeforeUnmount(() => {
 				</button>
 			</div>
 		</div>
+		<TaskComposer
+			v-if="taskDraft"
+			:initial-title="taskDraft.initialTitle"
+			:initial-due-date="taskDraft.initialDueDate"
+			@created="finishTaskComposer"
+			@cancel="closeTaskComposer"
+		/>
 	</div>
 </template>
