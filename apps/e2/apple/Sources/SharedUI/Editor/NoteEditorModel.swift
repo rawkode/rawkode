@@ -55,13 +55,13 @@ struct SlashCommand: Identifiable, Hashable {
     /// The same menu the web editor offers, minus task creation, which needs a mutation this app lacks.
     static let all: [SlashCommand] = [
         SlashCommand(label: "Text", detail: "Plain paragraph", symbol: "text.alignleft", action: .style(.paragraph)),
-        SlashCommand(label: "Heading 1", detail: "Type # followed by space", symbol: "1.square", action: .style(.heading(1))),
-        SlashCommand(label: "Heading 2", detail: "Type ## followed by space", symbol: "2.square", action: .style(.heading(2))),
-        SlashCommand(label: "Heading 3", detail: "Type ### followed by space", symbol: "3.square", action: .style(.heading(3))),
-        SlashCommand(label: "Quote", detail: "Type > followed by space", symbol: "text.quote", action: .style(.quote)),
-        SlashCommand(label: "Bulleted list", detail: "Type - followed by space", symbol: "list.bullet", action: .list(.bulletList)),
-        SlashCommand(label: "Numbered list", detail: "Type 1. followed by space", symbol: "list.number", action: .list(.orderedList)),
-        SlashCommand(label: "Checklist", detail: "Checkboxes in this note · type [] then space", symbol: "checklist", action: .list(.taskList)),
+        SlashCommand(label: "Heading 1", detail: "Start with # and a space · converts on Return", symbol: "1.square", action: .style(.heading(1))),
+        SlashCommand(label: "Heading 2", detail: "Start with ## and a space · converts on Return", symbol: "2.square", action: .style(.heading(2))),
+        SlashCommand(label: "Heading 3", detail: "Start with ### and a space · converts on Return", symbol: "3.square", action: .style(.heading(3))),
+        SlashCommand(label: "Quote", detail: "Start with > and a space · converts on Return", symbol: "text.quote", action: .style(.quote)),
+        SlashCommand(label: "Bulleted list", detail: "Start with - and a space · converts on Return", symbol: "list.bullet", action: .list(.bulletList)),
+        SlashCommand(label: "Numbered list", detail: "Start with 1. and a space · converts on Return", symbol: "list.number", action: .list(.orderedList)),
+        SlashCommand(label: "Checklist", detail: "Checkboxes in this note · [] converts on Return", symbol: "checklist", action: .list(.taskList)),
         SlashCommand(label: "Code block", detail: "Code stays editable", symbol: "chevron.left.forwardslash.chevron.right", action: .style(.code)),
         SlashCommand(label: "D2 diagram", detail: "A diagram from source", symbol: "point.3.connected.trianglepath.dotted", action: .component(.diagram)),
         SlashCommand(label: "Mermaid diagram", detail: "Flows and sequences", symbol: "arrow.triangle.branch", action: .component(.mermaid)),
@@ -205,7 +205,18 @@ final class NoteEditorModel: ObservableObject {
             mutate { document in
                 NoteEditing.replaceCharacters(&document, at: path, range: range, with: head + tail)
             }
-            enter(at: NoteCaret(path, offset: range.lowerBound + head.characters.count))
+            // Commit destructive Markdown prefix conversion at Return, when
+            // native text input is handing off to the next block. Rewriting its
+            // buffer on the Space keystroke can race subsequent keyboard input.
+            if node.type == .paragraph, range.lowerBound == 0,
+               let prefix = blockPrefix(in: String(head.characters)) {
+                applyBlockShortcut(prefix.shortcut, at: path, prefixLength: prefix.length)
+                if let target = focus?.path {
+                    enter(at: NoteCaret(target, offset: head.characters.count - prefix.length))
+                }
+            } else {
+                enter(at: NoteCaret(path, offset: range.lowerBound + head.characters.count))
+            }
             return
         }
         // The view echoes model-driven changes back; those carry no new keystroke.
@@ -215,11 +226,6 @@ final class NoteEditorModel: ObservableObject {
         let caret = insertedCount > 0 ? commonPrefixCount(previousString, string) + insertedCount : commonPrefixCount(previousString, string)
         mutate { document in NoteEditing.replaceCharacters(&document, at: path, range: range, with: text) }
         let beforeCaret = String(string.prefix(caret))
-        let typed = insertedCount == 1 ? string.dropFirst(caret - 1).first : nil
-        if typed == " ", node.type == .paragraph, range.lowerBound == 0, let shortcut = NoteShortcuts.blockShortcut(prefix: beforeCaret) {
-            applyBlockShortcut(shortcut, at: path, prefixLength: caret)
-            return
-        }
         if insertedCount == 1, let inline = NoteShortcuts.inlineShortcut(before: beforeCaret) {
             let start = range.lowerBound + inline.range.lowerBound
             var replacement = AttributedString(inline.text)
@@ -231,6 +237,18 @@ final class NoteEditorModel: ObservableObject {
             return
         }
         updateMenus(at: path, caret: range.lowerBound + caret, segmentStart: range.lowerBound)
+    }
+
+    private func blockPrefix(in text: String) -> (shortcut: NoteShortcuts.BlockShortcut, length: Int)? {
+        // Check each space so both "[ ] " and "1. " are recognized with a title.
+        for index in text.indices where text[index] == " " {
+            let end = text.index(after: index)
+            let prefix = String(text[..<end])
+            if let shortcut = NoteShortcuts.blockShortcut(prefix: prefix) {
+                return (shortcut, prefix.count)
+            }
+        }
+        return nil
     }
 
     private func commonPrefixCount(_ a: String, _ b: String) -> Int {

@@ -1,9 +1,9 @@
 # Native SwiftUI note editor
 
-Status, 13 September 2026: implemented behind **Settings → Editor → Native
-editor (preview)**. The portable core is compiled and tested. The SwiftUI layer
-has not been compiled with Xcode 26 or run on a device in this change; the
-web editor remains the default and the qualified path.
+Status, 14 September 2026: preview only under **Settings → Editor → Native
+editor (preview)**. Review fixes add durable native drafts, serialized saves,
+owner/day fencing, safe list operations, and main-actor WebKit rendering. The
+web editor remains the default; native parity is incomplete.
 
 ## What it is
 
@@ -13,8 +13,8 @@ WKWebView and no second document model: the note is decoded into
 `NoteDocument`, edited in place, and written back through the existing
 `POST /api/documents/:id` compare-and-set endpoint.
 
-Everything the web schema allows is supported, so a note edited natively
-survives a web round trip and vice versa:
+The portable model represents the web schema. Editing parity has the explicit
+gaps below; covered model round trips are tested:
 
 | Content                                          | Native behaviour                                                                                      |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
@@ -52,8 +52,7 @@ survives a web round trip and vice versa:
 views inside a `TextEditor`, style paragraphs differently inside one editor, or
 draw checkboxes and quote bars. Each paragraph, heading and code block is its
 own `TextEditor`; components render as cards between text segments; focus and
-caret placement move across blocks through the model. This is how Notion and
-Craft behave on iOS. The AppKit spike in `spikes/native-rich-editor` shows the
+caret placement move across blocks through the model. The AppKit spike in `spikes/native-rich-editor` shows the
 alternative (a single `NSTextView` with attachment views); it is macOS-only.
 
 **The document is the only state.** Views hold no copy of the note. A keystroke
@@ -69,9 +68,22 @@ alters such a run removes the whole node, matching ProseMirror atoms.
 the semantic keys by `NoteTextPresentation` and enforced by
 `NoteFormattingDefinition`. Nothing presentational is read back into the note.
 
-**Conflicts are never merged.** A 409 stops autosave, keeps the local edits on
-screen, and offers *Reload latest*. There is no offline outbox in this slice;
-see `OFFLINE-EDITOR.md` for the contract that would add one.
+**Drafts are durable before network access.** `NotePersistence` stores the
+acknowledged base, current document and uncertain write atomically per origin,
+account and document. Saves serialize; editing never cancels transport. Lost
+acknowledgements are reconciled against the server before another write. A
+shared controller and writer preserve edits through close/reopen and multiple
+Mac windows. Failed disk writes block Done and day rollover and retain the
+in-memory draft for retry.
+
+**Conflicts are never silently merged.** Check latest reconciles remote state
+without replacing a dirty local draft. A differing remote edit remains a conflict;
+manual merge/reapplication is not implemented. This native cache does not make
+the default web editor offline-capable.
+
+**Markdown block prefixes convert on Return.** Typing a heading or list prefix
+keeps the native keyboard buffer stable until Return strips the marker and
+creates the next block. Slash commands and toolbar formatting apply immediately.
 
 ## Known gaps
 
@@ -91,43 +103,33 @@ see `OFFLINE-EDITOR.md` for the contract that would add one.
 - Block identity is the tree path, so inserting a block above another recreates
   the views below it. Focus is restored by the model, but the text view's
   scroll position within a long block is not.
-- Leaving the screen triggers a best-effort save; the iPhone sheet's Done
-  button does not wait for it. Watch the status line before closing.
+- Done requires a successful local draft write, then sync continues in the
+  background. Server acknowledgement is shown separately from local durability.
+  Device termination cannot recover data when disk writes themselves fail.
 
 ## Verification
 
+The review-fix suite passes 86 core tests, including list-schema regressions and
+nine persistence tests for late replies, queued refreshes, offline reopen,
+uncertain acknowledgement, disk failure/recovery, and corrupt-cache rejection.
+iOS Simulator and Mac builds pass. Five native UI journeys exercise the actual
+local website fixture: immediate close/relaunch, heading/paragraph save/relaunch,
+slash Checklist insertion with exact text, canonical mention selection, and
+Drawing insertion with Dawn/Dark rendering. Screenshots are exported from XCTest,
+not generated mockups. Physical-device, VoiceOver and long-document qualification
+remain open.
+
 ```sh
-swift test --package-path apple   # 75 tests incl. 23 for the note model
+swift test --package-path apple
 ```
 
 ## Screenshots
 
-None exist yet. This change was written without Xcode, so no screenshot is
-claimed. Four UI journeys in `Tests/UI/ApsidesUITests.swift` capture them
-against the same authenticated website fixture the web-editor journeys use:
-heading and paragraph typing with save and relaunch, the slash menu and a
-checklist, an `@` mention of the fixture entity, and a drawing card in both
-palettes. Run them on an iPhone simulator:
-
-```sh
-cd apps/e2
-deno task build && node website/test/runtime.mjs --serve --dense   # prints WEBSITE_BROWSER_URL
-xcodegen generate --spec apple/project.yml
-xcodebuild test -project apple/Apsides.xcodeproj -scheme ApsidesIOS \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -resultBundlePath /tmp/apsides-native-editor.xcresult \
-  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorTypesHeadingAndSavesAcrossRelaunch \
-  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorSlashMenuInsertsChecklist \
-  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorMentionInsertsCanonicalEntity \
-  -only-testing:ApsidesUITests/ApsidesUITests/testNativeEditorInsertsDrawingAndRendersDarkPalette \
-  APSIDES_EDITOR_TEST_ORIGIN="$WEBSITE_BROWSER_URL"
-```
-
-The attachments in the result bundle are the screenshots (*Native editor
-Dawn*, *Native editor slash menu*, *Native editor checklist*, *Native editor
-mention suggestions*, *Native editor mention*, *Native drawing editor*,
-*Native editor drawing card*, *Native editor Dark*). Export the ones worth
-keeping to `docs/screenshots/` and link them here.
+Runtime screenshots are in `docs/screenshots/native-editor/` after final review.
+UI tests require `APSIDES_EDITOR_TEST_ORIGIN` pointing to the local website fixture.
+Each native UI journey uses an isolated `native-test:` document ID; the override
+is enabled only in Debug UI-testing builds against HTTP loopback. Relaunch keeps
+that ID to verify persistence without contaminating another journey's note.
 
 The fixture proxy asserts the owner identity server-side and sets no
 `CF_Authorization` cookie, which the native session otherwise requires. Debug
@@ -137,6 +139,5 @@ cookie for that origin only. Release builds and HTTPS origins are unaffected.
 
 The core tests round-trip `Tests/Core/Fixtures/tiptap.native-note` (the same
 fixture the web interop check uses), a canonical-entity document, rejection
-cases, and each editing operation. No Xcode build, simulator run, VoiceOver or
-device qualification is claimed for the SwiftUI layer; those are the next step
-before the toggle can default on.
+cases, and each editing operation. Xcode and Simulator evidence does not establish physical-device or VoiceOver
+qualification. The toggle remains off by default.

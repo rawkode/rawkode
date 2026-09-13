@@ -101,6 +101,7 @@ struct NoteComponentCard: View {
 }
 
 /// Renders cached SVG with scripting disabled. WebKit is the only SVG renderer common to both platforms.
+@MainActor
 struct SVGView {
     let svg: String
 
@@ -136,7 +137,7 @@ struct SVGView {
     @MainActor
     private final class NoNavigation: NSObject, WKNavigationDelegate {
         static let shared = NoNavigation()
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             decisionHandler(navigationAction.navigationType == .other ? .allow : .cancel)
         }
     }

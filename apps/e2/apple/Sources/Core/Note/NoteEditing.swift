@@ -293,7 +293,7 @@ public enum NoteEditing {
     public static func joinForward(_ document: inout NoteDocument, at path: NotePath) -> NoteCaret? {
         guard let node = document.node(at: path), node.type.isTextBlock, let next = document.blockAfter(path) else { return nil }
         if let itemPath = next.itemPath, next.path.last == 0, let item = document.node(at: itemPath), item.children.count > 1,
-           item.children[1].type.isTextBlock == false { return nil }
+           item.children[1].type != .paragraph { return nil }
         let end = document.inlineCount(at: path)
         if node.type == .codeBlock {
             guard !next.node.containsAtom else { return nil }
@@ -485,6 +485,10 @@ public enum NoteEditing {
               let listPath = itemPath.parent, let list = document.node(at: listPath) else { return nil }
         let following = Array(list.children.dropFirst(itemPath.last + 1))
         if let grandPath = listPath.parent, let grand = document.node(at: grandPath), grand.type.isListItem, let outerListPath = grandPath.parent {
+            // Mixed list kinds cannot accept each other's item nodes. Refuse the
+            // lift rather than losing a task's checked state or invalidating the tree.
+            guard let outerList = document.node(at: outerListPath),
+                  item.type == NoteNode.itemKind(forList: outerList.type) else { return nil }
             var lifted = item
             if !following.isEmpty { var nested = list; nested.content = following; lifted.content = (lifted.content ?? []) + [nested] }
             let kept = Array(list.children.prefix(itemPath.last))

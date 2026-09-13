@@ -109,6 +109,27 @@ final class NoteEditingTests: XCTestCase {
         XCTAssertEqual(code.content, [.codeBlock(language: "swift", "xy")])
     }
 
+    func testForwardDeletePreservesRequiredFirstParagraphInListItems() throws {
+        for trailing in [NoteNode.heading(2, [.text("heading")]), .codeBlock(language: "swift", "code")] {
+            for task in [false, true] {
+                let blocks: [NoteNode] = [.paragraph([.text("first")]), trailing]
+                let list = task ? NoteNode.taskList([.taskItem(checked: true, blocks)]) : .bulletList([.listItem(blocks)])
+                var document = NoteDocument(content: [.paragraph([.text("before")]), list])
+                let original = document
+                _ = try document.encoded()
+                XCTAssertNil(NoteEditing.joinForward(&document, at: NotePath(0)))
+                XCTAssertEqual(document, original, "Refused joins must preserve content, marks and task status")
+                try XCTAssertEqual(NoteDocument.decode(document.encoded()), original)
+            }
+        }
+        var allowed = NoteDocument(content: [.paragraph([.text("before")]), .bulletList([
+            .listItem([.paragraph([.text("first")]), .paragraph([.text("second")])])
+        ])])
+        XCTAssertEqual(NoteEditing.joinForward(&allowed, at: NotePath(0)), NoteCaret(NotePath(0), offset: 6))
+        XCTAssertEqual(allowed.plainText, "beforefirst\nsecond")
+        try XCTAssertEqual(NoteDocument.decode(allowed.encoded()), allowed)
+    }
+
     func testBlockStylesLiftOutOfListsAndQuotesAndClearFonts() throws {
         var document = NoteDocument(content: [.bulletList([
             .listItem([.paragraph([.text("one")])]),
@@ -190,6 +211,31 @@ final class NoteEditingTests: XCTestCase {
         NoteEditing.toggleTask(&document, itemPath: NotePath(0, 0))
         XCTAssertNil(document.node(at: NotePath(0, 0))?.attrs?.checked)
         try XCTAssertEqual(NoteDocument.decode(document.encoded()), document)
+    }
+
+    func testMixedListOutdentRefusesIncompatibleItemKindsWithoutChangingContent() throws {
+        for taskOutside in [false, true] {
+            let innerItems: [NoteNode] = taskOutside
+                ? [.listItem([.paragraph([.text("inner", marks: [.bold])])]), .listItem([.paragraph([.text("following")])])]
+                : [.taskItem(checked: true, [.paragraph([.text("inner", marks: [.bold])])]), .taskItem([.paragraph([.text("following")])])]
+            let nested = taskOutside ? NoteNode.bulletList(innerItems) : .taskList(innerItems)
+            let outerBlocks: [NoteNode] = [.paragraph([.text("outer")]), nested]
+            var document = NoteDocument(content: [taskOutside
+                ? .taskList([.taskItem(checked: true, outerBlocks)]) : .bulletList([.listItem(outerBlocks)])])
+            let original = document
+            _ = try document.encoded()
+            XCTAssertNil(NoteEditing.liftListItem(&document, itemPath: NotePath(0, 0, 1, 0)))
+            XCTAssertEqual(document, original)
+            XCTAssertNil(NoteEditing.joinBackward(&document, at: NotePath(0, 0, 1, 0, 0)))
+            XCTAssertEqual(document, original)
+            try XCTAssertEqual(NoteDocument.decode(document.encoded()), original)
+
+            NoteEditing.setInline(&document, at: NotePath(0, 0, 1, 0, 0), [])
+            let emptyItem = document
+            XCTAssertNil(NoteEditing.splitBlock(&document, at: NoteCaret(NotePath(0, 0, 1, 0, 0))))
+            XCTAssertEqual(document, emptyItem)
+            try XCTAssertEqual(NoteDocument.decode(document.encoded()), emptyItem)
+        }
     }
 
     func testComponentsAndEntitiesInsertUpdateAndRemoveInline() throws {

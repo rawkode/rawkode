@@ -10,9 +10,12 @@ struct NoteBlockRow: View {
     let showsPlaceholder: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            marker
-            content
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                marker
+                content
+            }
+            menus
         }
         .padding(.leading, CGFloat(block.listDepth) * 22 + CGFloat(block.quoteDepth) * 16)
         .overlay(alignment: .leading) {
@@ -21,7 +24,6 @@ struct NoteBlockRow: View {
                     .padding(.leading, CGFloat(block.listDepth) * 22 + CGFloat(block.quoteDepth - 1) * 16 + 2)
             }
         }
-        .overlay(alignment: .bottomLeading) { menus }
         .zIndex(model.slashMenu?.path == block.path || model.entityMenu?.path == block.path ? 1 : 0)
         .accessibilityElement(children: .contain)
     }
@@ -62,10 +64,8 @@ struct NoteBlockRow: View {
     @ViewBuilder private var menus: some View {
         if let menu = model.slashMenu, menu.path == block.path {
             NoteSlashMenu(model: model, menu: menu, theme: theme)
-                .alignmentGuide(.bottom) { $0[.top] }
         } else if let menu = model.entityMenu, menu.path == block.path {
             NoteEntityMenu(model: model, menu: menu, theme: theme)
-                .alignmentGuide(.bottom) { $0[.top] }
         }
     }
 }
@@ -132,8 +132,31 @@ struct NoteTextSegmentView: View {
     private var base: NoteBaseFont { NoteBaseFont.base(for: block) }
     private var isFocused: Bool { focus.wrappedValue == focusID }
 
+    // Only edits from TextEditor write to the document. Projection/caret updates
+    // must never echo back through an asynchronous onChange with an old range.
+    private var editedText: Binding<AttributedString> {
+        Binding(get: { text }, set: { value in
+            // Structural edits transfer focus immediately. An outgoing editor
+            // must not write its retained buffer into a reused document path.
+            guard model.pendingCaret == nil || model.focus == focusID else { return }
+            let previous = text
+            text = value
+            let segments = NoteInlineText.segments(model.inlineText(at: block.path))
+            guard segments.indices.contains(segmentIndex),
+                  case .text(_, let currentRange) = segments[segmentIndex] else { return }
+            model.commitText(value, at: block.path, segment: currentRange, previous: previous)
+            // Shortcuts can remove the prefix synchronously. Publish that result
+            // before the next keystroke, rather than waiting for a view update.
+            refreshTextFromDocument()
+            if let target = model.focus, model.pendingCaret != nil {
+                focus.wrappedValue = target
+            }
+            adoptPendingCaret()
+        })
+    }
+
     var body: some View {
-        TextEditor(text: $text, selection: $selection)
+        TextEditor(text: editedText, selection: $selection)
             .attributedTextFormattingDefinition(NoteFormattingDefinition(base: base, theme: theme))
             .font(.system(size: base.size, weight: base.weight, design: base.design))
             .foregroundStyle(theme.ink)
@@ -149,13 +172,8 @@ struct NoteTextSegmentView: View {
                 }
             }
             .onKeyPress(phases: .down, action: handle)
-            .onChange(of: text) { previous, value in
-                model.commitText(value, at: block.path, segment: range, previous: previous)
-            }
-            .onChange(of: segmentText) { _, value in
-                if NoteInlineText.inline(text) != NoteInlineText.inline(value) {
-                    text = NoteTextPresentation.styled(value, base: base, theme: theme)
-                }
+            .onChange(of: segmentText) { _, _ in
+                refreshTextFromDocument()
                 adoptPendingCaret()
             }
             .onChange(of: selection) { _, value in report(value) }
@@ -164,6 +182,15 @@ struct NoteTextSegmentView: View {
             .onAppear { adoptPendingCaret() }
             .accessibilityIdentifier("noteText")
             .accessibilityLabel(block.node.type == .heading ? "Heading \(block.node.attrs?.level ?? 1)" : "Paragraph")
+    }
+
+    private func refreshTextFromDocument() {
+        let segments = NoteInlineText.segments(model.inlineText(at: block.path))
+        guard segments.indices.contains(segmentIndex),
+              case .text(let currentText, _) = segments[segmentIndex] else { return }
+        if NoteInlineText.inline(text) != NoteInlineText.inline(currentText) {
+            text = NoteTextPresentation.styled(currentText, base: base, theme: theme)
+        }
     }
 
     private func offsets(_ value: AttributedTextSelection) -> [Range<Int>] {
@@ -183,10 +210,13 @@ struct NoteTextSegmentView: View {
 
     private func adoptPendingCaret() {
         guard isFocused, let caret = model.pendingCaret, caret.path == block.path else { return }
-        if NoteInlineText.inline(text) != NoteInlineText.inline(segmentText) {
-            text = NoteTextPresentation.styled(segmentText, base: base, theme: theme)
+        let segments = NoteInlineText.segments(model.inlineText(at: block.path))
+        guard segments.indices.contains(segmentIndex),
+              case .text(let currentText, let currentRange) = segments[segmentIndex] else { return }
+        if NoteInlineText.inline(text) != NoteInlineText.inline(currentText) {
+            text = NoteTextPresentation.styled(currentText, base: base, theme: theme)
         }
-        let local = caret.offset - range.lowerBound
+        let local = caret.offset - currentRange.lowerBound
         guard local >= 0, local <= text.characters.count else { return }
         selection = AttributedTextSelection(insertionPoint: NoteInlineText.index(in: text, offset: local))
         model.pendingCaret = nil
@@ -311,7 +341,7 @@ struct NoteSlashMenu: View {
 
     var body: some View {
         let matches = model.slashMatches
-        NoteMenuFrame(theme: theme) {
+        NoteMenuFrame(theme: theme, height: min(280, CGFloat(max(1, matches.count)) * 72 + 12)) {
             if matches.isEmpty {
                 Text("No blocks match “\(menu.query)”").font(.callout).foregroundStyle(theme.secondary).padding(12)
             }
@@ -330,6 +360,7 @@ struct NoteSlashMenu: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("nativeSlash" + command.label)
                 .accessibilityAddTraits(index == menu.selected ? .isSelected : [])
             }
         }
@@ -343,7 +374,7 @@ struct NoteEntityMenu: View {
     let theme: ApsidesTheme
 
     var body: some View {
-        NoteMenuFrame(theme: theme) {
+        NoteMenuFrame(theme: theme, height: min(280, CGFloat(max(1, menu.matches.count)) * 48 + 52)) {
             Text(menu.trigger == "@" ? "Mention an entity" : "Link an entity")
                 .font(.caption.weight(.semibold)).foregroundStyle(theme.secondary).padding(.horizontal, 12).padding(.top, 10)
             if menu.loading {
@@ -375,6 +406,7 @@ struct NoteEntityMenu: View {
 
 private struct NoteMenuFrame<Content: View>: View {
     let theme: ApsidesTheme
+    let height: CGFloat
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -382,7 +414,7 @@ private struct NoteMenuFrame<Content: View>: View {
             VStack(alignment: .leading, spacing: 2) { content }.padding(4)
         }
         .frame(width: 300)
-        .frame(maxHeight: 280)
+        .frame(height: height)
         .background(theme.base, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.secondary.opacity(0.3)))
         .shadow(color: .black.opacity(0.18), radius: 14, y: 6)

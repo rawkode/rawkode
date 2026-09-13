@@ -578,17 +578,32 @@ final class ApsidesUITests: XCTestCase {
 
     // MARK: Native editor (Settings → Editor → Native editor, or --native-editor)
 
+    func testNativeEditorRetainsDraftAfterImmediateClose() throws {
+        let editor = try launchNativeEditor()
+        let text = "Keep this thought " + UUID().uuidString
+        editor.typeText(text)
+        activate(app.buttons["closeDailyNote"])
+        XCTAssertFalse(app.buttons["closeDailyNote"].exists)
+        relaunchPreservingData()
+        openDailyNoteIfNeeded()
+        let restored = app.textViews.matching(identifier: "noteText").firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 20))
+        XCTAssertEqual(restored.value as? String, text)
+    }
+
     func testNativeEditorTypesHeadingAndSavesAcrossRelaunch() throws {
         let editor = try launchNativeEditor()
         editor.typeText("# Native heading\nA paragraph written natively.")
         XCTAssertTrue(app.textViews.matching(identifier: "noteText").count >= 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").element(boundBy: 0).value as? String, "Native heading")
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").element(boundBy: 1).value as? String, "A paragraph written natively.")
         XCTAssertTrue(waitForNativeSave())
         captureScreenshot("Native editor Dawn")
         relaunchPreservingData()
         openDailyNoteIfNeeded()
         let restored = app.textViews.matching(identifier: "noteText").firstMatch
         XCTAssertTrue(restored.waitForExistence(timeout: 20))
-        XCTAssertTrue((restored.value as? String ?? "").contains("Native heading"))
+        XCTAssertEqual(restored.value as? String, "Native heading")
     }
 
     func testNativeEditorSlashMenuInsertsChecklist() throws {
@@ -596,9 +611,10 @@ final class ApsidesUITests: XCTestCase {
         editor.typeText("/check")
         XCTAssertTrue(app.otherElements["Insert a block"].waitForExistence(timeout: 5) || app.buttons["Checklist"].waitForExistence(timeout: 5))
         captureScreenshot("Native editor slash menu")
-        activate(app.buttons["Checklist"].firstMatch)
+        activate(app.buttons["nativeSlashChecklist"])
         XCTAssertTrue(app.buttons["Open task"].waitForExistence(timeout: 5))
         app.textViews.matching(identifier: "noteText").firstMatch.typeText("Buy milk")
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").firstMatch.value as? String, "Buy milk")
         activate(app.buttons["Open task"].firstMatch)
         XCTAssertTrue(app.buttons["Completed task"].waitForExistence(timeout: 5))
         captureScreenshot("Native editor checklist")
@@ -619,9 +635,9 @@ final class ApsidesUITests: XCTestCase {
     }
 
     func testNativeEditorInsertsDrawingAndRendersDarkPalette() throws {
-        try launchNativeEditor()
-        activate(app.buttons["Insert"].firstMatch)
-        chooseMenuItem("Drawing")
+        let editor = try launchNativeEditor()
+        editor.typeText("/drawing")
+        activate(app.buttons["nativeSlashDrawing"])
         let save = app.buttons["Save"].firstMatch
         XCTAssertTrue(save.waitForExistence(timeout: 5))
         captureScreenshot("Native drawing editor")
@@ -640,7 +656,7 @@ final class ApsidesUITests: XCTestCase {
         captureScreenshot("Native editor Dark")
     }
 
-    private var nativeStatus: XCUIElement { app.otherElements["saveStatus"].firstMatch }
+    private var nativeStatus: XCUIElement { app.descendants(matching: .any).matching(identifier: "saveStatus").firstMatch }
 
     private func waitForNativeSave() -> Bool {
         let saved = NSPredicate(format: "label CONTAINS %@", "All changes saved")
@@ -657,6 +673,7 @@ final class ApsidesUITests: XCTestCase {
         app.terminate()
         app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = origin
         app.launchArguments = ["--ui-testing", "--reset-test-data", "--native-editor"]
+        app.launchEnvironment["APSIDES_NATIVE_TEST_DOCUMENT_ID"] = "native-test:" + UUID().uuidString
         app.launch()
         openDailyNoteIfNeeded()
         let editor = app.textViews.matching(identifier: "noteText").firstMatch

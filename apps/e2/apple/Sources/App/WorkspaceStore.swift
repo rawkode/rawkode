@@ -25,6 +25,7 @@ final class WorkspaceStore: ObservableObject {
     let session: NativeSession
     lazy var tasks = TasksStore(session: session, directory: disk.url.deletingLastPathComponent())
     lazy var voice = VoiceConversation(session: session)
+    lazy var nativeNote = NativeNoteController(store: self)
     let demo: Bool
     let isUITesting: Bool
     private var connectionGeneration = 0

@@ -1,17 +1,18 @@
 import ApsidesCore
 import Combine
+import CryptoKit
 import SwiftUI
 
 /// Today's note in the native editor: read through the authenticated session,
 /// edited as the canonical Tiptap tree, written back with revision checks.
 struct NativeNoteScreen: View {
     @ObservedObject var store: WorkspaceStore
-    @StateObject private var controller: NativeNoteController
+    @ObservedObject private var controller: NativeNoteController
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
 
     init(store: WorkspaceStore) {
         self.store = store
-        _controller = StateObject(wrappedValue: NativeNoteController(store: store))
+        _controller = ObservedObject(wrappedValue: store.nativeNote)
     }
 
     var body: some View {
@@ -41,8 +42,10 @@ struct NativeNoteScreen: View {
                 Image(systemName: controller.statusSymbol).foregroundStyle(controller.conflict ? .orange : theme.secondary)
                 Text(controller.status).font(.caption).foregroundStyle(theme.secondary)
                 Spacer()
-                if controller.conflict {
-                    Button("Reload latest") { Task { await controller.load() } }.font(.caption)
+                if !controller.locallySaved {
+                    Button("Retry saving") { Task { await controller.save() } }.font(.caption)
+                } else if controller.conflict {
+                    Button("Check latest") { Task { await controller.load() } }.font(.caption)
                 } else if controller.saveError != nil {
                     Button("Retry") { Task { await controller.save() } }.font(.caption)
                 }
@@ -71,125 +74,182 @@ final class NativeNoteController: ObservableObject {
     @Published private(set) var status = "Opening…"
     @Published private(set) var conflict = false
     @Published private(set) var saveError: String?
+    @Published private(set) var locallySaved = true
     @Published private(set) var documentID: String
     let model: NoteEditorModel
 
-    private let store: WorkspaceStore
-    private var revision: Int?
-    private var savedDocument: NoteDocument?
+    private unowned let store: WorkspaceStore
+    private var persistence: NotePersistence?
     private var loadedAccount: String?
-    private var saveTask: Task<Void, Never>?
+    private var generation = UUID()
+    private var debounce: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
 
     init(store: WorkspaceStore) {
         self.store = store
         documentID = "daily:" + DayIdentity.key(.now)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+           store.session.origin.scheme == "http",
+           ["localhost", "127.0.0.1"].contains(store.session.origin.host ?? ""),
+           let fixtureID = ProcessInfo.processInfo.environment["APSIDES_NATIVE_TEST_DOCUMENT_ID"],
+           fixtureID.hasPrefix("native-test:"),
+           fixtureID.range(of: "^[a-zA-Z0-9:_-]{1,128}$", options: .regularExpression) != nil {
+            documentID = fixtureID
+        }
+        #endif
         model = NoteEditorModel(document: NoteDocument(), directory: SessionEntityDirectory(session: store.session))
         model.$revision.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
+        store.session.$accountID.dropFirst().sink { [weak self] account in
+            guard let self, let loadedAccount = self.loadedAccount, account != loadedAccount else { return }
+            self.flush()
+            self.generation = UUID()
+            self.persistence = nil
+            self.state = .loading
+            Task { await self.load() }
+        }.store(in: &subscriptions)
     }
 
     var statusSymbol: String {
         if conflict { return "exclamationmark.triangle" }
         if saveError != nil { return "arrow.clockwise" }
-        return savedDocument == model.document ? "checkmark.circle" : "circle.dotted"
+        return persistence?.dirty == false ? "checkmark.circle" : "circle.dotted"
     }
 
     func dayChanged() {
         let today = "daily:" + DayIdentity.key(.now)
         guard today != documentID else { return }
-        flush()
+        guard flush() else { return }
+        generation = UUID()
+        persistence = nil
+        state = .loading
         documentID = today
     }
 
     func load() async {
-        saveTask?.cancel()
+        if let persistence, case .ready = state {
+            let token = generation
+            await persistence.refresh()
+            guard generation == token, self.persistence === persistence else { return }
+            if model.document != persistence.document {
+                state = .loading
+                model.replaceDocument(persistence.document)
+                state = .ready
+            }
+            updateStatus(persistence)
+            return
+        }
+        debounce?.cancel()
+        let token = UUID()
+        generation = token
+        let id = documentID
         state = .loading
-        conflict = false
-        saveError = nil
         let session = store.session
-        // A relaunch keeps the sign-in cookie but not the verified identity.
         if !session.isConnected { try? await session.verifyConnection() }
-        guard session.isConnected, let account = session.accountID else {
+        guard token == generation else { return }
+        guard let account = session.accountID ?? store.vault.accountID else {
             state = .failed("Sign in to your Enchiridion website to open today’s note.")
             return
         }
         do {
-            let data = try await session.document(id: documentID)
-            guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw NativeSession.SessionError.invalidResponse }
-            let document: NoteDocument
-            if let stored = envelope["document"] as? [String: Any] {
-                guard stored["id"] as? String == documentID, let revision = stored["revision"] as? Int, let note = stored["note"] else {
+            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("Enchiridion/NativeNotes", isDirectory: true)
+            let identity = session.origin.absoluteString + "|" + account + "|" + id
+            let key = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+            let context = try NotePersistence.open(url: directory.appendingPathComponent(key + ".json"), read: {
+                guard session.accountID == account else { throw CocoaError(.userCancelled) }
+                let data = try await session.document(id: id)
+                guard session.accountID == account,
+                      let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw NativeSession.SessionError.invalidResponse
                 }
-                document = try NoteDocument.decode(JSONSerialization.data(withJSONObject: note))
-                self.revision = revision
-            } else if envelope["document"] is NSNull {
-                document = NoteDocument()
-                revision = nil
-            } else {
-                throw NativeSession.SessionError.invalidResponse
-            }
+                if envelope["document"] is NSNull { return NoteSnapshot(document: NoteDocument(), revision: nil) }
+                guard let stored = envelope["document"] as? [String: Any], stored["id"] as? String == id,
+                      let revision = stored["revision"] as? Int, let note = stored["note"] else {
+                    throw NativeSession.SessionError.invalidResponse
+                }
+                return NoteSnapshot(document: try NoteDocument.decode(JSONSerialization.data(withJSONObject: note)), revision: revision)
+            }, write: { document, revision in
+                guard session.isConnected, session.accountID == account else { throw CocoaError(.userCancelled) }
+                let result = try await session.saveDocument(id: id, note: document.jsonObject(), expectedRevision: revision)
+                guard session.accountID == account else { throw CocoaError(.userCancelled) }
+                return result
+            })
             loadedAccount = account
-            savedDocument = document
-            model.replaceDocument(document)
+            persistence = context
+            // Expose a durable draft immediately, including while offline.
+            model.replaceDocument(context.document)
             state = .ready
-            status = revision == nil ? "New note for today" : "All changes saved"
-        } catch let error as NoteDocument.FormatError {
-            state = .failed("This note uses content this app cannot edit yet. Open it on the web; nothing was changed. \(error.localizedDescription)")
+            context.changed = { [weak self, weak context] in
+                guard let self, let context, self.generation == token else { return }
+                self.updateStatus(context)
+            }
+            updateStatus(context)
+            await context.refresh()
+            guard generation == token, session.accountID == account else { return }
+            if model.document != context.document {
+                state = .loading
+                model.replaceDocument(context.document)
+                state = .ready
+            }
+            updateStatus(context)
         } catch {
-            state = .failed(error.localizedDescription)
+            guard generation == token else { return }
+            state = .failed("Your saved draft could not be opened. Nothing was overwritten. " + error.localizedDescription)
+        }
+    }
+
+    private func updateStatus(_ context: NotePersistence) {
+        conflict = context.conflict
+        saveError = context.error
+        locallySaved = context.locallySaved
+        if !locallySaved {
+            status = "Unable to save on this device. Keep this note open and retry."
+        } else if conflict {
+            status = "Changed elsewhere. Your local draft is kept; check latest to retry safely."
+        } else if context.sending {
+            status = "Syncing…"
+        } else if let error = context.error {
+            status = "Waiting to sync: " + error
+        } else {
+            status = context.dirty ? "Saved on this device" : "All changes saved"
+            if !context.dirty, let account = loadedAccount,
+               let preview = DailyNotePreview(accountID: account, day: String(documentID.dropFirst("daily:".count)), editorText: context.document.plainText) {
+                _ = store.saveNotePreview(preview)
+            }
         }
     }
 
     private func scheduleSave() {
-        guard case .ready = state, !conflict else { return }
-        status = "Unsaved changes"
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(1_200))
-            guard !Task.isCancelled else { return }
-            await self?.save()
+        guard case .ready = state, let persistence else { return }
+        do { try persistence.edit(model.document) }
+        catch { saveError = error.localizedDescription; status = "Unable to save on this device"; return }
+        debounce?.cancel()
+        // Only the delay is cancellable. Once handed off, transport owns its
+        // lifetime and serializes subsequent edits through the same context.
+        debounce = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(1_200)) } catch { return }
+            guard let self else { return }
+            self.debounce = nil
+            Task { await persistence.save() }
         }
     }
 
-    /// Write the current document if it differs from the last acknowledged one.
     func save() async {
-        guard case .ready = state, !conflict else { return }
-        let document = model.document
-        guard document != savedDocument else { status = revision == nil ? "New note for today" : "All changes saved"; return }
-        let session = store.session
-        guard session.isConnected, session.accountID == loadedAccount else {
-            saveError = "Sign in again to save this note. Your edits stay on screen."
-            status = "Not saved: signed out"
-            return
-        }
-        status = "Saving…"
-        saveError = nil
-        do {
-            let note = try document.jsonObject()
-            let stored = try await session.saveDocument(id: documentID, note: note, expectedRevision: revision)
-            revision = stored
-            savedDocument = document
-            status = model.document == document ? "All changes saved" : "Unsaved changes"
-            if let preview = DailyNotePreview(accountID: loadedAccount ?? "", day: String(documentID.dropFirst("daily:".count)), editorText: document.plainText) {
-                _ = store.saveNotePreview(preview)
-            }
-            if model.document != document { scheduleSave() }
-        } catch NativeSession.SessionError.documentConflict {
-            conflict = true
-            status = "This note changed elsewhere. Reload to see it; your unsaved edits here are not uploaded."
-        } catch {
-            saveError = error.localizedDescription
-            status = "Not saved: \(error.localizedDescription)"
-        }
+        guard let persistence else { return }
+        await persistence.save()
     }
 
-    /// Best effort on the way out; a cancelled task cannot be awaited from `onDisappear`.
-    func flush() {
-        saveTask?.cancel()
-        guard case .ready = state, model.document != savedDocument else { return }
-        Task { await save() }
+    @discardableResult func flush() -> Bool {
+        debounce?.cancel()
+        debounce = nil
+        guard case .ready = state, let persistence else { return true }
+        do { try persistence.edit(model.document) }
+        catch { saveError = error.localizedDescription; status = "Unable to save on this device"; return false }
+        Task { await persistence.save() }
+        return true
     }
+
 }
 
 /// `@` and `#` search through the authenticated GraphQL entities query.

@@ -205,6 +205,11 @@ struct PhoneTodayView: View {
     }
 
     private func closeNote() async {
+        if ApsidesPreferences.store.bool(forKey: "apsidesNativeEditor") {
+            guard store.nativeNote.flush() else { closeError = true; return }
+            notesPresented = false
+            return
+        }
         store.session.makeEditorWebView().endEditing(false)
         guard await store.session.editorCanLeave() else { closeError = true; return }
         if let preview = await editor.refreshPreview() { store.saveNotePreview(preview) }
