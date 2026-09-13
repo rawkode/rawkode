@@ -4,9 +4,22 @@ import type { EntitiesApi } from "../../../packages/entities/src/index.ts";
 
 export type VoiceSchemaApi = Pick<
 	EntitiesApi,
-	"getTag" | "defineField" | "updateField"
+	"getTag" | "createUserTag" | "defineField" | "updateField"
 >;
 const id = z.string().min(1).max(200);
+const userTagInput = z.object({
+	name: z.string().trim().min(1).max(100),
+	parentId: id,
+}).strict();
+const createdUserTag = z.object({
+	id,
+	name: z.string().max(100),
+	kind: z.literal("user"),
+	parentId: id,
+	rootId: id,
+	revision: z.number().int().min(1),
+	archived: z.literal(false),
+});
 const value = z.union([
 	z.string().max(8000),
 	z.number().finite(),
@@ -84,9 +97,37 @@ export const createVoiceSchemaTools = (options: {
 		actor: options.owner,
 		cause: "voice-schema-request",
 		rationale:
-			"Supertag field change requested by the authenticated user in voice.",
+			"Supertag or field change requested by the authenticated user in voice.",
 	};
 	return {
+		supertagCreate: tool({
+			description:
+				"Create a user Supertag when directly requested. Search graphTags for an existing match first. Choose an appropriate known base parent when the user delegates design; web links/bookmarks belong under base:document. Do not ask for technical IDs or field choices the user authorized you to select. This creates the tag only; use supertagFields and supertagFieldCreate to add fields. Never retry uncertain creation.",
+			inputSchema: userTagInput,
+			execute: async (input) => {
+				const parsed = userTagInput.parse(input);
+				return await options.run(true, async (api) => {
+					let result;
+					try {
+						result = await api.createUserTag(parsed, provenance);
+					} catch (error) {
+						const message = error instanceof Error ? error.message : "";
+						if (
+							[
+								"User tags may extend a base or user tag",
+								"Tag inheritance exceeds maximum depth",
+							].includes(message)
+						) return { outcome: "rejected", message };
+						throw error;
+					}
+					const tag = createdUserTag.parse(result);
+					if (tag.parentId !== parsed.parentId || tag.name !== parsed.name) {
+						throw new Error("Created Supertag identity mismatch");
+					}
+					return { tag };
+				});
+			},
+		}),
 		supertagFields: tool({
 			description:
 				"Read the Supertag's current revision and complete field definitions before creating or updating a field. Inherited fields must be edited at their origin tag. Locked base/integration tags cannot be edited.",

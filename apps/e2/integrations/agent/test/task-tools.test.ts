@@ -23,6 +23,7 @@ const setup = (
 	const api: TasksApi & VoiceSchemaApi & Disposable = {
 		[Symbol.dispose]() {},
 		getTag: () => Promise.resolve(null),
+		createUserTag: () => Promise.reject(new Error("Not used")),
 		defineField: () => Promise.reject(new Error("Unused")),
 		updateField: () => Promise.reject(new Error("Unused")),
 		listTasks: () =>

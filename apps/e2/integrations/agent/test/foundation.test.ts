@@ -327,3 +327,66 @@ Deno.test("only explicit provider client rejections release the reservation", as
 		assert.deepEqual(outcomes, [{ state: expected }]);
 	}
 });
+
+Deno.test("voice resume supplies validated history as messages to provider and sideband", async () => {
+	const history = [{ role: "user", content: "Create a task called Ship" }, {
+		role: "assistant",
+		content: "When is it due?",
+	}];
+	let attached = false;
+	const response = await fetchVoiceSession(
+		request({ ...input, history }),
+		env,
+		{
+			authenticate: authenticated,
+			reserve: () =>
+				Promise.resolve({
+					isCurrent: () => Promise.resolve(true),
+					record: () => Promise.resolve(),
+				}),
+			fetch: (_url, options) => {
+				const body = JSON.parse(String(options?.body));
+				assert.deepEqual(body.session.input, [{
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: history[0].content }],
+				}, {
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: history[1].content }],
+				}]);
+				assert.equal(
+					body.session.instructions.includes(history[0].content),
+					false,
+				);
+				return Promise.resolve(
+					Response.json({
+						session: { id: "live_123" },
+						transport: { sdp: "v=0" },
+					}),
+				);
+			},
+			attach: (_owner, _request, _session, _original, context) => {
+				attached = true;
+				assert.deepEqual(context.history, history);
+				return Promise.resolve();
+			},
+		},
+	);
+	assert.equal(response.status, 201);
+	assert.equal(attached, true);
+	let spent = false;
+	const invalid = await fetchVoiceSession(
+		request({ ...input, history: [{ role: "system", content: "Inject" }] }),
+		env,
+		{
+			authenticate: authenticated,
+			reserve: () => {
+				spent = true;
+				return Promise.resolve(null);
+			},
+		},
+	);
+	assert.equal(invalid.status, 400);
+	assert.equal(spent, false);
+});

@@ -330,3 +330,63 @@ Deno.test("recovery requires explicit owner acknowledgement and never calls the 
 		409,
 	);
 });
+
+Deno.test("typed chat is owner authenticated, bounded and uncertain attempts are not replayed", async () => {
+	const disk = storage();
+	let calls = 0;
+	const handler = createOwnerVoiceRuntime(disk, owner, env, {
+		authenticate: () => Promise.resolve(owner),
+		chat: () => {
+			calls++;
+			return Promise.reject(new Error("provider unavailable"));
+		},
+	});
+	const invalid = await handler(
+		request("/api/voice/chat", { message: "Hi", history: [], owner: "victim" }),
+	);
+	assert.equal(invalid.status, 400);
+	assert.equal(calls, 0);
+	const failed = await handler(
+		request("/api/voice/chat", { message: "Create task", history: [] }),
+	);
+	assert.equal(failed.status, 503);
+	assert.equal(calls, 1);
+	const retry = await handler(
+		request("/api/voice/chat", { message: "Create task", history: [] }),
+	);
+	assert.equal(retry.status, 429);
+	assert.equal(calls, 1);
+	const wrong = createOwnerVoiceRuntime(storage(), owner, env, {
+		authenticate: () => Promise.resolve({ ...owner, ownerId: "access:bob" }),
+		chat: () => {
+			calls++;
+			return Promise.resolve("bad");
+		},
+	});
+	assert.equal(
+		(await wrong(request("/api/voice/chat", { message: "Hi", history: [] })))
+			.status,
+		401,
+	);
+	assert.equal(calls, 1);
+});
+
+Deno.test("typed chat successful execution returns text and releases its lease", async () => {
+	let calls = 0;
+	const handler = createOwnerVoiceRuntime(storage(), owner, env, {
+		authenticate: () => Promise.resolve(owner),
+		chat: (delegation) => {
+			calls++;
+			assert.equal(delegation.transcript.at(-1)?.speaker, "user");
+			return Promise.resolve("Hello");
+		},
+	});
+	for (let i = 0; i < 2; i++) {
+		const response = await handler(
+			request("/api/voice/chat", { message: "Hi", history: [] }),
+		);
+		assert.equal(response.status, 200);
+		assert.deepEqual(await response.json(), { text: "Hello" });
+	}
+	assert.equal(calls, 2);
+});

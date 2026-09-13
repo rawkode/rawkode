@@ -1,3 +1,4 @@
+import { type ChatInput, parseChatInput } from "./chat.ts";
 /** GPT-Live server-side control. Media remains on the primary WebRTC connection. */
 export interface LiveControlSocket {
 	accept(): void;
@@ -30,6 +31,7 @@ export interface SidebandResult {
 	seconds?: number;
 }
 export interface SidebandOptions {
+	history?: ChatInput["history"];
 	sessionID: string;
 	apiKey: string;
 	authorize(): Promise<boolean>;
@@ -118,6 +120,12 @@ export const connectLiveSideband = async (
 };
 
 export const attachLiveSideband = async (options: SidebandOptions) => {
+	const history =
+		parseChatInput({ message: "resume", history: options.history ?? [] })
+			.history;
+	if (history.reduce((size, row) => size + row.content.length, 0) > 12000) {
+		throw new Error("History too large");
+	}
 	if (!options.sessionID || options.sessionID.length > 256 || !options.apiKey) {
 		throw new Error("Invalid voice control configuration");
 	}
@@ -159,7 +167,12 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 	let pending = 0;
 	let closeTimer: ReturnType<typeof setTimeout> | undefined;
 	let queue: Promise<void> = Promise.resolve();
-	const transcript: VoiceTranscriptFragment[] = [];
+	const transcript: VoiceTranscriptFragment[] = history.map((row, index) => ({
+		speaker: row.role,
+		text: row.content,
+		startMs: index - history.length,
+		endMs: index - history.length,
+	}));
 	const delegations = new Set<string>();
 	const seen = new Set<string>();
 	const cleanup = () => {

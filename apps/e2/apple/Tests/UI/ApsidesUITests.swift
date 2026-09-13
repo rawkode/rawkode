@@ -20,6 +20,22 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testConversationCanSwitchToTypingWithoutMicrophone() {
+        #if os(iOS)
+        launchDemo()
+        openWorkspaceSidebar()
+        activate(app.buttons["openVoiceConversation"])
+        let mode = app.segmentedControls["conversationInputMode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        activate(mode.buttons["Type"])
+        XCTAssertTrue(app.textFields["agentMessageInput"].waitForExistence(timeout: 5) || app.textViews["agentMessageInput"].exists)
+        XCTAssertFalse(app.buttons["startVoiceConversation"].exists)
+        captureScreenshot("Type to Enchiridion")
+        activate(mode.buttons["Speak"])
+        XCTAssertFalse(app.buttons["sendAgentMessage"].exists)
+        #endif
+    }
+
     func testWorkspaceSidebarMenuSwipeAndNotesAccess() {
         #if os(iOS)
         launchDemo()

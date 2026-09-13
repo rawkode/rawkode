@@ -271,3 +271,36 @@ Deno.test("successful WebSocket upgrade keeps its fetch signal alive until socke
 	assert.equal((await controller.finished).finalized, true);
 	assert.equal(f.disconnected(), true);
 });
+
+Deno.test("voice delegation preserves typed history before new speech with untrusted speaker roles", async () => {
+	const f = fixture();
+	const requests: VoiceDelegationRequest[] = [];
+	const control = await attachLiveSideband(base(f, {
+		history: [{ role: "user", content: "Create task Ship" }, {
+			role: "assistant",
+			content: "Due tomorrow?",
+		}],
+		execute: (request) => {
+			requests.push(request);
+			return Promise.resolve("Created.");
+		},
+	}));
+	f.emit({
+		type: "session.input_transcript.delta",
+		event_id: "new-speech",
+		delta: "Yes",
+		start_ms: 1,
+		end_ms: 2,
+	});
+	delegate(f);
+	await tick();
+	assert.deepEqual(
+		requests[0].transcript.map((row) => [row.speaker, row.text]),
+		[["user", "Create task Ship"], ["assistant", "Due tomorrow?"], [
+			"user",
+			"Yes",
+		]],
+	);
+	f.finish();
+	await control.finished;
+});

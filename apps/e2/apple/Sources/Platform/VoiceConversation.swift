@@ -18,6 +18,8 @@ final class VoiceConversation: NSObject, ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var message = "Talk through your day."
     @Published private(set) var isMuted = false
+    @Published private(set) var isSendingText = false
+    private var textOperation: UUID?
     @Published private(set) var captions = VoiceCaptions()
     #if os(iOS)
     struct AudioOutput: Identifiable {
@@ -28,6 +30,10 @@ final class VoiceConversation: NSObject, ObservableObject {
     @Published private(set) var audioOutputs: [AudioOutput] = []
     @Published private(set) var audioOutputError: String?
     private var routeObservation: AnyCancellable?
+    #endif
+    #if ENCHIRIDION_VOICE_AUDIO_HARNESS
+    var harnessAudioDevice: RTCAudioDevice?
+    private(set) var harnessEndConfirmed = false
     #endif
     private let session: NativeSession
     private var factory: RTCPeerConnectionFactory?
@@ -61,6 +67,7 @@ final class VoiceConversation: NSObject, ObservableObject {
             if revoked && (surface != nil || !captions.rows.isEmpty) { stopForAccountChange() }
         }
         #if os(iOS)
+        #if !ENCHIRIDION_VOICE_AUDIO_HARNESS
         routeObservation = NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
                 self?.refreshAudioOutputs()
@@ -69,6 +76,7 @@ final class VoiceConversation: NSObject, ObservableObject {
             .receive(on: RunLoop.main).sink { [weak self] _ in
                 Task { @MainActor in await self?.stop(message: "Audio was interrupted. Start again when you’re ready.") }
             }
+        #endif
         #else
         interruption = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in
@@ -77,12 +85,13 @@ final class VoiceConversation: NSObject, ObservableObject {
         #endif
     }
 
-    func start(surface requestedSurface: VoiceSurface) {
-        guard surface == nil, operation == nil, !stopping, !localTeardownPending else { return }
+    func start(surface requestedSurface: VoiceSurface, preservingHistory: Bool = false) {
+        guard surface == nil, operation == nil, !stopping, !localTeardownPending, !isSendingText else { return }
         surface = requestedSurface
         activeAccountID = session.accountID
         serverClosed = false
-        captions = VoiceCaptions()
+        let history = preservingHistory ? conversationHistory : []
+        if preservingHistory { captions.beginSegment() } else { captions = VoiceCaptions() }
         let token = UUID()
         operation = token
         phase = .connecting
@@ -91,7 +100,9 @@ final class VoiceConversation: NSObject, ObservableObject {
             guard let self else { return }
             do {
                 guard session.isConnected, session.accountID != nil else { throw NativeSession.SessionError.signInRequired }
-                #if os(iOS)
+                #if ENCHIRIDION_VOICE_AUDIO_HARNESS
+                let permitted = harnessAudioDevice != nil
+                #elseif os(iOS)
                 let permitted = await AVAudioApplication.requestRecordPermission()
                 #else
                 let permitted = await AVCaptureDevice.requestAccess(for: .audio)
@@ -100,7 +111,7 @@ final class VoiceConversation: NSObject, ObservableObject {
                     throw VoiceError.microphoneDenied
                 }
                 try check(token)
-                #if os(iOS)
+                #if os(iOS) && !ENCHIRIDION_VOICE_AUDIO_HARNESS
                 // WebRTC reapplies this configuration when its audio device starts.
                 // Setting AVAudioSession alone loses defaultToSpeaker at that point.
                 try configureAudioOutput(defaultToSpeaker: requestedSurface == .iphone)
@@ -109,7 +120,11 @@ final class VoiceConversation: NSObject, ObservableObject {
                 refreshAudioOutputs()
                 #endif
                 RTCInitializeSSL()
+                #if ENCHIRIDION_VOICE_AUDIO_HARNESS
+                let factory = RTCPeerConnectionFactory(encoderFactory: nil, decoderFactory: nil, audioDevice: harnessAudioDevice!)
+                #else
                 let factory = RTCPeerConnectionFactory()
+                #endif
                 self.factory = factory
                 let configuration = RTCConfiguration()
                 configuration.sdpSemantics = .unifiedPlan
@@ -133,7 +148,7 @@ final class VoiceConversation: NSObject, ObservableObject {
                 }
                 try check(token)
                 guard let sdp = peer.localDescription?.sdp else { throw VoiceError.connection }
-                let answer = try await session.createVoiceSession(sdp: sdp, requestID: token.uuidString, device: requestedSurface.rawValue)
+                let answer = try await session.createVoiceSession(sdp: sdp, requestID: token.uuidString, device: requestedSurface.rawValue, history: history)
                 // Stop during the HTTP request must still close a successfully created remote session.
                 guard operation == token else { try? await session.endVoiceSession(id: answer.id); return }
                 sessionID = answer.id
@@ -205,6 +220,40 @@ final class VoiceConversation: NSObject, ObservableObject {
     }
     #endif
 
+    private var conversationHistory: [[String: String]] {
+        var remaining = 12_000
+        return captions.rows.suffix(20).reversed().compactMap { row in
+            guard remaining > 0, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            var text = String(row.text.prefix(min(remaining, 4_000)))
+            while text.utf16.count > min(remaining, 4_000) { text.removeLast() }
+            remaining -= text.utf16.count
+            return ["role": row.speaker.rawValue, "content": text]
+        }.reversed()
+    }
+
+    func sendText(_ text: String) async -> Bool {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.utf16.count <= 4_000, !isSendingText, surface == nil, !stopping, session.isConnected else { return false }
+        let token = UUID()
+        textOperation = token
+        let account = session.accountID
+        let history = conversationHistory
+        isSendingText = true
+        message = "Working…"
+        captions.appendMessage(text, speaker: .user)
+        defer { if textOperation == token { isSendingText = false; textOperation = nil } }
+        do {
+            let reply = try await session.sendAgentMessage(text, history: history)
+            guard textOperation == token, session.accountID == account, session.isConnected else { return true }
+            captions.appendMessage(reply, speaker: .assistant)
+            message = ""
+        } catch {
+            guard textOperation == token, session.accountID == account else { return true }
+            message = "Couldn’t confirm the reply. A requested change may have completed. Check before trying again."
+        }
+        return true
+    }
+
     func toggleMute(surface requestedSurface: VoiceSurface) {
         guard surface == requestedSurface, phase == .connected, !stopping else { return }
         isMuted.toggle(); microphone?.isEnabled = !isMuted
@@ -217,6 +266,8 @@ final class VoiceConversation: NSObject, ObservableObject {
 
     /// Identity changes cannot leave a prior account's captions or media alive during remote cleanup.
     func stopForAccountChange() {
+        textOperation = nil
+        isSendingText = false
         disconnectLocalTransport()
         captions = VoiceCaptions()
         Task { await stop(message: "Your account changed. Start a new conversation.") }
@@ -262,7 +313,7 @@ final class VoiceConversation: NSObject, ObservableObject {
         isMuted = false
         phase = failed ? .failed : .ended
         self.message = message
-        #if os(iOS)
+        #if os(iOS) && !ENCHIRIDION_VOICE_AUDIO_HARNESS
         let audio = RTCAudioSession.sharedInstance()
         audio.lockForConfiguration()
         try? audio.overrideOutputAudioPort(.none)
@@ -274,7 +325,12 @@ final class VoiceConversation: NSObject, ObservableObject {
         #endif
         let id = sessionID; sessionID = nil
         if let id {
-            do { try await session.endVoiceSession(id: id) }
+            do {
+                try await session.endVoiceSession(id: id)
+                #if ENCHIRIDION_VOICE_AUDIO_HARNESS
+                harnessEndConfirmed = true
+                #endif
+            }
             catch { self.message = "Audio stopped. The server could not confirm the session ended." }
         }
     }

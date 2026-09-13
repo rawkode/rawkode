@@ -1,3 +1,5 @@
+import { type ChatInput, readChatInput, runChat } from "./chat.ts";
+import type { VoiceDelegationRequest } from "./sideband.ts";
 import { withinVoiceDeadline } from "./deadline.ts";
 import {
 	authenticate,
@@ -63,7 +65,13 @@ export const createOwnerVoiceRuntime = (
 	storage: VoiceStorage,
 	identity: Identity,
 	env: VoiceRuntimeEnv,
-	dependencies: Omit<VoiceDependencies, "reserve"> = {},
+	dependencies: Omit<VoiceDependencies, "reserve"> & {
+		chat?: (
+			request: VoiceDelegationRequest,
+			input: ChatInput,
+			original: Request,
+		) => Promise<string>;
+	} = {},
 ) => {
 	const ledger = createVoiceReservations(storage, identity.ownerId);
 	const verify = dependencies.authenticate ?? authenticate;
@@ -77,6 +85,68 @@ export const createOwnerVoiceRuntime = (
 			return json({ error: "Unauthorized" }, 401);
 		}
 		const path = new URL(request.url).pathname;
+		if (path === "/api/voice/chat") {
+			if (
+				request.headers.get("Content-Type")?.split(";")[0].trim() !==
+					"application/json"
+			) return json({ error: "Use application/json" }, 415);
+			let input: ChatInput;
+			try {
+				input = await readChatInput(request);
+			} catch {
+				return json({ error: "Invalid chat input" }, 400);
+			}
+			if (!dependencies.chat) return json({ error: "Chat unavailable" }, 503);
+			const now = Date.now(), lease = crypto.randomUUID();
+			const allowed = await storage.transaction(async (tx) => {
+				const state = await tx.get<
+					{ until: number; lease: string; window: number; count: number }
+				>("chat-rate");
+				if (state && state.until > now) return false;
+				const fresh = !state || now - state.window >= 3600000;
+				if (!fresh && state.count >= 30) return false;
+				await tx.put("chat-rate", {
+					until: now + 60000,
+					lease,
+					window: fresh ? now : state.window,
+					count: fresh ? 1 : state.count + 1,
+				});
+				return true;
+			});
+			if (!allowed) {
+				return json({
+					error:
+						"Chat is busy or its hourly limit was reached. No new request was started.",
+				}, 429);
+			}
+			let completed = false;
+			try {
+				const result = json({
+					text: await runChat(
+						input,
+						request.signal,
+						(delegation, body) => dependencies.chat!(delegation, body, request),
+					),
+				});
+				completed = true;
+				return result;
+			} catch {
+				// The owner must see uncertainty, not an invitation to replay a possible write.
+				return json({
+					error:
+						"Chat did not finish. Changes may have completed; check your data before sending the request again.",
+				}, 503);
+			} finally {
+				await storage.transaction(async (tx) => {
+					const state = await tx.get<
+						{ until: number; lease: string; window: number; count: number }
+					>("chat-rate");
+					if (completed && state?.lease === lease) {
+						await tx.put("chat-rate", { ...state, until: 0 });
+					}
+				});
+			}
+		}
 		if (path === "/api/voice/status") {
 			return json({ receipts: await ledger.receipts() });
 		}

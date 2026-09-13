@@ -22,7 +22,22 @@ public struct VoiceCaptions: Equatable, Sendable {
     }
     public private(set) var rows: [Row] = []
     public private(set) var earlierCaptionsOmitted = false
+    private var timelineOffset: Double = 0
     public init() {}
+
+    public mutating func beginSegment() {
+        timelineOffset = (rows.flatMap(\.fragments).map(\.endMilliseconds).max() ?? 0) + 2_000
+    }
+
+    public mutating func appendMessage(_ text: String, speaker: Speaker) {
+        let id = UUID().uuidString
+        let time = (rows.flatMap(\.fragments).map(\.endMilliseconds).max() ?? 0) + 2_000
+        rows.append(Row(id: id, speaker: speaker, fragments: [Fragment(id: id, text: String(text.prefix(8_192)), startMilliseconds: time, endMilliseconds: time)]))
+        while rows.count > 100 || rows.reduce(0, { $0 + $1.text.utf8.count }) > 65_536 {
+            earlierCaptionsOmitted = true
+            rows.removeFirst()
+        }
+    }
 
     public mutating func receive(_ data: Data) {
         guard data.count <= 32_768,
@@ -39,7 +54,7 @@ public struct VoiceCaptions: Equatable, Sendable {
         default: return
         }
         guard !rows.contains(where: { $0.fragments.contains(where: { $0.id == id }) }) else { return }
-        let fragment = Fragment(id: id, text: text, startMilliseconds: start, endMilliseconds: end)
+        let fragment = Fragment(id: id, text: text, startMilliseconds: start + timelineOffset, endMilliseconds: end + timelineOffset)
         // Late fragments can update an earlier display row, without moving it or changing its ID.
         let closest = rows.indices.filter { rows[$0].speaker == speaker && rows[$0].distance(to: fragment) <= 1_500 }
             .min { rows[$0].distance(to: fragment) < rows[$1].distance(to: fragment) }

@@ -18,6 +18,17 @@ final class VoiceCaptionsTests: XCTestCase {
         captions.receive(try event("a2", "Another thought", 7000, 8000, assistant: true))
         XCTAssertEqual(captions.rows.map(\.id), ["u1", "a1", "a2"])
     }
+    func testTypingAndResumedVoiceKeepSeparateChronologicalRows() throws {
+        var captions = VoiceCaptions()
+        captions.receive(try event("spoken", "Create a tag", 1000, 2000))
+        captions.appendMessage("You pick the fields", speaker: .user)
+        captions.appendMessage("Created Web links", speaker: .assistant)
+        captions.beginSegment()
+        captions.receive(try event("resumed", "Add a URL", 0, 500))
+        XCTAssertEqual(captions.rows.map(\.text), ["Create a tag", "You pick the fields", "Created Web links", "Add a URL"])
+        XCTAssertGreaterThan(captions.rows[3].fragments[0].startMilliseconds, captions.rows[2].fragments[0].endMilliseconds)
+    }
+
     func testMalformedAndBoundedCaptionInput() throws {
         var captions = VoiceCaptions()
         captions.receive(try event("bad", "wrong", 2, 1))

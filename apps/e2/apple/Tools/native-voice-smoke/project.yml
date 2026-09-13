@@ -1,0 +1,35 @@
+name: NativeVoiceSmoke
+options:
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  ApsidesCore:
+    path: ../..
+  WebRTC:
+    path: ../../Vendor/WebRTC
+targets:
+  NativeVoiceSmoke:
+    type: application
+    platform: iOS
+    sources:
+      - Harness.swift
+      - SyntheticAudioDevice.swift
+      - ../../Sources/Platform/VoiceConversation.swift
+      - ../../Sources/Platform/NativeSession.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.voicesmoke
+        SWIFT_VERSION: '6.0'
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG ENCHIRIDION_VOICE_AUDIO_HARNESS'
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SUPPORTED_PLATFORMS: iphonesimulator
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - package: ApsidesCore
+      - package: WebRTC
+schemes:
+  NativeVoiceSmoke:
+    build:
+      targets:
+        NativeVoiceSmoke: all

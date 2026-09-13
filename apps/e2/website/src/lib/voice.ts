@@ -5,6 +5,7 @@ export const forwardVoiceRequest = (
 ): Promise<Response> => {
 	const path = new URL(request.url).pathname;
 	if (
+		path !== "/api/voice/chat" &&
 		path !== "/api/voice/status" &&
 		path !== "/api/voice/recovery" &&
 		path !== "/api/voice/sessions" &&

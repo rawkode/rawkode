@@ -257,9 +257,9 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         url.port ?? (url.scheme == "https" ? 443 : 80)
     }
 
-    func createVoiceSession(sdp: String, requestID: String, device: String) async throws -> (id: String, sdp: String) {
+    func createVoiceSession(sdp: String, requestID: String, device: String, history: [[String: String]] = []) async throws -> (id: String, sdp: String) {
         guard ["iphone", "carplay", "mac"].contains(device) else { throw SessionError.invalidResponse }
-        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp, "device": device, "requestID": requestID, "timeZone": TimeZone.current.identifier])
+        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp, "device": device, "requestID": requestID, "timeZone": TimeZone.current.identifier, "history": history])
         let data = try await read(path: "api/voice/sessions", body: body, limit: 96_000, allowCreated: true, voiceRequest: true)
         struct Answer: Decodable {
             struct Session: Decodable { let id: String }
@@ -272,6 +272,13 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
             throw SessionError.invalidResponse
         }
         return (answer.session.id, answer.transport.sdp)
+    }
+
+    func sendAgentMessage(_ message: String, history: [[String: String]]) async throws -> String {
+        let body = try JSONSerialization.data(withJSONObject: ["message": message, "history": history, "timeZone": TimeZone.current.identifier])
+        let data = try await read(path: "api/voice/chat", body: body, limit: 32_768, voiceRequest: true)
+        struct Reply: Decodable { let text: String }
+        return try JSONDecoder().decode(Reply.self, from: data).text
     }
 
     func endVoiceSession(id: String) async throws {
@@ -312,13 +319,13 @@ public final class NativeSession: NSObject, ObservableObject, WKNavigationDelega
         request.setValue(origin.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(HTTPCookie.requestHeaderFields(with: [cookie])["Cookie"], forHTTPHeaderField: "Cookie")
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 15
+        request.timeoutInterval = path == "api/voice/chat" ? 45 : 15
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
-        configuration.timeoutIntervalForResource = 15
+        configuration.timeoutIntervalForResource = path == "api/voice/chat" ? 45 : 15
         let session = URLSession(configuration: configuration, delegate: NativeRedirectBlocker(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(for: request)

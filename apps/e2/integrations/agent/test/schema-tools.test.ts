@@ -137,3 +137,107 @@ Deno.test("schema revision conflicts are explicit, never successful mutations", 
 		"conflict",
 	);
 });
+
+Deno.test("voice creates delegated web-link Supertag with owner provenance and strips private fields", async () => {
+	const writes: { input: unknown; provenance: unknown }[] = [];
+	const api = {
+		[Symbol.dispose]() {},
+		createUserTag: (
+			input: { name: string; parentId: string },
+			provenance: unknown,
+		) => {
+			writes.push({ input, provenance });
+			return Promise.resolve({
+				id: "tag:links",
+				...input,
+				kind: "user",
+				rootId: "base:document",
+				revision: 1,
+				archived: false,
+				privateMetadata: "hidden",
+			});
+		},
+	};
+	const tools = createVoiceTaskTools({
+		owner: "access:alice",
+		signal: new AbortController().signal,
+		check: () => Promise.resolve(),
+		isCurrent: () => Promise.resolve(true),
+		binding: {
+			admin: (owner: string) => {
+				assert.equal(owner, "access:alice");
+				return Promise.resolve(api);
+			},
+		} as unknown as VoiceTaskBinding,
+	});
+	const result = await tools.supertagCreate.execute!({
+		name: "Web links",
+		parentId: "base:document",
+	}, context);
+	assert.equal(writes.length, 1);
+	assert.deepEqual(writes[0].input, {
+		name: "Web links",
+		parentId: "base:document",
+	});
+	assert.equal(
+		(writes[0].provenance as { actor: string }).actor,
+		"access:alice",
+	);
+	assert.equal(
+		(result as { result: { tag: { revision: number } } }).result.tag.revision,
+		1,
+	);
+	assert.ok(!JSON.stringify(result).includes("hidden"));
+	await assert.rejects(() =>
+		tools.supertagCreate.execute!(
+			{
+				name: "Links",
+				parentId: "base:document",
+				owner: "access:bob",
+			} as never,
+			context,
+		) as Promise<unknown>
+	);
+	assert.equal(writes.length, 1);
+});
+
+Deno.test("uncertain Supertag creation blocks another create and revoked sessions cannot create", async () => {
+	let writes = 0;
+	const api = {
+		[Symbol.dispose]() {},
+		createUserTag: () => {
+			writes++;
+			return Promise.reject(new Error("Lost reply"));
+		},
+	};
+	const binding = {
+		admin: () => Promise.resolve(api),
+	} as unknown as VoiceTaskBinding;
+	const tools = createVoiceTaskTools({
+		owner: "access:alice",
+		binding,
+		signal: new AbortController().signal,
+		check: () => Promise.resolve(),
+		isCurrent: () => Promise.resolve(true),
+	});
+	const input = { name: "Web links", parentId: "base:document" };
+	const result = await tools.supertagCreate.execute!(input, context);
+	assert.equal((result as { outcome: string }).outcome, "unknown");
+	await assert.rejects(
+		() => tools.supertagCreate.execute!(input, context) as Promise<unknown>,
+		/uncertain/,
+	);
+	assert.equal(writes, 1);
+	const revoked = createVoiceTaskTools({
+		owner: "access:alice",
+		binding,
+		signal: new AbortController().signal,
+		check: () => Promise.reject(new Error("Revoked")),
+		isCurrent: () => Promise.resolve(false),
+	});
+	await assert.rejects(
+		() => revoked.supertagCreate.execute!(input, context) as Promise<unknown>,
+		/Revoked/,
+	);
+	assert.equal(writes, 1);
+});

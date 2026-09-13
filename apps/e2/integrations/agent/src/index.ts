@@ -54,6 +54,29 @@ export class VoiceOwner extends DurableObject<Env> {
 		const storage = durableVoiceStorage(this.ctx.storage);
 		const ledger = createVoiceReservations(storage, identity.ownerId);
 		const runtime = createOwnerVoiceRuntime(storage, identity, this.env, {
+			chat: async (request, input, original) => {
+				const key = await withinVoiceDeadline(() =>
+					this.env.OPENAI_API_KEY.get()
+				);
+				if (!key) throw new Error("Chat not configured");
+				const [readDay, readGraph] = await Promise.all([
+					createApiDayReader(original, this.env, this.env.API),
+					createApiGraphReader(original, this.env, this.env.API),
+				]);
+				const execute = createVoiceReasoner({
+					responseMode: "text",
+					timeZone: input.timeZone,
+					owner: identity.ownerId,
+					tasks: this.env.ENTITIES_ADMIN,
+					loader: this.env.LOADER,
+					apiKey: key,
+					isCurrent: () => Promise.resolve(!request.signal.aborted),
+					readDay: (input, signal) => readDay(identity.ownerId, input, signal),
+					readGraph: (kind, input, signal) =>
+						readGraph(identity.ownerId, kind, input, signal),
+				});
+				return execute(request);
+			},
 			attach: async (_owner, requestID, sessionID, original, context) => {
 				try {
 					const key = await traceStage(
@@ -84,6 +107,7 @@ export class VoiceOwner extends DurableObject<Env> {
 						() =>
 							attachLiveSideband({
 								sessionID,
+								history: context.history,
 								apiKey: key,
 								authorize: isCurrent,
 								execute,
