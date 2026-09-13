@@ -17,7 +17,7 @@ struct SettingsView: View {
                     Text(session.origin.host ?? "Enchiridion").font(.callout)
                     Text(session.isConnected ? "Connected" : "Local notebook · not connected").foregroundStyle(theme.secondary)
                     if session.isConnected || store.vault.accountID != nil {
-                        Button("Refresh connected context") { Task { await store.refresh() } }.disabled(store.refreshing)
+                        Button("Refresh calendars and activity") { Task { await store.refresh() } }.disabled(store.refreshing)
                         Button("Sign out") { Task { await store.signOut() } }
                     }
                     if !session.isConnected {
