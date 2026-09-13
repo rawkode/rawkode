@@ -253,3 +253,21 @@ Deno.test("failed initial authorization never connects", async () => {
 	);
 	assert.equal(connects, 0);
 });
+
+Deno.test("successful WebSocket upgrade keeps its fetch signal alive until socket cleanup", async () => {
+	const f = fixture();
+	let connectedSignal: AbortSignal | undefined;
+	const controller = await attachLiveSideband(base(f, {
+		connect: (_id, _key, signal) => {
+			connectedSignal = signal;
+			signal.addEventListener("abort", () => f.socket.close());
+			return Promise.resolve(f.socket);
+		},
+	}));
+	assert.ok(connectedSignal);
+	assert.equal(connectedSignal.aborted, false);
+	assert.equal(f.disconnected(), false);
+	f.finish();
+	assert.equal((await controller.finished).finalized, true);
+	assert.equal(f.disconnected(), true);
+});

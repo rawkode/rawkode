@@ -57,14 +57,16 @@ const bounded = async <T>(
 	action: (signal: AbortSignal) => Promise<T>,
 	milliseconds: number,
 	parent?: AbortSignal,
+	abortAfterSuccess = true,
 ): Promise<T> => {
 	const abort = new AbortController();
 	const cancel = () => abort.abort();
 	parent?.addEventListener("abort", cancel, { once: true });
 	if (parent?.aborted) abort.abort();
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let completed = false;
 	try {
-		return await Promise.race([
+		const result = await Promise.race([
 			Promise.resolve().then(() => {
 				if (abort.signal.aborted) throw new Error("Canceled");
 				return action(abort.signal);
@@ -82,10 +84,12 @@ const bounded = async <T>(
 				}, milliseconds);
 			}),
 		]);
+		completed = true;
+		return result;
 	} finally {
 		clearTimeout(timer);
 		parent?.removeEventListener("abort", cancel);
-		abort.abort();
+		if (!completed || abortAfterSuccess) abort.abort();
 	}
 };
 /** Worker fetch supports the authenticated Upgrade; no key is returned to clients. */
@@ -140,6 +144,10 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 			return value;
 		},
 		duration(options.limits?.attachMs, 5_000),
+		undefined,
+		// A successful Upgrade transfers ownership to socket.close(). Aborting the
+		// fetch signal here tears down the live socket and triggers call cleanup.
+		false,
 	);
 	let resolveFinished!: (result: SidebandResult) => void;
 	const finished = new Promise<SidebandResult>((resolve) => {
