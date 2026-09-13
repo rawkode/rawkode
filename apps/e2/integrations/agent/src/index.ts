@@ -106,6 +106,8 @@ export class VoiceOwner extends DurableObject<Env> {
 						"sideband_attach",
 						() =>
 							attachLiveSideband({
+								diagnostic: (event) =>
+									console.info({ event: "voice_control", ...event }),
 								sessionID,
 								history: context.history,
 								apiKey: key,

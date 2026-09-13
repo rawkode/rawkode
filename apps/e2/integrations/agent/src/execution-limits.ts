@@ -1,3 +1,16 @@
+export class VoiceExecutionError extends Error {
+	constructor(
+		readonly code:
+			| "executor_failed"
+			| "executor_deadline"
+			| "executor_cancelled"
+			| "invalid_result"
+			| "result_too_large",
+	) {
+		super(code);
+		this.name = "VoiceExecutionError";
+	}
+}
 /** Apply runtime CPU/network limits even if a library forgets them. */
 export const boundedVoiceLoader = (loader: WorkerLoader): WorkerLoader => {
 	const constrain = (code: WorkerLoaderWorkerCode): WorkerLoaderWorkerCode => ({
@@ -13,12 +26,26 @@ export const boundedVoiceLoader = (loader: WorkerLoader): WorkerLoader => {
 };
 
 export const boundedVoiceToolResult = (value: unknown): { result: unknown } => {
+	if (value && typeof value === "object" && "error" in value && value.error) {
+		const code = value.error === "Voice execution deadline or cancellation"
+			? "executor_deadline"
+			: value.error === "Voice execution canceled"
+			? "executor_cancelled"
+			: "executor_failed";
+		throw new VoiceExecutionError(code);
+	}
 	const result = value && typeof value === "object" && "result" in value
 		? value.result
 		: null;
-	const serialized = JSON.stringify(result);
+	let serialized: string | undefined;
+	try {
+		serialized = JSON.stringify(result);
+	} catch {
+		throw new VoiceExecutionError("invalid_result");
+	}
+	if (!serialized) throw new VoiceExecutionError("invalid_result");
 	if (!serialized || new TextEncoder().encode(serialized).byteLength > 20_480) {
-		throw new Error("Tool result exceeded the voice limit");
+		throw new VoiceExecutionError("result_too_large");
 	}
 	// Generated console output is neither needed for the answer nor retained.
 	return { result: JSON.parse(serialized) };

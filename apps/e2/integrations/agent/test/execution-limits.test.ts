@@ -113,3 +113,22 @@ Deno.test("voice host abort disposes handles without waiting for an uncooperativ
 	);
 	expect(disposed).toBe(true);
 });
+
+Deno.test("voice executor failures retain safe classification without leaking error text", () => {
+	for (
+		const [error, expected] of [
+			["provider said private secret", "executor_failed"],
+			["Voice execution deadline or cancellation", "executor_deadline"],
+			["Voice execution canceled", "executor_cancelled"],
+		]
+	) {
+		expect(() => boundedVoiceToolResult({ result: undefined, error })).toThrow(
+			expected,
+		);
+		try {
+			boundedVoiceToolResult({ result: undefined, error });
+		} catch (caught) {
+			expect(String(caught)).not.toContain("private secret");
+		}
+	}
+});

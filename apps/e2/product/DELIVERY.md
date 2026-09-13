@@ -17,7 +17,31 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
-### Latest verified status — 13 September, 17:48 BST
+### Latest verified status — 13 September, 20:24 BST
+
+- TestFlight Build 26 is available to internal testers (`VALID`,
+  `IN_BETA_TESTING`); Xcode Cloud archive and internal distribution succeeded.
+  It includes Speak/Type switching, shared conversation history, Supertag
+  creation tools, and the compact native glass controls.
+- An explicitly authorized, authenticated production browser test asked for the
+  user's available Supertags. The typed endpoint returned all 18 names, checked
+  against the Supertags page. The live session returned the correct base names
+  and grouped the integration tags, with nonzero recorded audio and HTTP 200
+  session cleanup. No graph mutation was requested or performed.
+- Earlier synthetic tests stopped delivering input audio when their speech clip
+  ended. Tool execution completed, but commentary stayed pending until shutdown.
+  Keeping a continuous quiet input source produced the spoken response. The
+  browser smoke harness now retains that source; the native harness already
+  zero-fills and sends 10 ms buffers after fixture EOF.
+- Stage-only diagnostics distinguish execution, commentary submission, provider
+  acceptance, and rejection. They omit transcript content, credentials, session
+  IDs, delegation IDs, and raw provider error messages.
+- This qualifies the production browser voice-and-graph path, not physical
+  iPhone microphone/speaker routing, Bluetooth, Mac native audio, or CarPlay.
+  Those device checks and mutation workflows remain open. Voice retains priority
+  over tasks, meeting capture, and offline editing.
+
+### Earlier status — 13 September, 17:48 BST
 
 - TestFlight Build 15 passed cloud archive, publishing and automatic internal
   distribution. Apple reports `VALID` and `IN_BETA_TESTING`. The actual

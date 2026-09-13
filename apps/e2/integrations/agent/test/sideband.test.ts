@@ -304,3 +304,159 @@ Deno.test("voice delegation preserves typed history before new speech with untru
 	f.finish();
 	await control.finished;
 });
+
+Deno.test("sideband diagnostics expose stages without transcript, IDs, keys or provider errors", async () => {
+	const f = fixture();
+	const events: unknown[] = [];
+	const control = await attachLiveSideband(
+		base(f, { diagnostic: (event) => events.push(event) }),
+	);
+	f.emit({
+		type: "error",
+		message: "private error contents",
+		session_id: "private-session",
+	});
+	f.emit({
+		type: "session.input_transcript.delta",
+		delta: "private transcript",
+		start_ms: 0,
+		end_ms: 500,
+	});
+	delegate(f);
+	await tick();
+	await tick();
+	const serialized = JSON.stringify(events);
+	assert.ok(serialized.includes("socket_accepted"));
+	assert.ok(serialized.includes("provider_error"));
+	assert.ok(serialized.includes("transcript_accepted"));
+	assert.ok(serialized.includes("delegation_accepted"));
+	assert.ok(serialized.includes("execution_completed"));
+	assert.ok(serialized.includes("commentary_sent"));
+	for (const privateValue of ["private", "sess_", "item_", "never-return"]) {
+		assert.ok(!serialized.includes(privateValue));
+	}
+	f.finish();
+	await control.finished;
+});
+
+Deno.test("sideband diagnostics distinguish ignored delegation and timed out work", async () => {
+	const f = fixture();
+	const events: { stage: string; code?: string }[] = [];
+	const control = await attachLiveSideband(
+		base(f, {
+			diagnostic: (event) => events.push(event),
+			execute: () => new Promise(() => {}),
+			limits: { workMs: 5 },
+		}),
+	);
+	f.emit({
+		type: "session.delegation.created",
+		delegation: { id: "secret", target: "client" },
+	});
+	delegate(f);
+	await new Promise((resolve) => setTimeout(resolve, 15));
+	assert.ok(
+		events.some((row) =>
+			row.stage === "delegation_ignored" && row.code === "invalid_delegation"
+		),
+	);
+	assert.ok(
+		events.some((row) =>
+			row.stage === "execution_failed" && row.code === "deadline_or_cancelled"
+		),
+	);
+	assert.ok(
+		events.some((row) =>
+			row.stage === "commentary_sent" && row.code === "fallback"
+		),
+	);
+	f.finish();
+	await control.finished;
+});
+
+Deno.test("sideband correlates commentary acknowledgement and allowlists provider rejection fields", async () => {
+	const f = fixture();
+	const events: {
+		stage: string;
+		providerCode?: string;
+		providerParam?: string;
+		correlated?: boolean;
+	}[] = [];
+	const control = await attachLiveSideband(
+		base(f, { diagnostic: (event) => events.push(event) }),
+	);
+	delegate(f);
+	await tick();
+	await tick();
+	const sent = f.sent[0];
+	f.emit({
+		type: "session.commentary.appended",
+		client_event_id: sent.event_id,
+	});
+	assert.ok(
+		events.some((row) => row.stage === "commentary_accepted" && row.correlated),
+	);
+	delegate(f, "second");
+	await tick();
+	await tick();
+	f.emit({
+		type: "error",
+		error: {
+			client_event_id: f.sent[1].event_id,
+			code: "invalid_delegation_id",
+			type: "invalid_request_error",
+			param: "delegation_id",
+			message: "private provider context",
+		},
+	});
+	assert.ok(
+		events.some((row) =>
+			row.stage === "commentary_rejected" &&
+			row.providerCode === "invalid_delegation_id" &&
+			row.providerParam === "delegation_id" && row.correlated
+		),
+	);
+	f.emit({
+		type: "error",
+		error: {
+			client_event_id: "private-id",
+			code: "private-secret",
+			type: "private-secret",
+			param: "private-secret",
+			message: "private message",
+		},
+	});
+	assert.ok(
+		events.some((row) =>
+			row.stage === "provider_error" && row.providerCode === "other" &&
+			!row.correlated
+		),
+	);
+	assert.ok(!JSON.stringify(events).includes("private"));
+	assert.ok(!JSON.stringify(events).includes(String(sent.event_id)));
+	f.finish();
+	await control.finished;
+});
+
+Deno.test("routine reflected audio and unrelated events do not emit diagnostics", async () => {
+	const f = fixture();
+	const events: unknown[] = [];
+	const control = await attachLiveSideband(
+		base(f, { diagnostic: (event) => events.push(event) }),
+	);
+	const before = events.length;
+	for (let index = 0; index < 100; index++) {
+		f.emit({
+			type: "session.input_audio.append",
+			audio: "private reflected audio",
+		});
+		f.emit({ type: "session.usage.updated", usage: { seconds: index } });
+	}
+	assert.equal(events.length, before);
+	delegate(f);
+	await tick();
+	await tick();
+	assert.ok(events.length > before);
+	f.finish();
+	await control.finished;
+});

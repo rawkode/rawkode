@@ -1,3 +1,4 @@
+import { VoiceExecutionError } from "./execution-limits.ts";
 import { type ChatInput, parseChatInput } from "./chat.ts";
 /** GPT-Live server-side control. Media remains on the primary WebRTC connection. */
 export interface LiveControlSocket {
@@ -30,7 +31,95 @@ export interface SidebandResult {
 	reason: string;
 	seconds?: number;
 }
+const providerCodes = [
+	"unknown_parameter",
+	"missing_required_parameter",
+	"invalid_parameter",
+	"invalid_value",
+	"invalid_type",
+	"invalid_event",
+	"invalid_event_type",
+	"invalid_request",
+	"invalid_request_error",
+	"invalid_delegation",
+	"invalid_delegation_id",
+	"delegation_not_found",
+	"unknown_delegation",
+	"not_found",
+	"permission_denied",
+	"forbidden",
+	"rate_limit_exceeded",
+	"server_error",
+	"internal_error",
+	"context_length_exceeded",
+	"string_above_max_length",
+	"invalid_client_event",
+	"unsupported_event",
+	"unsupported_parameter",
+] as const;
+const providerTypes = [
+	"invalid_request_error",
+	"server_error",
+	"authentication_error",
+	"permission_error",
+	"rate_limit_error",
+] as const;
+const providerParams = [
+	"type",
+	"event_id",
+	"delegation_id",
+	"content",
+	"session.delegation",
+	"session.delegation.type",
+] as const;
+const allowed = <T extends string>(
+	value: unknown,
+	values: readonly T[],
+): T | "other" =>
+	typeof value === "string" && values.includes(value as T)
+		? value as T
+		: "other";
+export interface VoiceControlDiagnostic {
+	stage:
+		| "socket_accepted"
+		| "message_ignored"
+		| "transcript_accepted"
+		| "delegation_accepted"
+		| "delegation_ignored"
+		| "execution_started"
+		| "execution_completed"
+		| "execution_failed"
+		| "commentary_sent"
+		| "commentary_accepted"
+		| "commentary_rejected"
+		| "provider_error"
+		| "control_finished";
+	code?:
+		| "non_text"
+		| "malformed_json"
+		| "provider_error"
+		| "invalid_transcript"
+		| "invalid_delegation"
+		| "duplicate"
+		| "empty_context"
+		| "with_context"
+		| "executor_failed"
+		| "executor_deadline"
+		| "executor_cancelled"
+		| "invalid_result"
+		| "result_too_large"
+		| "deadline_or_cancelled"
+		| "operation_failed"
+		| "success"
+		| "fallback";
+	elapsedMs?: number;
+	providerCode?: typeof providerCodes[number] | "other";
+	providerType?: typeof providerTypes[number] | "other";
+	providerParam?: typeof providerParams[number] | "other";
+	correlated?: boolean;
+}
 export interface SidebandOptions {
+	diagnostic?(event: VoiceControlDiagnostic): void;
 	history?: ChatInput["history"];
 	sessionID: string;
 	apiKey: string;
@@ -120,6 +209,11 @@ export const connectLiveSideband = async (
 };
 
 export const attachLiveSideband = async (options: SidebandOptions) => {
+	const diagnostic = (event: VoiceControlDiagnostic) => {
+		try {
+			options.diagnostic?.(event);
+		} catch { /* Diagnostics never alter control flow. */ }
+	};
 	const history =
 		parseChatInput({ message: "resume", history: options.history ?? [] })
 			.history;
@@ -175,6 +269,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 	}));
 	const delegations = new Set<string>();
 	const seen = new Set<string>();
+	const sentCommentary = new Map<string, number>();
 	const cleanup = () => {
 		clearTimeout(closeTimer);
 		clearTimeout(lifeTimer);
@@ -187,11 +282,13 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		} catch { /* Already closed. */ }
 		transcript.length = 0;
 		seen.clear();
+		sentCommentary.clear();
 		delegations.clear();
 	};
 	const finish = (result: SidebandResult) => {
 		if (terminal) return;
 		terminal = true;
+		diagnostic({ stage: "control_finished" });
 		cleanup();
 		if (!result.finalized) {
 			resolveFinished(result);
@@ -218,17 +315,30 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		}
 		return finished;
 	};
-	const append = (delegationID: string, content: string) => {
+	const append = (delegationID: string, content: string, fallback = false) => {
 		if (terminal || closing) return;
+		const eventID = crypto.randomUUID();
+		sentCommentary.set(eventID, Date.now());
+		if (sentCommentary.size > 64) {
+			sentCommentary.delete(sentCommentary.keys().next().value!);
+		}
 		socket.send(JSON.stringify({
 			type: "session.commentary.append",
-			event_id: crypto.randomUUID(),
+			event_id: eventID,
 			delegation_id: delegationID,
 			content,
 		}));
+		diagnostic({
+			stage: "commentary_sent",
+			code: fallback ? "fallback" : "success",
+		});
 	};
 	const message = (event: { data?: unknown }) => {
-		if (terminal || typeof event.data !== "string") return;
+		if (terminal) return;
+		if (typeof event.data !== "string") {
+			diagnostic({ stage: "message_ignored", code: "non_text" });
+			return;
+		}
 		if (event.data.length > 131_072) {
 			void close();
 			return;
@@ -237,7 +347,38 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		try {
 			value = record(JSON.parse(event.data));
 		} catch {
+			diagnostic({ stage: "message_ignored", code: "malformed_json" });
 			void close();
+			return;
+		}
+		if (
+			value.type === "session.commentary.appended" || value.type === "error"
+		) {
+			const error = record(value.error);
+			const clientID = value.type === "error"
+				? error.client_event_id ?? value.client_event_id
+				: value.client_event_id;
+			const started = typeof clientID === "string"
+				? sentCommentary.get(clientID)
+				: undefined;
+			if (typeof clientID === "string") sentCommentary.delete(clientID);
+			diagnostic({
+				stage: value.type === "session.commentary.appended"
+					? "commentary_accepted"
+					: started === undefined
+					? "provider_error"
+					: "commentary_rejected",
+				correlated: started !== undefined,
+				...(started === undefined ? {} : { elapsedMs: Date.now() - started }),
+				...(value.type === "error"
+					? {
+						code: "provider_error",
+						providerCode: allowed(error.code, providerCodes),
+						providerType: allowed(error.type, providerTypes),
+						providerParam: allowed(error.param, providerParams),
+					}
+					: {}),
+			});
 			return;
 		}
 		if (value.type === "session.closed") {
@@ -267,7 +408,9 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 				"session.output_transcript.delta",
 				"session.delegation.created",
 			].includes(String(value.type))
-		) return;
+		) {
+			return;
+		}
 		if (typeof value.event_id === "string") {
 			if (seen.has(value.event_id)) return;
 			if (seen.size >= 2_048 || value.event_id.length > 256) {
@@ -283,7 +426,11 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 				!Number.isFinite(value.start_ms) || value.start_ms < 0 ||
 				typeof value.end_ms !== "number" || !Number.isFinite(value.end_ms) ||
 				value.end_ms < value.start_ms
-			) return;
+			) {
+				diagnostic({ stage: "message_ignored", code: "invalid_transcript" });
+				return;
+			}
+			diagnostic({ stage: "transcript_accepted" });
 			transcript.push({
 				speaker: value.type === "session.input_transcript.delta"
 					? "user"
@@ -305,9 +452,15 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 			!delegation.id || delegation.id.length > 256 ||
 			typeof value.offset_ms !== "number" ||
 			!Number.isFinite(value.offset_ms) || value.offset_ms < 0
-		) return;
+		) {
+			diagnostic({ stage: "delegation_ignored", code: "invalid_delegation" });
+			return;
+		}
 		const delegationID = delegation.id, offsetMs = value.offset_ms;
-		if (delegations.has(delegationID)) return;
+		if (delegations.has(delegationID)) {
+			diagnostic({ stage: "delegation_ignored", code: "duplicate" });
+			return;
+		}
 		if (delegations.size >= 64 || pending >= 4) {
 			void close();
 			return;
@@ -317,8 +470,14 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 		const context = transcript.filter((row) => row.startMs <= offsetMs).map((
 			row,
 		) => ({ ...row }));
+		diagnostic({
+			stage: "delegation_accepted",
+			code: context.length ? "with_context" : "empty_context",
+		});
 		queue = queue.then(async () => {
 			if (closing || terminal) return;
+			const started = Date.now();
+			diagnostic({ stage: "execution_started" });
 			try {
 				if (
 					!await bounded(() => options.authorize(), 2_000, cancellation.signal)
@@ -348,12 +507,27 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 					typeof result !== "string" || !result.trim() ||
 					new TextEncoder().encode(result).length > 480
 				) throw new Error("Invalid voice result");
+				diagnostic({
+					stage: "execution_completed",
+					elapsedMs: Date.now() - started,
+				});
 				append(delegationID, result);
-			} catch {
+			} catch (error) {
+				diagnostic({
+					stage: "execution_failed",
+					elapsedMs: Date.now() - started,
+					code: error instanceof VoiceExecutionError
+						? error.code
+						: error instanceof Error &&
+								["Canceled", "Deadline"].includes(error.message)
+						? "deadline_or_cancelled"
+						: "operation_failed",
+				});
 				if (!closing && !terminal) {
 					append(
 						delegationID,
 						"I couldn't verify that information. Please try again.",
+						true,
 					);
 				}
 			} finally {
@@ -377,6 +551,7 @@ export const attachLiveSideband = async (options: SidebandOptions) => {
 	}, duration(options.limits?.lifetimeMs, 900_000));
 	try {
 		socket.accept();
+		diagnostic({ stage: "socket_accepted" });
 	} catch {
 		finish({ finalized: false, reason: "attach_failed" });
 		throw new Error("Voice control connection unavailable");

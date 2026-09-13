@@ -88,6 +88,18 @@ start.onclick = async () => {
 		source = context.createBufferSource();
 		source.buffer = decoded;
 		source.connect(destination);
+		// Live consumes appended tool results on its input-audio clock. Keep
+		// media flowing after the finite speech fixture ends, until context.close().
+		const carrier = context.createOscillator();
+		const quiet = context.createGain();
+		quiet.gain.value = 0.00001;
+		carrier.connect(quiet);
+		quiet.connect(destination);
+		const silentMonitor = context.createGain();
+		silentMonitor.gain.value = 0;
+		quiet.connect(silentMonitor);
+		silentMonitor.connect(context.destination);
+		carrier.start();
 		peer = new RTCPeerConnection();
 		destination.stream.getTracks().forEach((track) =>
 			peer.addTrack(track, destination.stream)

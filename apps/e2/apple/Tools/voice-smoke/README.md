@@ -55,6 +55,26 @@ and (in application mode) factual answer against the actual source. A green HTTP
 response or an output transcript alone does not prove audible output. Do not
 label transport-only results as native iPhone or authenticated app E2E.
 
+## Keep input audio running after the fixture
+
+The prerecorded speech ending must **not** stop audio delivery. Keep an active
+continuous quiet source connected to the `MediaStreamDestination` until the
+session ends. A finite `AudioBufferSourceNode` alone can stop producing frames
+when its fixture ends, leaving commentary pending even though the backend lookup
+completed. Merely retaining a live track object is insufficient evidence of
+continued media delivery.
+
+Run a quiet oscillator alongside the finite speech source, retaining it until
+cleanup. Check that outbound media continues after the fixture, then require
+both a `session.commentary.appended` acknowledgement and the factual spoken
+response. Stopping a session with pending commentary may produce a late provider
+error; that alone does not prove the commentary payload was invalid.
+
+OpenAI's
+[session guide](https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks)
+requires continued input, including silence, and an active negotiated WebRTC
+input track when requesting speech with appended context.
+
 ## Native qualification boundary
 
 The pinned WebRTC153 framework includes `RTCAudioDevice` and
