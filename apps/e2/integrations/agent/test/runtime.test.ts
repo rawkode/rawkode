@@ -187,3 +187,44 @@ Deno.test("sideband is attached after receipt is durable and before SDP is retur
 	assert.equal(result.status, 201);
 	assert.equal(attached, true);
 });
+
+Deno.test("explicit provider rejection releases concurrency while preserving request replay protection", async () => {
+	const disk = storage();
+	let calls = 0;
+	const handler = createOwnerVoiceRuntime(disk, owner, env, {
+		authenticate: () => Promise.resolve(owner),
+		fetch: (() => {
+			calls++;
+			return Promise.resolve(
+				calls === 1
+					? Response.json({
+						error: {
+							code: "model_not_found",
+							type: "invalid_request_error",
+							message: "private provider detail",
+						},
+					}, { status: 400 })
+					: Response.json({
+						session: { id: "live_recovered" },
+						transport: { sdp: "v=0\r\n" },
+					}),
+			);
+		}) as typeof fetch,
+	});
+	assert.equal((await handler(start())).status, 502);
+	assert.equal((await handler(start())).status, 403);
+	assert.equal(
+		(await handler(request("/api/voice/sessions", {
+			sdp: "v=0\r\n",
+			device: "iphone",
+			requestID: "request-number-0002",
+		}))).status,
+		201,
+	);
+	assert.equal(calls, 2);
+	const rows = await createVoiceReservations(disk, owner.ownerId).receipts();
+	assert.equal(rows.length, 2);
+	assert.equal(rows[0].state, "closed");
+	assert.equal(rows[0].sessionID, undefined);
+	assert.equal(rows[1].state, "created");
+});

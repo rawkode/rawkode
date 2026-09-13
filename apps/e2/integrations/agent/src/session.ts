@@ -9,7 +9,7 @@ import {
 export type VoiceDevice = "iphone" | "carplay" | "mac";
 export type SessionOutcome = { state: "created"; sessionID: string } | {
 	state: "unknown";
-};
+} | { state: "rejected" };
 /** Production implementation must atomically reserve quota/idempotency for this
  * authenticated owner, then durably retain created/unknown outcomes. */
 export interface SessionPermit {
@@ -167,7 +167,43 @@ export const fetchVoiceSession = async (
 			},
 		);
 		if (!upstream.ok) {
-			await upstream.body?.cancel();
+			const failure = object(await readJSON(upstream.body).catch(() => null));
+			const error = object(failure.error);
+			// Only fixed codes may reach logs: provider messages can contain request data.
+			const codes = [
+				"model_not_found",
+				"invalid_api_key",
+				"insufficient_permissions",
+				"permission_denied",
+				"invalid_request_error",
+			];
+			const code = codes.includes(String(error.code))
+				? String(error.code)
+				: "unspecified";
+			console.warn(
+				JSON.stringify({
+					event: "voice_provider_rejected",
+					status: upstream.status,
+					code,
+				}),
+			);
+			const explicitRejection =
+				[400, 401, 403, 404].includes(upstream.status) &&
+				(code !== "unspecified" ||
+					[
+						"invalid_request_error",
+						"authentication_error",
+						"permission_error",
+						"not_found_error",
+					].includes(String(error.type)));
+			if (explicitRejection) {
+				await permit.record({ state: "rejected" });
+				receiptRecorded = true;
+				return json({
+					error:
+						"Voice service rejected the connection. Please check the service configuration.",
+				}, 502);
+			}
 			throw new Error("Provider failed");
 		}
 		const result = object(await readJSON(upstream.body));

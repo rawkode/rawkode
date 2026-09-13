@@ -297,3 +297,33 @@ Deno.test("post-creation permission failure cannot downgrade known session recei
 	assert.equal(response.status, 502);
 	assert.deepEqual(outcomes, [{ state: "created", sessionID: "live_known" }]);
 });
+
+Deno.test("only explicit provider client rejections release the reservation", async () => {
+	for (
+		const [status, body, expected] of [
+			[400, { error: { code: "model_not_found" } }, "rejected"],
+			[401, { error: { type: "authentication_error" } }, "rejected"],
+			[403, { error: { type: "permission_error" } }, "rejected"],
+			[404, { error: { type: "not_found_error" } }, "rejected"],
+			[400, { error: "unstructured response" }, "unknown"],
+			[500, { error: { code: "model_not_found" } }, "unknown"],
+			[429, { error: { type: "invalid_request_error" } }, "unknown"],
+		] as const
+	) {
+		const outcomes: SessionOutcome[] = [];
+		const response = await fetchVoiceSession(request(), env, {
+			authenticate: authenticated,
+			reserve: () =>
+				Promise.resolve({
+					isCurrent: () => Promise.resolve(true),
+					record: async (value) => {
+						outcomes.push(value);
+					},
+				}),
+			fetch: (() =>
+				Promise.resolve(Response.json(body, { status }))) as typeof fetch,
+		});
+		assert.equal(response.status, 502);
+		assert.deepEqual(outcomes, [{ state: expected }]);
+	}
+});

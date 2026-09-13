@@ -169,7 +169,7 @@ export const createVoiceReservations = (
 						);
 					}),
 				record: (outcome: SessionOutcome) =>
-					transact(async (ledger, _now, transaction) => {
+					transact(async (ledger, now, transaction) => {
 						let row = ledger.reservations.find((candidate) =>
 							candidate.requestID === requestID && candidate.nonce === nonce
 						);
@@ -202,6 +202,14 @@ export const createVoiceReservations = (
 							delete row.closedAt;
 							row.sessionID = outcome.sessionID;
 							row.state = "created";
+						} else if (outcome.state === "rejected") {
+							if (row.sessionID) {
+								throw new Error("Cannot reject a created session");
+							}
+							// An explicit provider rejection confirms that no session exists.
+							// Retain the closed receipt for daily quota and replay protection.
+							row.state = "closed";
+							row.closedAt ??= now;
 						} else if (row.state === "reserved") row.state = "unknown";
 					}),
 			};

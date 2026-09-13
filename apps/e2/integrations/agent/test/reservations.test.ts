@@ -299,3 +299,21 @@ Deno.test("closed receipt archival frees hot capacity without replaying archived
 	await first.record({ state: "created", sessionID: "session1" });
 	assert.equal(await restored.isSessionActive("session1"), false);
 });
+
+Deno.test("rejected attempts retain daily quota and cannot erase a known provider session", async () => {
+	const { storage } = fixtureStorage();
+	const ledger = createVoiceReservations(storage, owner.ownerId, policy);
+	await ledger.setEnabled(true);
+	const rejected = (await ledger.reserve(owner, id(1), "iphone"))!;
+	await rejected.record({ state: "rejected" });
+	assert.equal(await rejected.isCurrent(), false);
+	assert.equal(await ledger.reserve(owner, id(1), "iphone"), null);
+	const created = (await ledger.reserve(owner, id(2), "iphone"))!;
+	await created.record({ state: "created", sessionID: "live_2" });
+	await assert.rejects(
+		created.record({ state: "rejected" }),
+		/Cannot reject a created session/,
+	);
+	await ledger.reconcile(id(2), { state: "closed", sessionID: "live_2" });
+	assert.equal(await ledger.reserve(owner, id(3), "iphone"), null);
+});
