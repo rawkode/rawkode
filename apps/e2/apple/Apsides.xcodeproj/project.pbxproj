@@ -11,6 +11,8 @@
 		01FAAB784E0492C20E2B5344 /* LocalDaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */; };
 		0282D6CC775C674F344B7BDB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA869EC6CD92F535B5CAFA73 /* ApsidesCore */; };
 		03386BEA24270C60A8AD8447 /* ApsidesWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		043549B45AABBA4529F5D945 /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D339ED709F3AE9E20B8181 /* TaskModels.swift */; };
+		0F22241DD22FD62A5E3703C8 /* TaskListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */; };
 		1133FE0C24EE7C25AB0AF3E2 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
 		194ACBFE740ED532BCCAA961 /* DayTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EF9AB0ABD77982D2EBFD026 /* DayTimelineView.swift */; };
 		1B5EC9ADBFE1EE772F991E89 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354AC8040C6FF7BB1C216F9A /* NativeSession.swift */; };
@@ -67,6 +69,8 @@
 		C6F1891578C1740B8F782100 /* VoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */; };
 		C82A6683C503096AC1348FE4 /* ApsidesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */; };
 		C95D53C8B7FA660E767959C4 /* VoiceWindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */; };
+		CB6884B4DB55ED9A9B9CFBEE /* TaskListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */; };
+		CD8EFBDFE6587D2E00F9852A /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D339ED709F3AE9E20B8181 /* TaskModels.swift */; };
 		D038938E8A2F0BCF1DA909F6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */; };
 		D0E3C0CF1201733793833340 /* MeetingCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */; };
 		D2B9B3672FABA68F51E8A5A6 /* VoiceCaptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3938667AE812877F1896C8F /* VoiceCaptionList.swift */; };
@@ -166,6 +170,7 @@
 		742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWindowCloseObserver.swift; sourceTree = "<group>"; };
 		75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ApsidesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceConversationView.swift; sourceTree = "<group>"; };
+		82D339ED709F3AE9E20B8181 /* TaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskModels.swift; sourceTree = "<group>"; };
 		83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesAppDelegate.swift; sourceTree = "<group>"; };
 		83D84418589D887D76F550C8 /* ApsidesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ApsidesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8D9A1EBBC62157B945574E86 /* DemoContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoContent.swift; sourceTree = "<group>"; };
@@ -184,6 +189,7 @@
 		D3938667AE812877F1896C8F /* VoiceCaptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCaptionList.swift; sourceTree = "<group>"; };
 		D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneTodayView.swift; sourceTree = "<group>"; };
 		F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksStore.swift; sourceTree = "<group>"; };
+		FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListProjection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -354,6 +360,8 @@
 				3045B1CAC13E5377DB178446 /* ApsidesApp.swift */,
 				83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */,
 				8D9A1EBBC62157B945574E86 /* DemoContent.swift */,
+				FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */,
+				82D339ED709F3AE9E20B8181 /* TaskModels.swift */,
 				F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */,
 				C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */,
 			);
@@ -649,6 +657,8 @@
 				FEFC770E4DBE85C644F6D383 /* PersonDetailView.swift in Sources */,
 				E1522173715586AC708385B4 /* PhoneTodayView.swift in Sources */,
 				93753900B113140E073F5356 /* SettingsView.swift in Sources */,
+				0F22241DD22FD62A5E3703C8 /* TaskListProjection.swift in Sources */,
+				CD8EFBDFE6587D2E00F9852A /* TaskModels.swift in Sources */,
 				E92F35AABF0ADA1BB2B36827 /* TasksStore.swift in Sources */,
 				3923DC0CBCBE3E3C356149A8 /* TasksView.swift in Sources */,
 				3234CD0241817E0CA74578C7 /* Theme.swift in Sources */,
@@ -687,6 +697,8 @@
 				FCCC40858B23751CA526DB1E /* PersonDetailView.swift in Sources */,
 				5A6784BDDF18C12B94B8D077 /* PhoneTodayView.swift in Sources */,
 				749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */,
+				CB6884B4DB55ED9A9B9CFBEE /* TaskListProjection.swift in Sources */,
+				043549B45AABBA4529F5D945 /* TaskModels.swift in Sources */,
 				87DCF2447BBD1CF8522F7CB9 /* TasksStore.swift in Sources */,
 				BB7CA598ED56E96340B252C6 /* TasksView.swift in Sources */,
 				7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */,

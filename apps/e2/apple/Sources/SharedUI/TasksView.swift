@@ -18,11 +18,15 @@ struct TasksView: View {
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     init(workspace: WorkspaceStore) { self.workspace = workspace; tasks = workspace.tasks; session = workspace.session }
     private var today: String { TaskDay.key(.now) }
+    private var displayedTasks: [GraphTask] { projectTaskList(tasks: tasks.tasks, pending: tasks.pending) }
+    private func pendingEdit(for task: GraphTask) -> PendingTaskEdit? {
+        taskEdit(for: task, pending: tasks.pending)
+    }
     private var visible: [GraphTask] {
-        tasks.tasks.filter { task in
-            let matches = query.isEmpty || task.title.localizedCaseInsensitiveContains(query)
+        displayedTasks.filter { task in
+            let matches = query.isEmpty || task.title.localizedCaseInsensitiveContains(query) || (pendingEdit(for: task)?.title.localizedCaseInsensitiveContains(query) == true)
             guard matches else { return false }
-            if !query.isEmpty { return true }
+            if !query.isEmpty || pendingEdit(for: task)?.conflict == true { return true }
             switch collection {
             case .inbox: return task.status == "open" && task.dueDate == nil
             case .today: return task.status == "open" && (task.dueDate.map { $0 <= today } ?? false)
@@ -36,37 +40,13 @@ struct TasksView: View {
     }
     var body: some View {
         List {
-            Section {
-                collectionPicker.listRowBackground(Color.clear).listRowSeparator(.hidden)
-            }
             if let error = tasks.error {
                 Section {
                     Text(error).font(.callout).foregroundStyle(theme.secondary)
                     Button("Try again") { Task { await tasks.sync(); await tasks.refresh() } }.disabled(tasks.sending || tasks.loading)
                 }
             }
-            if !tasks.pending.isEmpty {
-                Section("Waiting to sync") {
-                    if session.isConnected {
-                        Button("Sync now") { Task { await tasks.sync() } }.disabled(tasks.sending)
-                    }
-                    ForEach(tasks.pending) { edit in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(edit.title).font(.headline)
-                            Text(edit.conflict ? "Could not apply your edit because this task changed." : "Waiting to sync")
-                                .font(.caption).foregroundStyle(theme.secondary)
-                            if edit.conflict {
-                                if let current = tasks.tasks.first(where: { $0.id == edit.taskID }) {
-                                    Text("Current: \(current.title) · \(current.dueDate.map(displayDay) ?? "No date") · \(current.priority) priority · \(current.status)").font(.caption)
-                                }
-                                Text("Your version: \(edit.dueDate.map(displayDay) ?? "No date") · \(edit.priority) priority · \(edit.status)").font(.caption)
-                                Button("Discard my pending edit", role: .destructive) { tasks.discard(edit.id) }
-                            }
-                        }
-                    }
-                }
-            }
-            if tasks.loading && !tasks.hasLoaded && tasks.tasks.isEmpty {
+            if tasks.loading && !tasks.hasLoaded && displayedTasks.isEmpty {
                 ProgressView("Loading tasks…").listRowBackground(Color.clear)
             } else if visible.isEmpty {
                 Section {
@@ -89,7 +69,11 @@ struct TasksView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden).background(theme.canvas).foregroundStyle(theme.ink).tint(theme.accent)
+        .scrollContentBackground(.hidden).background(theme.canvas).foregroundStyle(.primary).tint(theme.accent)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            collectionPicker.padding(.horizontal, 16).padding(.vertical, 10)
+                .background(theme.canvas)
+        }
         .navigationTitle("Tasks")
         .searchable(text: $query, prompt: "Find a task")
         .toolbar {
@@ -119,25 +103,40 @@ struct TasksView: View {
         return date.formatted(date: .abbreviated, time: .omitted)
     }
     private func taskRow(_ task: GraphTask) -> some View {
-        HStack(spacing: 14) {
-            Button {
-                var edit = editFor(task); edit.status = task.status == "completed" ? "open" : "completed"
-                let scope = tasks.scopeID
-                Task { _ = await tasks.save(edit, expectedScope: scope) }
-            } label: {
-                Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                    .font(.title2).frame(width: 44, height: 44)
-            }.buttonStyle(.plain).accessibilityLabel(task.status == "completed" ? "Reopen \(task.title)" : "Complete \(task.title)")
-            Button { editing = editFor(task) } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(task.title).font(.body.weight(.medium)).strikethrough(task.status == "completed").multilineTextAlignment(.leading)
-                    HStack {
-                        if let due = task.dueDate { Text(due < today && task.status == "open" ? "Overdue · \(displayDay(due))" : displayDay(due)) }
-                        if task.priority != "none" { Label(task.priority.capitalized, systemImage: "flag.fill") }
-                    }.font(.caption).foregroundStyle(theme.secondary)
-                }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
-        }.disabled(tasks.pending.contains { $0.taskID == task.id })
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 14) {
+                Button {
+                    var edit = editFor(task); edit.status = task.status == "completed" ? "open" : "completed"
+                    let scope = tasks.scopeID
+                    Task { _ = await tasks.save(edit, expectedScope: scope) }
+                } label: {
+                    Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                        .font(.title2).frame(width: 44, height: 44)
+                }.buttonStyle(.plain).disabled(pendingEdit(for: task) != nil)
+                    .accessibilityLabel(task.status == "completed" ? "Reopen \(task.title)" : "Complete \(task.title)")
+                Button { editing = editFor(task) } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(task.title).font(.body).foregroundStyle(.primary).strikethrough(task.status == "completed").multilineTextAlignment(.leading)
+                        HStack {
+                            if let due = task.dueDate { Text(due < today && task.status == "open" ? "Overdue · \(displayDay(due))" : displayDay(due)) }
+                            if task.priority != "none" { Label(task.priority.capitalized, systemImage: "flag.fill") }
+                        }.font(.caption).foregroundStyle(theme.secondary)
+                    }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(pendingEdit(for: task) != nil)
+            }
+            if let edit = pendingEdit(for: task) {
+                if edit.conflict {
+                    DisclosureGroup("Couldn’t apply your changes") {
+                        Text("Your changes: \(edit.title)")
+                        Text("\(edit.dueDate.map(displayDay) ?? "No due date") · \(edit.priority.capitalized) priority · \(edit.status.capitalized)")
+                        Button("Discard my changes", role: .destructive) { tasks.discard(edit.id) }
+                    }.font(.callout)
+                } else {
+                    Label("Waiting to sync", systemImage: "clock")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
     private func editFor(_ task: GraphTask) -> PendingTaskEdit {
         PendingTaskEdit(taskID: task.id, expectedRevision: task.revision, title: task.title, dueDate: task.dueDate, priority: task.priority, status: task.status)

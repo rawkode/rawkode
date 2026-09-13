@@ -76,26 +76,30 @@ private struct MeetingCaptureView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    recordingStatus
-                    if !busy && recorder.transcript.recordingState != .stopped { preparation }
-                    if let error = recorder.error {
-                        Label(error, systemImage: "exclamationmark.triangle").font(.callout)
-                            .accessibilityIdentifier("meetingRecordingError")
+            Group {
+                if showingNotes {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if busy {
+                            Label(statusTitle, systemImage: recorder.state == .recording ? "record.circle" : "waveform")
+                                .font(.subheadline).foregroundStyle(theme.secondary)
+                                .accessibilityIdentifier("meetingRecordingStatus")
+                        }
+                        errors
+                        notes
+                    }.padding(.horizontal, 20).padding(.top, 12)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if busy || recorder.transcript.recordingState != .ready { recordingStatus }
+                            if !busy && recorder.transcript.recordingState != .stopped { preparation }
+                            errors
+                            transcriptContent
+                            Text("Live text may change until finalized. The transcript stays on this device.")
+                                .font(.caption).foregroundStyle(theme.secondary)
+                        }.padding(20)
                     }
-                    if let error = store.meetingStorageError {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label(error, systemImage: "exclamationmark.triangle").font(.callout)
-                            Button("Retry saving") { persist() }
-                        }.accessibilityIdentifier("meetingSaveError")
-                    }
-                    if showingNotes { notes } else { transcriptContent }
-                    Text(showingNotes ? "Your notes stay separate from the transcript, on this device." : "Live text may change until finalized. The transcript stays on this device.")
-                        .font(.caption).foregroundStyle(theme.secondary)
-                }.padding(24)
+                }
             }
-            .id(showingNotes)
             .safeAreaInset(edge: .top, spacing: 0) {
                 Picker("Meeting content", selection: $showingNotes) {
                     Text("Transcript").tag(false)
@@ -112,7 +116,12 @@ private struct MeetingCaptureView: View {
                         .accessibilityIdentifier("closeMeetingCapture")
                 }
             }
-            .safeAreaInset(edge: .bottom) { controls.padding(.horizontal, 20).padding(.vertical, 12).background(.bar) }
+            .safeAreaInset(edge: .bottom) {
+                if busy || recorder.transcript.recordingState != .stopped {
+                    controls.frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20).padding(.vertical, 12).background(.bar)
+                }
+            }
         }
         .tint(theme.accent).preferredColorScheme(theme.scheme)
         .interactiveDismissDisabled(busy || closing || store.meetingStorageError != nil)
@@ -135,7 +144,7 @@ private struct MeetingCaptureView: View {
     private var recordingStatus: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(statusTitle, systemImage: recorder.state == .recording ? "record.circle" : "waveform")
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .font(.headline)
                 .accessibilityIdentifier("meetingRecordingStatus")
             if recorder.state == .recording {
                 Text("Microphone is on").font(.callout).foregroundStyle(theme.secondary)
@@ -159,7 +168,7 @@ private struct MeetingCaptureView: View {
         case .finalizing: "Finishing transcript"
         case .interrupted: "Recording paused"
         case .failed: "Recording unavailable"
-        case .idle: recorder.transcript.recordingState == .stopped ? "Meeting finished" : "Ready when you are"
+        case .idle: recorder.transcript.recordingState == .stopped ? "Meeting finished" : "Recording paused"
         }
     }
 
@@ -192,14 +201,24 @@ private struct MeetingCaptureView: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var notes: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Notes and corrections").font(.headline)
-            TextEditor(text: Binding(get: { recorder.transcript.note }, set: { value in recorder.updateNote(value) }))
-                .frame(minHeight: 260).scrollContentBackground(.hidden)
-                .padding(8).background(theme.base, in: .rect(cornerRadius: 12))
-                .accessibilityLabel("Meeting notes and corrections").accessibilityIdentifier("meetingNotes")
+    @ViewBuilder private var errors: some View {
+        if let error = recorder.error {
+            Label(error, systemImage: "exclamationmark.triangle").font(.callout)
+                .accessibilityIdentifier("meetingRecordingError")
         }
+        if let error = store.meetingStorageError {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(error, systemImage: "exclamationmark.triangle").font(.callout)
+                Button("Retry saving") { persist() }
+            }.accessibilityIdentifier("meetingSaveError")
+        }
+    }
+
+    private var notes: some View {
+        TextEditor(text: Binding(get: { recorder.transcript.note }, set: { value in recorder.updateNote(value) }))
+            .font(.body).scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Meeting notes and corrections").accessibilityIdentifier("meetingNotes")
     }
 
     @ViewBuilder private var controls: some View {
@@ -220,11 +239,16 @@ private struct MeetingCaptureView: View {
                         Task { await recorder.stop(); persist() }
                     }.accessibilityIdentifier("finishMeetingRecording")
                 }
-                Button(recorder.transcript.recordingState == .interrupted ? "Resume recording" : "Start recording", systemImage: "mic.fill") {
-                    guard persist() else { return }
-                    Task { await recorder.start(participantsInformed: participantsInformed); persist() }
-                }.buttonStyle(.borderedProminent).disabled(!canStart).frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("startMeetingRecording")
+                if showingNotes && !participantsInformed {
+                    Button("Set up recording", systemImage: "mic") { showingNotes = false }
+                        .accessibilityIdentifier("prepareMeetingRecording")
+                } else {
+                    Button(recorder.transcript.recordingState == .interrupted ? "Resume recording" : "Start recording", systemImage: "mic.fill") {
+                        guard persist() else { return }
+                        Task { await recorder.start(participantsInformed: participantsInformed); persist() }
+                    }.buttonStyle(.borderedProminent).disabled(!canStart).frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("startMeetingRecording")
+                }
             }
         }
     }
