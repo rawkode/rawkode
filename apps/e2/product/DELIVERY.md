@@ -176,10 +176,10 @@ limitations belong in the acceptance evidence.
 
 ## Delivery cadence and evidence
 
-The product-owner follow-up runs hourly in this thread to inspect delegated
-work, integrate bounded changes and advance the next priority. Report material
-progress or a concrete blocker; do not repeat unchanged claims. Update this
-board when ownership, dependency or verified shipping status changes.
+The product-owner follow-up runs every fifteen minutes in this thread to inspect
+delegated work, integrate bounded changes and advance the next priority. Report
+material progress or a concrete blocker; do not repeat unchanged claims. Update
+this board when ownership, dependency or verified shipping status changes.
 
 Each handoff includes changed files, exact checks, sources for external API
 claims, and unresolved risks. Keep implementation owners separate when scopes
