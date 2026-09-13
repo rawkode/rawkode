@@ -8,6 +8,13 @@ struct PhoneTodayView: View {
     let recenter: Int
     @State private var selectedDay = Date()
     @State private var dockRecenter = 0
+    @State private var sidebarPresented = false
+    @State private var destination: PhoneDestination?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private enum PhoneDestination: String, Identifiable {
+        case tasks, calendar, people, github, captures, meetings, localNotes
+        var id: String { rawValue }
+    }
     @State private var searchPresented = false
     @State private var voicePresented = false
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
@@ -23,9 +30,27 @@ struct PhoneTodayView: View {
     }
 
     var body: some View {
-        DayTimelineView(store: store, recenter: recenter + dockRecenter, selectedDay: $selectedDay)
+        DayTimelineView(store: store, recenter: recenter + dockRecenter, selectedDay: $selectedDay, openSidebar: { setSidebar(true) })
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 notesControl.padding(.top, 8).padding(.bottom, 12)
+            }
+            .accessibilityHidden(sidebarPresented)
+            .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+                if value.startLocation.x < 24 && value.translation.width > 60 && abs(value.translation.width) > abs(value.translation.height) * 1.5 {
+                    setSidebar(true)
+                }
+            })
+            .overlay { if sidebarPresented { sidebar } }
+            .navigationDestination(item: $destination) { value in
+                switch value {
+                case .tasks: TasksView(workspace: store)
+                case .calendar: AgendaView(store: store)
+                case .people: PeopleView(store: store)
+                case .github: RepositoryListView(store: store)
+                case .captures: CaptureListView(store: store)
+                case .meetings: MeetingCaptureLibraryView(store: store)
+                case .localNotes: LocalDaybookView(store: store, showAgenda: showAgenda)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $voicePresented) { VoiceConversationView(session: store.session, conversation: store.voice) }
@@ -83,31 +108,7 @@ struct PhoneTodayView: View {
                     Image(systemName: "chevron.up").font(.caption)
                 }.frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("dailyNotePreview")
-            HStack {
-                NavigationLink { TasksView(workspace: store) } label: { Label("Tasks", systemImage: "checklist").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }.buttonStyle(.plain).accessibilityIdentifier("openTasks")
-            Button { voicePresented = true } label: { Label("Voice", systemImage: "waveform").font(.subheadline).frame(maxWidth: .infinity, minHeight: 44) }
-                .buttonStyle(.plain).accessibilityIdentifier("openVoiceConversation")
-            }
-            Divider().overlay(theme.ink.opacity(0.06))
-            HStack(spacing: 16) {
-                Button {
-                    selectedDay = .now
-                    dockRecenter += 1
-                } label: {
-                    Label("Today", systemImage: "arrow.counterclockwise")
-                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 48)
-                }.buttonStyle(.plain).accessibilityIdentifier("recenterToday")
-                Button { notesPresented = true } label: {
-                    Image(systemName: "pencil").font(.title2.weight(.medium))
-                        .foregroundStyle(theme.base).frame(width: 56, height: 56)
-                        .background(theme.accent, in: .circle)
-                }.buttonStyle(.plain).accessibilityIdentifier("openDailyNote")
-                    .accessibilityLabel("Open today’s note")
-                Button { searchPresented = true } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 48)
-                }.buttonStyle(.plain).accessibilityIdentifier("daySearch")
-            }
+
         }
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12)
         .foregroundStyle(theme.ink)
@@ -118,6 +119,69 @@ struct PhoneTodayView: View {
                 notesPresented = true
             }
         })
+    }
+
+    private func setSidebar(_ visible: Bool) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { sidebarPresented = visible }
+    }
+
+    private func sidebarAction(_ title: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
+        Button {
+            setSidebar(false)
+            action()
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.body.weight(.medium))
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier(id)
+    }
+
+    private var sidebar: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Button { setSidebar(false) } label: { Color.black.opacity(0.3).ignoresSafeArea() }
+                    .buttonStyle(.plain).accessibilityLabel("Close sidebar")
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Enchiridion").font(.title2.weight(.semibold))
+                        Spacer()
+                        Button { setSidebar(false) } label: {
+                            Image(systemName: "xmark").frame(width: 44, height: 44)
+                        }.buttonStyle(.plain).accessibilityLabel("Close sidebar").accessibilityIdentifier("sidebarClose")
+                    }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            sidebarAction("Today", symbol: "sun.max", id: "recenterToday") { selectedDay = .now; dockRecenter += 1 }
+                            sidebarAction("Tasks", symbol: "checklist", id: "openTasks") { destination = .tasks }
+                            sidebarAction("Voice", symbol: "waveform", id: "openVoiceConversation") { voicePresented = true }
+                            sidebarAction("Search", symbol: "magnifyingglass", id: "daySearch") { searchPresented = true }
+                            Divider().padding(.vertical, 8)
+                            sidebarAction("Day calendar", symbol: "calendar", id: "sidebarCalendar") { destination = .calendar }
+                            sidebarAction("People", symbol: "person.2", id: "sidebarPeople") { destination = .people }
+                            sidebarAction("GitHub", symbol: "chevron.left.forwardslash.chevron.right", id: "sidebarGitHub") { destination = .github }
+                            sidebarAction("Captures", symbol: "tray", id: "sidebarCaptures") { destination = .captures }
+                            sidebarAction("Meeting capture", symbol: "mic", id: "meetingCaptureBrowse") { destination = .meetings }
+                            sidebarAction("On this device", symbol: "internaldrive", id: "sidebarLocalNotes") { destination = .localNotes }
+                        }
+                    }
+                    Divider()
+                    sidebarAction("Quick capture", symbol: "square.and.pencil", id: "quickCapture") { store.capturePresented = true }
+                    sidebarAction("Account & appearance", symbol: "gearshape", id: "todaySettings") { store.settingsPresented = true }
+                }
+                .padding(20)
+                .frame(width: min(340, geometry.size.width * 0.88), height: geometry.size.height)
+                .foregroundStyle(theme.ink).tint(theme.accent)
+                .background(theme.canvas.opacity(0.9))
+                .glassEffect(.regular, in: .rect(cornerRadius: 26))
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape) { setSidebar(false) }
+                .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+                    if value.translation.width < -60 && abs(value.translation.width) > abs(value.translation.height) * 1.5 { setSidebar(false) }
+                })
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+        }
     }
 
     private func closeNote() async {

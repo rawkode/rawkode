@@ -20,10 +20,40 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testWorkspaceSidebarMenuSwipeAndNotesAccess() {
+        #if os(iOS)
+        launchDemo()
+        let note = app.buttons["dailyNotePreview"]
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertTrue(note.isHittable)
+        XCTAssertFalse(app.buttons["openDailyNote"].exists)
+        openWorkspaceSidebar()
+        for id in ["openTasks", "openVoiceConversation", "recenterToday", "daySearch", "quickCapture", "todaySettings"] {
+            XCTAssertTrue(app.buttons[id].exists, "Missing sidebar action: \(id)")
+        }
+        captureScreenshot("Workspace sidebar Dawn")
+        activate(app.buttons["sidebarClose"])
+        XCTAssertTrue(note.isHittable)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.48))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.48))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        XCTAssertTrue(app.buttons["sidebarClose"].waitForExistence(timeout: 5))
+        activate(app.buttons["openTasks"])
+        XCTAssertTrue(app.staticTexts["Shape the voice workspace"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["sidebarClose"].exists)
+        returnToPhoneDay()
+        XCTAssertTrue(note.isHittable)
+        let noteHandle = note.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        noteHandle.press(forDuration: 0.05, thenDragTo: noteHandle.withOffset(CGVector(dx: 0, dy: -180)))
+        XCTAssertTrue(app.buttons["closeDailyNote"].waitForExistence(timeout: 5))
+        #endif
+    }
+
     func testTasksCaptureRemainsVisibleOffline() throws {
         app.terminate()
         app.launchArguments += ["--demo"]
         app.launch()
+        openWorkspaceSidebar()
         let tasks = app.buttons["openTasks"]
         XCTAssertTrue(tasks.waitForExistence(timeout: 5))
         activate(tasks)
@@ -40,6 +70,7 @@ final class ApsidesUITests: XCTestCase {
         app.terminate()
         app.launchArguments.removeAll { $0 == "--reset-test-data" }
         app.launch()
+        openWorkspaceSidebar()
         activate(app.buttons["openTasks"])
         XCTAssertTrue(app.staticTexts["Keep this task offline"].waitForExistence(timeout: 5))
     }
@@ -52,6 +83,7 @@ final class ApsidesUITests: XCTestCase {
         activate(palette); chooseMenuItem("Rosé Pine Dark")
         activate(app.buttons["Done"])
         relaunchPreservingData()
+        openWorkspaceSidebar()
         activate(app.buttons["openTasks"])
         XCTAssertTrue(app.staticTexts["Shape the voice workspace"].waitForExistence(timeout: 5))
         captureScreenshot("Tasks Dark")
@@ -62,6 +94,7 @@ final class ApsidesUITests: XCTestCase {
         app.terminate()
         app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = "http://127.0.0.1:9"
         app.launch()
+        openWorkspaceSidebar()
         let voice = app.buttons["openVoiceConversation"]
         XCTAssertTrue(voice.waitForExistence(timeout: 5))
         activate(voice)
@@ -78,7 +111,7 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertFalse(app.buttons["End"].exists)
         captureScreenshot("Voice ready Dawn")
         activate(app.buttons["Done"])
-        XCTAssertTrue(voice.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["openWorkspaceSidebar"].waitForExistence(timeout: 5))
         #else
         throw XCTSkip("Voice transport is currently an iPhone surface")
         #endif
@@ -289,6 +322,7 @@ final class ApsidesUITests: XCTestCase {
             if Calendar.current.component(.hour, from: Date()) >= 12 { timeline.swipeDown() }
             else { timeline.swipeUp() }
             XCTAssertGreaterThan(abs(now.frame.midY - initialY), 80)
+            openWorkspaceSidebar()
             activate(app.buttons["recenterToday"])
             let centered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 abs(now.frame.midY - initialY) < 8
@@ -308,7 +342,7 @@ final class ApsidesUITests: XCTestCase {
         }
         XCTAssertTrue(app.buttons["closeDaySearch"].waitForExistence(timeout: 5))
         activate(app.buttons["closeDaySearch"])
-        XCTAssertTrue(app.buttons["recenterToday"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["openWorkspaceSidebar"].waitForExistence(timeout: 5))
         #endif
     }
 
@@ -330,6 +364,7 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(otherButton.isSelected)
         XCTAssertFalse(app.otherElements["dayTimelineNow"].exists)
         captureScreenshot("Selected day in week")
+        openWorkspaceSidebar()
         activate(app.buttons["recenterToday"])
         XCTAssertTrue(todayButton.isSelected)
         XCTAssertTrue(app.otherElements["dayTimelineNow"].waitForExistence(timeout: 5))
@@ -364,14 +399,17 @@ final class ApsidesUITests: XCTestCase {
     func testDayTimelineFloatingDockInBothPalettes() {
         launchDemo()
         #if os(iOS)
-        for id in ["openDailyNote", "dailyNotePreview", "daySearch", "recenterToday"] {
+        for id in ["dailyNotePreview", "openWorkspaceSidebar"] {
             XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 10))
             XCTAssertTrue(app.buttons[id].isHittable)
         }
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertFalse(webEditor.exists, "Home must show the day before opening the editor")
         showSampleCalendarEvents()
-        captureScreenshot("Floating dock Dawn")
+        captureScreenshot("Notes pull-up Dawn")
+        openWorkspaceSidebar()
+        captureScreenshot("Sidebar Dawn")
+        activate(app.buttons["sidebarClose"])
         openContext("Account & appearance")
         let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
         XCTAssertTrue(palette.waitForExistence(timeout: 5))
@@ -380,7 +418,10 @@ final class ApsidesUITests: XCTestCase {
         activate(app.buttons["Done"])
         returnToPhoneDay()
         showSampleCalendarEvents()
-        captureScreenshot("Floating dock Dark")
+        captureScreenshot("Notes pull-up Dark")
+        openWorkspaceSidebar()
+        captureScreenshot("Sidebar Dark")
+        activate(app.buttons["sidebarClose"])
         XCTAssertTrue(app.buttons["dailyNotePreview"].isHittable)
         relaunchPreservingData()
         openContext("Account & appearance")
@@ -521,8 +562,9 @@ final class ApsidesUITests: XCTestCase {
 
     private func openToday() {
         #if os(iOS)
-        if app.buttons["daySearch"].exists || app.buttons["closeDaySearch"].exists || app.navigationBars.buttons["Search"].exists {
+        if app.buttons["openWorkspaceSidebar"].exists || app.buttons["closeDaySearch"].exists || app.navigationBars.buttons["Search"].exists {
             returnToPhoneDay()
+            openWorkspaceSidebar()
             activate(app.buttons["recenterToday"])
             openDailyNoteIfNeeded()
             return
@@ -550,25 +592,38 @@ final class ApsidesUITests: XCTestCase {
         let closeNote = app.buttons["closeDailyNote"]
         if closeNote.exists { activate(closeNote) }
         for _ in 0..<5 {
-            if app.buttons["daySearch"].isHittable { return }
+            if app.buttons["openWorkspaceSidebar"].isHittable { return }
+            let closeSidebar = app.buttons["sidebarClose"]
+            if closeSidebar.exists && closeSidebar.isHittable { activate(closeSidebar); continue }
             let closeSearch = app.buttons["closeDaySearch"]
             if closeSearch.exists && closeSearch.isHittable { activate(closeSearch); continue }
             let back = app.navigationBars.buttons.element(boundBy: 0)
             if back.exists && back.isHittable { activate(back) } else { break }
         }
-        XCTAssertTrue(app.buttons["daySearch"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["openWorkspaceSidebar"].waitForExistence(timeout: 5))
     }
 
     private func openDaySearch() {
         returnToPhoneDay()
+        openWorkspaceSidebar()
         activate(app.buttons["daySearch"])
         XCTAssertTrue(app.buttons["closeDaySearch"].waitForExistence(timeout: 5))
     }
     #endif
 
+    private func openWorkspaceSidebar() {
+        #if os(iOS)
+        if app.buttons["sidebarClose"].exists { return }
+        let menu = app.buttons["openWorkspaceSidebar"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        activate(menu)
+        XCTAssertTrue(app.buttons["sidebarClose"].waitForExistence(timeout: 5))
+        #endif
+    }
+
     private func openDailyNoteIfNeeded() {
         #if os(iOS)
-        let control = app.buttons["openDailyNote"]
+        let control = app.buttons["dailyNotePreview"]
         if control.waitForExistence(timeout: 3) { activate(control) }
         #endif
     }
@@ -609,7 +664,8 @@ final class ApsidesUITests: XCTestCase {
 
     private func openCapture() {
         #if os(iOS)
-        openDaySearch()
+        returnToPhoneDay()
+        openWorkspaceSidebar()
         #endif
         let capture = app.buttons["quickCapture"].firstMatch
         XCTAssertTrue(capture.waitForExistence(timeout: 10))

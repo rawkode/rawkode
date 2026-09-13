@@ -6,6 +6,7 @@ struct DayTimelineView: View {
     @ObservedObject var store: WorkspaceStore
     var recenter: Int = 0
     @Binding var selectedDay: Date
+    var openSidebar: (() -> Void)? = nil
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var monthSize: CGFloat = 34
@@ -58,9 +59,19 @@ struct DayTimelineView: View {
     private var calendarHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(selectedDay, format: .dateTime.month(.wide))
-                    .font(.system(size: monthSize, weight: .semibold, design: .serif))
-                    .accessibilityAddTraits(.isHeader)
+                HStack {
+                    Text(selectedDay, format: .dateTime.month(.wide))
+                        .font(.system(size: monthSize, weight: .semibold, design: .serif))
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if let openSidebar {
+                        Button(action: openSidebar) {
+                            Image(systemName: "sidebar.left").frame(width: 44, height: 44)
+                        }.buttonStyle(.glass)
+                            .accessibilityLabel("Open sidebar")
+                            .accessibilityIdentifier("openWorkspaceSidebar")
+                    }
+                }
                 HStack {
                     Text(selectedDay, format: .dateTime.year()).font(.subheadline)
                     Spacer()
@@ -92,7 +103,8 @@ struct DayTimelineView: View {
                 }
             }.padding(.horizontal, 12)
                 .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height),
+                    guard openSidebar == nil || value.startLocation.x > 24,
+                          abs(value.translation.width) > abs(value.translation.height),
                           let next = Calendar.current.date(byAdding: .day, value: value.translation.width < 0 ? 7 : -7, to: selectedDay) else { return }
                     selectedDay = next
                 })
