@@ -73,7 +73,9 @@ final class VoiceConversation: NSObject, ObservableObject {
                 self?.refreshAudioOutputs()
             }
         interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
-            .receive(on: RunLoop.main).sink { [weak self] _ in
+            .receive(on: RunLoop.main).sink { [weak self] notification in
+                guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
                 Task { @MainActor in await self?.stop(message: "Audio was interrupted. Start again when you’re ready.") }
             }
         #endif
@@ -226,6 +228,7 @@ final class VoiceConversation: NSObject, ObservableObject {
             guard remaining > 0, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             var text = String(row.text.prefix(min(remaining, 4_000)))
             while text.utf16.count > min(remaining, 4_000) { text.removeLast() }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             remaining -= text.utf16.count
             return ["role": row.speaker.rawValue, "content": text]
         }.reversed()
