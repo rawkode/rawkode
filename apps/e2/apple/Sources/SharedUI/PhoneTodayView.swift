@@ -143,12 +143,15 @@ struct PhoneTodayView: View {
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { sidebarPresented = visible }
     }
 
-    private func sidebarAction(_ title: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
+    private func sidebarAction(_ title: String, symbol: String, id: String, isGitHub: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
             setSidebar(false)
             action()
         } label: {
-            Label(title, systemImage: symbol)
+            Label { Text(title) } icon: {
+                if isGitHub { GitHubMark().frame(width: 22, height: 22) }
+                else { Image(systemName: symbol) }
+            }
                 .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                 .contentShape(Rectangle())
@@ -176,7 +179,7 @@ struct PhoneTodayView: View {
                             Divider().padding(.vertical, 8)
                             sidebarAction("Day calendar", symbol: "calendar", id: "sidebarCalendar") { destination = .calendar }
                             sidebarAction("People", symbol: "person.2", id: "sidebarPeople") { destination = .people }
-                            sidebarAction("GitHub", symbol: "chevron.left.forwardslash.chevron.right", id: "sidebarGitHub") { destination = .github }
+                            sidebarAction("GitHub", symbol: "", id: "sidebarGitHub", isGitHub: true) { destination = .github }
                             sidebarAction("Captures", symbol: "tray", id: "sidebarCaptures") { destination = .captures }
                             sidebarAction("Meeting capture", symbol: "mic", id: "meetingCaptureBrowse") { destination = .meetings }
                             sidebarAction("On this device", symbol: "internaldrive", id: "sidebarLocalNotes") { destination = .localNotes }
@@ -214,24 +217,13 @@ private struct DaySearchView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @State private var query = ""
-    @State private var showCalendar = false
     private func matches(_ text: String) -> Bool { text.localizedCaseInsensitiveContains(query) }
     var body: some View {
         NavigationStack {
             List {
                 if query.isEmpty {
-                    Section("Browse") {
-                        NavigationLink("Tasks") { TasksView(workspace: store) }
-                        NavigationLink("Day calendar") { AgendaView(store: store) }
-                        NavigationLink("People") { PeopleView(store: store) }
-                        NavigationLink("GitHub") { RepositoryListView(store: store) }
-                        NavigationLink("Captures") { CaptureListView(store: store) }
-                        NavigationLink("Meeting capture") { MeetingCaptureLibraryView(store: store) }
-                            .accessibilityIdentifier("meetingCaptureBrowse")
-                        NavigationLink("On this device") { LocalDaybookView(store: store, showAgenda: { showCalendar = true }) }
-                        NavigationLink("Account & appearance") { SettingsView(store: store, session: store.session) }
-                            .accessibilityIdentifier("todaySettings")
-                    }
+                    ContentUnavailableView("Search your workspace", systemImage: "magnifyingglass", description: Text("Find saved events, people, GitHub activity, and captures."))
+                        .listRowBackground(Color.clear)
                 } else {
                     Section("Saved calendar") {
                         ForEach((store.calendarContext?.snapshot.events ?? store.snapshot?.events ?? []).filter { matches($0.title) }) { event in
@@ -263,7 +255,6 @@ private struct DaySearchView: View {
             .searchable(text: $query, prompt: "Events, people, GitHub, captures")
             .scrollContentBackground(.hidden).background(theme.canvas).foregroundStyle(theme.ink)
             .navigationTitle("Search")
-            .navigationDestination(isPresented: $showCalendar) { AgendaView(store: store) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("closeDaySearch") }
                 ToolbarItem(placement: .topBarLeading) {

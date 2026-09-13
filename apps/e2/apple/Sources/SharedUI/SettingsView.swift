@@ -14,8 +14,8 @@ struct SettingsView: View {
                     Picker("Palette", selection: $theme) { ForEach(ApsidesTheme.allCases) { Text($0.label).tag($0) } }
                 }
                 Section("Enchiridion account") {
-                    Text(session.origin.host ?? "Enchiridion").font(.callout)
-                    Text(session.isConnected ? "Connected" : "Local notebook · not connected").foregroundStyle(theme.secondary)
+                    Text(session.email ?? session.origin.host ?? "Enchiridion").font(.callout)
+                    Text(session.isConnected ? "Connected" : (store.vault.accountID != nil ? "Offline · showing saved data" : "Not connected")).foregroundStyle(theme.secondary)
                     if session.isConnected || store.vault.accountID != nil {
                         Button("Refresh calendars and activity") { Task { await store.refresh() } }.disabled(store.refreshing)
                         Button("Sign out") { Task { await store.signOut() } }
@@ -24,11 +24,22 @@ struct SettingsView: View {
                         Button("Sign in") { signIn = true }
                     }
                     if let error = session.errorMessage { Text(error).font(.callout).foregroundStyle(theme.secondary) }
-                    Text("Sign-in opens your existing Enchiridion workspace. The Today editor uses your web workspace. Earlier device notes remain local. Send individual captures to the workspace when ready.").font(.caption).foregroundStyle(theme.secondary)
                 }
                 Section("Your data") {
-                    Text("Local notes and capture drafts are saved on this device. They remain here when you sign out.")
-                    Text("Apple Watch captures are acknowledged only after the iPhone saves them. This does not mean they have reached your account.").font(.caption).foregroundStyle(theme.secondary)
+                    NavigationLink("Storage & sync") {
+                        Form {
+                            Section("On this device") {
+                                Text("Device notes and capture drafts remain here when you sign out.")
+                                Text("Pending task changes stay on this device until they sync to your account.")
+                            }
+                            Section("Workspace") {
+                                Text("The daily note belongs to your connected workspace. Use Send to workspace to upload individual captures.")
+                            }
+                            Section("Apple Watch") {
+                                Text("A capture reaches your phone before it reaches your account. Check its status in Captures.")
+                            }
+                        }.formStyle(.grouped).navigationTitle("Storage & sync")
+                    }
                 }
             }.formStyle(.grouped).navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -47,7 +58,7 @@ struct SettingsView: View {
                         }
                     }
                     .safeAreaInset(edge: .bottom) {
-                        Text(session.errorMessage ?? "Use your existing sign-in method. If it does not work in this window, close it and continue using your local notebook.").font(.caption).padding().background(.regularMaterial)
+                        if let error = session.errorMessage { Text(error).font(.caption).padding().background(.regularMaterial) }
                     }
                     .onChange(of: session.isConnected) { _, connected in if connected { signIn = false; Task { await store.refresh() } } }
             }

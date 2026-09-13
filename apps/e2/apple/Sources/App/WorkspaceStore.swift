@@ -252,16 +252,33 @@ final class WorkspaceStore: ObservableObject {
     }
     func send(_ capture: Capture) async {
         guard !sending.contains(capture.id), capture.source != .workspace, !isUITesting, !demo else { return }
-        sending.insert(capture.id); defer { sending.remove(capture.id) }
+        guard let owner = vault.accountID ?? session.accountID,
+              session.accountID == nil || session.accountID == owner else {
+            connectionError = "Connect your account before sending this capture."
+            return
+        }
+        let generation = connectionGeneration
+        var accountChanged = false
+        // A change away and back still invalidates the original send intent.
+        let identityObserver = session.$accountID.dropFirst().sink { account in
+            if account != owner { accountChanged = true }
+        }
+        sending.insert(capture.id)
+        defer { identityObserver.cancel(); sending.remove(capture.id) }
         do {
             try await session.verifyConnection()
-            guard let account = session.accountID else { return }
-            if vault.accountID != account { try bindAccount(account) }
-            let generation = connectionGeneration
+            guard !accountChanged, connectionGeneration == generation, session.accountID == owner else {
+                connectionError = "The account changed. Your capture is still on this device."
+                return
+            }
+            if vault.accountID != owner { try bindAccount(owner) }
             try await session.createCapture(id: capture.id, text: capture.text, date: capture.createdAt)
-            guard connectionGeneration == generation, account == session.accountID else { return }
-            var next = vault; next.uploaded.insert(capture.id); next.accountID = account; try commit(next)
-        } catch { connectionError = error.localizedDescription }
+            guard !accountChanged, connectionGeneration == generation, owner == session.accountID else { return }
+            var next = vault; next.uploaded.insert(capture.id); next.accountID = owner; try commit(next)
+        } catch {
+            guard !accountChanged, connectionGeneration == generation else { return }
+            connectionError = error.localizedDescription
+        }
     }
     func signOut() async {
         guard await session.signOut() else { return }

@@ -144,10 +144,14 @@ struct DayTimelineView: View {
     }
 
     @ViewBuilder private func allDay(_ events: [AgendaEvent]) -> some View {
-        let untimed = events.filter { $0.allDay || $0.start == nil }
+        eventStrip(events.filter { $0.allDay }, label: "All-day")
+        eventStrip(events.filter { !$0.allDay && $0.start == nil }, label: "No time")
+    }
+
+    @ViewBuilder private func eventStrip(_ untimed: [AgendaEvent], label: String) -> some View {
         if !untimed.isEmpty {
             HStack(spacing: 8) {
-                Text("All-day").font(.caption).foregroundStyle(theme.secondary).frame(width: 48, alignment: .trailing)
+                Text(label).font(.caption).foregroundStyle(theme.secondary).frame(width: 48, alignment: .trailing)
                 ScrollView(.horizontal) {
                     HStack(spacing: 6) {
                         ForEach(untimed) { event in
@@ -216,6 +220,10 @@ struct DayTimelineView: View {
                         }.buttonStyle(.plain).id(entry.id)
                     }
                 }.padding(20)
+            }
+            .task(id: snapshot.day) {
+                let initial = Calendar.current.isDateInToday(selectedDay) ? target : entries.first?.id
+                if let initial { proxy.scrollTo(initial, anchor: .center) }
             }
             .onChange(of: recenter) { _, _ in
                 if let target { proxy.scrollTo(target, anchor: .center) }

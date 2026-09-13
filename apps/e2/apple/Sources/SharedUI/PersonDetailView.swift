@@ -15,18 +15,18 @@ struct PersonDetailView: View {
             if emails.isEmpty {
                 ContentUnavailableView("No contact details", systemImage: "person.crop.circle",
                     description: Text("This person has no email address in your connected directory."))
-                    .listRowBackground(theme.canvas)
+
             } else {
                 Section("Email") {
                     ForEach(emails, id: \.self) { email in
                         if let destination = emailURL(email) {
                             Link(destination: destination) {
-                                Label(email, systemImage: "envelope")
+                                Label(email, systemImage: "envelope").textSelection(.enabled)
                             }
                             .accessibilityLabel("Email \(person.name) at \(email)")
-                            .listRowBackground(theme.canvas)
+
                         } else {
-                            Text(email).textSelection(.enabled).listRowBackground(theme.canvas)
+                            Text(email).textSelection(.enabled)
                         }
                     }
                 }

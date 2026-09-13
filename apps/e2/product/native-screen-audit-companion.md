@@ -92,3 +92,26 @@ File: `apple/Sources/Platform/CarPlaySceneDelegate.swift`, especially lines 30â€
 ## Evidence and limits
 
 Read current source for every file listed and the iOS/macOS SwiftUI patterns and Liquid Glass skills. Current Apple guidance was consulted for the content/control-layer distinction. No screenshots, simulator interaction, physical-device interaction, VoiceOver run or widget/CarPlay host render was performed in this audit. All acceptance items above are pending. Existing earlier build success does not validate visual or interactive quality. Prioritize daily-note/task correctness first, then the P1 content access/state issues, then remove P2 ornament and repeated labels.
+
+## Implementation update â€” 13 September, companion pass
+
+Implemented locally in the audited files:
+
+- iPhone voice: removed decorative glass/slogan, standard empty state, compact system controls, explicit other-surface explanation and shared-owner Send guard. The typed draft survives an ownership block. Call controls use ViewThatFits to fall back to a vertical arrangement instead of compressing labels.
+- Mac voice: removed decorative badge and repeated slogans, reduced padding, retained keyboard shortcuts/close teardown, standard buttons and concise status/disclosure.
+- Captions: initial bottom anchor; new captions follow only while follow mode is active and the user is not scrolling. Scrolling back reveals Latest. Programmatic content growth does not itself switch off follow mode. No automatic accessibility announcements were added.
+- Meetings: New Meeting moved to toolbar; disclosure remains in preparation. Transcript/Notes uses a fixed top segmented control, independent of transcript scrolling. Switching resets only scroll content, preserving the recorder and transcript/note ownership. Existing persistence, interruption and save-error handling remain.
+- People/repositories: standard empty/search-empty states and section-footer freshness. GitHub timeline now uses compact native NavigationLinks to full activity details, with search and a native filter Menu. GitHub branding remains in the empty state and existing detail component.
+- Person: retained native email list/links, enabled email text selection and removed per-row background overrides.
+- Calendar: one freshness caption; timezone is beside the day selector. Timeline/event interaction design unchanged.
+- Watch: removed persistent duplicate top success message, retained haptic success and per-capture receipt status; moved local-save explanation to a Form footer.
+- Widget: dedicated accessoryRectangular arrangement, separate from systemSmall; freshness, accent, background, privacy and deep-link behavior retained.
+
+Deliberately deferred:
+
+- CarPlay: no changes to the approved system template in this pass; its availability-copy refinement remains secondary to real-head-unit qualification.
+- Calendar tiny/overlapping tap geometry: requires actual touch/VoiceOver validation before changing competing hit regions. Native accessible agenda layout remains available.
+- Native visual and interactive acceptance: Mac lock state prevents UI verification in this run (confirmed by the coordinating agent). No render, screenshot, VoiceOver, dictation, rotary-input, keyboard-layout or physical-device claims are made.
+- Shared GitHubActivityCard remains the full detail component because other independently owned screens consume it; no cross-owner callsites were edited.
+
+Verification: production iOS Simulator build passed, including the Watch and widget dependency targets. The final iOS rebuild and Mac target build also passed after the last empty-state/caption/layout refinements (logs: /tmp/enchiridion-companion-ios.log and /tmp/enchiridion-companion-mac.log). No implementation-mirroring unit tests were added. The pending acceptance cases above remain necessary for visual and interaction qualification. No commit, push or deployment was performed by this companion pass.

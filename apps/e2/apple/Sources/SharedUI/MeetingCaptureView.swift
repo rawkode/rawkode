@@ -9,19 +9,9 @@ struct MeetingCaptureLibraryView: View {
 
     var body: some View {
         List {
-            Section {
-                Button {
-                    selected = MeetingCaptureSelection(transcript: MeetingTranscript(), ownerID: store.vault.accountID)
-                } label: {
-                    Label("Capture a meeting", systemImage: "waveform")
-                        .padding(.vertical, 6)
-                }.accessibilityIdentifier("newMeetingCapture")
-                Text("Transcribe the room through this iPhone’s microphone. Let everyone know before you start.")
-                    .font(.callout).foregroundStyle(theme.secondary)
-            }.listRowBackground(theme.canvas)
             Section("Saved on this device") {
                 if store.meetingTranscripts.isEmpty {
-                    Text("Your meeting transcripts will appear here.").foregroundStyle(theme.secondary)
+                    ContentUnavailableView("No meetings yet", systemImage: "waveform", description: Text("Capture a meeting to keep a transcript and notes on this device."))
                 }
                 ForEach(store.meetingTranscripts.sorted { $0.startedAt > $1.startedAt }, id: \.id) { transcript in
                     Button { selected = MeetingCaptureSelection(transcript: transcript, ownerID: store.vault.accountID) } label: {
@@ -41,7 +31,13 @@ struct MeetingCaptureLibraryView: View {
             }
         }
         .scrollContentBackground(.hidden).background(theme.canvas).foregroundStyle(theme.ink)
-        .navigationTitle("Meeting capture")
+        .navigationTitle("Meetings")
+        .toolbar {
+            Button {
+                selected = MeetingCaptureSelection(transcript: MeetingTranscript(), ownerID: store.vault.accountID)
+            } label: { Label("New meeting", systemImage: "plus") }
+                .accessibilityIdentifier("newMeetingCapture")
+        }
         .sheet(item: $selected) { selection in
             MeetingCaptureView(store: store, transcript: selection.transcript, ownerID: selection.ownerID)
         }
@@ -63,6 +59,7 @@ private struct MeetingCaptureView: View {
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @State private var participantsInformed = false
     @State private var closing = false
+    @State private var showingNotes = false
 
     init(store: WorkspaceStore, transcript: MeetingTranscript, ownerID: String?) {
         self.store = store
@@ -93,11 +90,18 @@ private struct MeetingCaptureView: View {
                             Button("Retry saving") { persist() }
                         }.accessibilityIdentifier("meetingSaveError")
                     }
-                    transcriptContent
-                    notes
-                    Text("Transcript and notes stay on this device. Live text may change until it is finalized. Your notes stay separate from the transcript.")
+                    if showingNotes { notes } else { transcriptContent }
+                    Text(showingNotes ? "Your notes stay separate from the transcript, on this device." : "Live text may change until finalized. The transcript stays on this device.")
                         .font(.caption).foregroundStyle(theme.secondary)
                 }.padding(24)
+            }
+            .id(showingNotes)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Picker("Meeting content", selection: $showingNotes) {
+                    Text("Transcript").tag(false)
+                    Text("Notes").tag(true)
+                }.pickerStyle(.segmented).accessibilityIdentifier("meetingContentMode")
+                    .padding(.horizontal, 20).padding(.vertical, 12).background(.bar)
             }
             .background(theme.canvas).foregroundStyle(theme.ink)
             .navigationTitle("Meeting")
@@ -108,7 +112,7 @@ private struct MeetingCaptureView: View {
                         .accessibilityIdentifier("closeMeetingCapture")
                 }
             }
-            .safeAreaInset(edge: .bottom) { controls.padding(.horizontal, 24).padding(.vertical, 12).background(theme.canvas) }
+            .safeAreaInset(edge: .bottom) { controls.padding(.horizontal, 20).padding(.vertical, 12).background(.bar) }
         }
         .tint(theme.accent).preferredColorScheme(theme.scheme)
         .interactiveDismissDisabled(busy || closing || store.meetingStorageError != nil)
@@ -160,13 +164,16 @@ private struct MeetingCaptureView: View {
     }
 
     private var preparation: some View {
-        Toggle("Everyone knows this meeting will be transcribed", isOn: $participantsInformed)
-            .font(.body).accessibilityIdentifier("meetingParticipantsInformed")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("This iPhone’s microphone transcribes the room. Let everyone know before you start.")
+                .font(.callout).foregroundStyle(theme.secondary)
+            Toggle("Everyone knows this meeting will be transcribed", isOn: $participantsInformed)
+                .font(.body).accessibilityIdentifier("meetingParticipantsInformed")
+        }
     }
 
     private var transcriptContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Transcript").font(.headline)
             if recorder.transcript.segments.isEmpty && recorder.liveSegment == nil {
                 Text("Spoken words will appear here after recording starts.").foregroundStyle(theme.secondary)
             }
@@ -187,9 +194,9 @@ private struct MeetingCaptureView: View {
 
     private var notes: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your notes and corrections").font(.headline)
+            Text("Notes and corrections").font(.headline)
             TextEditor(text: Binding(get: { recorder.transcript.note }, set: { value in recorder.updateNote(value) }))
-                .frame(minHeight: 140).scrollContentBackground(.hidden)
+                .frame(minHeight: 260).scrollContentBackground(.hidden)
                 .padding(8).background(theme.base, in: .rect(cornerRadius: 12))
                 .accessibilityLabel("Meeting notes and corrections").accessibilityIdentifier("meetingNotes")
         }
@@ -216,7 +223,7 @@ private struct MeetingCaptureView: View {
                 Button(recorder.transcript.recordingState == .interrupted ? "Resume recording" : "Start recording", systemImage: "mic.fill") {
                     guard persist() else { return }
                     Task { await recorder.start(participantsInformed: participantsInformed); persist() }
-                }.buttonStyle(.glassProminent).disabled(!canStart).frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).disabled(!canStart).frame(maxWidth: .infinity)
                     .accessibilityIdentifier("startMeetingRecording")
             }
         }

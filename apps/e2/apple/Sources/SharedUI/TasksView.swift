@@ -11,6 +11,7 @@ struct TasksView: View {
     @ObservedObject var workspace: WorkspaceStore
     @ObservedObject var tasks: TasksStore
     @ObservedObject var session: NativeSession
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var collection: TaskCollection = .today
     @State private var query = ""
     @State private var editing: PendingTaskEdit?
@@ -21,6 +22,7 @@ struct TasksView: View {
         tasks.tasks.filter { task in
             let matches = query.isEmpty || task.title.localizedCaseInsensitiveContains(query)
             guard matches else { return false }
+            if !query.isEmpty { return true }
             switch collection {
             case .inbox: return task.status == "open" && task.dueDate == nil
             case .today: return task.status == "open" && (task.dueDate.map { $0 <= today } ?? false)
@@ -35,11 +37,7 @@ struct TasksView: View {
     var body: some View {
         List {
             Section {
-                Text("\(visible.count) \(visible.count == 1 ? "task" : "tasks")\(collection == .today ? " · \(visible.filter { ($0.dueDate ?? today) < today }.count) overdue" : "")").font(.title3).foregroundStyle(theme.secondary)
-                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                Picker("Collection", selection: $collection) {
-                    ForEach(TaskCollection.allCases) { value in Text(value.rawValue).tag(value) }
-                }.pickerStyle(.segmented).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                collectionPicker.listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             if let error = tasks.error {
                 Section {
@@ -48,37 +46,46 @@ struct TasksView: View {
                 }
             }
             if !tasks.pending.isEmpty {
-                Section("Saved on this device · \(tasks.pending.count) waiting") {
-                    Button("Sync pending changes") { Task { await tasks.sync() } }.disabled(tasks.sending || !session.isConnected)
+                Section("Waiting to sync") {
+                    if session.isConnected {
+                        Button("Sync now") { Task { await tasks.sync() } }.disabled(tasks.sending)
+                    }
                     ForEach(tasks.pending) { edit in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(edit.title).font(.headline)
-                            Text(edit.conflict ? "Changed elsewhere · your edit needs review" : "Waiting to sync")
+                            Text(edit.conflict ? "Could not apply your edit because this task changed." : "Waiting to sync")
                                 .font(.caption).foregroundStyle(theme.secondary)
                             if edit.conflict {
-                                Text("Your version: \(edit.dueDate ?? "No date") · \(edit.priority) priority · \(edit.status)").font(.caption)
+                                if let current = tasks.tasks.first(where: { $0.id == edit.taskID }) {
+                                    Text("Current: \(current.title) · \(current.dueDate.map(displayDay) ?? "No date") · \(current.priority) priority · \(current.status)").font(.caption)
+                                }
+                                Text("Your version: \(edit.dueDate.map(displayDay) ?? "No date") · \(edit.priority) priority · \(edit.status)").font(.caption)
                                 Button("Discard my pending edit", role: .destructive) { tasks.discard(edit.id) }
                             }
                         }
                     }
                 }
             }
-            if visible.isEmpty {
+            if tasks.loading && !tasks.hasLoaded && tasks.tasks.isEmpty {
+                ProgressView("Loading tasks…").listRowBackground(Color.clear)
+            } else if visible.isEmpty {
                 Section {
                     ContentUnavailableView {
-                        Label(query.isEmpty ? "\(collection.rawValue) is clear" : "No matching tasks", systemImage: collection.symbol)
+                        Label(query.isEmpty ? (session.isConnected && tasks.hasLoaded ? "\(collection.rawValue) is clear" : "No saved tasks") : "No matching tasks", systemImage: collection.symbol)
                     } description: {
-                        Text(tasks.loading ? "Loading your tasks…" : (query.isEmpty ? "Capture a task, then give it a day when you’re ready." : "Try another word."))
+                        Text(query.isEmpty ? (tasks.canCreate ? "Add a task when you’re ready." : "Connect your account to add tasks.") : "Try another word. Search includes all task collections.")
                     }
                 }.listRowBackground(Color.clear)
             } else {
-                Section(collection == .today ? "Today & overdue" : collection.rawValue) {
+                Section(query.isEmpty ? (collection == .today ? "Today & overdue" : collection.rawValue) : "Search results") {
                     ForEach(visible) { task in taskRow(task) }
                 }
             }
             if !session.isConnected {
-                Section { Text("Saved tasks remain available offline. Connect your account to sync changes.").font(.caption).foregroundStyle(theme.secondary)
+                Section {
                     Button("Account settings") { workspace.settingsPresented = true }
+                } footer: {
+                    Text(tasks.canCreate ? "Your tasks are saved on this device. Reconnect to sync changes." : "Connect your account to add and sync tasks.")
                 }
             }
         }
@@ -86,7 +93,7 @@ struct TasksView: View {
         .navigationTitle("Tasks")
         .searchable(text: $query, prompt: "Find a task")
         .toolbar {
-            ToolbarItem { Button { editing = PendingTaskEdit(title: "", dueDate: collection == .today ? today : nil, priority: "none", status: "open") } label: { Label("New task", systemImage: "plus") }.accessibilityIdentifier("newTask") }
+            ToolbarItem { Button { editing = PendingTaskEdit(title: "", dueDate: collection == .today ? today : nil, priority: "none", status: "open") } label: { Label("New task", systemImage: "plus") }.accessibilityIdentifier("newTask").disabled(!tasks.canCreate) }
             ToolbarItem { if tasks.loading || tasks.sending { ProgressView() } }
         }
         .sheet(item: $editing) { edit in TaskEditor(tasks: tasks, initial: edit) }
@@ -96,6 +103,20 @@ struct TasksView: View {
             await tasks.refresh()
         }
         .refreshable { await tasks.sync(); await tasks.refresh() }
+    }
+    @ViewBuilder private var collectionPicker: some View {
+        if typeSize.isAccessibilitySize {
+            Picker("Collection", selection: $collection) { ForEach(TaskCollection.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+        } else {
+            Picker("Collection", selection: $collection) { ForEach(TaskCollection.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+        }
+    }
+    private func displayDay(_ key: String) -> String {
+        if key == today { return "Today" }
+        let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: key) else { return key }
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
     private func taskRow(_ task: GraphTask) -> some View {
         HStack(spacing: 14) {
@@ -111,7 +132,7 @@ struct TasksView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(task.title).font(.body.weight(.medium)).strikethrough(task.status == "completed").multilineTextAlignment(.leading)
                     HStack {
-                        if let due = task.dueDate { Text(due == today ? "Today" : (due < today && task.status == "open" ? "Overdue · \(due)" : due)) }
+                        if let due = task.dueDate { Text(due < today && task.status == "open" ? "Overdue · \(displayDay(due))" : displayDay(due)) }
                         if task.priority != "none" { Label(task.priority.capitalized, systemImage: "flag.fill") }
                     }.font(.caption).foregroundStyle(theme.secondary)
                 }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading).contentShape(Rectangle())
@@ -131,6 +152,8 @@ private struct TaskEditor: View {
     @State private var date: Date
     @State private var hasDate: Bool
     @State private var saving = false
+    @State private var saveError: String?
+    @FocusState private var titleFocused: Bool
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     init(tasks: TasksStore, initial: PendingTaskEdit) {
         self.tasks = tasks; _scope = State(initialValue: tasks.scopeID); _edit = State(initialValue: initial)
@@ -141,16 +164,16 @@ private struct TaskEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section { TextField("What needs doing?", text: $edit.title, axis: .vertical).font(.title3).lineLimit(2...5).accessibilityIdentifier("taskTitle") }
+                Section { TextField("What needs doing?", text: $edit.title, axis: .vertical).font(.title3).lineLimit(2...5).accessibilityIdentifier("taskTitle").focused($titleFocused) }
                 if edit.title.utf16.count > 500 { Text("Keep the title under 500 characters.").font(.caption) }
                 Section("Plan") {
-                    Toggle("Give it a day", isOn: $hasDate)
+                    Toggle("Due date", isOn: $hasDate)
                     if hasDate { DatePicker("Due", selection: $date, displayedComponents: .date) }
                     Picker("Priority", selection: $edit.priority) {
                         Text("None").tag("none"); Text("Low").tag("low"); Text("Medium").tag("medium"); Text("High").tag("high")
                     }
                 }
-                if let error = tasks.error { Text(error).font(.caption).foregroundStyle(theme.secondary) }
+                if let error = saveError { Text(error).font(.caption).foregroundStyle(theme.secondary) }
             }.scrollContentBackground(.hidden).background(theme.canvas)
                 .navigationTitle(edit.taskID == nil ? "New task" : "Edit task")
                 .toolbar {
@@ -160,10 +183,11 @@ private struct TaskEditor: View {
                             edit.dueDate = hasDate ? TaskDay.key(date) : nil
                             edit.title = edit.title.trimmingCharacters(in: .whitespacesAndNewlines)
                             saving = true
-                            Task { let saved = await tasks.save(edit, expectedScope: scope); saving = false; if saved { dismiss() } }
+                            Task { let saved = await tasks.save(edit, expectedScope: scope); saving = false; if saved { dismiss() } else { saveError = tasks.error } }
                         }.disabled(saving || edit.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || edit.title.utf16.count > 500).accessibilityIdentifier("saveTask")
                     }
                 }
         }.tint(theme.accent).foregroundStyle(theme.ink).interactiveDismissDisabled(saving)
+            .task { if edit.taskID == nil { titleFocused = true } }
     }
 }

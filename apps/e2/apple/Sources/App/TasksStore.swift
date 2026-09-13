@@ -30,6 +30,8 @@ struct PendingTaskEdit: Codable, Identifiable {
     @Published private(set) var tasks: [GraphTask] = []
     @Published private(set) var pending: [PendingTaskEdit] = []
     @Published private(set) var loading = false
+    @Published private(set) var hasLoaded = false
+    var canCreate: Bool { owner != nil && cacheURL != nil }
     @Published private(set) var sending = false
     @Published private(set) var error: String?
     private var owner: String?
@@ -44,20 +46,21 @@ struct PendingTaskEdit: Codable, Identifiable {
     func bind(accountID: String?) {
         guard owner != accountID else { return }
         generation = UUID()
-        owner = accountID; tasks = []; pending = []; error = nil; cacheURL = nil; loading = false; sending = false
+        owner = accountID; tasks = []; pending = []; error = nil; cacheURL = nil; loading = false; sending = false; hasLoaded = false
         guard let accountID else { return }
         let key = SHA256.hash(data: Data((session.origin.absoluteString + "|" + accountID).utf8)).map { String(format: "%02x", $0) }.joined()
         cacheURL = directory.appendingPathComponent("tasks-\(key).json")
         do {
             guard let cacheURL, FileManager.default.fileExists(atPath: cacheURL.path) else { return }
             let saved = try JSONDecoder().decode(Cache.self, from: Data(contentsOf: cacheURL))
-            tasks = saved.tasks; pending = saved.pending
+            tasks = saved.tasks; pending = saved.pending; hasLoaded = true
         } catch { self.error = "Your saved tasks could not be opened. The original file is unchanged."; cacheURL = nil }
     }
     func seedDemo() {
         guard ProcessInfo.processInfo.arguments.contains("--demo"), tasks.isEmpty else { return }
         let today = TaskDay.key(.now)
         let next = TaskDay.key(Calendar.current.date(byAdding: .day, value: 2, to: .now)!)
+        hasLoaded = true
         tasks = [
             GraphTask(id: "demo-1", title: "Shape the voice workspace", status: "open", dueDate: today, priority: "high", linkedEntityIds: [], revision: 1),
             GraphTask(id: "demo-2", title: "Book a little time to think", status: "open", dueDate: today, priority: "none", linkedEntityIds: [], revision: 1),
@@ -97,7 +100,7 @@ struct PendingTaskEdit: Codable, Identifiable {
             // A refresh begun before a successful mutation cannot roll its revision back.
             var merged = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.revision >= b.revision ? a : b })
             for task in tasks where task.revision != initialRevisions[task.id] && task.revision > (merged[task.id]?.revision ?? -1) { merged[task.id] = task }
-            try persist(tasks: Array(merged.values), pending: pending); error = nil
+            try persist(tasks: Array(merged.values), pending: pending); hasLoaded = true; error = nil
         } catch { guard self.generation == generation else { return }; self.error = "Couldn’t refresh tasks. Your saved tasks are still available. \(error.localizedDescription)" }
     }
     func save(_ edit: PendingTaskEdit, expectedScope: UUID) async -> Bool {
@@ -106,7 +109,11 @@ struct PendingTaskEdit: Codable, Identifiable {
         guard !edit.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, edit.title.utf16.count <= 500 else { return false }
         do { try persist(tasks: tasks, pending: pending + [edit]) }
         catch { self.error = "Couldn’t save this task on your device. Keep this window open and try again."; return false }
-        await sync(); return true
+        Task { [weak self] in
+            guard let self, self.scopeID == expectedScope else { return }
+            await self.sync()
+        }
+        return true
     }
     func discard(_ id: String) {
         do { try persist(tasks: tasks, pending: pending.filter { $0.id != id }) }

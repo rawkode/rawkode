@@ -17,6 +17,34 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
 
+### Native screen improvements — 13 September, 22:16 BST
+
+- Reviewed all native screen sources and implemented conventional controls and
+  simpler hierarchy across tasks, captures, settings, calendar/context, voice,
+  meetings, Watch and widget. The accepted home/sidebar/note controls remain.
+- Tasks return after durable local save; sync runs in the background. Meeting
+  Transcript/Notes is a fixed segmented control. Voice retains a single account
+  recovery prompt while disconnected and keeps another surface's call ownership.
+  Capture upload now pins the owning account across asynchronous verification.
+- iOS Simulator and Mac builds passed. All 52 core tests passed. Twelve distinct
+  Simulator UI journeys passed across focused runs: capture, device-note and
+  palette persistence; fresh launch; offline tasks; task dark mode; calendar;
+  repository filtering; meeting note switching/relaunch; voice mode switching;
+  voice account recovery with no microphone start; sidebar and daily-note access.
+  Two tests initially referenced replaced controls and passed after navigation
+  updates that retained their functional assertions.
+- Exported XCTest screenshots were visually reviewed and drove further removal
+  of redundant task and voice labels. [Screenshots](../apple/docs/screenshots/native-review/)
+  use test fixtures, not the user's live native account. No physical-device,
+  VoiceOver, long meeting, live audio-route or CarPlay qualification is claimed.
+- Cloud Build 35 (the preceding editor-only push) archived and exported an IPA,
+  but failed App Store preparation: Apple's Session Proxy Provider could not
+  authenticate with App Store Connect. The native update's release status must
+  be checked independently; a push is not TestFlight availability.
+- Follow-ups remain explicit in both screen audits: task conflict reapplication,
+  safe capture append into a daily note, full offline rich editing, and remaining
+  device/accessibility qualification. These are not represented as completed.
+
 ### Daily-note task creation — 13 September, 22:00 BST
 
 - The production editor now offers **New task** in the touch formatting menu

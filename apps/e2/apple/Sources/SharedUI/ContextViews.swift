@@ -48,17 +48,27 @@ struct PeopleView: View {
     @ObservedObject var store: WorkspaceStore
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
     @State private var query = ""
+    private var people: [ContextPerson] {
+        (store.context?.people ?? []).filter { query.isEmpty || ($0.name + " " + $0.emails.joined(separator: " ")).localizedCaseInsensitiveContains(query) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
     var body: some View {
         List {
-            ContextConnectionView(store: store, freshness: store.context?.freshness?.people)
-            ForEach((store.context?.people ?? []).filter { query.isEmpty || ($0.name + $0.emails.joined()).localizedCaseInsensitiveContains(query) }.sorted { $0.name < $1.name }) { person in
-                NavigationLink { PersonDetailView(person: person) } label: {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(person.name).font(.body.weight(.medium))
-                        if let email = person.emails.first { Text(email).font(.callout).foregroundStyle(theme.ink) }
+            Section {
+                if people.isEmpty && !query.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                } else if people.isEmpty && store.context != nil {
+                    ContentUnavailableView("No people today", systemImage: "person.2", description: Text("People linked to this day appear here."))
+                }
+                ForEach(people) { person in
+                    NavigationLink { PersonDetailView(person: person) } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(person.name).font(.body.weight(.medium))
+                            if let email = person.emails.first { Text(email).font(.callout).foregroundStyle(.secondary) }
+                        }
                     }
-                }.padding(.vertical, 7).listRowBackground(theme.canvas)
-            }
+                }
+            } footer: { ContextConnectionView(store: store, freshness: store.context?.freshness?.people) }
         }.modifier(ContextListAppearance(theme: theme)).navigationTitle("People").searchable(text: $query, prompt: "Name or email")
         .toolbar { Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(store.refreshing) }
     }
@@ -76,8 +86,15 @@ struct RepositoryListView: View {
         #endif
     }
     private var repositoryList: some View {
-            List {
-                ContextConnectionView(store: store, freshness: store.context?.freshness?.github)
+        List {
+            Section {
+                if !query.isEmpty && !repositories.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+                    ContentUnavailableView.search(text: query)
+                } else if repositories.isEmpty && store.context != nil {
+                    ContentUnavailableView {
+                        Label { Text("No GitHub activity") } icon: { GitHubMark().frame(width: 40, height: 40) }
+                    } description: { Text("Repositories with activity appear here.") }
+                }
                 ForEach(repositories.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { repository in
                     NavigationLink {
                         RepositoryTimeline(repository: repository, items: (store.context?.activity ?? []).filter { $0.repository == repository }, freshness: store.context?.freshness?.github, refreshFailed: store.contextRefreshError != nil)
@@ -85,11 +102,12 @@ struct RepositoryListView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(repository).font(.body.weight(.medium))
                             Text(activityCount((store.context?.activity ?? []).filter { $0.repository == repository }.count)).font(.caption).foregroundStyle(theme.ink)
-                        }.padding(.vertical, 9).listRowBackground(theme.canvas)
-                    }.listRowBackground(theme.canvas)
+                        }
+                    }
                 }
-            }.modifier(ContextListAppearance(theme: theme)).navigationTitle("GitHub").searchable(text: $query, prompt: "Find a repository")
-            .toolbar { Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(store.refreshing) }
+            } footer: { ContextConnectionView(store: store, freshness: store.context?.freshness?.github) }
+        }.modifier(ContextListAppearance(theme: theme)).navigationTitle("GitHub").searchable(text: $query, prompt: "Find a repository")
+        .toolbar { Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(store.refreshing) }
     }
 }
 struct RepositoryTimeline: View {
@@ -99,19 +117,41 @@ struct RepositoryTimeline: View {
     var freshness: ContextSectionFreshness? = nil
     var refreshFailed = false
     @State private var type = ""
+    @State private var query = ""
+    private var matching: [RepositoryActivity] {
+        items.filter { (type.isEmpty || $0.kind == type) && (query.isEmpty || ($0.title + " " + $0.actor).localizedCaseInsensitiveContains(query)) }
+            .sorted { $0.date > $1.date }
+    }
     var body: some View {
         List {
-            ContextFreshnessCaption(freshness: freshness, refreshFailed: refreshFailed).listRowBackground(theme.canvas)
-            Picker("Activity type", selection: $type) {
-                Text("All types").tag("")
-                ForEach(Array(Set(items.map(\.kind))).sorted(), id: \.self) { Text(activityKind($0, plural: true)).tag($0) }
-            }.listRowBackground(theme.canvas)
-            ForEach(items.filter { type.isEmpty || $0.kind == type }.sorted { $0.date > $1.date }) { item in
-                GitHubActivityCard(item: item)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowSeparator(.hidden).listRowBackground(theme.base)
-            }
+            Section {
+                if matching.isEmpty {
+                    if !query.isEmpty { ContentUnavailableView.search(text: query) }
+                    else { ContentUnavailableView("No matching activity", systemImage: "line.3.horizontal.decrease", description: Text(type.isEmpty ? "There is no activity in this repository for this day." : "Choose another activity type or show all types.")) }
+                }
+                ForEach(matching) { item in
+                    NavigationLink {
+                        ScrollView { GitHubActivityCard(item: item).padding() }.navigationTitle("Activity")
+                    } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(item.title).font(.body.weight(.medium)).lineLimit(2)
+                            Text([activityKind(item.kind), humanized(item.action), item.actor].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            Text(item.date, format: .dateTime.month(.abbreviated).day().hour().minute()).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } footer: { ContextFreshnessCaption(freshness: freshness, refreshFailed: refreshFailed) }
         }.modifier(ContextListAppearance(theme: theme)).navigationTitle(repository)
+            .searchable(text: $query, prompt: "Title or person")
+            .toolbar {
+                Menu {
+                    Picker("Activity type", selection: $type) {
+                        Text("All types").tag("")
+                        ForEach(Array(Set(items.map(\.kind))).sorted(), id: \.self) { Text(activityKind($0, plural: true)).tag($0) }
+                    }
+                } label: { Label("Filter activity", systemImage: "line.3.horizontal.decrease") }
+            }
     }
 }
 

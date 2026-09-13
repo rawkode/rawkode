@@ -24,6 +24,8 @@ struct AgendaView: View {
                 DatePicker("Calendar day", selection: $day, displayedComponents: .date)
                     .labelsHidden().disabled(store.demo || store.refreshing)
                 Spacer()
+                Text(TimeZone.current.abbreviation() ?? TimeZone.current.identifier)
+                    .font(.caption).foregroundStyle(.secondary)
                 if store.refreshing { ProgressView().controlSize(.small) }
             }.padding(.horizontal, 24).padding(.vertical, 12)
             if let snapshot {
@@ -122,8 +124,6 @@ private struct DayCalendar: View {
                     }.frame(height: Double(hours) * hourHeight + 24).padding(.trailing, 16)
                 }.task(id: snapshot.day) { proxy.scrollTo(initialHour, anchor: .top) }
             }
-            Text("Updated \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened)) · \(TimeZone.current.abbreviation() ?? TimeZone.current.identifier)")
-                .font(.caption).foregroundStyle(theme.secondary).padding(10)
         }
     }
 }

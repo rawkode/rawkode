@@ -27,10 +27,6 @@ private struct WatchTodayView: View {
                         Label("Capture a thought", systemImage: "mic")
                     }
                     .disabled(!store.ready)
-                    if store.lastSavedID != nil {
-                        Label("Saved on Watch", systemImage: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
                 }
                 Section("Up next") {
                     TimelineView(.periodic(from: .now, by: 60)) { timeline in
@@ -79,13 +75,14 @@ private struct WatchCaptureView: View {
 
     var body: some View {
         Form {
+            Section {
             TextField("What’s on your mind?", text: $text, axis: .vertical)
                 .onChange(of: text) { _, value in store.updateDraft(value) }
             Button("Save capture", systemImage: "checkmark") {
                 if store.capture(text) { dismiss() }
             }
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.ready)
-            Text("Saved on your watch first. Sent when iPhone is available.").font(.caption2).foregroundStyle(.secondary)
+            } footer: { Text("Saved here first. Sent when iPhone is available.") }
             if let error = store.error { Text(error).foregroundStyle(.red) }
         }
         .navigationTitle("Capture")

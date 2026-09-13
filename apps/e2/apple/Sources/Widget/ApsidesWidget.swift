@@ -31,29 +31,46 @@ struct AgendaProvider: TimelineProvider {
 }
 struct NextEventWidgetView: View {
     let entry: AgendaEntry
-    private var isHappeningNow: Bool {
+    @Environment(\.widgetFamily) private var family
+    private var validSnapshot: ContextSnapshot? {
         guard let snapshot = entry.snapshot, snapshot.day == DayIdentity.key(entry.date),
-              entry.date >= snapshot.fetchedAt, entry.date.timeIntervalSince(snapshot.fetchedAt) < 3600,
-              let event = snapshot.nextEvent(at: entry.date), let start = event.start else { return false }
-        return start <= entry.date
+              entry.date >= snapshot.fetchedAt, entry.date.timeIntervalSince(snapshot.fetchedAt) < 3600 else { return nil }
+        return snapshot
     }
+    private var event: AgendaEvent? { validSnapshot?.nextEvent(at: entry.date) }
+    private var isHappeningNow: Bool { event?.start.map { $0 <= entry.date } ?? false }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(isHappeningNow ? "Now" : "Up next", systemImage: "calendar").font(.caption)
-                .widgetAccentable()
-            if let snapshot = entry.snapshot, snapshot.day == DayIdentity.key(entry.date),
-               entry.date >= snapshot.fetchedAt, entry.date.timeIntervalSince(snapshot.fetchedAt) < 3600 {
-                if let event = snapshot.nextEvent(at: entry.date) {
-                    Text(event.title).font(.headline).lineLimit(2).privacySensitive()
-                    if let start = event.start { Text(start, style: .time).font(.title2.monospacedDigit()) }
-                } else { Text("No more events").font(.headline) }
+        Group {
+            if family == .accessoryRectangular {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let event {
+                        HStack {
+                            Text(isHappeningNow ? "Now" : "Up next")
+                            if let start = event.start { Text(start, style: .time).privacySensitive() }
+                        }.font(.caption).widgetAccentable()
+                        Text(event.title).font(.headline).lineLimit(2).privacySensitive()
+                    } else {
+                        Text(validSnapshot == nil ? "Refresh your day" : "No more events").font(.headline).lineLimit(1)
+                        if validSnapshot == nil { Text("Open Enchiridion on iPhone").font(.caption).lineLimit(1) }
+                    }
+                }
             } else {
-                Text("Refresh your day").font(.headline)
-                Text("Open Enchiridion on iPhone before your journey.").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(isHappeningNow ? "Now" : "Up next", systemImage: "calendar").font(.caption).widgetAccentable()
+                    if let event {
+                        Text(event.title).font(.headline).lineLimit(2).privacySensitive()
+                        if let start = event.start { Text(start, style: .time).font(.title2.monospacedDigit()).privacySensitive() }
+                    } else if validSnapshot != nil {
+                        Text("No more events").font(.headline)
+                    } else {
+                        Text("Refresh your day").font(.headline)
+                        Text("Open Enchiridion on iPhone.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "enchiridion://today"))
+            .containerBackground(.fill.tertiary, for: .widget)
+            .widgetURL(URL(string: "enchiridion://today"))
     }
 }
 @main

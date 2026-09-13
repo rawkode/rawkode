@@ -49,3 +49,20 @@
 - **Device notes:** explicit local ownership, date changes preserve edits, local save errors are truthful, share works, no silent migration.
 
 This audit supplies implementation order and acceptance criteria; it does not claim those improvements are built, deployed, or runtime-verified.
+
+## Implementation status after the daily-note task repair
+
+The parent verified the canonical daily-note task flow in production before this work began. These native changes are local and await integration/release.
+
+| Screen | Implemented | Deferred and reason |
+| --- | --- | --- |
+| Workspace / iPad | Voice toolbar on iPad; Meeting capture in iOS split-view sidebar; primary workspaces ordered before meeting/device utilities. | Mac meeting capture is not implemented by the existing iOS-only recorder screen; do not advertise an unavailable destination. iPad runtime qualification remains open. |
+| Tasks | Initial loading differs from successful empty/offline states; no-account creation disabled with account guidance; local Save returns after disk persistence and background sync retains failures; title autofocus, Due date label, localized dates, adaptive accessibility picker; search spans all collections; redundant large count removed. | Conflict protocol unchanged. UI now states failed application honestly and shows current versus pending fields; only explicitly discarding the pending edit is supported. Safe reapply requires separate revision/protocol tests. |
+| Captures | Compose toolbar on populated lists; no-result state; reduced decorative copy; primary Send to workspace accurately names canonical capture-document upload; legacy device-note append moved to More. Upload pins cached owning account and invocation generation before verification, with a change-away-and-back identity latch. | Append to today's shared note is not the existing upload operation. It stays deferred rather than mislabeling a standalone capture as daily-note content. Live account-switch/upload qualification remains open. |
+| Settings | Account email leads when available; clean install says Not connected; cached-owner disconnection says saved data is available; storage details moved into existing native navigation; empty sign-in footer removed. | Manual Check connection remains as a recovery path until provider sign-in completion is tested live. |
+| Phone home / Search | Removed duplicate navigation catalogue from empty Search; retained accepted sidebar, Today recenter, calendar week strip and note pull-up. | No further navigation redesign. |
+| Day timeline | Genuine all-day events separated from unknown-time events; accessible agenda scrolls to current/next event on first display. | New layout/state needs accessibility runtime review; calendar colors and existing layout retained. |
+| Device notes | Explicit native Device notes title; removed repeated upcoming-event preview and second large Today heading; date picker, editor, local-save status and Share retained. | No migration or deletion of legacy data. |
+| Today editor | Existing save-before-close protections retained; no speculative cache/display changes. | Keeping a previous WKWebView visible during reload could expose an old account/document. Offline document and ownership proof are required before changing opacity/loading behavior. |
+
+Verification obtained during implementation: iOS build succeeded; five focused Xcode UI tests passed in 131.840 seconds (capture persistence and populated-list composition, device-note persistence, initial empty states, appearance persistence, task offline persistence). These tests ran before the final capture account-fence and small settings/order refinements. Mac build passed after the account fence; root will run the final integrated build. The isolated TasksStore harness compiled the actual source and passed stale-scope rejection, account cache isolation, stable retry identity, durable offline persistence, Save returning while network is pending, and retention after failed sync. No fresh visual screenshot review or physical-device/live upload result is claimed. Diff whitespace check passed.

@@ -1,10 +1,18 @@
 import SwiftUI
 
 enum WorkspaceDestination: String, CaseIterable, Identifiable, Hashable {
-    case tasks = "Tasks", today = "Today", localNotes = "On this device", inbox = "Captures", agenda = "Day calendar", people = "People", github = "GitHub"
+    case today = "Today", tasks = "Tasks", agenda = "Day calendar", inbox = "Captures", people = "People", github = "GitHub"
+    #if os(iOS)
+    case meetings = "Meeting capture"
+    #endif
+    case localNotes = "On this device"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .tasks: "checklist"; case .today: "sun.max"; case .localNotes: "internaldrive"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
+        switch self {
+        #if os(iOS)
+        case .meetings: "mic"
+        #endif
+        case .tasks: "checklist"; case .today: "sun.max"; case .localNotes: "internaldrive"; case .inbox: "tray"; case .agenda: "calendar"; case .people: "person.2"; case .github: "chevron.left.forwardslash.chevron.right" }
     }
 }
 struct WorkspaceView: View {
@@ -15,6 +23,7 @@ struct WorkspaceView: View {
     #endif
     @State private var selection: WorkspaceDestination? = .today
     @State private var todayRecenter = 0
+    @State private var voicePresented = false
     @State private var contextPath: [WorkspaceDestination] = []
     @Namespace private var captureTransition
     @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
@@ -35,6 +44,9 @@ struct WorkspaceView: View {
                 .navigationTransition(.zoom(sourceID: "capture", in: captureTransition))
                 #endif
         }
+        #if os(iOS)
+        .sheet(isPresented: $voicePresented) { VoiceConversationView(session: store.session, conversation: store.voice) }
+        #endif
         .sheet(isPresented: $store.settingsPresented) { SettingsView(store: store, session: store.session) }
         .safeAreaInset(edge: .bottom) {
             if let error = store.storageError {
@@ -53,7 +65,10 @@ struct WorkspaceView: View {
     private var desktop: some View {
         NavigationSplitView {
             List(WorkspaceDestination.allCases, selection: $selection) { destination in
-                Label(destination.rawValue, systemImage: destination.symbol).tag(destination)
+                Label { Text(destination.rawValue) } icon: {
+                    if destination == .github { GitHubMark().frame(width: 18, height: 18) }
+                    else { Image(systemName: destination.symbol) }
+                }.tag(destination)
             }
             .navigationTitle("Enchiridion")
             .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 240)
@@ -68,6 +83,11 @@ struct WorkspaceView: View {
                     ToolbarItem {
                         Button { openWindow(id: "voice") } label: { Label("Voice", systemImage: "waveform") }
                             .help("Open voice conversation (⇧⌘V)").accessibilityIdentifier("openVoiceConversation")
+                    }
+                    #else
+                    ToolbarItem {
+                        Button { voicePresented = true } label: { Label("Voice", systemImage: "waveform") }
+                            .accessibilityIdentifier("openVoiceConversation")
                     }
                     #endif
                 }
@@ -91,6 +111,9 @@ struct WorkspaceView: View {
     }
     @ViewBuilder private func destination(_ selected: WorkspaceDestination) -> some View {
         switch selected {
+        #if os(iOS)
+        case .meetings: MeetingCaptureLibraryView(store: store)
+        #endif
         case .tasks: TasksView(workspace: store)
         case .localNotes: LocalDaybookView(store: store, showAgenda: showAgenda)
         case .today: TodayView(store: store, showAgenda: showAgenda)

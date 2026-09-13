@@ -123,7 +123,8 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Check connection"].waitForExistence(timeout: 5))
         activate(app.buttons["Cancel"])
         XCTAssertTrue(signIn.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["voiceStatus"].label, "Talk through your day.")
+        XCTAssertFalse(app.staticTexts["voiceStatus"].exists)
+        XCTAssertTrue(app.staticTexts["voiceAccountStatus"].exists)
         XCTAssertFalse(app.buttons["End"].exists)
         captureScreenshot("Voice ready Dawn")
         activate(app.buttons["Done"])
@@ -146,14 +147,27 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertTrue(start.isEnabled)
         XCTAssertFalse(app.staticTexts["Microphone is on"].exists)
         let note = "Planning meeting " + UUID().uuidString
+        let contentMode = app.segmentedControls["meetingContentMode"]
+        XCTAssertTrue(contentMode.waitForExistence(timeout: 5))
+        activate(contentMode.buttons["Notes"])
         let editor = app.textViews["meetingNotes"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
         activate(editor)
         editor.typeText(note)
+        activate(contentMode.buttons["Transcript"])
+        XCTAssertTrue(app.staticTexts["Spoken words will appear here after recording starts."].waitForExistence(timeout: 5))
+        XCTAssertFalse(editor.exists)
+        activate(contentMode.buttons["Notes"])
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertEqual(editor.value as? String, note)
         activate(app.buttons["closeMeetingCapture"])
         XCTAssertTrue(app.staticTexts[note].waitForExistence(timeout: 5))
         relaunchPreservingData()
         openContext("Meeting capture")
         activate(app.staticTexts[note])
+        XCTAssertTrue(contentMode.waitForExistence(timeout: 5))
+        activate(contentMode.buttons["Notes"])
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
         XCTAssertEqual(app.textViews["meetingNotes"].value as? String, note)
         XCTAssertFalse(app.buttons["startMeetingRecording"].isEnabled)
         XCTAssertFalse(app.staticTexts["Microphone is on"].exists)
@@ -166,6 +180,9 @@ final class ApsidesUITests: XCTestCase {
         returnToPhoneDay()
         openContext("Meeting capture")
         activate(app.staticTexts[note])
+        XCTAssertTrue(contentMode.waitForExistence(timeout: 5))
+        activate(contentMode.buttons["Notes"])
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
         captureScreenshot("Meeting notes Dark")
         #else
         throw XCTSkip("Meeting recording is currently an iPhone surface")
@@ -195,7 +212,7 @@ final class ApsidesUITests: XCTestCase {
         XCTAssertEqual(editor.value as? String ?? "", "")
 
         openCaptures()
-        XCTAssertTrue(app.staticTexts["A place for passing thoughts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No captures"].waitForExistence(timeout: 5))
     }
 
     func testCapturePersistsAfterRelaunch() {
@@ -209,6 +226,9 @@ final class ApsidesUITests: XCTestCase {
         activate(save)
         openCaptures()
         XCTAssertTrue(app.staticTexts[thought].waitForExistence(timeout: 5))
+        activate(app.buttons["newCapture"])
+        XCTAssertTrue(app.textViews["captureText"].waitForExistence(timeout: 5))
+        activate(app.buttons["Close"])
 
         relaunchPreservingData()
         openCaptures()
@@ -244,7 +264,7 @@ final class ApsidesUITests: XCTestCase {
 
         activate(app.buttons["Close"])
         openCaptures()
-        XCTAssertTrue(app.staticTexts["A place for passing thoughts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No captures"].waitForExistence(timeout: 5))
     }
 
     func testCalendarTimelineAndEventDetail() {
@@ -295,10 +315,11 @@ final class ApsidesUITests: XCTestCase {
         activate(repository)
         let activity = app.staticTexts["Keep the thought, wherever you are"]
         XCTAssertTrue(activity.waitForExistence(timeout: 5))
-        let filter = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Activity type")).firstMatch
+        let filter = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Filter activity")).firstMatch
         #if os(macOS)
-        let picker = app.popUpButtons["Activity type"]
-        activate(picker.exists ? picker : filter)
+        let menu = app.popUpButtons["Filter activity"]
+        XCTAssertTrue(menu.exists || filter.waitForExistence(timeout: 5))
+        activate(menu.exists ? menu : filter)
         #else
         XCTAssertTrue(filter.waitForExistence(timeout: 5))
         activate(filter)
@@ -658,7 +679,8 @@ final class ApsidesUITests: XCTestCase {
         let closeNote = app.buttons["closeDailyNote"]
         if closeNote.exists { activate(closeNote) }
         #if os(iOS)
-        openDaySearch()
+        returnToPhoneDay()
+        openWorkspaceSidebar()
         #endif
         let destination = app.buttons[name].firstMatch.exists ? app.buttons[name].firstMatch : app.staticTexts[name].firstMatch
         XCTAssertTrue(destination.waitForExistence(timeout: 5))
