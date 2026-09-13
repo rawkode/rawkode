@@ -74,6 +74,8 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: Enchiridion
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone to transcribe meetings you choose to record.
+        NSSpeechRecognitionUsageDescription: Enchiridion turns meeting audio into notes while you record.
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

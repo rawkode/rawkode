@@ -72,6 +72,26 @@ limitations belong in the acceptance evidence.
   persisted transcript segments. Neither may be presented as shipped until
   the corresponding real transport and recovery checks pass.
 
+## Second implementation batch — 13 September
+
+- iPhone meeting capture is implemented under Search → Browse. A real local
+  SpeechAnalyzer microphone adapter handles permission, model installation,
+  provisional/final text, pause/resume and bounded finalization. Device audio
+  quality and interruption qualification remain open; no real-audio claim.
+- Independent atomic meeting storage retains account ownership and survives
+  interrupted app restart. Failed saves preserve the editor; corrupted archives
+  remain read-only. Forty Core tests pass. The focused Simulator meeting journey
+  passes save/close/relaunch/reopen, awareness gating and no automatic mic start.
+  Both Rosé Pine screenshots were visually checked.
+- Durable voice permits now use a Cloudflare storage transaction adapter, with
+  owner binding, quotas, idempotency, persisted revocation and uncertain-session
+  recovery. Seventeen tests pass. Worker deployment, provider lifecycle closure,
+  typed integration adapters and live voice transport remain unmounted.
+- Independent meeting review found no blocking issue in the single-editor flow.
+  Full archive writes per revision still need long-meeting performance checks.
+- Active next task: preserve per-service cached context during partial refresh,
+  including an explicit GitHub completeness signal and older API compatibility.
+
 ## Next release slices
 
 1. Stabilize daily use and distribution while landing tested voice/transcript

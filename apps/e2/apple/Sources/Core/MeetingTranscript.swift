@@ -110,6 +110,21 @@ public struct MeetingTranscript: Codable, Equatable, Sendable {
         }
     }
 
+    /// Apple can replace a volatile audio range with differently segmented results.
+    /// Replace whole overlapping provisional passages; never splice text by guessed word timing.
+    public mutating func reconcileRecognition(_ segment: MeetingTranscriptSegment) throws {
+        if segments.contains(segment) { return }
+        let previousRevision = segments.filter { $0.id.stream == segment.id.stream }.map(\.revision).max() ?? -1
+        guard segment.revision > previousRevision else { throw MeetingTranscriptError.conflictingRevision }
+        var next = self
+        next.segments.removeAll {
+            !$0.isFinal && $0.id.stream == segment.id.stream &&
+            ($0.id == segment.id || ($0.start < segment.end && segment.start < $0.end))
+        }
+        try next.receive(segment)
+        self = next
+    }
+
     public mutating func propose(_ suggestion: MeetingSuggestion) throws {
         guard !suggestion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !suggestion.sources.isEmpty,

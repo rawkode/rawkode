@@ -50,13 +50,15 @@ Origin header as their existing authenticated requests. Requests contain only
 choose an owner, model, system instructions, upstream endpoint or project key.
 
 The handler requires a host-provided `reserve(identity, requestID, device)`
-implementation. This is deliberately mandatory: no in-memory quota or implicit
-allow fallback pretends to be production authorization. A permit is checked
-before creation and after the provider response. A created session is recorded
-before returning only session ID and SDP. Failed or uncertain attempts retain an
-`unknown` outcome and are never automatically retried. Provider payloads and
-project secrets are excluded from client error bodies. `store: false` is
-selected server-side; this does not imply zero provider retention.
+implementation. `src/reservations.ts` now supplies that implementation using an
+atomic owner-scoped ledger; `src/durable-storage.ts` adapts actual Cloudflare
+Durable Object storage transactions. There is no in-memory production fallback.
+A permit is checked before creation and after the provider response. A created
+session is recorded before returning only session ID and SDP. Failed or
+uncertain attempts retain an `unknown` outcome and are never automatically
+retried. Provider payloads and project secrets are excluded from client error
+bodies. `store: false` is selected server-side; this does not imply zero
+provider retention.
 
 `src/capabilities.ts` exports an owner/grant-bound `briefing({date,timeZone})`
 function for one future Code Mode connector. Only four calls per instance are
@@ -74,11 +76,12 @@ bindings, with the trusted owner supplied by the coordinator.
 
 ## Root integration and release gates
 
-1. Implement durable, owner-bound session permits and agent grants, including
-   quota, concurrency, request-ID deduplication, revocation, lease expiry and
-   reconciliation of unknown outcomes. A recorded `created` receipt must remain
-   discoverable if the subsequent permission check fails. Close or reconcile
-   that provider session through a separately verified lifecycle adapter.
+1. Wire the implemented owner-scoped reservation ledger to one Durable Object
+   per verified owner. Enable it only through trusted feature authorization.
+   Agent read grants still need a persistent store; session admission is not
+   permission to read every integration. Implement provider lifecycle
+   reconciliation before public rollout; uncertain attempts deliberately keep
+   their capacity reserved.
 2. Add deployment ownership in this directory through Alchemy, compose it at
    root, bind the project secret through Secrets Store, and route the
    authenticated website path. Do not create a second Wrangler deployment or
@@ -112,17 +115,76 @@ parser or trust in an arbitrary owner header.
 ## Verification
 
 ```sh
-deno test integrations/agent/test/foundation.test.ts
+deno test integrations/agent/test
+deno check integrations/agent/src/durable-storage.ts
 deno lint integrations/agent
 deno fmt --check integrations/agent
 ```
 
-Eight tests pass: unauthenticated/cross-origin denial before reservation, exact
-provider request and reduced response contract, forbidden client configuration
-and oversized SDP, redacted failure with unknown receipt/no retry, grant
-revocation during reads, invalid date/timezone/owner arguments and call budget,
-nested result projection that drops internal fields, and preservation of a known
-session receipt when post-creation permission checking fails. These tests
-perform no network requests, start no paid sessions and do not test an executor
-or physical audio. They are isolated from the root test runner until this
-integration is intentionally added to the workspace.
+Seventeen tests pass. The eight broker/capability tests cover:
+unauthenticated/cross-origin denial before reservation, exact provider request
+and reduced response contract, forbidden client configuration and oversized SDP,
+redacted failure with unknown receipt/no retry, grant revocation during reads,
+invalid date/timezone/owner arguments and call budget, nested result projection
+that drops internal fields, and preservation of a known session receipt when
+post-creation permission checking fails. These tests perform no network
+requests, start no paid sessions and do not test an executor or physical audio.
+They are isolated from the root test runner until this integration is
+intentionally added to the workspace.
+
+## Durable session reservations
+
+The reservation module is functional and framework-independent; the production
+storage adapter delegates to `DurableObjectStorage.transaction`. A Worker must
+route a verified owner's requests to that owner's Durable Object. The ledger
+also stores its owner and rejects access through an instance bound to another
+owner, protecting against accidental namespace reuse.
+
+Inside that Durable Object, construct the binding once:
+
+```ts
+const reservations = createVoiceReservations(
+	durableVoiceStorage(ctx.storage),
+	verifiedOwnerID,
+);
+// The request handler receives reserve: reservations.reserve.
+// setEnabled(true) is a separate trusted, explicitly authorized feature action.
+```
+
+The default policy admits one concurrent session and twenty creation attempts
+per UTC day. Admission, request-ID deduplication and receipt writes are atomic.
+A new ledger starts disabled. Revocation increments a persisted policy version;
+re-enabling does not reactivate old permits. These are session-count limits, not
+measured-dollar or call-duration billing limits.
+
+Creation has a thirty-second lease. A crashed/expired reservation becomes
+`unknown`, retaining concurrency and attempt quota. A timeout is never assumed
+free. Known created sessions retain their ID across restarts, subsequent unknown
+writes and revocation. A trusted provider-close receipt must match that ID;
+releasing an unknown attempt requires independently verified no-session
+evidence. A late known creation response supersedes earlier no-session
+reconciliation and restores the active receipt, so the identifier is never
+discarded.
+
+`receipts()` gives reconciliation code an owner-scoped view without nonce, SDP,
+credentials or audio. It is not a public model capability. `reconcile()` and
+`setEnabled()` must remain private trusted lifecycle operations. Idempotency is
+at-most-one admitted creation per retained request ID, not provider exactly-once
+execution. Replay returns no new permit; it does not replay SDP or start another
+paid session.
+
+This bounded ledger retains at most 128 receipt/tombstone records and then fails
+closed. It never silently evicts old IDs to make quota available. A reviewed
+SQLite archival/idempotency-retention migration is required for long-term use;
+do not reset the ledger or delete tombstones to bypass that limit. Closed
+receipts still count toward that day's attempt quota. UTC rollover permits new
+IDs but never replays old ones.
+
+Nine additional tests cover owner isolation/default denial, racing admissions
+and replay across instances, restart after lease expiry, durable receipts and
+revocation, daily rollover, atomic commit failure, late known receipts, bounded
+capacity, and the actual session handler using this ledger to make only one
+provider request during a duplicate race. The storage fixture serializes and
+atomically commits durable bytes across simulated instances; no deployed Durable
+Object or real provider was contacted. The production adapter separately
+typechecks against installed Cloudflare runtime types.

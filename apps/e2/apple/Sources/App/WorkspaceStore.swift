@@ -15,6 +15,9 @@ final class WorkspaceStore: ObservableObject {
     @Published var connectionError: String?
     @Published var capturePresented = false
     @Published var settingsPresented = false
+    @Published private(set) var meetingArchive = MeetingArchive()
+    @Published private(set) var meetingStorageError: String?
+    private var meetingArchiveReadOnly = false
     @Published var selectedDay = Date()
     @Published private(set) var sending: Set<UUID> = []
     let disk: VaultPersistence
@@ -74,6 +77,11 @@ final class WorkspaceStore: ObservableObject {
             storageError = "Your notebook could not be opened. The original file is preserved. \(error.localizedDescription)"
             isReadOnly = true
         }
+        do { meetingArchive = try meetingDisk.load() }
+        catch {
+            meetingArchiveReadOnly = true
+            meetingStorageError = "Your meeting notes could not be opened. The original file is preserved. \(error.localizedDescription)"
+        }
         importSpool()
         if demo { context = DemoContent.context; vault.context = context?.snapshot }
         #if os(iOS)
@@ -93,6 +101,37 @@ final class WorkspaceStore: ObservableObject {
     var dayText: String { vault.drafts.first { $0.id == dayKey }?.text ?? "" }
     var captures: [Capture] { vault.captures.filter { !vault.archived.contains($0.id) }.sorted { $0.createdAt > $1.createdAt } }
     var snapshot: ContextSnapshot? { context?.snapshot ?? vault.context }
+
+    private var meetingDisk: MeetingArchivePersistence {
+        MeetingArchivePersistence(url: disk.url.deletingLastPathComponent().appendingPathComponent("meetings.json"))
+    }
+    var meetingTranscripts: [MeetingTranscript] { meetingArchive.transcripts(ownerID: vault.accountID) }
+
+    /// The capture view pins its owner at creation. A sign-out cannot reattribute late results.
+    @discardableResult
+    func saveMeetingTranscript(_ transcript: MeetingTranscript, ownerID: String?) -> Bool {
+        guard !meetingArchiveReadOnly, !isReadOnly else {
+            if meetingStorageError == nil {
+                meetingStorageError = "Meeting notes cannot be saved while this notebook is read-only. Your existing files are preserved."
+            }
+            return false
+        }
+        let existingOwner = meetingArchive.entries.contains { $0.transcript.id == transcript.id && $0.ownerID == ownerID }
+        guard ownerID == vault.accountID || existingOwner else {
+            meetingStorageError = "The notebook changed. Reopen the original account to save this meeting."
+            return false
+        }
+        do {
+            let next = try meetingArchive.saving(transcript, ownerID: ownerID)
+            try meetingDisk.save(next)
+            meetingArchive = next
+            meetingStorageError = nil
+            return true
+        } catch {
+            meetingStorageError = "Your latest transcript has not been saved. \(error.localizedDescription)"
+            return false
+        }
+    }
 
     func commit(_ next: Vault) throws {
         guard !isReadOnly else { throw CocoaError(.fileReadCorruptFile) }

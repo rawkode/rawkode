@@ -137,6 +137,8 @@ private struct DaySearchView: View {
                         NavigationLink("People") { PeopleView(store: store) }
                         NavigationLink("GitHub") { RepositoryListView(store: store) }
                         NavigationLink("Captures") { CaptureListView(store: store) }
+                        NavigationLink("Meeting capture") { MeetingCaptureLibraryView(store: store) }
+                            .accessibilityIdentifier("meetingCaptureBrowse")
                         NavigationLink("On this device") { LocalDaybookView(store: store, showAgenda: { showCalendar = true }) }
                         NavigationLink("Account & appearance") { SettingsView(store: store, session: store.session) }
                             .accessibilityIdentifier("todaySettings")

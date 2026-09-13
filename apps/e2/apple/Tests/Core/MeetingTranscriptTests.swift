@@ -61,6 +61,21 @@ final class MeetingTranscriptTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(MeetingTranscript.self, from: JSONSerialization.data(withJSONObject: json)))
     }
 
+    func testRecognitionReplacesOverlappingVolatileRangesWithoutChangingFinals() throws {
+        let stream = UUID()
+        var meeting = MeetingTranscript()
+        let first = try MeetingTranscriptSegment(id: .init(stream: stream, item: "0"), revision: 1, start: 0, end: 4, text: "Provisional words", isFinal: false)
+        try meeting.reconcileRecognition(first)
+        let changed = try MeetingTranscriptSegment(id: .init(stream: stream, item: "1"), revision: 2, start: 1, end: 4, text: "Final words", isFinal: true)
+        try meeting.reconcileRecognition(changed)
+        XCTAssertEqual(meeting.segments, [changed])
+        try meeting.reconcileRecognition(changed)
+        XCTAssertThrowsError(try meeting.reconcileRecognition(first))
+        let correction = try MeetingTranscriptSegment(id: changed.id, revision: 3, start: 1, end: 4, text: "Changed final", isFinal: true)
+        XCTAssertThrowsError(try meeting.reconcileRecognition(correction))
+        XCTAssertEqual(meeting.segments, [changed])
+    }
+
     func testInvalidOffsetsAndConflictingRevisionAreRejected() throws {
         let id = MeetingSegmentID(stream: UUID(), item: "1")
         XCTAssertThrowsError(try segment(id, 0, "Invalid", start: -1))

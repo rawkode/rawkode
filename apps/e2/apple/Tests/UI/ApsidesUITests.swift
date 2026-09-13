@@ -20,6 +20,45 @@ final class ApsidesUITests: XCTestCase {
         }
     }
 
+    func testMeetingNotesPersistAndRecordingRequiresAwareness() throws {
+        #if os(iOS)
+        openContext("Meeting capture")
+        activate(app.buttons["newMeetingCapture"])
+        let start = app.buttons["startMeetingRecording"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled)
+        XCTAssertTrue(app.staticTexts["Ready when you are"].exists)
+        captureScreenshot("Meeting preparation Dawn")
+        activate(app.switches["meetingParticipantsInformed"])
+        XCTAssertTrue(start.isEnabled)
+        XCTAssertFalse(app.staticTexts["Microphone is on"].exists)
+        let note = "Planning meeting " + UUID().uuidString
+        let editor = app.textViews["meetingNotes"]
+        activate(editor)
+        editor.typeText(note)
+        activate(app.buttons["closeMeetingCapture"])
+        XCTAssertTrue(app.staticTexts[note].waitForExistence(timeout: 5))
+        relaunchPreservingData()
+        openContext("Meeting capture")
+        activate(app.staticTexts[note])
+        XCTAssertEqual(app.textViews["meetingNotes"].value as? String, note)
+        XCTAssertFalse(app.buttons["startMeetingRecording"].isEnabled)
+        XCTAssertFalse(app.staticTexts["Microphone is on"].exists)
+        activate(app.buttons["closeMeetingCapture"])
+        returnToPhoneDay()
+        openContext("Account & appearance")
+        activate(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch)
+        chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        returnToPhoneDay()
+        openContext("Meeting capture")
+        activate(app.staticTexts[note])
+        captureScreenshot("Meeting notes Dark")
+        #else
+        throw XCTSkip("Meeting recording is currently an iPhone surface")
+        #endif
+    }
+
     func testCachedWorkspaceOpensWithoutNetworkAfterRelaunch() {
         app.terminate()
         app.launchArguments = ["--ui-testing", "--reset-test-data", "--seed-cached-context"]

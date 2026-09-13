@@ -1,8 +1,10 @@
 # Meeting capture: delivery boundary
 
-Reviewed 13 September 2026. This is a product contract and tested domain model,
-not a recording feature in the app. No audio permissions, capture adapters,
-network sessions, transcription UI, or automatic task creation are implemented.
+Updated 13 September 2026. The iPhone now has a local SpeechAnalyzer microphone
+adapter, meeting capture screen, and durable transcript storage. The integrated
+Simulator build and notes persistence journey pass. Real microphone recognition,
+installed language models, and interruption behavior still require device
+qualification. Cloud transcription and automatic task creation are not implemented.
 
 ## First useful experience
 
@@ -74,15 +76,44 @@ for each transcript delta. Existing shared documents are the destination for an
 accepted meeting note. This work does not add meetings to Vault, change its schema,
 or flatten existing rich documents into plain text.
 
-## Next integration and acceptance
+## Implemented iPhone capture
 
-1. Build an Apple SpeechAnalyzer adapter with a bounded local audio journal and
-   explicit finalization. Persist before acknowledging input; restore with
-   `restored()`. Test a 60-minute recording, airplane mode, process restart,
+Search → Browse → Meeting capture opens a local meeting library. Recording needs
+an explicit Start and participant-awareness acknowledgement. The native adapter
+uses AVAudioEngine, converts PCM into SpeechAnalyzer's supported format, and
+retains provisional and final passages with application-scoped stream identities.
+Overlapping provisional recognition ranges can be replaced without changing final
+text. Initial Apple language assets may require a download; audio is processed on
+device. Raw microphone audio is not retained or uploaded.
+
+Pause, backgrounding, microphone interruption and input overflow stop capture.
+Resuming always requires a user action. Stop has a 15-second finalization deadline;
+late callbacks are fenced by the recording operation ID. This is foreground room
+microphone capture, not system audio or phone-call recording.
+
+`MeetingArchivePersistence` writes an independent atomic `meetings.json` file next
+to the notebook. Entries retain their account owner; device-local entries have a
+separate nil owner. Account switches hide another account's meetings while allowing
+an already-open recorder to persist its final result to its original owner. Crash
+restore marks active recordings interrupted. Failed saves keep the editor open
+with retry; corrupt archives are preserved and not overwritten.
+
+Forty Core tests pass, including eleven meeting model/archive tests. One Simulator
+UI journey verifies participant-awareness gating, immediate note save and close,
+relaunch/reopen, and no automatic microphone start. Both Rosé Pine palettes were
+visually inspected. These checks do not establish real microphone transcription.
+Every revision currently rewrites the archive on the main actor: long-meeting
+latency and history growth remain qualification work.
+
+## Remaining acceptance
+
+1. Qualify the implemented SpeechAnalyzer adapter and transcript persistence.
+   Audio buffers are bounded but are not a replayable audio journal. Test a
+   60-minute recording, airplane mode after model installation, process restart,
    permission refusal, headset changes, phone interruptions and storage failure.
-2. Add a native meeting screen with visible recording state, timestamp seeking,
-   provisional/final distinction, editing and clear source navigation. Keep raw
-   recognition separate from user corrections and an accepted shared document.
+2. Add event linkage, source navigation and accepted shared-document publishing
+   to the existing capture screen. Timestamp seeking requires retained audio and
+   is not offered. Recognition remains separate from user corrections.
 3. Add optional cloud transcription only after a real authenticated transport
    test. Upload only after the user's processing choice; define retention/deletion
    before storing audio. Verify out-of-order completions and reconnect replay.
