@@ -44,6 +44,21 @@ python3 platforms/linux/install.py
 
 This installs the GTK app and engine under `~/.local`. Use an unlocked Secret Service provider for pairing. See [Linux setup](platforms/linux/README.md) and [scoped mouse permissions](crates/multipass-hardware/docs/linux-permissions.md). The app does not install system rules or fall back to storing secrets in plaintext.
 
+### Nix
+
+The app flake packages the Rust engine and native frontend together. From the repository root:
+
+```sh
+nix build ./apps/multipass
+nix run ./apps/multipass
+```
+
+On macOS, the result contains `Applications/Multipass.app` with its bundled engine and an ad-hoc bundle signature. Nix supplies Swift, SwiftPM, and the Apple SDK; a separate Xcode installation is not needed to build this package. The `multipass` command opens the app. On Linux, it starts the native GTK4 frontend with its packaged Python, GI dependencies, and engine; a desktop launcher is included.
+
+For a standalone engine build, use `nix build ./apps/multipass#engine`. The flake exposes `default`, `multipass`, and `engine` packages for `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`. Intel macOS is excluded because the pinned Nixpkgs release no longer supports it. `flake.lock` pins Nixpkgs, and Rust dependencies are vendored from the checksums in `Cargo.lock`; build outputs and Python caches are excluded from the source.
+
+Installing the package does not enable automatic switching or create pairing credentials. Grant the normal platform permissions and pair your computers. Linux still requires a desktop session, an unlocked Secret Service provider, and appropriate HID permissions; installing the package on a headless machine does not start a background service. Nix builds do not run the hardware or multicast-network qualification tests.
+
 ## Pair your computers
 
 1. Run the same version on both computers on an IPv4 local network. Allow local-network/firewall access for mDNS discovery and the engine's TCP listener if the OS asks. A VPN, client-isolated Wi-Fi, or firewall may block discovery or connections.

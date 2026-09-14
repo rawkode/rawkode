@@ -91,7 +91,9 @@ cuenv task check-host
 
 `check-host` requires the local hostname to have a machine manifest. It builds the matching NixOS or nix-darwin system closure with `--no-link`; it does not switch or activate the configuration.
 
-The `kree` flake input uses `path:../apps/kree`, so evaluation expects this repository to remain inside the containing `rawkode` monorepo checkout.
+The `kree` and `multipass` inputs use sibling app flakes (`path:../apps/kree` and `path:../apps/multipass`), so evaluation expects this directory to remain inside the containing `rawkode` monorepo checkout.
+
+Multipass is installed through the shared `foundation` capability on every declared machine, including the work Mac and OrbStack VM. macOS exposes its bundle under `~/Applications/Home Manager Apps/Multipass.app`; Linux provides the `multipass` command and application-menu entry. NixOS also installs the narrowly scoped MX Master 4 Bluetooth HID access rule. Rebuild each host to apply the installation. Automatic startup and pairing are not configured: select that computer's mouse slot and pair through the app. Headless VMs receive the package but need a graphical session and Bluetooth device access to use it. NixOS network access still needs firewall configuration for mDNS and the peer TCP port advertised by Multipass (currently selected dynamically); installation does not open a broad port range.
 
 ### Home Manager Integration
 

@@ -39,10 +39,10 @@ final class MultipassStore: ObservableObject {
         launchAtLogin = SMAppService.mainApp.status == .enabled
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.engine.send("suspend") }
+            Task { @MainActor [weak self] in self?.engine.send("suspend") }
         })
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.engine.send("resume") }
+            Task { @MainActor [weak self] in self?.engine.send("resume") }
         })
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.engine.stop() }
