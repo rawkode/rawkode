@@ -12,6 +12,7 @@
   python3,
   gtk4,
   wrapGAppsHook4,
+  gobject-introspection,
   makeWrapper,
   makeDesktopItem,
 }:
@@ -83,10 +84,19 @@ let
       swiftpm
       rcodesign
     ]
-    ++ lib.optionals stdenv.hostPlatform.isLinux [ wrapGAppsHook4 ];
+    ++ lib.optionals stdenv.hostPlatform.isLinux [
+      wrapGAppsHook4
+      gobject-introspection
+    ];
     buildInputs =
       lib.optionals stdenv.hostPlatform.isDarwin [ apple-sdk_14 ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [ gtk4 ];
+    doInstallCheck = stdenv.hostPlatform.isLinux;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      "$out/bin/multipass" --help > /dev/null
+      runHook postInstallCheck
+    '';
     dontConfigure = true;
     dontBuild = stdenv.hostPlatform.isLinux;
     dontStrip = stdenv.hostPlatform.isDarwin;
