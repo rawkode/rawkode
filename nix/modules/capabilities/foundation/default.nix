@@ -84,6 +84,7 @@ mkCapability {
     inputs.self.darwinModules.macos-base
     inputs.self.darwinModules.fish
     inputs.self.darwinModules.user
+    inputs.self.appBundles.multipass.darwin
   ];
 
   home = {
