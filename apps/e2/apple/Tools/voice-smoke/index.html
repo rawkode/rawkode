@@ -1,0 +1,11 @@
+<!doctype html>
+<html
+	lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Enchiridion synthetic voice qualification</title>
+<style>body{font:18px system-ui;max-width:48rem;margin:4rem auto;padding:1rem;background:#faf4ed;color:#575279}button{font:inherit;padding:.7rem 1.2rem;margin-right:1rem}pre{white-space:pre-wrap}audio{width:100%}</style>
+<h1>Real voice transport, synthetic input</h1>
+<p>This sends the supplied speech file to GPT Live. It never requests microphone access. A real provider session incurs API usage. The test stops after 60 seconds.</p>
+<button id="start">Run test</button><button id="stop" disabled>Stop</button>
+<p id="status">Ready</p><audio id="audio" controls autoplay></audio><pre id="events"></pre>
+<script>window.testToken="TEST_TOKEN";</script><script src="/client.js"></script>
+</html>

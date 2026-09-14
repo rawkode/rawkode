@@ -1,0 +1,188 @@
+# Enchiridion via Xcode Cloud
+
+The checked-in `Apsides.xcodeproj` is the cloud build input. Its internal target
+names remain stable; the installed app is Enchiridion. The local Swift package
+has no external dependencies. Cloud builds need no Homebrew, XcodeGen, Deno,
+1Password, local signing certificate, or device registration. Regenerate the
+project locally after editing `project.yml` and commit both files.
+
+## First workflow
+
+1. In Apple Developer, register `rawkode.academy.enchiridion`,
+   `rawkode.academy.enchiridion.watchkitapp`, and
+   `rawkode.academy.enchiridion.widget` under team `6KXCJGJ45W`. Enable App
+   Groups on the iOS and widget IDs and associate
+   `group.rawkode.academy.enchiridion`.
+2. Create the Enchiridion iOS app record with that iOS bundle ID in App Store
+   Connect. The Watch app is embedded in the iOS app, not a separate app record.
+3. Open `apps/e2/apple/Apsides.xcodeproj` in Xcode. Start Xcode Cloud
+   onboarding, choose the iOS product and authorize repository access to
+   `rawkode/rawkode`.
+4. Create an **Enchiridion Internal TestFlight** workflow using the shared
+   `ApsidesIOS` scheme. Select an available Xcode version supporting all APIs in
+   this project (locally validated with Xcode 27; deployment targets remain 26).
+   Use an Archive action for iOS, Release configuration, and TestFlight internal
+   testing distribution. Enable automatic signing. Start with a manual build of
+   the reviewed release branch; add a branch-change condition after it succeeds.
+5. Add a TestFlight internal testing group containing the intended App Store
+   Connect users, enable automatic distribution, and select it in the workflow's
+   TestFlight post-action. Complete any required beta information and export
+   compliance questions in App Store Connect.
+6. Start the build. Confirm archive, signing, upload, processing, and tester
+   availability separately. A successful local build proves none of the later
+   stages. After onboarding, manage or start builds in App Store Connect from
+   any device with an authorized browser session.
+
+Xcode Cloud supplies incrementing distribution build numbers. Keep the marketing
+version in `project.yml`; do not write a competing timestamp/version script. The
+shared scheme archives Release. No bootstrap script is required because the
+project and all Swift dependencies are already in the repository.
+
+## Identity and installation
+
+The new bundle ID installs alongside the old Apsides development app. Its native
+sandbox and App Group are new: existing on-device notes and captures do not move
+automatically. Connected server notes remain on the existing service. Keep the
+old app installed to retain access to its local data.
+
+The Mac product uses `rawkode.academy.enchiridion.mac`; it needs its own App
+Store Connect product/workflow and distribution qualification. The first
+workflow above targets iPhone, iPad, and the embedded Watch app.
+
+## Privacy and release boundaries
+
+`Configuration/PrivacyInfo.xcprivacy` declares UserDefaults reason `CA92.1` for
+the iOS and Mac app's own appearance preference. The source audit found no
+direct required-reason file timestamp, disk space, boot time, or keyboard
+enumeration calls. Watch and widget do not use UserDefaults. The manifest
+intentionally does not claim that connected account, note, calendar, or people
+data is uncollected; App Store privacy answers require a separate audit of the
+server and web editor.
+
+Native networking uses system URLSession/WebKit HTTPS. No custom encryption was
+found in the native sources. Export compliance still requires the account
+holder's accurate answers covering the shipped product; no exemption declaration
+has been guessed into the Info.plist.
+
+The editor loads the production `/apple/editor` route. Verify that route is
+deployed before inviting testers. The Apple cloud pipeline does not deploy the
+website. CarPlay currently exposes a widget, not a launcher app. Cloud
+distribution avoids the development Watch UDID profile problem but still needs
+real Watch installation and interaction qualification.
+
+## Apple references
+
+- [First workflow](https://developer.apple.com/documentation/xcode/configuring-your-first-xcode-cloud-workflow)
+- [TestFlight distribution](https://developer.apple.com/documentation/xcode/distributing-your-xcode-cloud-builds-through-testflight)
+- [Cloud build numbers](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/)
+- [Custom scripts](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts)
+- [Required-reason API declarations](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)
+
+## Local packaging evidence (12 September 2026)
+
+The unsigned Release iOS archive succeeded with Xcode 27, including embedded
+Watch and widget products. Bundle IDs, display names and Watch companion ID were
+inspected in the archive. The Watch catalog uses a universal watchOS icon;
+`assetutil` confirmed its runtime `watch` rendition (a marketing-only entry did
+not provide one). This is packaging evidence, not distribution signing or App
+Store Connect validation. Seven device-profile checker tests, shell syntax
+checks and privacy manifest plist validation passed.
+
+## Current delivery evidence
+
+On 12 September 2026, an unsigned Release archive completed with the Enchiridion
+app, embedded Watch app, and widget at `/tmp/Enchiridion-cloud.xcarchive`.
+Identifiers and icon renditions were inspected, including the Watch runtime
+icon. Seven device-package verifier tests passed. This is build evidence, not a
+signed upload or a cloud run.
+
+Xcode Cloud repository authorization completed remotely by the user. Xcode
+confirmed `rawkode/rawkode Connected`, then created the cloud product and its
+Default build workflow. The initial start was blocked by an updated Apple
+Developer agreement; after the account holder accepted it, Build 1 ran on
+Apple's servers for `spike/native-web-rich-editor` at `ba0390c1` using Xcode
+26.6 / Swift 6.3.3. Although the batch log ends at NativeSession.swift, the
+crash stack identifies IR generation for LocalDaybookView.swift and an isolated
+String callback reabstraction thunk. The local daybook Binding setter now calls
+`store.setDayText(value)` through an explicit closure instead of passing the
+actor-isolated method reference directly. This preserves synchronous save
+behavior and avoids that method-reference conversion. The cloud compiler must
+confirm the workaround; local Xcode 27 uses Swift 6.4. The downloaded logs are
+at `/tmp/enchiridion-cloud-build1-logs`.
+
+Cloud product registration is recorded in the Xcode-generated shared manifest.
+After the user freed the name held by an older prototype, Xcode registered
+Enchiridion / `rawkode.academy.enchiridion` and created an **Internal TestFlight
+Build** workflow. Its Archive action is configured for TestFlight Internal
+Testing Only.
+
+Build 2 exposed a Swift 6.3.3 type-checking limit in the calendar event view.
+The expression was split without changing layout formulas. Build 3 at `7ac9cba7`
+compiled and archived successfully on Apple's Xcode 26.6 environment, confirming
+both compiler fixes. Distribution export failed because automatic signing cannot
+register `rawkode.academy.enchiridion.watchkitapp` and no matching Watch profile
+exists. Downloaded export logs are at `/tmp/enchiridion-cloud-build3-logs`.
+
+A local Watch development build succeeded but reused a wildcard profile; that
+does not register the explicit identifier. A local distribution export reported
+No Accounts. The user then registered the explicit Watch App ID. Build 4 at
+`783f6d80` completed its cloud archive/export with no issues. The downloaded App
+Store IPA contains version 4 of the iPhone, Watch, and widget bundles.
+`codesign --verify --strict` passed for all three; each embedded Store profile
+matches its exact bundle ID under team `6KXCJGJ45W`. Build 4 predates the
+reserved CarPlay voice entitlement. TestFlight processing and tester
+availability still require confirmation in App Store Connect.
+
+The website production plan now executes in GitHub Actions, but run
+`34700483957` stops before Alchemy because the existing 1Password service
+account cannot resolve the `apsides` vault. Required vault visibility or the
+verified secret references must be corrected before production deployment. No
+website changes were deployed by that run.
+
+## Icon and screenshots
+
+The production icon was generated with the built-in image generation tool, then
+resized into the Apple asset catalogs using `sips`. The source artwork is
+opaque; iOS/watch share `Resources/Assets.xcassets/AppIcon.appiconset`, and Mac
+has its required size variants in
+`Resources/MacAssets.xcassets/AppIcon.appiconset`.
+
+Prompt: “A production Apple app icon for Enchiridion: one opaque full-bleed
+square, a sculptural open pocket-book with folded ivory pages suggesting an E, a
+muted rose inner leaf and pale teal edge on deep Rosé Pine ink. Bold centered
+silhouette, premium editorial craft, restrained depth, no text, badge,
+watermark, device mockup, transparency, or rounded outer mask.”
+
+Actual editor screenshots are in
+[editor qualification](EDITOR-QUALIFICATION.md). They show the shared editor
+layout; they predate the bundle/name change. They are QA evidence and have not
+been submitted as App Store marketing screenshots.
+
+## Reserved CarPlay voice capability
+
+The iOS host requests `com.apple.developer.carplay-voice-based-conversation`.
+Apple lists this category from iOS 26.4 in its
+[CarPlay Developer Guide](https://developer.apple.com/download/files/CarPlay-Developer-Guide.pdf).
+The account holder reports approval; enable the matching managed capability on
+`rawkode.academy.enchiridion` under Additional Capabilities so distribution
+profiles include it. Account approval alone does not prove App ID provisioning.
+The widget uses its own App Group-only entitlements; Watch and Mac do not
+request this CarPlay capability.
+
+This reserves signing capability only. No CarPlay scene, microphone permission,
+audio session, or conversational interface is enabled. Future voice interaction
+must be gated to iOS 26.4 or later, use the voice control template for
+recording, and hold an audio session only while voice features are active.
+
+## Production editor recovery — 12 September 2026
+
+The production web update was deployed successfully using a temporary account
+token and original integration settings recovered in memory from Alchemy state.
+The full `e2` production plan contained three updates (website, API, documents)
+and 21 no-ops, with no deletions or replacements. Application completed with
+exit zero. The downloaded live website Worker contains `/apple/editor`, the
+native editor version marker, and NativeEditor. The public route redirects to
+Cloudflare Access as expected; authenticated physical-device editing still
+requires confirmation. The installed iOS app can retry without a new build. The
+temporary recovery helper was removed and the credential process closed. CI
+vault access remains separate follow-up work.

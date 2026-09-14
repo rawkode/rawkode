@@ -1,0 +1,16 @@
+{
+	"name": "@e2/core-entities",
+	"version": "0.1.0",
+	"exports": "./src/index.ts",
+	"imports": {
+		"@e2/entities": "../../packages/entities/src/index.ts",
+		"drizzle-orm": "npm:drizzle-orm@1.0.0-rc.4",
+		"drizzle-orm/": "npm:/drizzle-orm@1.0.0-rc.4/",
+		"cloudflare:workers": "npm:@cloudflare/workers-types@5.20260908.1"
+	},
+	"compilerOptions": {
+		"strict": true,
+		"types": ["@cloudflare/workers-types"],
+		"lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+	}
+}

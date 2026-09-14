@@ -1,0 +1,10 @@
+{
+	"name": "@e2/oauth-client",
+	"version": "0.1.0",
+	"exports": {
+		".": "./src/index.ts",
+		"./contracts": "./src/contracts.ts",
+		"./calendar": "./src/calendar.ts",
+		"./github": "./src/github.ts"
+	}
+}
