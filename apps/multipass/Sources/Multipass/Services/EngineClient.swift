@@ -50,7 +50,7 @@ final class EngineClient {
         input = stdin.fileHandleForWriting
         process = child
         child.terminationHandler = { [weak self] process in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, !self.stopping else { return }
                 self.failAndStop("Multipass engine stopped (status \(process.terminationStatus)). Restart the app.")
             }

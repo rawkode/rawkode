@@ -2,10 +2,10 @@ name: Multipass native builds
 
 on:
   pull_request:
-    paths: ['apps/multipass/**', '.github/workflows/multipass.yml']
+    paths: ['apps/multipass/**', 'nix/**', '.github/workflows/multipass.yml']
   push:
-    branches: [main, codex/multipass]
-    paths: ['apps/multipass/**', '.github/workflows/multipass.yml']
+    branches: [main]
+    paths: ['apps/multipass/**', 'nix/**', '.github/workflows/multipass.yml']
   workflow_dispatch:
 
 permissions:
@@ -69,3 +69,20 @@ jobs:
         with:
           name: multipass-${{ runner.os }}
           path: apps/multipass/dist/
+
+  nix-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - name: Build native Nix package
+        working-directory: apps/multipass
+        run: nix flake check --no-update-lock-file --print-build-logs
+      - name: Check packaged GTK dependencies
+        if: runner.os == 'Linux'
+        working-directory: apps/multipass
+        run: nix run . -- --help

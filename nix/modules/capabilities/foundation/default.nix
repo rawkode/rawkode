@@ -26,6 +26,7 @@ mkCapability {
         inputs.self.nixosModules.containers
         inputs.self.nixosModules.fish
         inputs.self.nixosModules.greetd
+        inputs.self.appBundles.multipass.nixos
         inputs.self.nixosModules.networking
         inputs.self.nixosModules.nix
         inputs.self.nixosModules.stylix
@@ -105,6 +106,7 @@ mkCapability {
       inputs.self.appBundles.jj.home
       inputs.self.appBundles.jq.home
       inputs.self.appBundles.misc.home
+      inputs.self.appBundles.multipass.home
       inputs.self.appBundles.nushell.home
       inputs.self.appBundles.ouch.home
       inputs.self.appBundles.ripgrep.home

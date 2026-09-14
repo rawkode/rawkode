@@ -52,6 +52,10 @@
       url = "path:../apps/kree";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    multipass = {
+      url = "path:../apps/multipass";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flatpaks.url = "github:gmodena/nix-flatpak";
 
     ghostty = {

@@ -1023,6 +1023,22 @@
         "type": "github"
       }
     },
+    "multipass": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "path": "../apps/multipass",
+        "type": "path"
+      },
+      "original": {
+        "path": "../apps/multipass",
+        "type": "path"
+      },
+      "parent": []
+    },
     "naersk": {
       "inputs": {
         "fenix": "fenix",
@@ -1586,6 +1602,7 @@
         "ironbar": "ironbar",
         "kree": "kree",
         "lanzaboote": "lanzaboote",
+        "multipass": "multipass",
         "niri": "niri",
         "nix-ai-tools": "nix-ai-tools",
         "nix-darwin": "nix-darwin",
