@@ -1,5 +1,7 @@
+use multipass_network::PeerSummary;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead};
+use uuid::Uuid;
 
 pub const MAX_COMMAND_BYTES: usize = 8192;
 
@@ -13,13 +15,33 @@ pub struct Request {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
     Status,
-    SetSlot { slot: u8 },
-    SetEnabled { enabled: bool },
-    CreatePairing,
-    JoinPairing { code: String },
+    SetSlot {
+        slot: u8,
+    },
+    SetEnabled {
+        enabled: bool,
+    },
+    /// Start pairing with a computer from `State::nearby`.
+    Pair {
+        peer: Uuid,
+    },
+    /// Answer the code prompt for the pairing in progress.
+    ConfirmPairing {
+        accept: bool,
+    },
+    /// Forget the pairing key.
+    Unpair,
     Suspend,
     Resume,
     Shutdown,
+}
+
+/// A pairing in progress. `code` is absent while connecting.
+#[derive(Clone, Serialize, PartialEq)]
+pub struct PairingStatus {
+    pub peer_name: String,
+    pub code: Option<String>,
+    pub incoming: bool,
 }
 
 #[derive(Clone, Serialize, PartialEq)]
@@ -32,22 +54,16 @@ pub struct State {
     pub mouse_present: Option<bool>,
     pub network_status: String,
     pub peers: usize,
+    pub nearby: Vec<PeerSummary>,
+    pub pairing: Option<PairingStatus>,
     pub last_event: String,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    State {
-        state: State,
-    },
-    Result {
-        id: u64,
-        ok: bool,
-        message: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pairing_code: Option<String>,
-    },
+    State { state: State },
+    Result { id: u64, ok: bool, message: String },
 }
 
 /// Read a bounded line without first allocating attacker-controlled input length.
@@ -104,8 +120,16 @@ mod tests {
         for input in [
             r#"{"id":1,"command":"execute","program":"sh"}"#,
             r#"{"id":1,"command":"set_enabled"}"#,
+            r#"{"id":1,"command":"create_pairing"}"#,
+            r#"{"id":1,"command":"join_pairing","code":"x"}"#,
+            r#"{"id":1,"command":"pair","peer":"not-a-uuid"}"#,
         ] {
             assert!(serde_json::from_str::<Request>(input).is_err());
         }
+        let request: Request = serde_json::from_str(
+            r#"{"id":3,"command":"pair","peer":"0b7a9d3e-6f4c-4a2b-9c1d-2e3f4a5b6c7d"}"#,
+        )
+        .unwrap();
+        assert!(matches!(request.command, Command::Pair { .. }));
     }
 }

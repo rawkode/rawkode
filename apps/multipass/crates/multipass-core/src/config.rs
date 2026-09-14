@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -92,12 +91,11 @@ pub fn save_secret(secret: &[u8; 32]) -> Result<()> {
         .context("Cannot save pairing key in OS credential store")
 }
 
-pub fn parse_code(code: &str) -> Result<[u8; 32]> {
-    STANDARD
-        .decode(code.trim())
-        .ok()
-        .and_then(|bytes| bytes.try_into().ok())
-        .context("Paste the complete pairing code from the other computer")
+pub fn delete_secret() -> Result<()> {
+    match keyring::Entry::new("dev.rawkode.multipass", "peer-secret-v1")?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error).context("Cannot remove pairing key from OS credential store"),
+    }
 }
 
 #[cfg(test)]
@@ -117,11 +115,5 @@ mod tests {
         assert_eq!(store.load().unwrap().local_slot, 2);
         fs::write(directory.path().join("settings.json"), b"broken").unwrap();
         assert!(store.load().is_err());
-    }
-    #[test]
-    fn invalid_pairing_codes_rejected_without_echoing_secret() {
-        assert!(parse_code("not-a-key").is_err());
-        assert!(parse_code(&STANDARD.encode([1; 31])).is_err());
-        assert_eq!(parse_code(&STANDARD.encode([7; 32])).unwrap(), [7; 32]);
     }
 }

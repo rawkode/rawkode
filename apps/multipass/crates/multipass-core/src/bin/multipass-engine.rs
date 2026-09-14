@@ -38,7 +38,6 @@ async fn main() {
                         id: 0,
                         ok: false,
                         message: "Invalid command".into(),
-                        pairing_code: None,
                     });
                     continue;
                 }
@@ -56,7 +55,6 @@ async fn main() {
                 id: 0,
                 ok: false,
                 message: format!("Cannot start Multipass: {error}"),
-                pairing_code: None,
             });
             std::process::exit(1);
         }

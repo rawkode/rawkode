@@ -114,7 +114,7 @@ time.sleep(30)
 
     def test_oversize_command_fails_closed(self):
         self.start("import time\ntime.sleep(30)\n")
-        self.client.send("join_pairing", code="x" * 8192)
+        self.client.send("pair", peer="x" * 8192)
         self.assertIn("too large", self.failures.get(timeout=3))
         self.assert_child_stopped()
 

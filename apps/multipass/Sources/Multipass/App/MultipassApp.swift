@@ -33,6 +33,13 @@ private struct MenuContent: View {
     var body: some View {
         Text(store.enabled ? "Automatic switching on" : "Automatic switching paused")
         Text(store.keyboardPresent.map { $0 ? "Keyboard connected" : "Keyboard not connected here" } ?? "Keyboard status unknown")
+        if let pairing = store.pairing {
+            Divider()
+            Button(pairing.incoming ? "Pairing request from \(pairing.peerName)…" : "Pairing with \(pairing.peerName)…") {
+                openWindow(id: "multipass")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         Divider()
         Button("Open Multipass…") {
             openWindow(id: "multipass")

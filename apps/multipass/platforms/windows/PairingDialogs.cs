@@ -1,51 +1,69 @@
 namespace Multipass;
 
-internal sealed class JoinDialog : Form
+/// <summary>Shows the six-digit code for the pairing in progress. The engine owns the pairing.</summary>
+internal sealed class PairingDialog : Form
 {
-    private readonly TextBox code = new() { UseSystemPasswordChar = true, Width = 350, MaxLength = 512 };
-    public JoinDialog()
-    {
-        Text = "Join a computer";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = MaximizeBox = false;
-        ClientSize = new Size(410, 150);
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), FlowDirection = FlowDirection.TopDown };
-        layout.Controls.Add(new Label { Text = "Enter the pairing code shown on your other computer.", AutoSize = true });
-        layout.Controls.Add(code);
-        var submit = new Button { Text = "Join", DialogResult = DialogResult.OK, Enabled = false };
-        code.TextChanged += (_, _) => submit.Enabled = !string.IsNullOrWhiteSpace(code.Text);
-        layout.Controls.Add(submit);
-        Controls.Add(layout);
-        AcceptButton = submit;
-    }
-    public string TakeCode() { var value = code.Text.Trim(); code.Clear(); return value; }
-    protected override void Dispose(bool disposing) { if (disposing) code.Clear(); base.Dispose(disposing); }
-}
+    private readonly Action<bool> decide;
+    private bool settled;
 
-internal sealed class PairingCodeDialog : Form
-{
-    private readonly TextBox code;
-    public PairingCodeDialog(string value)
+    public PairingDialog(string peerName, string? code, bool incoming, Action<bool> decide)
     {
-        Text = "Pair another computer";
+        this.decide = decide;
+        Text = "Pair with another computer";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = MaximizeBox = false;
-        ClientSize = new Size(480, 180);
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), FlowDirection = FlowDirection.TopDown };
-        layout.Controls.Add(new Label { Text = "On the other computer choose Join and enter this code.", AutoSize = true });
-        code = new TextBox { Text = value, ReadOnly = true, Width = 430 };
-        layout.Controls.Add(code);
-        var copy = new Button { Text = "Copy code", AutoSize = true };
-        copy.Click += (_, _) =>
+        ShowInTaskbar = false;
+        ClientSize = new Size(480, 230);
+        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(3, 12, 3, 3) };
+        if (code is null)
         {
-            try { Clipboard.SetText(code.Text); copy.Text = "Copied"; }
-            catch (System.Runtime.InteropServices.ExternalException) { copy.Text = "Clipboard busy — retry"; }
-        };
-        layout.Controls.Add(copy);
-        layout.Controls.Add(new Label { Text = "Keep this code private. Copying places it on your system clipboard.", AutoSize = true });
+            layout.Controls.Add(new Label { Text = $"Connecting to “{peerName}”…", AutoSize = true, MaximumSize = new Size(440, 0) });
+            var cancel = new Button { Text = "Cancel", AutoSize = true };
+            cancel.Click += (_, _) => Answer(false);
+            buttons.Controls.Add(cancel);
+        }
+        else
+        {
+            var heading = incoming ? $"“{peerName}” wants to pair with this computer." : $"Pairing with “{peerName}”.";
+            layout.Controls.Add(new Label { Text = heading, AutoSize = true, MaximumSize = new Size(440, 0), Font = new Font(Font, FontStyle.Bold) });
+            layout.Controls.Add(new Label
+            {
+                Text = Spaced(code), AutoSize = true, Margin = new Padding(3, 10, 3, 10),
+                Font = new Font(FontFamily.GenericMonospace, 28, FontStyle.Bold),
+            });
+            layout.Controls.Add(new Label { Text = $"Confirm only if {peerName} shows the same code. Both computers must confirm.", AutoSize = true, MaximumSize = new Size(440, 0) });
+            var decline = new Button { Text = incoming ? "Decline" : "Cancel", AutoSize = true };
+            var accept = new Button { Text = incoming ? "Accept" : "Confirm", AutoSize = true };
+            decline.Click += (_, _) => Answer(false);
+            accept.Click += (_, _) => Answer(true);
+            buttons.Controls.AddRange([decline, accept]);
+            AcceptButton = accept;
+        }
+        layout.Controls.Add(buttons);
         Controls.Add(layout);
+        FormClosing += (_, _) =>
+        {
+            // Closing with the title-bar button declines, unless the engine already finished.
+            if (!settled) { settled = true; decide(false); }
+        };
     }
-    protected override void Dispose(bool disposing) { if (disposing) code.Clear(); base.Dispose(disposing); }
+
+    private static string Spaced(string code) => code.Length == 6 ? $"{code[..3]} {code[3..]}" : code;
+
+    private void Answer(bool accept)
+    {
+        if (settled) return;
+        settled = true;
+        Close();
+        decide(accept);
+    }
+
+    /// <summary>Close because the engine reported the pairing finished; sends no decision.</summary>
+    public void Settle()
+    {
+        settled = true;
+        Close();
+    }
 }

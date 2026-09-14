@@ -1,6 +1,17 @@
 import Foundation
 import Darwin
 
+struct PeerSummary: Decodable, Identifiable, Equatable {
+    let id: UUID
+    let name: String
+}
+
+struct PairingStatus: Decodable, Equatable {
+    let peerName: String
+    let code: String?
+    let incoming: Bool
+}
+
 struct EngineState: Decodable {
     let nodeName: String
     let localSlot: Int
@@ -10,6 +21,8 @@ struct EngineState: Decodable {
     let mousePresent: Bool?
     let networkStatus: String
     let peers: Int
+    let nearby: [PeerSummary]
+    let pairing: PairingStatus?
     let lastEvent: String
 }
 
@@ -18,14 +31,13 @@ private struct EngineEvent: Decodable {
     let state: EngineState?
     let ok: Bool?
     let message: String?
-    let pairingCode: String?
 }
 
 /// The native UI owns one Rust child and communicates only through its private pipes.
 @MainActor
 final class EngineClient {
     var onState: ((EngineState) -> Void)?
-    var onResult: ((Bool, String, String?) -> Void)?
+    var onResult: ((Bool, String) -> Void)?
     var onFailure: ((String) -> Void)?
     private var process: Process?
     private var input: FileHandle?
@@ -89,7 +101,7 @@ final class EngineClient {
             var data = try JSONSerialization.data(withJSONObject: payload)
             data.append(10)
             guard data.count <= 8192 else {
-                onResult?(false, "Command is too large.", nil)
+                onResult?(false, "Command is too large.")
                 return
             }
             try input.write(contentsOf: data)
@@ -145,7 +157,7 @@ final class EngineClient {
             onState?(state)
         case "result":
             guard let ok = event.ok, let message = event.message else { failAndStop("Incomplete engine result."); return }
-            onResult?(ok, message, event.pairingCode)
+            onResult?(ok, message)
         default: failAndStop("Incompatible engine response.")
         }
     }

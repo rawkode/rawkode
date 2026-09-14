@@ -30,7 +30,7 @@ The source installation builds the engine and installs under `~/.local`, includi
 
 Choose this computer's mouse slot, pair with the other computer, then enable switching. **Keep the window open while switching. Closing it stops the engine and quits.** GTK4 has no built-in cross-desktop system tray API, so this version has an explicit window lifetime rather than a hidden process. Minimize it to keep switching. Suspend-gap handling lives in the engine.
 
-Pairing codes are held in transient dialogs and passed through the private pipe, never written to settings or logs. The Copy button explicitly places a code on the desktop clipboard.
+The pairing confirmation code is shown in a transient dialog and never written to settings or logs. Accepting or declining is sent through the private pipe; the pairing key itself never reaches the UI.
 
 Transport tests do not need GTK:
 

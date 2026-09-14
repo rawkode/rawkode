@@ -10,12 +10,17 @@ internal sealed class MainWindow : Form
     private readonly CheckBox enabled = new() { Text = "Let the mouse follow my keyboard", AutoSize = true };
     private readonly Label devices = new() { AutoSize = true, Text = "Waiting for device status…" };
     private readonly Label network = new() { AutoSize = true, Text = "Starting engine…" };
-    private readonly Label pairing = new() { AutoSize = true, Text = "Not paired" };
+    private readonly Label pairing = new() { AutoSize = true, MaximumSize = new Size(480, 0), Text = "Not paired" };
     private readonly Label activity = new() { AutoSize = true, MaximumSize = new Size(480, 0) };
     private readonly Label result = new() { AutoSize = true, MaximumSize = new Size(480, 0), ForeColor = SystemColors.GrayText };
-    private readonly Button create = new() { Text = "Create pairing code", AutoSize = true };
-    private readonly Button join = new() { Text = "Join another computer", AutoSize = true };
+    private readonly Button forget = new() { Text = "Forget pairing", AutoSize = true, Visible = false };
+    private readonly FlowLayoutPanel peers = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+    private readonly Label peersPlaceholder = new() { AutoSize = true, MaximumSize = new Size(480, 0), Text = "Looking for other computers running Multipass on this network…" };
+    private readonly List<Button> pairButtons = [];
     private readonly NotifyIcon tray;
+    private string nearbyKey = "";
+    private string? pairingKey;
+    private PairingDialog? pairingDialog;
     private bool rendering;
     private bool quitting;
     private bool engineAvailable;
@@ -40,10 +45,12 @@ internal sealed class MainWindow : Form
         layout.Controls.Add(enabled);
         layout.Controls.Add(devices);
         layout.Controls.Add(network);
-        layout.Controls.Add(pairing);
-        var pairingButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        pairingButtons.Controls.AddRange([create, join]);
-        layout.Controls.Add(pairingButtons);
+        var pairedRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        pairedRow.Controls.AddRange([pairing, forget]);
+        layout.Controls.Add(pairedRow);
+        layout.Controls.Add(new Label { Text = "Nearby computers", AutoSize = true, Margin = new Padding(3, 18, 3, 3) });
+        peers.Controls.Add(peersPlaceholder);
+        layout.Controls.Add(peers);
         layout.Controls.Add(new Label { Text = "Latest activity", AutoSize = true, Margin = new Padding(3, 18, 3, 3) });
         layout.Controls.Add(activity);
         layout.Controls.Add(result);
@@ -64,16 +71,7 @@ internal sealed class MainWindow : Form
         {
             if (!rendering && engineAvailable) await engine.SendAsync("set_enabled", "enabled", enabled.Checked);
         };
-        create.Click += async (_, _) => await engine.SendAsync("create_pairing");
-        join.Click += async (_, _) =>
-        {
-            using var dialog = new JoinDialog();
-            if (dialog.ShowDialog(this) == DialogResult.OK)
-            {
-                var code = dialog.TakeCode();
-                await engine.SendAsync("join_pairing", "code", code);
-            }
-        };
+        forget.Click += async (_, _) => await engine.SendAsync("unpair");
         engine.Received += value => OnUi(() => Receive(value));
         engine.Failed += message => OnUi(() => Fail(message));
         SetActions(false);
@@ -100,13 +98,15 @@ internal sealed class MainWindow : Form
     }
     private void SetActions(bool available)
     {
-        slot.Enabled = enabled.Enabled = create.Enabled = join.Enabled = available;
+        slot.Enabled = enabled.Enabled = forget.Enabled = available;
+        foreach (var button in pairButtons) button.Enabled = available;
     }
     private void Fail(string message)
     {
         engine.Fault(message);
         engineAvailable = false;
         SetActions(false);
+        RenderPairing(null);
         result.ForeColor = Color.Firebrick;
         result.Text = message;
         network.Text = "Engine unavailable";
@@ -115,6 +115,68 @@ internal sealed class MainWindow : Form
     {
         var value = state.GetProperty(key);
         return value.ValueKind switch { JsonValueKind.True => "Connected", JsonValueKind.False => "Disconnected", _ => "Unknown" };
+    }
+    private async Task DecideAsync(bool accept)
+    {
+        if (engineAvailable && !quitting) await engine.SendAsync("confirm_pairing", "accept", accept);
+    }
+    private void RenderPeers(JsonElement nearby)
+    {
+        if (nearby.ValueKind != JsonValueKind.Array) throw new FormatException("Invalid nearby list");
+        var entries = new List<(string Id, string Name)>();
+        foreach (var peer in nearby.EnumerateArray())
+        {
+            var id = peer.GetProperty("id").GetString() ?? throw new FormatException("Invalid peer");
+            var name = peer.GetProperty("name").GetString() ?? throw new FormatException("Invalid peer");
+            entries.Add((id, name));
+        }
+        var key = string.Join("\n", entries.Select(entry => entry.Id + "\t" + entry.Name));
+        if (key == nearbyKey) return;
+        nearbyKey = key;
+        peers.SuspendLayout();
+        peers.Controls.Clear();
+        pairButtons.Clear();
+        if (entries.Count == 0) peers.Controls.Add(peersPlaceholder);
+        foreach (var (id, name) in entries)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            var button = new Button { Text = "Pair…", AutoSize = true, Enabled = engineAvailable };
+            button.Click += async (_, _) => { if (engineAvailable) await engine.SendAsync("pair", "peer", id); };
+            row.Controls.Add(new Label { Text = name, AutoSize = true, MaximumSize = new Size(360, 0), Margin = new Padding(3, 8, 12, 3) });
+            row.Controls.Add(button);
+            pairButtons.Add(button);
+            peers.Controls.Add(row);
+        }
+        peers.ResumeLayout();
+    }
+    private void RenderPairing(JsonElement? value)
+    {
+        string? peerName = null, code = null;
+        var incoming = false;
+        if (value is { ValueKind: JsonValueKind.Object } element)
+        {
+            peerName = element.GetProperty("peer_name").GetString() ?? throw new FormatException("Invalid pairing");
+            incoming = element.GetProperty("incoming").GetBoolean();
+            if (element.TryGetProperty("code", out var codeElement) && codeElement.ValueKind == JsonValueKind.String)
+            {
+                code = codeElement.GetString();
+                if (code is null || !code.All(char.IsAsciiDigit)) throw new FormatException("Invalid pairing code");
+            }
+        }
+        var key = peerName is null ? null : $"{peerName}\u0000{code}\u0000{incoming}";
+        if (key == pairingKey) return;
+        pairingKey = key;
+        if (pairingDialog is not null)
+        {
+            var previous = pairingDialog;
+            pairingDialog = null;
+            previous.Settle();
+            previous.Dispose();
+        }
+        if (peerName is null) return;
+        pairingDialog = new PairingDialog(peerName, code, incoming, accept => _ = DecideAsync(accept));
+        if (incoming) ShowWindow();
+        pairingDialog.Show(this);
     }
     private void Receive(JsonElement value)
     {
@@ -133,8 +195,13 @@ internal sealed class MainWindow : Form
                         slot.SelectedIndex = localSlot - 1;
                         enabled.Checked = state.GetProperty("enabled").GetBoolean();
                         devices.Text = $"Keyboard: {Device(state, "keyboard_present")}    Mouse: {Device(state, "mouse_present")}";
-                        pairing.Text = state.GetProperty("paired").GetBoolean() ? "Paired" : "Not paired — create a code or join another computer.";
+                        var paired = state.GetProperty("paired").GetBoolean();
+                        pairing.Text = paired ? "Paired" : "Not paired — choose a nearby computer to pair with.";
+                        forget.Visible = paired;
                         network.Text = $"{state.GetProperty("node_name").GetString()} · {state.GetProperty("network_status").GetString()} · Peers: {state.GetProperty("peers").GetInt32()}";
+                        RenderPeers(state.GetProperty("nearby"));
+                        var pairingElement = state.GetProperty("pairing");
+                        RenderPairing(pairingElement.ValueKind == JsonValueKind.Null ? null : pairingElement);
                         activity.Text = state.GetProperty("last_event").GetString();
                         SetActions(engineAvailable);
                     }
@@ -144,11 +211,6 @@ internal sealed class MainWindow : Form
                     var ok = value.GetProperty("ok").GetBoolean();
                     result.ForeColor = ok ? SystemColors.GrayText : Color.Firebrick;
                     result.Text = value.GetProperty("message").GetString();
-                    if (ok && value.TryGetProperty("pairing_code", out var code) && code.ValueKind == JsonValueKind.String)
-                    {
-                        using var dialog = new PairingCodeDialog(code.GetString()!);
-                        dialog.ShowDialog(this);
-                    }
                     break;
             }
         }
@@ -169,6 +231,7 @@ internal sealed class MainWindow : Form
         quitting = true;
         SystemEvents.PowerModeChanged -= PowerChanged;
         SetActions(false);
+        RenderPairing(null);
         tray.Visible = false;
         await engine.DisposeAsync();
         tray.Dispose();

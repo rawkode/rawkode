@@ -30,7 +30,7 @@ internal static class Program
             client.Failed += message => failed.TrySetResult(message);
             if (!client.Start()) throw new Exception("Fixture engine could not start");
             var pid = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            if (scenario == "oversize") await client.SendAsync("join_pairing", "code", new string('x', 8192));
+            if (scenario == "oversize") await client.SendAsync("pair", "peer", new string('x', 8192));
             await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             if (!client.HasFailed) throw new Exception("Transport did not remain faulted");
             try

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var store: MultipassStore
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -40,7 +41,7 @@ struct ContentView: View {
                     Label(store.networkStatus, systemImage: store.enabled ? "network" : "pause.circle")
                         .font(.callout).foregroundStyle(.secondary)
                     if store.peerCount > 0 {
-                        Text("\(store.peerCount) nearby Multipass \(store.peerCount == 1 ? "service" : "services"). Requests must match your pairing code.")
+                        Text("Only the computer you paired with can move the mouse; other Multipass services on this network are ignored.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Toggle("Launch at login", isOn: Binding(get: { store.launchAtLogin }, set: store.setLaunchAtLogin))
@@ -67,6 +68,12 @@ struct ContentView: View {
         }
         .padding(24)
         .frame(width: 580)
+        .onAppear {
+            store.presentWindow = {
+                openWindow(id: "multipass")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     private func deviceRow(_ name: String, icon: String, present: Bool?) -> some View {
@@ -81,34 +88,82 @@ struct ContentView: View {
 
 private struct PairingView: View {
     @ObservedObject var store: MultipassStore
-    @State private var editing = false
 
     var body: some View {
         GroupBox("Connect your computers") {
             VStack(alignment: .leading, spacing: 10) {
-                if store.paired && !editing && store.pairingCode.isEmpty {
-                    Label("Pairing key saved securely", systemImage: "lock.shield")
-                    Button("Replace pairing…") { editing = true }
-                        .buttonStyle(.link)
+                if let pairing = store.pairing {
+                    PairingPrompt(pairing: pairing, store: store)
                 } else {
-                    Text("Create a code on one computer, then paste it into the other.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    HStack {
-                        SecureField("Pairing code from your other Mac", text: $store.enteredCode)
-                        Button("Join") { store.joinPairing(); editing = false }
-                            .disabled(store.enteredCode.isEmpty)
-                    }
-                    Button("Create pairing code", action: store.createPairing)
-                    if !store.pairingCode.isEmpty {
+                    if store.paired {
                         HStack {
-                            Text(store.pairingCode).font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled).lineLimit(2)
+                            Label("Paired", systemImage: "lock.shield")
                             Spacer()
-                            Button("Copy", action: store.copyPairingCode)
+                            Button("Forget pairing", action: store.unpair).buttonStyle(.link)
+                        }
+                    }
+                    if store.nearby.isEmpty {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(store.available
+                                 ? "Looking for other computers running Multipass on this network…"
+                                 : "Discovery is unavailable while the engine is stopped.")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text(store.paired ? "Pair with a different computer:" : "Choose the computer to pair with:")
+                            .font(.callout).foregroundStyle(.secondary)
+                        ForEach(store.nearby) { peer in
+                            HStack {
+                                Label(peer.name, systemImage: "desktopcomputer")
+                                Spacer()
+                                Button("Pair…") { store.pair(peer) }.disabled(!store.available)
+                            }
                         }
                     }
                 }
             }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Both computers show the same six digits; each person confirms they match.
+private struct PairingPrompt: View {
+    let pairing: PairingStatus
+    @ObservedObject var store: MultipassStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let code = pairing.code {
+                Text(pairing.incoming
+                     ? "“\(pairing.peerName)” wants to pair with this Mac."
+                     : "Pairing with “\(pairing.peerName)”.")
+                    .fontWeight(.medium)
+                Text(Self.spaced(code))
+                    .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                Text("Confirm only if \(pairing.peerName) shows the same code. Both computers must confirm.")
+                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button(pairing.incoming ? "Decline" : "Cancel") { store.confirmPairing(false) }
+                    Button(pairing.incoming ? "Accept" : "Confirm") { store.confirmPairing(true) }
+                        .keyboardShortcut(.defaultAction)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting to “\(pairing.peerName)”…")
+                    Spacer()
+                    Button("Cancel") { store.confirmPairing(false) }
+                }
+            }
+        }
+    }
+
+    private static func spaced(_ code: String) -> String {
+        guard code.count == 6 else { return code }
+        return code.prefix(3) + " " + code.suffix(3)
     }
 }

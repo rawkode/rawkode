@@ -10,7 +10,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, GLib, Gtk
 
 from engine_client import EngineClient
-from pairing_dialogs import show_join, show_pairing_code
+from pairing_dialogs import show_pairing
 
 
 def dispatch(callback, *args):
@@ -27,6 +27,10 @@ class MultipassWindow(Gtk.ApplicationWindow):
         self.rendering = False
         self.available = False
         self.closing = False
+        self.nearby = []
+        self.pairing = None
+        self.pairing_dialog = None
+        self.pair_buttons = []
         self.engine = EngineClient(engine_path, self.receive, self.failed, dispatch)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         for setter in (box.set_margin_top, box.set_margin_bottom, box.set_margin_start, box.set_margin_end):
@@ -55,13 +59,19 @@ class MultipassWindow(Gtk.ApplicationWindow):
         box.append(enabled_row)
         self.devices = label("Waiting for device status…")
         self.network = label("Starting engine…")
-        self.paired = label("Not paired")
-        buttons = Gtk.Box(spacing=12)
-        self.create = Gtk.Button(label="Create pairing code")
-        self.join = Gtk.Button(label="Join another computer")
-        buttons.append(self.create)
-        buttons.append(self.join)
-        box.append(buttons)
+        paired_row = Gtk.Box(spacing=12)
+        self.paired = Gtk.Label(label="Not paired", xalign=0, hexpand=True, wrap=True)
+        paired_row.append(self.paired)
+        self.forget = Gtk.Button(label="Forget pairing", visible=False)
+        paired_row.append(self.forget)
+        box.append(paired_row)
+        label("Nearby computers", True)
+        self.peers = Gtk.ListBox()
+        self.peers.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.peers.add_css_class("boxed-list")
+        self.peers_placeholder = Gtk.Label(label="Looking for other computers running Multipass on this network…", xalign=0, wrap=True)
+        self.peers.set_placeholder(self.peers_placeholder)
+        box.append(self.peers)
         label("Latest activity", True)
         self.activity = label("")
         self.result = label("")
@@ -69,8 +79,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
         label("Keep this window open for automatic switching. Closing it quits Multipass.")
         self.slot.connect("notify::selected", self.change_slot)
         self.enabled.connect("notify::active", self.change_enabled)
-        self.create.connect("clicked", lambda _: self.engine.send("create_pairing"))
-        self.join.connect("clicked", lambda _: show_join(self, self.join_code))
+        self.forget.connect("clicked", lambda _: self.engine.send("unpair"))
         self.connect("close-request", self.close_requested)
         self.set_actions(False)
         self.available = self.engine.start()
@@ -78,7 +87,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
             self.engine.send("status")
 
     def set_actions(self, available):
-        for widget in (self.slot, self.enabled, self.create, self.join):
+        for widget in (self.slot, self.enabled, self.forget, *self.pair_buttons):
             widget.set_sensitive(available)
 
     def change_slot(self, *_):
@@ -89,15 +98,50 @@ class MultipassWindow(Gtk.ApplicationWindow):
         if not self.rendering and self.available:
             self.engine.send("set_enabled", enabled=self.enabled.get_active())
 
-    def join_code(self, code):
+    def pair(self, peer_id):
         if self.available:
-            self.engine.send("join_pairing", code=code)
+            self.engine.send("pair", peer=peer_id)
+
+    def decide(self, accept):
+        if self.available:
+            self.engine.send("confirm_pairing", accept=accept)
+
+    def render_peers(self, nearby):
+        if nearby == self.nearby:
+            return
+        self.nearby = nearby
+        while (row := self.peers.get_row_at_index(0)) is not None:
+            self.peers.remove(row)
+        self.pair_buttons = []
+        for peer in nearby:
+            row = Gtk.Box(spacing=12)
+            for setter in (row.set_margin_top, row.set_margin_bottom, row.set_margin_start, row.set_margin_end):
+                setter(8)
+            row.append(Gtk.Label(label=peer["name"], xalign=0, hexpand=True, ellipsize=3))
+            button = Gtk.Button(label="Pair…")
+            button.connect("clicked", lambda _, peer_id=peer["id"]: self.pair(peer_id))
+            row.append(button)
+            self.pair_buttons.append(button)
+            self.peers.append(row)
+
+    def render_pairing(self, pairing):
+        if pairing == self.pairing:
+            return
+        self.pairing = pairing
+        if self.pairing_dialog is not None:
+            self.pairing_dialog.settle()
+            self.pairing_dialog = None
+        if pairing is not None:
+            self.pairing_dialog = show_pairing(self, pairing, self.decide)
+            if pairing["incoming"]:
+                self.present()
 
     def failed(self, message):
         if self.closing:
             return
         self.available = False
         self.set_actions(False)
+        self.render_pairing(None)
         self.network.set_text("Engine unavailable")
         self.result.remove_css_class("dim-label")
         self.result.add_css_class("error")
@@ -106,6 +150,26 @@ class MultipassWindow(Gtk.ApplicationWindow):
     @staticmethod
     def device(value):
         return "Connected" if value is True else "Disconnected" if value is False else "Unknown"
+
+    @staticmethod
+    def validate_nearby(value):
+        if not isinstance(value, list):
+            raise ValueError("Invalid nearby list")
+        for peer in value:
+            if not isinstance(peer, dict) or not isinstance(peer.get("id"), str) or not isinstance(peer.get("name"), str):
+                raise ValueError("Invalid peer")
+        return [{"id": peer["id"], "name": peer["name"]} for peer in value]
+
+    @staticmethod
+    def validate_pairing(value):
+        if value is None:
+            return None
+        if not isinstance(value, dict) or not isinstance(value.get("peer_name"), str) or type(value.get("incoming")) is not bool:
+            raise ValueError("Invalid pairing state")
+        code = value.get("code")
+        if code is not None and (not isinstance(code, str) or not code.isdigit()):
+            raise ValueError("Invalid pairing code")
+        return {"peer_name": value["peer_name"], "code": code, "incoming": value["incoming"]}
 
     def receive(self, event):
         if self.closing or self.engine.faulted.is_set():
@@ -118,13 +182,18 @@ class MultipassWindow(Gtk.ApplicationWindow):
                     raise ValueError("Invalid slot")
                 if type(state["enabled"]) is not bool or type(state["paired"]) is not bool:
                     raise ValueError("Invalid state")
+                nearby = self.validate_nearby(state["nearby"])
+                pairing = self.validate_pairing(state["pairing"])
                 self.rendering = True
                 try:
                     self.slot.set_selected(slot - 1)
                     self.enabled.set_active(state["enabled"])
                     self.devices.set_text(f"Keyboard: {self.device(state['keyboard_present'])}    Mouse: {self.device(state['mouse_present'])}")
                     self.network.set_text(f"{state['node_name']} · {state['network_status']} · Peers: {state['peers']}")
-                    self.paired.set_text("Paired" if state["paired"] else "Not paired — create a code or join another computer.")
+                    self.paired.set_text("Paired" if state["paired"] else "Not paired — choose a nearby computer to pair with.")
+                    self.forget.set_visible(state["paired"])
+                    self.render_peers(nearby)
+                    self.render_pairing(pairing)
                     self.activity.set_text(state["last_event"])
                     self.set_actions(self.available)
                     self.confirmed_state = state
@@ -136,14 +205,13 @@ class MultipassWindow(Gtk.ApplicationWindow):
                     self.result.remove_css_class("error")
                 else:
                     self.result.add_css_class("error")
-                if event["ok"] and isinstance(event.get("pairing_code"), str):
-                    show_pairing_code(self, event["pairing_code"])
         except (KeyError, TypeError, ValueError):
             self.engine.fatal("The engine response is incompatible with this app. Reinstall the complete package.")
 
     def close_requested(self, *_):
         self.closing = True
         self.set_actions(False)
+        self.render_pairing(None)
         self.engine.close()
         return False
 

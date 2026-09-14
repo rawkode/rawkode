@@ -1,10 +1,10 @@
 use crate::{
     config::{self, ConfigStore, Settings},
-    ipc::{Event, Request, State},
+    ipc::{Event, PairingStatus, Request, State},
     policy::{self, AttachmentPolicy},
 };
 use anyhow::Result;
-use multipass_network::{Lease, Network, NetworkEvent};
+use multipass_network::{Lease, Network, NetworkEvent, PairingEvent};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -50,8 +50,10 @@ impl Engine {
             paired: secret.is_some(),
             keyboard_present: None,
             mouse_present: None,
-            network_status: "Pair your computers to begin".into(),
+            network_status: "Starting discovery".into(),
             peers: 0,
+            nearby: Vec::new(),
+            pairing: None,
             last_event: warning,
         };
         let (done_tx, done_rx) = mpsc::unbounded_channel();
@@ -72,12 +74,10 @@ impl Engine {
             done_tx,
             done_rx,
         };
-        if engine.settings.enabled && engine.secret.is_some() {
-            engine.state.enabled = true;
-            if let Err(error) = engine.start_network().await {
-                engine.state.enabled = false;
-                engine.state.network_status = error.to_string();
-            }
+        engine.state.enabled = engine.settings.enabled && engine.secret.is_some();
+        // Discovery runs whenever the engine does, so unpaired computers can find each other.
+        if let Err(error) = engine.start_network().await {
+            engine.state.network_status = error.to_string();
         }
         Ok(engine)
     }
@@ -106,8 +106,9 @@ impl Engine {
                 event = next_network(&mut self.network_events) => {
                     match event {
                         Some(NetworkEvent::Status(message)) => self.state.network_status = message,
-                        Some(NetworkEvent::Peers(count)) => self.state.peers = count,
+                        Some(NetworkEvent::Peers(nearby)) => { self.state.peers = nearby.len(); self.state.nearby = nearby; }
                         Some(NetworkEvent::Claim { sender: _, slot, lease }) => self.receive_claim(slot,lease),
+                        Some(NetworkEvent::Pairing(event)) => self.pairing_event(event),
                         None => { self.network_events = None; self.state.network_status = "Networking stopped".into(); }
                     }
                 }
@@ -135,23 +136,70 @@ impl Engine {
             network.stop().await;
         }
         self.state.peers = 0;
+        self.state.nearby.clear();
+        self.state.pairing = None;
     }
 
     pub(crate) async fn start_network(&mut self) -> Result<()> {
         self.stop_network().await;
-        let Some(secret) = self.secret else {
-            anyhow::bail!("Pair your computers before enabling switching");
-        };
         if self.suspended {
             self.state.network_status = "Paused during sleep".into();
             return Ok(());
         }
-        let (network, receiver) =
-            Network::start(self.settings.node_id, self.state.node_name.clone(), secret).await?;
+        let (network, receiver) = Network::start(
+            self.settings.node_id,
+            self.state.node_name.clone(),
+            self.secret,
+        )
+        .await?;
         self.network = Some(network);
         self.network_events = Some(receiver);
-        self.state.network_status = "Discovering paired computers; wait three seconds".into();
+        self.state.network_status = "Discovering computers on the local network".into();
         Ok(())
+    }
+
+    fn pairing_event(&mut self, event: PairingEvent) {
+        match event {
+            PairingEvent::Started { peer_name } => {
+                self.state.last_event = format!("Connecting to {peer_name} to pair");
+                self.state.pairing = Some(PairingStatus {
+                    peer_name,
+                    code: None,
+                    incoming: false,
+                });
+            }
+            PairingEvent::Code {
+                peer_name,
+                code,
+                incoming,
+            } => {
+                self.state.last_event = if incoming {
+                    format!("{peer_name} wants to pair; compare the code on both screens")
+                } else {
+                    format!("Compare the code shown on {peer_name}")
+                };
+                self.state.pairing = Some(PairingStatus {
+                    peer_name,
+                    code: Some(code),
+                    incoming,
+                });
+            }
+            PairingEvent::Completed { peer_name, secret } => {
+                self.state.pairing = None;
+                self.state.last_event = match self.install_secret(*secret) {
+                    Ok(()) => format!(
+                        "Paired with {peer_name}; turn on automatic switching on both computers"
+                    ),
+                    Err(error) => {
+                        format!("Paired with {peer_name}, but the key was not saved: {error}")
+                    }
+                };
+            }
+            PairingEvent::Failed { message } => {
+                self.state.pairing = None;
+                self.state.last_event = message;
+            }
+        }
     }
 
     async fn poll(&mut self) {
@@ -162,7 +210,7 @@ impl Engine {
         self.last_poll = wall_now;
         if gap > Duration::from_secs(3) {
             self.reset();
-            if self.state.enabled && !self.suspended {
+            if !self.suspended {
                 if let Err(error) = self.start_network().await {
                     self.state.network_status = error.to_string();
                 }
@@ -271,10 +319,7 @@ impl Engine {
         self.suspended = false;
         self.last_poll = SystemTime::now();
         self.reset();
-        if self.state.enabled {
-            self.start_network().await?;
-        }
-        Ok(())
+        self.start_network().await
     }
 }
 

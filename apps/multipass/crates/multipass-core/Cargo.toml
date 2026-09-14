@@ -12,7 +12,6 @@ path = "src/bin/multipass-engine.rs"
 multipass-network = { path = "../multipass-network" }
 multipass-hardware = { path = "../multipass-hardware" }
 anyhow = "1"
-base64 = "0.22"
 directories = "6"
 hostname = "0.4"
 fs2 = "0.4"
