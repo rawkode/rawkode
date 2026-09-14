@@ -24,21 +24,26 @@ mkApp {
     };
 
   darwin.system =
-    { pkgs, ... }:
+    { config, pkgs, ... }:
     let
       multipassPkg = inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      user = config.system.primaryUser;
     in
     {
       # Copy to ~/Applications instead of linking from home.packages.
       # Spotlight and Launchpad skip symlinked bundles under "Home Manager Apps",
       # and macOS grants Input Monitoring by path — running from /nix/store
       # means every rebuild requires re-granting permissions.
+      # nix-darwin runs this as root with HOME=~root, so switch to the primary
+      # user or the bundle lands in /var/root/Applications.
       system.activationScripts.postActivation.text = ''
-        echo "Installing Multipass.app to ~/Applications..."
-        mkdir -p "$HOME/Applications"
-        rm -rf "$HOME/Applications/Multipass.app"
-        cp -RL "${multipassPkg}/Applications/Multipass.app" "$HOME/Applications/"
-        chmod -R u+w "$HOME/Applications/Multipass.app"
+        echo "Installing Multipass.app to ~${user}/Applications..."
+        sudo --user=${user} --set-home ${pkgs.runtimeShell} -c '
+          mkdir -p "$HOME/Applications"
+          rm -rf "$HOME/Applications/Multipass.app"
+          cp -RL "${multipassPkg}/Applications/Multipass.app" "$HOME/Applications/"
+          chmod -R u+w "$HOME/Applications/Multipass.app"
+        '
       '';
     };
 }
