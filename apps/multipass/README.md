@@ -76,7 +76,7 @@ The Rust protocol is **version 3**, and intentionally rejects the earlier copied
 ## Switching safeguards
 
 - Detection targets Bluetooth EVO80 `36B0:3004` and MX Master 4 `046D:B042`. Other models are not configurable yet. Read-only device metadata is inspected; keyboard input reports are never captured.
-- Only a fresh absent-to-present keyboard edge settled for 800 ms produces a claim. Unknown device state invalidates pending work. Startup, settings changes, enable, and resume establish a baseline for three seconds.
+- Device presence is polled every 100 ms, and only a fresh absent-to-present keyboard edge that stays present for 300 ms produces a claim. Unknown device state invalidates pending work. Startup, settings changes, enable, and resume establish a baseline for three seconds.
 - The source requires its keyboard absent, mouse present, and a different valid target slot. Immediately before one ChangeHost write, it repeats the keyboard-presence check and verifies the authorization lease.
 - Each session uses a fresh random challenge and HMAC-SHA256 bound to sender, receiver, slot, and protocol version. A verified claim expires after one second; connection loss, keyboard departure, pause, or process shutdown revokes it. Frames, sessions, peer fan-out, and connection counts are bounded.
 - Observation and network propagation introduce a small unavoidable race; this is not an atomic transaction across hardware. Requests are never queued for offline peers, and uncertain switch writes are never retried.

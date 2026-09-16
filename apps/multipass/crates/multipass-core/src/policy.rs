@@ -6,6 +6,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How long the keyboard must stay present after arriving before it counts as a real
+/// connection. Bluetooth reconnects can bounce briefly; anything shorter than this is ignored.
+pub const SETTLE: Duration = Duration::from_millis(300);
+/// Ignore keyboard arrivals for this long after startup, settings changes, enable, and resume.
+pub const BASELINE: Duration = Duration::from_secs(3);
+
 /// Only a settled false-to-true edge may announce. Unknown observations invalidate everything.
 pub struct AttachmentPolicy {
     previous: Option<bool>,
@@ -17,7 +23,7 @@ impl AttachmentPolicy {
     pub fn new(now: Instant) -> Self {
         Self {
             previous: None,
-            ready_after: now + Duration::from_secs(3),
+            ready_after: now + BASELINE,
             pending: None,
             current: Arc::new(AtomicBool::new(false)),
         }
@@ -46,7 +52,7 @@ impl AttachmentPolicy {
         if present == Some(true)
             && self
                 .pending
-                .is_some_and(|arrival| now.duration_since(arrival) >= Duration::from_millis(800))
+                .is_some_and(|arrival| now.duration_since(arrival) >= SETTLE)
         {
             self.pending = None;
             return Some(self.current.clone());
@@ -88,10 +94,13 @@ mod tests {
             .observe(Some(true), now + Duration::from_secs(6))
             .is_none());
         assert!(policy
-            .observe(Some(true), now + Duration::from_millis(6799))
+            .observe(
+                Some(true),
+                now + Duration::from_secs(6) + SETTLE - Duration::from_millis(1)
+            )
             .is_none());
         let token = policy
-            .observe(Some(true), now + Duration::from_millis(6800))
+            .observe(Some(true), now + Duration::from_secs(6) + SETTLE)
             .unwrap();
         assert!(token.load(Ordering::SeqCst));
         assert!(policy
