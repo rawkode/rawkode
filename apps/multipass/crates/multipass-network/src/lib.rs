@@ -5,14 +5,14 @@
 //! discovery metadata are unencrypted; pairing keys never leave the process.
 use anyhow::{bail, Context as _, Result};
 use hmac::{Hmac, Mac};
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent, ServiceInfo};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fmt,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -173,7 +173,7 @@ impl Network {
         secret: Option<[u8; 32]>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<NetworkEvent>)> {
         let name = sanitize_name(&name);
-        let listener = TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).await?;
+        let listener = bind_dual_stack()?;
         let port = listener.local_addr()?.port();
         let daemon = ServiceDaemon::new()?;
         // Shut down the daemon on any fallible setup path too.
@@ -250,14 +250,13 @@ impl Network {
                     },
                     event = browse.recv_async() => match event {
                         Ok(ServiceEvent::ServiceResolved(info)) => {
-                            if info.get_property_val_str("version") != Some(VERSION.to_string().as_str()) { continue; }
-                            let instance = info.get_fullname().strip_suffix(SERVICE).unwrap_or("").trim_end_matches('.');
+                            if info.txt_properties.get_property_val_str("version") != Some(VERSION.to_string().as_str()) { continue; }
+                            let instance = info.fullname.strip_suffix(SERVICE).unwrap_or("").trim_end_matches('.');
                             if let Ok(id) = Uuid::parse_str(instance) {
-                                if id != context.id && (peers.len() < 256 || peers.contains_key(info.get_fullname())) {
-                                    // This listener is IPv4; omit IPv6 instead of advertising broken scoped endpoints.
-                                    let addresses: Vec<_> = info.get_addresses().iter().filter_map(|ip| match ip { IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_multicast() => Some(SocketAddr::new(IpAddr::V4(*ip), info.get_port())), _ => None }).take(8).collect();
-                                    let name = sanitize_name(info.get_property_val_str("name").unwrap_or(""));
-                                    if !addresses.is_empty() { peers.insert(info.get_fullname().into(), Peer { id, name, addresses }); }
+                                if id != context.id && (peers.len() < 256 || peers.contains_key(&info.fullname)) {
+                                    let addresses = peer_addresses(info.addresses.iter(), info.port);
+                                    let name = sanitize_name(info.txt_properties.get_property_val_str("name").unwrap_or(""));
+                                    if !addresses.is_empty() { peers.insert(info.fullname.clone(), Peer { id, name, addresses }); }
                                 }
                             }
                             context.emit(NetworkEvent::Peers(summarize(&peers)));
@@ -367,6 +366,77 @@ fn summarize(peers: &HashMap<String, Peer>) -> Vec<PeerSummary> {
     summary.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     summary.dedup();
     summary
+}
+
+/// Listen on every interface for both IPv4 and IPv6. IPv6 is bound as a
+/// dual-stack socket so a single advertised port serves both; when IPv6 is
+/// unavailable on the host, an IPv4-only socket keeps discovery working.
+fn bind_dual_stack() -> Result<TcpListener> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let dual = (|| -> std::io::Result<TcpListener> {
+        let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
+        socket.set_only_v6(false)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)).into())?;
+        socket.listen(SESSION_LIMIT as i32)?;
+        TcpListener::from_std(socket.into())
+    })();
+    match dual {
+        Ok(listener) => Ok(listener),
+        Err(_) => {
+            let std_listener = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+            std_listener.set_nonblocking(true)?;
+            TcpListener::from_std(std_listener).map_err(Into::into)
+        }
+    }
+}
+
+/// Endpoints to try for a discovered peer, IPv4 first. IPv6 link-local
+/// addresses carry the index of the interface they were heard on, which is
+/// required for connecting; mDNS advertises every link-local address a host
+/// has, so most of them are unreachable and are tried concurrently.
+fn peer_addresses<'a>(addresses: impl Iterator<Item = &'a ScopedIp>, port: u16) -> Vec<SocketAddr> {
+    let mut v4 = Vec::new();
+    let mut v6 = Vec::new();
+    for address in addresses {
+        match address {
+            ScopedIp::V4(ip) if !ip.addr().is_unspecified() && !ip.addr().is_multicast() => {
+                v4.push(SocketAddr::new(IpAddr::V4(*ip.addr()), port));
+            }
+            ScopedIp::V6(ip) if !ip.addr().is_unspecified() && !ip.addr().is_multicast() => {
+                let link_local = (ip.addr().segments()[0] & 0xffc0) == 0xfe80;
+                let scope = if link_local { ip.scope_id().index } else { 0 };
+                v6.push(SocketAddr::V6(SocketAddrV6::new(
+                    *ip.addr(),
+                    port,
+                    0,
+                    scope,
+                )));
+            }
+            _ => {}
+        }
+    }
+    v4.sort();
+    v6.sort();
+    v4.into_iter().chain(v6).take(16).collect()
+}
+
+/// Connect to the first endpoint that answers. Attempts run concurrently so
+/// dead link-local addresses do not serialize into the session timeout.
+async fn connect_any(addresses: &[SocketAddr]) -> std::io::Result<TcpStream> {
+    let mut attempts = JoinSet::new();
+    for address in addresses.iter().copied() {
+        attempts.spawn(async move { TcpStream::connect(address).await });
+    }
+    let mut last = std::io::Error::new(std::io::ErrorKind::NotFound, "No addresses to connect to");
+    while let Some(attempt) = attempts.join_next().await {
+        match attempt {
+            Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(error)) => last = error,
+            Err(error) => last = std::io::Error::other(error),
+        }
+    }
+    Err(last)
 }
 
 // ---------------------------------------------------------------------------
@@ -599,7 +669,7 @@ async fn send_claim(
 ) -> Result<()> {
     let session = async {
         // Resolve the advertised addresses within this bounded session; no retry queue.
-        let mut stream = TcpStream::connect(peer.addresses.as_slice()).await?;
+        let mut stream = connect_any(&peer.addresses).await?;
         let challenge: Challenge = serde_json::from_slice(&read_frame(&mut stream).await?)?;
         if challenge.version != VERSION
             || challenge.receiver != peer.id
@@ -734,7 +804,7 @@ async fn initiate_pairing(peer: Peer, context: Context) {
     let peer_name = peer.name.clone();
     let result = async {
         let exchange = async {
-            let mut stream = TcpStream::connect(peer.addresses.as_slice())
+            let mut stream = connect_any(&peer.addresses)
                 .await
                 .context("Cannot connect to that computer")?;
             let challenge: Challenge = serde_json::from_slice(&read_frame(&mut stream).await?)?;
@@ -947,6 +1017,53 @@ async fn finish_pairing(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn peer_addresses_prefer_ipv4_and_drop_unusable() {
+        let scoped: Vec<ScopedIp> = [
+            "fe80::1".parse::<IpAddr>().unwrap(),
+            "192.168.1.9".parse().unwrap(),
+            "0.0.0.0".parse().unwrap(),
+            "224.0.0.251".parse().unwrap(),
+            "ff02::fb".parse().unwrap(),
+            "::".parse().unwrap(),
+            "fd07::5".parse().unwrap(),
+            "10.0.0.2".parse().unwrap(),
+        ]
+        .into_iter()
+        .map(ScopedIp::from)
+        .collect();
+        let addresses = peer_addresses(scoped.iter(), 4321);
+        let ips: Vec<IpAddr> = addresses.iter().map(SocketAddr::ip).collect();
+        assert_eq!(
+            ips,
+            vec![
+                "10.0.0.2".parse::<IpAddr>().unwrap(),
+                "192.168.1.9".parse().unwrap(),
+                "fd07::5".parse().unwrap(),
+                "fe80::1".parse().unwrap(),
+            ]
+        );
+        assert!(addresses.iter().all(|address| address.port() == 4321));
+    }
+    #[tokio::test]
+    async fn dual_stack_listener_accepts_ipv4_and_ipv6() {
+        let listener = bind_dual_stack().unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accept = tokio::spawn(async move {
+            let mut count = 0;
+            while count < 2 {
+                let (_stream, from) = listener.accept().await.unwrap();
+                assert!(from.ip().is_loopback() || from.ip().to_canonical().is_loopback());
+                count += 1;
+            }
+        });
+        TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        TcpStream::connect(("::1", port)).await.unwrap();
+        timeout(Duration::from_secs(5), accept)
+            .await
+            .unwrap()
+            .unwrap();
+    }
     fn fixture() -> (Verifier, Claim) {
         let challenge = Challenge {
             version: VERSION,
@@ -1368,17 +1485,19 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires multicast-enabled LAN; run explicitly for host qualification"]
     async fn mdns_discovery_and_authenticated_handoff() {
+        let first_id = Uuid::new_v4();
         let (mut first, mut first_events) =
-            Network::start(Uuid::new_v4(), "Network test first".into(), Some([91; 32]))
+            Network::start(first_id, "Network test first".into(), Some([91; 32]))
                 .await
                 .unwrap();
         let (mut second, mut second_events) =
             Network::start(Uuid::new_v4(), "Network test second".into(), Some([91; 32]))
                 .await
                 .unwrap();
+        // Other Multipass instances on the LAN are discovered too; wait for ours.
         timeout(Duration::from_secs(15), async {
             loop {
-                if matches!(second_events.recv().await, Some(NetworkEvent::Peers(peers)) if !peers.is_empty()) {
+                if matches!(second_events.recv().await, Some(NetworkEvent::Peers(peers)) if peers.iter().any(|peer| peer.id == first_id)) {
                     break;
                 }
             }
