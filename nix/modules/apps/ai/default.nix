@@ -19,7 +19,6 @@ mkApp {
     {
       config = lib.mkIf cfg.cliPackages.enable {
         home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
-          amp
           codex
           cursor-agent
           gemini-cli
@@ -84,8 +83,9 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
+        taps = [ "ampcode/tap" ];
         brews = [
-          "amp"
+          "ampcode/tap/ampcode"
           "gemini-cli"
         ];
         casks = [
