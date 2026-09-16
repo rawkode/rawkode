@@ -107,6 +107,14 @@
         ${lib.optionalString managed ''
           keychain="${supportDir}/signing.keychain-db"
           password="${supportDir}/keychain-password"
+          # codesign only finds identities in keychains on the user's search
+          # list, even when told --keychain, so add ours once. `-s` replaces
+          # the whole list, so the existing entries are passed back in.
+          if ! /usr/bin/security list-keychains -d user | grep -qF "\"$keychain\""; then
+            echo "Adding the local code-signing keychain to the keychain search list..."
+            mapfile -t existing < <(/usr/bin/security list-keychains -d user | sed 's/^[[:space:]]*"//; s/"$//')
+            /usr/bin/security list-keychains -d user -s "$keychain" "''${existing[@]}"
+          fi
           /usr/bin/security unlock-keychain -p "$(cat "$password")" "$keychain"
         ''}
         sign() {
@@ -127,7 +135,8 @@
       '';
 
       asUser =
-        script: "launchctl asuser \"$(id -u ${user})\" sudo --user=${user} --set-home ${pkgs.runtimeShell} ${script}";
+        script:
+        "launchctl asuser \"$(id -u ${user})\" sudo --user=${user} --set-home ${pkgs.runtimeShell} ${script}";
       userHome = ''"$(sudo --user=${user} --set-home ${pkgs.runtimeShell} -c 'echo "$HOME"')"'';
     in
     {
