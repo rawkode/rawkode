@@ -18,8 +18,8 @@ This repository contains a modular NixOS configuration that supports:
 
 - **flake.nix**: Main entry point using flake-parts for modular composition
 - **modules/**: Modular system components organized by category
-- **machines/**: Per-machine manifests that declare platform, users, capabilities, traits, and local overrides
-- **capabilities/**: Shared behavior bundles such as foundation, desktop, development, platform, and vpn
+- **modules/machines/**: Per-machine manifests that declare platform, users, capabilities, traits, and local overrides
+- **modules/capabilities/**: Shared behavior bundles such as foundation, desktop, development, platform, and vpn
 
 ### Key Components
 
