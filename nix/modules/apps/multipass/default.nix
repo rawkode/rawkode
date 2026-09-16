@@ -24,25 +24,49 @@ mkApp {
     };
 
   darwin.system =
-    { config, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       multipassPkg = inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default;
       user = config.system.primaryUser;
+      identity = config.rawkOS.apps.multipass.signingIdentity;
     in
     {
+      options.rawkOS.apps.multipass.signingIdentity = lib.mkOption {
+        type = lib.types.nullOr (lib.types.strMatching "[^'\"$`\\]+");
+        default = null;
+        example = "Apple Development: Jane Doe (TEAMID1234)";
+        description = ''
+          Code-signing identity from the primary user's login keychain used to
+          re-sign the installed app. The Nix build can only sign ad-hoc, and
+          macOS keys Input Monitoring, Local Network and keychain access to the
+          code signature, so every rebuild silently invalidates those grants.
+          A stable identity keeps them across rebuilds. Null keeps the ad-hoc
+          signature.
+        '';
+      };
+
       # Copy to ~/Applications instead of linking from home.packages.
-      # Spotlight and Launchpad skip symlinked bundles under "Home Manager Apps",
-      # and macOS grants Input Monitoring by path — running from /nix/store
-      # means every rebuild requires re-granting permissions.
+      # Spotlight and Launchpad skip symlinked bundles under "Home Manager Apps".
       # nix-darwin runs this as root with HOME=~root, so switch to the primary
       # user or the bundle lands in /var/root/Applications.
-      system.activationScripts.postActivation.text = ''
+      config.system.activationScripts.postActivation.text = ''
         echo "Installing Multipass.app to ~${user}/Applications..."
         sudo --user=${user} --set-home ${pkgs.runtimeShell} -c '
           mkdir -p "$HOME/Applications"
           rm -rf "$HOME/Applications/Multipass.app"
           cp -RL "${multipassPkg}/Applications/Multipass.app" "$HOME/Applications/"
           chmod -R u+w "$HOME/Applications/Multipass.app"
+          ${lib.optionalString (identity != null) ''
+            echo "Signing Multipass.app as ${identity}..."
+            /usr/bin/codesign --force --sign "${identity}" "$HOME/Applications/Multipass.app/Contents/MacOS/multipass-engine" \
+              && /usr/bin/codesign --force --sign "${identity}" "$HOME/Applications/Multipass.app" \
+              || echo "warning: could not sign Multipass.app with ${identity}; it keeps its ad-hoc signature" >&2
+          ''}
         '
       '';
     };

@@ -17,6 +17,8 @@
     disabledCapabilities = [ ];
     traits = [ ];
     users.rawkode = { };
-    modules = [ ];
+    modules = [
+      { rawkOS.apps.multipass.signingIdentity = "Apple Development: David Flanagan (3NU4DUDS5C)"; }
+    ];
   };
 }

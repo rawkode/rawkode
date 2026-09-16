@@ -92,6 +92,7 @@ impl Engine {
     pub async fn run(mut self, mut commands: mpsc::Receiver<Request>, mut emit: impl FnMut(Event)) {
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        self.check_mouse_access().await;
         let mut last_state = None;
         loop {
             if last_state.as_ref() != Some(&self.state) {
@@ -127,6 +128,27 @@ impl Engine {
         }
         self.reset();
         self.stop_network().await;
+    }
+
+    /// Reach the mouse over HID++ read-only so a missing OS permission shows up
+    /// when switching is enabled, not silently during the first handoff. macOS
+    /// keys Input Monitoring to the app's code signature, so a rebuilt ad-hoc
+    /// signed app loses the grant while System Settings still shows it on.
+    pub(crate) async fn check_mouse_access(&mut self) -> Option<String> {
+        if !self.state.enabled {
+            return None;
+        }
+        match tokio::task::spawn_blocking(multipass_hardware::probe).await {
+            Ok(Err(multipass_hardware::HardwareError::Access(detail))) => {
+                let message = format!(
+                    "The OS is blocking Multipass from talking to the mouse ({detail}). \
+                     On macOS open Input Monitoring settings, turn Multipass off and on again, then restart Multipass."
+                );
+                self.state.last_event = message.clone();
+                Some(message)
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn reset(&mut self) {

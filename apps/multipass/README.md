@@ -27,7 +27,7 @@ cd apps/multipass
 
 The script builds the engine and SwiftUI frontend, bundles both in `dist/Multipass.app`, signs them for local development, and launches the app. The Codex Run action calls this script. `--build` packages without launching; `--verify` runs Rust tests and checks launch; `--debug` and `--logs` support diagnostics.
 
-Set `MULTIPASS_SIGNING_IDENTITY` to a configured identity for a stable development signature. The default ad-hoc app is not notarized; rebuilding or moving it can require granting Input Monitoring again. Distribution beyond development needs normal signing/notarization. Do not run the app as root.
+Set `MULTIPASS_SIGNING_IDENTITY` to a configured identity for a stable development signature. The default ad-hoc app is not notarized, and macOS keys Input Monitoring, Local Network and keychain access to the code signature: after every ad-hoc rebuild those grants silently stop matching while System Settings still shows them enabled. Turn Multipass off and on again under Input Monitoring after such a rebuild, or sign with a stable identity. Enabling switching now probes the mouse and reports in the activity log when the OS blocks access. Distribution beyond development needs normal signing/notarization. Do not run the app as root.
 
 ### Windows
 
