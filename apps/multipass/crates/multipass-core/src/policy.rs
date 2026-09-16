@@ -69,13 +69,46 @@ pub fn permits_switch(
     keyboard: Option<bool>,
     mouse: Option<bool>,
 ) -> bool {
-    enabled
-        && !suspended
-        && (1..=3).contains(&local_slot)
-        && (1..=3).contains(&target)
-        && target != local_slot
-        && keyboard == Some(false)
-        && mouse == Some(true)
+    claim_blocker(enabled, suspended, local_slot, target, keyboard, mouse).is_none()
+}
+
+/// Why a switch claim cannot run right now.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClaimBlocker {
+    Disabled,
+    Suspended,
+    InvalidSlot,
+    /// The keyboard is still visible here. This clears on its own once the
+    /// departure registers, so the claim is worth holding for a moment.
+    KeyboardPresent,
+    KeyboardUnknown,
+    MouseAbsent,
+    MouseUnknown,
+}
+
+pub fn claim_blocker(
+    enabled: bool,
+    suspended: bool,
+    local_slot: u8,
+    target: u8,
+    keyboard: Option<bool>,
+    mouse: Option<bool>,
+) -> Option<ClaimBlocker> {
+    if !enabled {
+        Some(ClaimBlocker::Disabled)
+    } else if suspended {
+        Some(ClaimBlocker::Suspended)
+    } else if !(1..=3).contains(&local_slot) || !(1..=3).contains(&target) || target == local_slot {
+        Some(ClaimBlocker::InvalidSlot)
+    } else {
+        match (keyboard, mouse) {
+            (None, _) => Some(ClaimBlocker::KeyboardUnknown),
+            (Some(true), _) => Some(ClaimBlocker::KeyboardPresent),
+            (Some(false), None) => Some(ClaimBlocker::MouseUnknown),
+            (Some(false), Some(false)) => Some(ClaimBlocker::MouseAbsent),
+            (Some(false), Some(true)) => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -125,6 +158,37 @@ mod tests {
             policy.observe(next, now + Duration::from_secs(6));
             assert!(!token.load(Ordering::SeqCst));
         }
+    }
+    #[test]
+    fn blocker_names_the_first_reason_and_keyboard_presence_is_transient() {
+        assert_eq!(
+            claim_blocker(false, false, 1, 2, Some(false), Some(true)),
+            Some(ClaimBlocker::Disabled)
+        );
+        assert_eq!(
+            claim_blocker(true, true, 1, 2, Some(false), Some(true)),
+            Some(ClaimBlocker::Suspended)
+        );
+        assert_eq!(
+            claim_blocker(true, false, 1, 1, Some(false), Some(true)),
+            Some(ClaimBlocker::InvalidSlot)
+        );
+        assert_eq!(
+            claim_blocker(true, false, 1, 2, Some(true), Some(true)),
+            Some(ClaimBlocker::KeyboardPresent)
+        );
+        assert_eq!(
+            claim_blocker(true, false, 1, 2, None, Some(true)),
+            Some(ClaimBlocker::KeyboardUnknown)
+        );
+        assert_eq!(
+            claim_blocker(true, false, 1, 2, Some(false), Some(false)),
+            Some(ClaimBlocker::MouseAbsent)
+        );
+        assert_eq!(
+            claim_blocker(true, false, 1, 2, Some(false), Some(true)),
+            None
+        );
     }
     #[test]
     fn source_requires_valid_absence_and_target() {

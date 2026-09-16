@@ -71,8 +71,18 @@ impl ConfigStore {
     }
 }
 
+/// The credential-store account for this engine's pairing key. An engine run
+/// with `MULTIPASS_CONFIG_DIR` (tests, side-by-side instances) gets its own
+/// account so it never touches, or prompts for, the real installation's key.
+fn secret_account() -> String {
+    match std::env::var_os("MULTIPASS_CONFIG_DIR") {
+        Some(directory) => format!("peer-secret-v1:{}", directory.to_string_lossy()),
+        None => "peer-secret-v1".into(),
+    }
+}
+
 pub fn load_secret() -> Result<Option<[u8; 32]>> {
-    let entry = keyring::Entry::new("dev.rawkode.multipass", "peer-secret-v1")?;
+    let entry = keyring::Entry::new("dev.rawkode.multipass", &secret_account())?;
     match entry.get_secret() {
         Ok(data) => data
             .try_into()
@@ -86,13 +96,13 @@ pub fn load_secret() -> Result<Option<[u8; 32]>> {
 }
 
 pub fn save_secret(secret: &[u8; 32]) -> Result<()> {
-    keyring::Entry::new("dev.rawkode.multipass", "peer-secret-v1")?
+    keyring::Entry::new("dev.rawkode.multipass", &secret_account())?
         .set_secret(secret)
         .context("Cannot save pairing key in OS credential store")
 }
 
 pub fn delete_secret() -> Result<()> {
-    match keyring::Entry::new("dev.rawkode.multipass", "peer-secret-v1")?.delete_credential() {
+    match keyring::Entry::new("dev.rawkode.multipass", &secret_account())?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(error).context("Cannot remove pairing key from OS credential store"),
     }

@@ -10,7 +10,7 @@ The shared Rust engine owns device detection, Bonjour discovery, in-band pairing
 | Windows 10/11 | .NET 8 WinForms window and system tray | Windows Credential Manager |
 | Linux desktop | GTK4 through distro PyGObject | Secret Service (GNOME Keyring or compatible provider) |
 
-No webviews or browser runtime are used. The engine is a child of its frontend. Closing/quitting the frontend stops it; on Windows, closing the window hides it to the tray, and **Quit** stops it. On Linux keep the window open or minimized. Only one engine may run per user/configuration directory.
+No webviews or browser runtime are used. The engine is a child of its frontend. Closing/quitting the frontend stops it; on Windows, closing the window hides it to the tray, and **Quit** stops it. On Linux keep the window open or minimized. Only one engine may run per user/configuration directory. Setting `MULTIPASS_CONFIG_DIR` runs a separate instance with its own settings and its own pairing key in the credential store, so test or side-by-side engines never prompt for the real installation's key.
 
 ## Build and run
 
@@ -78,7 +78,7 @@ The Rust protocol is **version 3**, and intentionally rejects the earlier copied
 - Detection targets Bluetooth EVO80 `36B0:3004` and MX Master 4 `046D:B042`. Other models are not configurable yet. Read-only device metadata is inspected; keyboard input reports are never captured.
 - Device presence is polled every 100 ms, and only a fresh absent-to-present keyboard edge that stays present for 300 ms produces a claim. Unknown device state invalidates pending work. Startup, settings changes, enable, and resume establish a baseline for three seconds.
 - The source requires its keyboard absent, mouse present, and a different valid target slot. Immediately before one ChangeHost write, it repeats the keyboard-presence check and verifies the authorization lease.
-- Each session uses a fresh random challenge and HMAC-SHA256 bound to sender, receiver, slot, and protocol version. A verified claim expires after one second; connection loss, keyboard departure, pause, or process shutdown revokes it. Frames, sessions, peer fan-out, and connection counts are bounded.
+- Each session uses a fresh random challenge and HMAC-SHA256 bound to sender, receiver, slot, and protocol version. A verified claim expires after three seconds; connection loss, keyboard departure, pause, or process shutdown revokes it. If the source still sees the keyboard when the claim arrives, it holds the claim and re-checks on every poll until the keyboard departs or the claim expires. Frames, sessions, peer fan-out, and connection counts are bounded.
 - Observation and network propagation introduce a small unavoidable race; this is not an atomic transaction across hardware. Requests are never queued for offline peers, and uncertain switch writes are never retried.
 - HID++ feature indices are discovered dynamically. Source acknowledgement and source departure are reported separately; neither proves destination connectivity. HID response waits are bounded, but the underlying OS write cannot be forcibly interrupted.
 - Switch claims are authenticated; discovery metadata is untrusted. Neither is encrypted. Pairing secrets are derived on both computers and never sent over the network. Recent activity is held in memory; the app does not log keyboard input or credentials.
