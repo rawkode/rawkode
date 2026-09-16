@@ -73,6 +73,7 @@ let
                 ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
               osClass = "standalone";
+              stylixHome = true;
             };
           };
         }
@@ -169,6 +170,7 @@ let
 
       nixosHomeModule =
         {
+          config,
           pkgs,
           machine ? null,
           ...
@@ -186,6 +188,11 @@ let
             inherit (pkgs.stdenv.hostPlatform) system;
             inherit (pkgs.stdenv) isDarwin;
             osClass = "nixos";
+            # Whether Stylix's home-manager options exist for this host. On
+            # NixOS Stylix is only auto-imported into Home Manager when the
+            # system-level `rawkOS.stylix.enable` is on, so modules that set
+            # `stylix.*` must consult this instead of assuming it exists.
+            stylixHome = lib.attrByPath [ "rawkOS" "stylix" "enable" ] false config;
           };
           home-manager.users.${username}.imports = [ homeModule ];
         };
@@ -228,6 +235,7 @@ let
             system = darwinSystem;
             isDarwin = true;
             osClass = "darwin";
+            stylixHome = true;
           };
           home-manager.users.${username} = homeModule;
         };

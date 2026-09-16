@@ -16,7 +16,9 @@ let
 
         polarity = "dark";
         image = wallpaper;
-        base16Scheme = "${pkgs.base16-schemes}/share/themes/ayu-mirage.yaml";
+        # Vendored so Stylix doesn't read base16-schemes from the store at
+        # evaluation time (import-from-derivation). See modules/config/themes.
+        base16Scheme = ./themes/ayu-mirage.yaml;
 
         cursor = {
           package = pkgs.phinger-cursors;
@@ -108,26 +110,40 @@ in
         default = true;
       };
 
-      config = lib.mkMerge [
-        (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin) {
-          home.pointerCursor.enable = true;
-        })
-        (lib.mkIf (config.rawkOS.stylix.enable && isDarwin) {
-          # Several Stylix targets (x11, gtk, ...) auto-enable on every
-          # platform and unconditionally set `home.pointerCursor.<backend>.enable
-          # = true`, even though only the (correctly Linux-gated) cursor
-          # target actually supplies `home.pointerCursor.name`/`package`. On
-          # Darwin that leaves `home.pointerCursor.enable` implicitly true
-          # (via home-manager's legacy auto-detection) with no name/package
-          # defined, so evaluation fails with "home.pointerCursor.name was
-          # accessed but has no value defined". Cursor theming is meaningless
-          # on Darwin anyway, so force it off rather than chase every target
-          # that touches a `home.pointerCursor.*` sub-option.
-          home.pointerCursor.enable = lib.mkForce false;
-        })
-        (lib.mkIf (osClass != "nixos" && config.rawkOS.stylix.enable) (mkStylixConfig {
-          inherit lib pkgs;
-        }))
-      ];
+      config = lib.mkMerge (
+        [
+          (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin) {
+            home.pointerCursor.enable = true;
+          })
+          (lib.mkIf (config.rawkOS.stylix.enable && isDarwin) {
+            # Several Stylix targets (x11, gtk, ...) auto-enable on every
+            # platform and unconditionally set `home.pointerCursor.<backend>.enable
+            # = true`, even though only the (correctly Linux-gated) cursor
+            # target actually supplies `home.pointerCursor.name`/`package`. On
+            # Darwin that leaves `home.pointerCursor.enable` implicitly true
+            # (via home-manager's legacy auto-detection) with no name/package
+            # defined, so evaluation fails with "home.pointerCursor.name was
+            # accessed but has no value defined". Cursor theming is meaningless
+            # on Darwin anyway, so force it off rather than chase every target
+            # that touches a `home.pointerCursor.*` sub-option.
+            home.pointerCursor.enable = lib.mkForce false;
+          })
+        ]
+        # `mkStylixConfig` defines `stylix.*`. Never register those on NixOS:
+        # the system-level stylix module owns them, and a machine that disables
+        # stylix (e.g. p4x-orb-nixos) has no `stylix` option here — registering
+        # definitions for a missing option is an evaluation error. Gating on
+        # `osClass` (known at eval time) avoids constructing the config at all.
+        ++ (
+          if osClass != "nixos" then
+            [
+              (lib.mkIf config.rawkOS.stylix.enable (mkStylixConfig {
+                inherit lib pkgs;
+              }))
+            ]
+          else
+            [ ]
+        )
+      );
     };
 }

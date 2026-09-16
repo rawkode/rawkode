@@ -5,10 +5,18 @@ in
 mkApp {
   name = "visual-studio-code";
 
-  # Common config that works on both platforms
-  common.home = _: {
-    stylix.targets.vscode.enable = false;
-  };
+  # Stylix's VS Code target is home-manager-only and absent when Stylix is
+  # disabled (e.g. p4x-orb-nixos), so gate it on `stylixHome` rather than
+  # referencing `stylix.*` unconditionally.
+  common.home =
+    {
+      lib,
+      stylixHome ? false,
+      ...
+    }:
+    lib.optionalAttrs stylixHome {
+      stylix.targets.vscode.enable = false;
+    };
 
   # Linux: use the standard VS Code package via home-manager
   linux.home =
