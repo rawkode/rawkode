@@ -1,6 +1,11 @@
 import AppKit
 import Combine
+import IOKit.hid
 import ServiceManagement
+
+/// macOS keys the mouse's HID access to the Input Monitoring grant of the app
+/// responsible for the engine process, which is this app.
+enum InputMonitoringStatus { case granted, denied, notDetermined }
 
 @MainActor
 final class MultipassStore: ObservableObject {
@@ -18,10 +23,12 @@ final class MultipassStore: ObservableObject {
     @Published private(set) var launchAtLogin = false
     @Published private(set) var localSlot = 1
     @Published private(set) var computerName = "This Mac"
+    @Published private(set) var inputMonitoring: InputMonitoringStatus = .notDetermined
     /// Set by the main window so an incoming pairing request can bring it forward.
     var presentWindow: (() -> Void)?
     private let engine = EngineClient()
     private var observers: [NSObjectProtocol] = []
+    private var requestedInputMonitoring = false
 
     init() {
         engine.onState = { [weak self] state in self?.apply(state) }
@@ -34,6 +41,11 @@ final class MultipassStore: ObservableObject {
         }
         engine.start()
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        refreshInputMonitoring()
+        // The grant is usually changed in System Settings; re-read it on return.
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshInputMonitoring() }
+        })
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.engine.send("suspend") }
@@ -50,7 +62,10 @@ final class MultipassStore: ObservableObject {
     func confirmPairing(_ accept: Bool) { engine.send("confirm_pairing", values: ["accept": accept]) }
     func unpair() { engine.send("unpair") }
     func setLocalSlot(_ slot: Int) { engine.send("set_slot", values: ["slot": slot]) }
-    func setEnabled(_ value: Bool) { engine.send("set_enabled", values: ["enabled": value]) }
+    func setEnabled(_ value: Bool) {
+        if value { requestInputMonitoring() }
+        engine.send("set_enabled", values: ["enabled": value])
+    }
     func setLaunchAtLogin(_ value: Bool) {
         do {
             if value { try SMAppService.mainApp.register() }
@@ -61,6 +76,23 @@ final class MultipassStore: ObservableObject {
     }
     func openInputMonitoring() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") { NSWorkspace.shared.open(url) }
+    }
+    func refreshInputMonitoring() {
+        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        case kIOHIDAccessTypeGranted: inputMonitoring = .granted
+        case kIOHIDAccessTypeDenied: inputMonitoring = .denied
+        default: inputMonitoring = .notDetermined
+        }
+    }
+    /// Ask macOS for Input Monitoring explicitly. The engine only touches the
+    /// mouse when it is connected here, so without this the system never adds
+    /// Multipass to the Input Monitoring list on a Mac the mouse is away from.
+    /// Prompts at most once per launch; a denied grant sends people to Settings.
+    func requestInputMonitoring(force: Bool = false) {
+        refreshInputMonitoring()
+        guard inputMonitoring != .granted, force || !requestedInputMonitoring else { return }
+        requestedInputMonitoring = true
+        if IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) { inputMonitoring = .granted }
     }
     private func apply(_ state: EngineState) {
         available = true
@@ -76,6 +108,7 @@ final class MultipassStore: ObservableObject {
             pairing = state.pairing
         }
         enabled = state.enabled
+        if enabled { requestInputMonitoring() }
         localSlot = state.localSlot
         computerName = state.nodeName
         if !state.lastEvent.isEmpty, events.first != state.lastEvent {
