@@ -14,6 +14,9 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+/// Device presence is re-read this often; it bounds how quickly a keyboard arrival is noticed.
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 pub struct Engine {
     pub(crate) config: ConfigStore,
     pub(crate) settings: Settings,
@@ -83,7 +86,7 @@ impl Engine {
     }
 
     pub async fn run(mut self, mut commands: mpsc::Receiver<Request>, mut emit: impl FnMut(Event)) {
-        let mut ticker = tokio::time::interval(Duration::from_millis(250));
+        let mut ticker = tokio::time::interval(POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_state = None;
         loop {
