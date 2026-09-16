@@ -5,6 +5,7 @@
     {
       imports = [
         inputs.self.darwinModules.fonts
+        inputs.self.darwinModules.macos-code-signing
         inputs.self.darwinModules.macos-firewall
         inputs.self.darwinModules.macos-system-defaults
         inputs.self.darwinModules.power
