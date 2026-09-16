@@ -1,0 +1,27 @@
+name: rawkOS (nix)
+
+# Evaluate the rawkOS flake whenever the Nix configuration changes. The
+# `nix`, `kree` and `multipass` path inputs live inside this monorepo, so a
+# full checkout is required.
+on:
+  push:
+    paths:
+      - "nix/**"
+      - ".github/workflows/rawkos-nix.yml"
+  pull_request:
+    paths:
+      - "nix/**"
+      - ".github/workflows/rawkos-nix.yml"
+
+concurrency:
+  group: rawkos-nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - name: nix flake check
+        run: nix flake check ./nix --no-update-lock-file --print-build-logs
