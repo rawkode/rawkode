@@ -44,10 +44,8 @@
             disableWhileTyping = true;
           };
         };
-        printing.enable = true;
         pcscd.enable = true;
         smartd.enable = true;
-        udev.packages = with pkgs; [ ];
       };
 
       programs = {

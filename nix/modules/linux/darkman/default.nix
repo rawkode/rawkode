@@ -20,7 +20,9 @@ mkApp {
       options.rawkOS.desktop.darkman.enable =
         mkEnableOption "Darkman automatic light/dark theme switching"
         // {
-          default = true;
+          # Off by default: machines that want it opt in explicitly. The option
+          # is only declared where this module is imported (Niri/Linux).
+          default = false;
         };
 
       config = mkIf cfg.enable {

@@ -30,10 +30,11 @@
 
       # AMD-specific packages
       environment.systemPackages = with pkgs; [
+        amdctl
+        corectrl
+        radeontop
         ryzenadj
         zenmonitor
-        radeontop
-        corectrl
       ];
 
       # Enable corectrl for GPU control

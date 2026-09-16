@@ -63,11 +63,6 @@ mkCapability {
           ];
           auto-optimise-store = true;
         };
-        gc = {
-          automatic = lib.mkDefault true;
-          dates = "weekly";
-          options = "--delete-older-than 30d";
-        };
         registry = {
           nixpkgs.flake = inputs.nixpkgs;
           rawkode.flake = inputs.self;

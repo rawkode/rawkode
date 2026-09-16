@@ -1,17 +1,11 @@
 _: {
   flake.nixosModules.hardware-gpu-amd =
     {
-      lib,
       pkgs,
       ...
     }:
     {
       boot.initrd.kernelModules = [ "amdgpu" ];
-
-      services.xserver.videoDrivers = lib.mkDefault [
-        "modesetting"
-        "amdgpu"
-      ];
 
       hardware = {
         amdgpu = {
@@ -36,7 +30,6 @@ _: {
       ];
 
       environment = {
-        systemPackages = with pkgs; [ lact ];
         variables = {
           # VAAPI and VDPAU config for accelerated video.
           # See https://wiki.archlinux.org/index.php/Hardware_video_acceleration
@@ -44,9 +37,6 @@ _: {
           "LIBVA_DRIVER_NAME" = "radeonsi";
         };
       };
-
-      systemd.packages = with pkgs; [ lact ];
-      systemd.services.lactd.wantedBy = [ "multi-user.target" ];
 
       # https://bugzilla.redhat.com/show_bug.cgi?id=2274331
       services.udev.extraRules = ''

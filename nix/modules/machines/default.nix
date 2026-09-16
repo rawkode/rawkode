@@ -18,10 +18,8 @@ in
       inputs.nixos-hardware.nixosModules.common-cpu-amd
       inputs.nixos-hardware.nixosModules.common-gpu-amd
       inputs.nixos-hardware.nixosModules.common-cpu-amd-pstate
-      inputs.self.nixosModules.amdctl
       inputs.self.nixosModules.lact
       inputs.self.nixosModules.hardware-amd
-      inputs.self.nixosModules.hardware-cpu-amd
       inputs.self.nixosModules.hardware-gpu-amd
     ];
 
