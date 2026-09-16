@@ -31,7 +31,9 @@ mkApp {
       # Local Network and keychain grants survive rebuilds. The engine is a
       # separate Mach-O inside the bundle and is signed first.
       rawkOS.darwin.codeSigning.apps."Multipass.app" = {
-        bundle = "${inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default}/Applications/Multipass.app";
+        bundle = "${
+          inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default
+        }/Applications/Multipass.app";
         executables = [ "Contents/MacOS/multipass-engine" ];
       };
     };

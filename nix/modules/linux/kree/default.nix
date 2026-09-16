@@ -12,7 +12,8 @@ mkApp {
       # identity by the shared macos-code-signing module. macOS ties the
       # Accessibility grant to the code signature, not the path, so an ad-hoc
       # rebuild would otherwise require re-granting it every time.
-      rawkOS.darwin.codeSigning.apps."Kree.app".bundle =
-        "${inputs.kree.packages.${pkgs.stdenv.hostPlatform.system}.default}/Applications/Kree.app";
+      rawkOS.darwin.codeSigning.apps."Kree.app".bundle = "${
+        inputs.kree.packages.${pkgs.stdenv.hostPlatform.system}.default
+      }/Applications/Kree.app";
     };
 }
