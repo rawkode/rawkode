@@ -72,9 +72,19 @@ final class EngineClient {
         let handle = stdout.fileHandleForReading
         DispatchQueue.global(qos: .utility).async { [weak self] in
             var buffer = Data()
+            // FileHandle.read(upToCount:) keeps reading a pipe until it has the full
+            // count or EOF, so a few hundred bytes of engine state would sit unread
+            // until the engine exits. Use read(2), which returns whatever is available.
+            var chunk = [UInt8](repeating: 0, count: 4096)
             do {
-                while let data = try handle.read(upToCount: 4096), !data.isEmpty {
-                    buffer.append(data)
+                while true {
+                    let count = Darwin.read(handle.fileDescriptor, &chunk, chunk.count)
+                    if count == 0 { break }
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        throw EngineReadError.failed
+                    }
+                    buffer.append(contentsOf: chunk[..<count])
                     while let newline = buffer.firstIndex(of: 10) {
                         let frame = Data(buffer[..<newline])
                         buffer.removeSubrange(...newline)
@@ -163,4 +173,4 @@ final class EngineClient {
     }
 }
 
-private enum EngineReadError: Error { case oversized }
+private enum EngineReadError: Error { case oversized, failed }
