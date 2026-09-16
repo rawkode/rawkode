@@ -61,7 +61,7 @@ Installing the package does not enable automatic switching or create pairing cre
 
 ## Pair your computers
 
-1. Run the same version on both computers on an IPv4 local network. Allow local-network/firewall access for mDNS discovery and the engine's TCP listener if the OS asks. A VPN, client-isolated Wi-Fi, or firewall may block discovery or connections.
+1. Run the same version on both computers on the same local network; discovery and connections work over IPv4 or IPv6, including link-local IPv6 when a VPN or filter blocks IPv4 multicast. Allow local-network/firewall access for mDNS discovery and the engine's TCP listener if the OS asks. A VPN, client-isolated Wi-Fi, or firewall may block discovery or connections.
 2. Set **Mouse slot** to the mouse's existing Bluetooth slot on each computer—for example, desktop **1**, laptop **2**. Multipass does not create Bluetooth pairings.
 3. Each app lists the other computers running Multipass that it can see. Click **Pair…** next to the other computer on either one. Both screens show the same six-digit code; check they match, then **Accept** on the computer that was asked and **Confirm** on the one that asked. Either side can decline, and the prompt times out after two minutes.
 4. Enable automatic switching on both computers. Wait for discovery and three seconds of device-state settling.
