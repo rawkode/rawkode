@@ -45,8 +45,7 @@ struct ContentView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Toggle("Launch at login", isOn: Binding(get: { store.launchAtLogin }, set: store.setLaunchAtLogin))
-                    Button("Input Monitoring settings…", action: store.openInputMonitoring)
-                        .buttonStyle(.link)
+                    inputMonitoringRow
                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -73,6 +72,25 @@ struct ContentView: View {
                 openWindow(id: "multipass")
                 NSApp.activate(ignoringOtherApps: true)
             }
+        }
+    }
+
+    private var inputMonitoringRow: some View {
+        HStack(spacing: 8) {
+            switch store.inputMonitoring {
+            case .granted:
+                Label("Input Monitoring allowed", systemImage: "checkmark.shield")
+                    .font(.callout).foregroundStyle(.secondary)
+            case .denied:
+                Label("Allow Multipass under Input Monitoring, then reopen Multipass.", systemImage: "exclamationmark.shield")
+                    .font(.callout).foregroundStyle(.orange)
+            case .notDetermined:
+                Label("Multipass needs Input Monitoring to reach the mouse.", systemImage: "shield")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Allow…") { store.requestInputMonitoring(force: true) }
+            }
+            Spacer()
+            Button("Input Monitoring settings…", action: store.openInputMonitoring).buttonStyle(.link)
         }
     }
 
