@@ -10,16 +10,17 @@
     };
 
   inputs = {
+    # Primary channel for the whole system.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Older channels kept only so individual packages can be pinned off
+    # unstable: nixpkgs-25-05 -> modules/development/direnv, nixpkgs-stable
+    # (25.11) -> modules/apps/bat and modules/shells/nushell. Drop a pin once
+    # the package works on unstable again.
     nixpkgs-25-05.url = "github:NixOS/nixpkgs/nixos-25.05";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
 
     flake-parts.url = "github:hercules-ci/flake-parts";
     import-tree.url = "github:vic/import-tree";
-    impeccable = {
-      url = "github:pbakaus/impeccable";
-      flake = false;
-    };
 
     home-manager = {
       url = "github:nix-community/home-manager/master";
@@ -67,7 +68,6 @@
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixos-facter-modules.url = "github:numtide/nixos-facter-modules";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -97,7 +97,10 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Deliberately pinned to a specific commit (annotate why, or try unpinning).
+    # Pinned to the last vicinae revision compatible with our Stylix font
+    # setup. Newer revisions type `programs.vicinae.settings.font.normal` as a
+    # JSON value, which conflicts with the `{ family; size; }` attrset our
+    # config supplies. Unpin once the upstream typing or our config is reconciled.
     vicinae.url = "github:vicinaehq/vicinae/db4c91c6638d191609e9e7e92d4ecddc8d54b1bb";
   };
 }
