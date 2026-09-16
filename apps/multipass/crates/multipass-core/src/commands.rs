@@ -68,6 +68,9 @@ impl Engine {
                         return Err(error);
                     }
                 }
+                if let Some(warning) = self.check_mouse_access().await {
+                    return Ok(warning);
+                }
                 Ok("Automatic switching on; wait three seconds before testing".into())
             }
             Command::Pair { peer } => {
