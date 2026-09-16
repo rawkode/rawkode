@@ -1,7 +1,7 @@
 use crate::{
     config::{self, ConfigStore, Settings},
     ipc::{Event, PairingStatus, Request, State},
-    policy::{self, AttachmentPolicy},
+    policy::{self, AttachmentPolicy, ClaimBlocker},
 };
 use anyhow::Result;
 use multipass_network::{Lease, Network, NetworkEvent, PairingEvent};
@@ -29,6 +29,9 @@ pub struct Engine {
     last_good_observation: Arc<Mutex<SystemTime>>,
     suspended: bool,
     switching: bool,
+    /// A verified request whose only obstacle is that the keyboard is still
+    /// visible here; retried on every poll until it runs or its lease ends.
+    pending_claim: Option<(u8, Lease)>,
     generation: u64,
     last_poll: SystemTime,
     done_tx: mpsc::UnboundedSender<(u64, String)>,
@@ -72,6 +75,7 @@ impl Engine {
             last_good_observation: Arc::new(Mutex::new(SystemTime::UNIX_EPOCH)),
             suspended: false,
             switching: false,
+            pending_claim: None,
             generation: 0,
             last_poll: SystemTime::now(),
             done_tx,
@@ -126,6 +130,7 @@ impl Engine {
     }
 
     pub(crate) fn reset(&mut self) {
+        self.pending_claim = None;
         self.permission.store(false, Ordering::SeqCst);
         self.permission = Arc::new(AtomicBool::new(false));
         self.policy.reset(Instant::now());
@@ -233,6 +238,9 @@ impl Engine {
                 if snapshot.keyboard_present {
                     self.permission.store(false, Ordering::SeqCst);
                 }
+                if let Some((slot, lease)) = self.pending_claim.take() {
+                    self.receive_claim(slot, lease);
+                }
                 if let Some(current) = self
                     .policy
                     .observe(Some(snapshot.keyboard_present), Instant::now())
@@ -267,18 +275,48 @@ impl Engine {
     }
 
     fn receive_claim(&mut self, slot: u8, lease: Lease) {
-        if self.switching
-            || !lease.is_valid()
-            || !policy::permits_switch(
-                self.state.enabled,
-                self.suspended,
-                self.settings.local_slot,
-                slot,
-                self.state.keyboard_present,
-                self.state.mouse_present,
-            )
-        {
+        if self.switching {
             return;
+        }
+        if !lease.is_valid() {
+            self.state.last_event =
+                format!("Request for mouse slot {slot} expired before the keyboard left here");
+            return;
+        }
+        let blocker = policy::claim_blocker(
+            self.state.enabled,
+            self.suspended,
+            self.settings.local_slot,
+            slot,
+            self.state.keyboard_present,
+            self.state.mouse_present,
+        );
+        match blocker {
+            None => {}
+            Some(ClaimBlocker::KeyboardPresent) => {
+                if self.pending_claim.is_none() {
+                    self.state.last_event = format!(
+                        "Mouse slot {slot} requested; waiting for the keyboard to leave this computer"
+                    );
+                }
+                self.pending_claim = Some((slot, lease));
+                return;
+            }
+            Some(reason) => {
+                self.state.last_event = format!(
+                    "Ignored request for mouse slot {slot}: {}",
+                    match reason {
+                        ClaimBlocker::Disabled => "automatic switching is off here",
+                        ClaimBlocker::Suspended => "this computer is asleep",
+                        ClaimBlocker::InvalidSlot => "that slot is this computer's own or invalid",
+                        ClaimBlocker::KeyboardUnknown => "keyboard state is unknown here",
+                        ClaimBlocker::MouseAbsent => "the mouse is not connected here",
+                        ClaimBlocker::MouseUnknown => "mouse state is unknown here",
+                        ClaimBlocker::KeyboardPresent => unreachable!(),
+                    }
+                );
+                return;
+            }
         }
         self.permission.store(false, Ordering::SeqCst);
         self.permission = Arc::new(AtomicBool::new(true));

@@ -41,6 +41,10 @@ const NAME_LIMIT: usize = 64;
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Bound for both people to compare the code and confirm.
 const DECISION_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long a verified switch claim stays valid on the receiver. The source may
+/// still see the keyboard for a moment after it moved, so this leaves time for
+/// its departure to register before the mouse follows.
+pub const CLAIM_WINDOW: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug)]
 pub struct Lease {
@@ -53,7 +57,7 @@ impl Lease {
         Self {
             revoked: Arc::new(AtomicBool::new(false)),
             stopped,
-            deadline: Instant::now() + Duration::from_secs(1),
+            deadline: Instant::now() + CLAIM_WINDOW,
         }
     }
     pub fn is_valid(&self) -> bool {
@@ -235,7 +239,7 @@ impl Network {
                                 for peer in peers.values().take(FANOUT_LIMIT) {
                                     if sessions.len() >= SESSION_LIMIT { break; }
                                     let peer = peer.clone(); let context = context.clone(); let current = request.current.clone();
-                                    sessions.spawn(async move { let events = context.events.clone(); match timeout(Duration::from_secs(3), send_claim(peer, request.slot, current, context)).await { Ok(Ok(())) => {}, Ok(Err(error)) => { let _ = events.send(NetworkEvent::Status(format!("Peer request failed: {error}"))); }, Err(_) => { let _ = events.send(NetworkEvent::Status("Peer request timed out.".into())); } } });
+                                    sessions.spawn(async move { let events = context.events.clone(); match timeout(CLAIM_WINDOW + Duration::from_secs(2), send_claim(peer, request.slot, current, context)).await { Ok(Ok(())) => {}, Ok(Err(error)) => { let _ = events.send(NetworkEvent::Status(format!("Peer request failed: {error}"))); }, Err(_) => { let _ = events.send(NetworkEvent::Status("Peer request timed out.".into())); } } });
                                 }
                             }
                         },
@@ -617,7 +621,7 @@ async fn handle_connection(mut stream: TcpStream, context: Context) -> Result<()
     match kind_of(&first)?.as_str() {
         "claim" => {
             timeout(
-                Duration::from_secs(3),
+                CLAIM_WINDOW + Duration::from_secs(1),
                 receive_claim(stream, first, challenge, context),
             )
             .await?
@@ -658,7 +662,7 @@ async fn receive_claim(
     });
     let mut extra = [0; 1];
     // EOF, any extra byte, errors and timeout all revoke via the RAII guard.
-    let _ = timeout(Duration::from_secs(1), stream.read(&mut extra)).await;
+    let _ = timeout(CLAIM_WINDOW, stream.read(&mut extra)).await;
     Ok(())
 }
 async fn send_claim(
@@ -1271,7 +1275,7 @@ mod tests {
             _ => panic!(),
         };
         assert!(lease.is_valid());
-        timeout(Duration::from_secs(2), task)
+        timeout(CLAIM_WINDOW + Duration::from_secs(1), task)
             .await
             .unwrap()
             .unwrap();
