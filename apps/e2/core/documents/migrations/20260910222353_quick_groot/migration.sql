@@ -1,0 +1,1 @@
+CREATE INDEX `document_entity_refs_entity` ON `document_entity_refs` (`entity_id`,`document_id`);

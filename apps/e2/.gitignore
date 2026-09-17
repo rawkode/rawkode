@@ -1,0 +1,14 @@
+node_modules/
+.deno/
+coverage/
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+.alchemy/
+dist/
+
+.envrc
+
+.astro/

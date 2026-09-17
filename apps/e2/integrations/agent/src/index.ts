@@ -1,0 +1,165 @@
+import type { VoiceTaskBinding } from "./task-tools.ts";
+import { withinVoiceDeadline } from "./deadline.ts";
+import { DurableObject } from "cloudflare:workers";
+import { authenticate, sameOriginPost } from "../../../website/src/lib/auth.ts";
+import { durableVoiceStorage } from "./durable-storage.ts";
+import {
+	closeOwnedVoiceSession,
+	createOwnerVoiceRuntime,
+	type VoiceRuntimeEnv,
+} from "./runtime.ts";
+import { createVoiceReservations } from "./reservations.ts";
+import { createApiGraphReader } from "./graph-reader.ts";
+import { createApiDayReader } from "./day-reader.ts";
+import { attachLiveSideband } from "./sideband.ts";
+import { createVoiceReasoner } from "./reasoner.ts";
+
+const traceStage = async <T>(
+	stage: string,
+	action: () => Promise<T>,
+): Promise<T> => {
+	const started = Date.now();
+	try {
+		const result = await action();
+		console.info({
+			event: "voice_startup",
+			stage,
+			outcome: "completed",
+			elapsedMs: Date.now() - started,
+		});
+		return result;
+	} catch (error) {
+		console.error({
+			event: "voice_startup",
+			stage,
+			outcome: "failed",
+			elapsedMs: Date.now() - started,
+		});
+		throw error;
+	}
+};
+
+interface Env extends VoiceRuntimeEnv {
+	VOICE_OWNERS: DurableObjectNamespace;
+	LOADER: WorkerLoader;
+	ENTITIES_ADMIN: VoiceTaskBinding;
+}
+export class VoiceOwner extends DurableObject<Env> {
+	override async fetch(request: Request): Promise<Response> {
+		const identity = await traceStage(
+			"owner_auth",
+			() => withinVoiceDeadline(() => authenticate(request, this.env)),
+		);
+		if (!identity) return new Response("Unauthorized", { status: 401 });
+		const storage = durableVoiceStorage(this.ctx.storage);
+		const ledger = createVoiceReservations(storage, identity.ownerId);
+		const runtime = createOwnerVoiceRuntime(storage, identity, this.env, {
+			chat: async (request, input, original) => {
+				const key = await withinVoiceDeadline(() =>
+					this.env.OPENAI_API_KEY.get()
+				);
+				if (!key) throw new Error("Chat not configured");
+				const [readDay, readGraph] = await Promise.all([
+					createApiDayReader(original, this.env, this.env.API),
+					createApiGraphReader(original, this.env, this.env.API),
+				]);
+				const execute = createVoiceReasoner({
+					diagnostic: (event) =>
+						console.info({ event: "agent_reasoning", ...event }),
+					responseMode: "text",
+					timeZone: input.timeZone,
+					owner: identity.ownerId,
+					tasks: this.env.ENTITIES_ADMIN,
+					loader: this.env.LOADER,
+					apiKey: key,
+					isCurrent: () => Promise.resolve(!request.signal.aborted),
+					readDay: (input, signal) => readDay(identity.ownerId, input, signal),
+					readGraph: (kind, input, signal) =>
+						readGraph(identity.ownerId, kind, input, signal),
+				});
+				return execute(request);
+			},
+			attach: async (_owner, requestID, sessionID, original, context) => {
+				try {
+					const key = await traceStage(
+						"sideband_secret",
+						() => withinVoiceDeadline(() => this.env.OPENAI_API_KEY.get()),
+					);
+					if (!key) throw new Error("Voice is not configured");
+					const read = await withinVoiceDeadline(() =>
+						createApiDayReader(original, this.env, this.env.API)
+					);
+					const readGraph = await withinVoiceDeadline(() =>
+						createApiGraphReader(original, this.env, this.env.API)
+					);
+					const isCurrent = () => ledger.isSessionActive(sessionID);
+					const execute = createVoiceReasoner({
+						diagnostic: (event) =>
+							console.info({ event: "agent_reasoning", ...event }),
+						timeZone: context.timeZone,
+						owner: identity.ownerId,
+						tasks: this.env.ENTITIES_ADMIN,
+						loader: this.env.LOADER,
+						apiKey: key,
+						isCurrent,
+						readDay: (input, signal) => read(identity.ownerId, input, signal),
+						readGraph: (kind, input, signal) =>
+							readGraph(identity.ownerId, kind, input, signal),
+					});
+					const controller = await traceStage(
+						"sideband_attach",
+						() =>
+							attachLiveSideband({
+								diagnostic: (event) =>
+									console.info({ event: "voice_control", ...event }),
+								sessionID,
+								history: context.history,
+								apiKey: key,
+								authorize: isCurrent,
+								execute,
+								onClosed: async () => {
+									await ledger.reconcile(requestID, {
+										state: "closed",
+										sessionID,
+									});
+								},
+							}),
+					);
+					this.ctx.waitUntil(controller.finished.then(async (result) => {
+						if (!result.finalized) {
+							await closeOwnedVoiceSession(ledger, sessionID, this.env);
+						}
+					}));
+				} catch (error) {
+					// A created call whose control plane failed must not be handed to the client.
+					// End through the same provider-verified path; failed cleanup keeps quota held.
+					await closeOwnedVoiceSession(ledger, sessionID, this.env).catch(
+						() => {},
+					);
+					throw error;
+				}
+			},
+		});
+		const response = await traceStage("owner_request", () => runtime(request));
+		console.info({ event: "voice_response", status: response.status });
+		return response;
+	}
+}
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		if (!sameOriginPost(request, env.WEBSITE_ORIGIN)) {
+			return new Response("Forbidden", { status: 403 });
+		}
+		const identity = await traceStage(
+			"gateway_auth",
+			() => withinVoiceDeadline(() => authenticate(request, env)),
+		);
+		if (!identity) return new Response("Unauthorized", { status: 401 });
+		return traceStage(
+			"owner_dispatch",
+			() =>
+				env.VOICE_OWNERS.get(env.VOICE_OWNERS.idFromName(identity.ownerId))
+					.fetch(request),
+		);
+	},
+};

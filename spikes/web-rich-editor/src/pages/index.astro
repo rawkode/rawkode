@@ -1,0 +1,15 @@
+---
+import Fieldnotes from '../components/Fieldnotes.vue';
+import '../styles/editor.css';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Fieldnotes · Web editor</title>
+    <meta name="description" content="A continuous rich-text notebook with editable diagrams, drawings, and link previews." />
+  </head>
+  <body><Fieldnotes client:only="vue"><p slot="fallback">Loading Fieldnotes…</p></Fieldnotes></body>
+</html>

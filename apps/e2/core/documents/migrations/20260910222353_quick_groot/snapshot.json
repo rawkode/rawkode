@@ -1,0 +1,190 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "56f5d924-ff65-40df-aac7-5d6dce274b03",
+  "prevIds": [
+    "acf9003a-75a8-43b8-a508-ef3ba775337c"
+  ],
+  "ddl": [
+    {
+      "name": "document_chunks",
+      "entityType": "tables"
+    },
+    {
+      "name": "document_entity_refs",
+      "entityType": "tables"
+    },
+    {
+      "name": "documents",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "document_id",
+      "entityType": "columns",
+      "table": "document_chunks"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position",
+      "entityType": "columns",
+      "table": "document_chunks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "document_chunks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "document_id",
+      "entityType": "columns",
+      "table": "document_entity_refs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "document_entity_refs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "documents"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "documents"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "documents"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "documents"
+    },
+    {
+      "columns": [
+        "document_id"
+      ],
+      "tableTo": "documents",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_document_chunks_document_id_documents_id_fk",
+      "entityType": "fks",
+      "table": "document_chunks"
+    },
+    {
+      "columns": [
+        "document_id"
+      ],
+      "tableTo": "documents",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_document_entity_refs_document_id_documents_id_fk",
+      "entityType": "fks",
+      "table": "document_entity_refs"
+    },
+    {
+      "columns": [
+        "document_id",
+        "position"
+      ],
+      "nameExplicit": false,
+      "name": "document_chunks_pk",
+      "entityType": "pks",
+      "table": "document_chunks"
+    },
+    {
+      "columns": [
+        "document_id",
+        "entity_id"
+      ],
+      "nameExplicit": false,
+      "name": "document_entity_refs_pk",
+      "entityType": "pks",
+      "table": "document_entity_refs"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "documents_pk",
+      "table": "documents",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "entity_id",
+          "isExpression": false
+        },
+        {
+          "value": "document_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "document_entity_refs_entity",
+      "entityType": "indexes",
+      "table": "document_entity_refs"
+    }
+  ],
+  "renames": []
+}

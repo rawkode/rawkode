@@ -1,0 +1,7 @@
+{
+	"name": "@e2/documents",
+	"version": "0.0.0",
+	"exports": {
+		"./note": "./src/note.ts"
+	}
+}
