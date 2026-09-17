@@ -27,6 +27,8 @@ This repository contains a modular NixOS configuration that supports:
 
 - **foundation**: Core system foundation with Nix, users, shells, networking, and Home Manager support
 - **desktop**: Desktop environment with Niri/GNOME, portals, audio, fonts, and desktop apps
+- **theming**: Shared Stylix configuration for graphical systems and Home Manager
+- **peripherals-multipass**: Multipass packages, Linux device rules, and macOS signing integration
 - **development**: Development tools and environments
 - **vpn**: NetBird networking, opt-in per machine
 
@@ -93,7 +95,7 @@ cuenv task check-host
 
 The `kree` and `multipass` inputs use sibling app flakes (`path:../apps/kree` and `path:../apps/multipass`), so evaluation expects this directory to remain inside the containing `rawkode` monorepo checkout.
 
-Multipass is installed through the shared `foundation` capability on every declared machine, including the work Mac and OrbStack VM. macOS copies the bundle to `~/Applications/Multipass.app` during activation so Spotlight indexes it and Input Monitoring grants survive rebuilds; Linux provides the `multipass` command and application-menu entry. NixOS also installs the narrowly scoped MX Master 4 Bluetooth HID access rule. Rebuild each host to apply the installation. Automatic startup and pairing are not configured: select that computer's mouse slot and pair through the app. Headless VMs receive the package but need a graphical session and Bluetooth device access to use it. NixOS network access still needs firewall configuration for mDNS and the peer TCP port advertised by Multipass (currently selected dynamically); installation does not open a broad port range.
+Multipass is explicitly selected through the `peripherals-multipass` capability on every declared machine, including the work Mac and OrbStack VM. macOS copies the bundle to `~/Applications/Multipass.app` during activation so Spotlight indexes it and Input Monitoring grants survive rebuilds; Linux provides the `multipass` command and application-menu entry. NixOS also installs the narrowly scoped MX Master 4 Bluetooth HID access rule. Rebuild each host to apply the installation. Automatic startup and pairing are not configured: select that computer's mouse slot and pair through the app. Headless VMs receive the package but need a graphical session and Bluetooth device access to use it. NixOS network access still needs firewall configuration for mDNS and the peer TCP port advertised by Multipass (currently selected dynamically); installation does not open a broad port range.
 
 ### Home Manager Integration
 
@@ -152,6 +154,41 @@ The development capability includes:
 1. Add a new capability in `modules/capabilities/<capability-name>/default.nix`
 2. Compose existing app, system, Home Manager, NixOS, or Darwin modules with `mkCapability`
 3. Add the capability name to the relevant machine manifest
+
+### Foundation and host composition
+
+`foundation` provides core system and user tooling. Desktop services belong to
+`desktop`, Stylix belongs to `theming`, and Node.js/Podman belong to `development`.
+Graphical machines explicitly select both `desktop` and `theming`. Hardware
+services use `nixos-hardware-maintenance`, `nixos-tpm2`, and `nixos-wireless`
+traits. Disk and Secure Boot modules import their own upstream dependencies.
+Parallels explicitly retains its existing hardware-service selections; OrbStack
+selects none of those traits and only keeps its container-specific integration.
+
+Machine capabilities provide system integration and are inherited by users.
+User-only capabilities provide Home Manager imports; they do not enable system
+services. NixOS user selections of `desktop` or `theming` require the matching
+machine capability, and desktop users require theming.
+
+Host-local Home Manager settings belong in `users.<name>.modules`, so integrated
+and standalone homes receive the same configuration. `users.<name>.editor`
+overrides the user's default editor and also supplies the NixOS system editor
+for the primary user. For example:
+
+```nix
+users.rawkode = {
+  editor = "vim";
+  modules = [ { rawkOS.apps.misc.ffmpeg.enable = false; } ];
+};
+```
+
+The `machine-composition` check evaluates all public system/home derivations and
+headless fixtures on either CI platform. It also checks OrbStack home parity and
+the existing fleet's Multipass selections. Full fleet evaluation, including the
+work Mac, is available through `cuenv task evaluate-machines` (or
+`nix eval --json .#machineEvaluations`) and requires access to private CoreWeave
+sources. Evaluation is distinct from a system build; run `cuenv task check-host`
+on a target host before activation.
 
 ### Desktop Environment Toggle
 
