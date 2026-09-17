@@ -31,6 +31,7 @@ mkApp {
 
   common.home =
     {
+      config,
       lib,
       options,
       pkgs,
@@ -40,6 +41,18 @@ mkApp {
     lib.mkMerge [
       (mkStylixFishDisable { inherit lib options; })
       {
+        # Global exports shadow legacy universal variables left by earlier
+        # versions of interactiveInit.fish, without rewriting Fish's state.
+        xdg.configFile."fish/conf.d/rawkos-editor.fish".text =
+          lib.concatMapStringsSep "\n"
+            (name: "set -gx ${name} ${lib.escapeShellArg config.home.sessionVariables.${name}}")
+            [
+              "EDITOR"
+              "VISUAL"
+              "SUDO_EDITOR"
+              "SYSTEMD_EDITOR"
+            ];
+
         programs.fish = {
           enable = true;
 

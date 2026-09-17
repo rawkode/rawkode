@@ -97,6 +97,7 @@ in
       pkgs,
       isDarwin ? false,
       osClass ? null,
+      stylixHome ? false,
       ...
     }:
     {
@@ -112,7 +113,9 @@ in
 
       config = lib.mkMerge (
         [
-          (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin) {
+          # NixOS can select theming but turn off Stylix's HM auto-import.
+          # In that case there is no upstream cursor name/package to enable.
+          (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin && (osClass != "nixos" || stylixHome)) {
             home.pointerCursor.enable = true;
           })
           (lib.mkIf (config.rawkOS.stylix.enable && isDarwin) {

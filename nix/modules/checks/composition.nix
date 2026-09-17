@@ -26,6 +26,30 @@ let
       "foundation"
       "development"
     ];
+    stylix-disabled-fixture =
+      let
+        base = fixtureManifest [
+          "foundation"
+          "development"
+          "theming"
+        ];
+      in
+      base
+      // {
+        modules = base.modules ++ [ ({ lib, ... }: { stylix.enable = lib.mkForce false; }) ];
+      };
+    stylix-no-auto-import-fixture =
+      let
+        base = fixtureManifest [
+          "foundation"
+          "development"
+          "theming"
+        ];
+      in
+      base
+      // {
+        modules = base.modules ++ [ { stylix.homeManagerIntegration.autoImport = false; } ];
+      };
   };
   fixtureInputs = inputs // {
     self = inputs.self // {
@@ -108,9 +132,14 @@ let
       c.rawkOS.darwin.codeSigning.apps ? "Multipass.app";
 
   contract =
-    assert lib.assertMsg (lib.all (v: headless v.config) (
-      builtins.attrValues fixtures.nixosConfigurations
-    )) "Foundation and foundation+development must be headless without service-disable overrides";
+    assert lib.assertMsg (lib.all (v: headless v.config) [
+      fixtures.nixosConfigurations.foundation-fixture
+      fixtures.nixosConfigurations.development-fixture
+    ]) "Foundation and foundation+development must be headless without service-disable overrides";
+    assert lib.assertMsg (lib.all (v: !v.config.home-manager.users.fixture.home.pointerCursor.enable) [
+      fixtures.nixosConfigurations.stylix-disabled-fixture
+      fixtures.nixosConfigurations.stylix-no-auto-import-fixture
+    ]) "A home without upstream Stylix integration must not enable an unconfigured cursor";
     assert lib.assertMsg (
       !fixtures.nixosConfigurations.foundation-fixture.config.virtualisation.podman.enable
     ) "Foundation must not enable the development container stack";
@@ -176,6 +205,34 @@ in
   # Explicit full-fleet evaluation for authenticated work environments.
   flake.machineEvaluations = evaluations;
   perSystem = { pkgs, ... }: {
+    checks.fish-editor =
+      let
+        orbEditor =
+          pkgs.writeText "orb-editor.fish"
+            orbHome.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
+        studioEditor =
+          pkgs.writeText "studio-editor.fish"
+            inputs.self.darwinConfigurations.p4x-studio.config.home-manager.users.rawkode.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
+        verify = pkgs.writeText "verify-editor.fish" ''
+          for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
+            set --erase --global $name
+            set --universal --export $name stale-editor
+          end
+          source $argv[1]
+          for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
+            test "$$name" = "$argv[2]"; or exit 1
+            set --query --global $name; or exit 1
+          end
+        '';
+      in
+      pkgs.runCommand "rawkos-fish-editor" { nativeBuildInputs = [ pkgs.fish ]; } ''
+        export HOME="$TMPDIR/home"
+        export XDG_CONFIG_HOME="$HOME/.config"
+        mkdir -p "$XDG_CONFIG_HOME"
+        fish --no-config ${verify} ${orbEditor} vim
+        fish --no-config ${verify} ${studioEditor} 'zed --wait'
+        touch "$out"
+      '';
     checks.machine-composition =
       pkgs.runCommand "rawkos-machine-composition"
         {

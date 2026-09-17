@@ -44,4 +44,5 @@ jobs:
             "./nix#checks.$system.treefmt" \
             "./nix#checks.$system.manifest-contract" \
             "./nix#checks.$system.capability-resolver" \
+            "./nix#checks.$system.fish-editor" \
             "./nix#checks.$system.machine-composition"
