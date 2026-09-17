@@ -1,0 +1,37 @@
+---
+import '../styles/today.css';
+import Document from '../components/today/Document.astro';
+import Agenda from '../components/today/Agenda.astro';
+import People from '../components/today/People.astro';
+import Weather from '../components/today/Weather.astro';
+import { todayConfiguration, type TodayConfiguration } from '../today/slots';
+interface Props { configuration?: Partial<TodayConfiguration> }
+const configuration = todayConfiguration(Astro.props.configuration);
+const components = { document: Document, agenda: Agenda, people: People, weather: Weather };
+---
+<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="robots" content="noindex,nofollow"/><meta name="color-scheme" content="light dark"/><title>Today · Enchiridion</title></head>
+<body class="today-app" data-owner={Astro.locals.admin!.ownerId}>
+  <a href="#editor" class="skip-link">Skip to writing</a>
+  <div class="app-frame">
+    <aside class="app-nav" aria-label="Workspace navigation">
+      <a class="brand" href="/" aria-label="Enchiridion home"><svg width="27" height="29" viewBox="0 0 27 29" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 3h17v23H5zM9 3v23M13 9h6m-6 5h6m-6 5h4"/></svg><span>enchiridion<span class="brand-caption">Your everyday companion</span></span></a>
+      <div class="nav-group"><span class="nav-label">Your space</span><a class="nav-item selected" href="/" aria-current="page"><span aria-hidden="true">◉</span> Today <kbd>⌘ 1</kbd></a><button class="nav-item" id="open-date"><span aria-hidden="true">▦</span> Daily notes</button></div>
+      <div class="nav-bottom"><button class="nav-item" id="layout-info"><span aria-hidden="true">▧</span> Your layout <span class="soon">Soon</span></button><a class="nav-item" href="/admin/oauth"><span aria-hidden="true">⚙</span> Connections</a><div class="profile"><span class="profile-avatar">E</span><div>Personal workspace<span>Just for you</span></div><span class="online-dot" title="Private workspace"></span></div></div>
+    </aside>
+    <main class="today-main">
+      <header class="topbar"><div class="breadcrumb">Your space <span>/</span> <strong id="breadcrumb-day">Today</strong></div><div class="top-actions"><button id="focus-mode" aria-pressed="false">Focus mode <span aria-hidden="true">⤢</span></button><button id="commands-button" aria-label="Open commands">⌘ K</button></div></header>
+      <div class="day-heading"><div><p id="day-label" class="day-label">Your daily space</p><h1 id="day-title">Today<span class="title-dot">.</span></h1><p id="day-summary" class="day-summary">A place for what’s on your mind.</p></div><div class="day-navigation"><button id="previous-day" aria-label="Previous day">←</button><button id="choose-day" aria-label="Choose a day">Today</button><button id="next-day" aria-label="Next day">→</button></div></div>
+      <div class="today-grid">
+        <div class="main-slots" data-region="main"><slot name="main">{configuration.main.map(id => { const Component = components[id]; return <Component />; })}</slot></div>
+        <aside class="context-slots" data-region="context" aria-label="Daily context"><slot name="context">{configuration.context.map(id => { const Component = components[id]; return <Component />; })}</slot></aside>
+      </div>
+      <footer class="workspace-footer"><span>Make room for a thought.</span><span id="timezone-label"></span></footer>
+    </main>
+  </div>
+  <dialog id="command-dialog" aria-labelledby="command-title"><div class="dialog-heading"><h2 id="command-title">What would you like to add?</h2><button data-close aria-label="Close commands">✕</button></div><input id="command-search" aria-label="Search commands" placeholder="Search blocks and actions…" autocomplete="off"/><div id="command-list"></div><p class="dialog-hint">Choose an action · Esc to close</p></dialog>
+  <dialog id="date-dialog" aria-labelledby="date-title"><div class="dialog-heading"><h2 id="date-title">Open a daily note</h2><button data-close aria-label="Close date picker">✕</button></div><form id="date-form"><label for="note-date">Date</label><input type="date" id="note-date" required/><button type="submit">Open note</button></form></dialog>
+  <dialog id="layout-dialog" aria-labelledby="layout-title"><div class="dialog-heading"><h2 id="layout-title">A space that can grow with you</h2><button data-close aria-label="Close layout details">✕</button></div><p>Your default layout has a daily document, calendar, people, and weather slots. Layout customization is coming; your writing stays separate from every slot.</p></dialog>
+  <dialog id="extension-dialog" aria-labelledby="extension-title"><div class="dialog-heading"><h2 id="extension-title">Edit block</h2><button id="extension-cancel">Cancel</button><button id="extension-save">Save block</button></div><p id="extension-error" role="alert"></p><div id="extension-root"></div></dialog>
+  <div id="selection-tools" popover="manual" role="toolbar" aria-label="Text formatting"><button data-format="bold" aria-label="Bold"><b>B</b></button><button data-format="italic" aria-label="Italic"><i>I</i></button><button data-format="strike" aria-label="Strikethrough"><s>S</s></button><button data-format="code" aria-label="Inline code">&lt;/&gt;</button></div>
+  <script>import '../today/client';</script>
+</body></html>

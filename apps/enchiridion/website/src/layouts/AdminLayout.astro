@@ -1,0 +1,29 @@
+---
+import '../styles/global.css';
+interface Props { title: string; active?: 'oauth' | 'calendar' | 'google' }
+const { title, active } = Astro.props;
+const admin = Astro.locals.admin;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title} · Enchiridion</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="masthead">
+      <a class="wordmark" href="/">Enchiridion<span>Administration</span></a>
+      {admin && <div class="identity">{admin.local && <span class="badge">Local development</span>}<span>{admin.email}</span></div>}
+    </header>
+    <div class="workspace">
+      <nav aria-label="Administration">
+        <a href="/admin/oauth" aria-current={active === 'oauth' ? 'page' : undefined}>OAuth & accounts</a>
+        <a href="/admin/google" aria-current={active === 'google' ? 'page' : undefined}>Google</a>
+      </nav>
+      <main id="main"><slot /></main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,84 @@
+---
+import { env } from 'cloudflare:workers';
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import type { Connection } from '@enchiridion/oauth-client';
+let connections: Connection[] = [];
+let records: { id: string; data: Record<string, unknown> }[] = [];
+let nextCursor: string | undefined;
+let selected = Astro.url.searchParams.get('connection') || '';
+const collection = Astro.url.searchParams.get('collection') || 'calendars';
+let error = '';
+try {
+  using api = await env.CALENDAR_ADMIN.admin(Astro.locals.admin!.ownerId);
+  connections = await api.listConnections();
+  if (!connections.some(c => c.id === selected)) selected = connections[0]?.id || '';
+  if (selected) ({ records, nextCursor } = await api.listRecords(selected, collection, Astro.url.searchParams.get('after') || ''));
+} catch { error = 'Could not load this collection. Check the Google permissions, service grant, and running services.'; }
+const link = (nextCollection: string, after = '') => `/admin/google?${new URLSearchParams({ connection: selected, collection: nextCollection, after })}`;
+const label = (data: Record<string, unknown>) => String(data.summary || (data.names as { displayName?: string }[] | undefined)?.[0]?.displayName || '(Unnamed)');
+---
+<AdminLayout title="Google" active="google">
+  <div class="page-heading"><div><h1>Google</h1><p class="muted">Saved contacts and calendar events live here. Gmail searches run on demand; messages are not stored.</p></div></div>
+  {error && <p role="alert" class="notice error">{error}</p>}
+  {connections.length === 0 ? <div class="empty"><h2>Connect your Google account</h2><p>Create a Google Workspace OAuth app, connect an account, then grant the google-calendar service access.</p><a href="/admin/oauth">Manage accounts</a></div> : <>
+    <form method="get" class="inline-form"><div><label for="connection">Google account</label><select id="connection" name="connection">{connections.map(c => <option value={c.id} selected={c.id === selected}>{c.accountLabel} · {c.appName}</option>)}</select></div><button>View account</button></form>
+    <div class="actions"><a href={link('calendars')}>Calendars</a><a href={link('contacts')}>Contacts</a><button id="sync" data-connection={selected}>Sync contacts and calendars</button></div>
+    <p id="result" role="status" class="notice" hidden></p>
+    <h2>{collection === 'contacts' ? 'Contacts' : collection === 'calendars' ? 'Calendars' : 'Calendar events'}</h2>
+    {records.length ? <div class="table-scroll"><table><thead><tr><th>Name</th><th>Source ID</th><th>Details</th></tr></thead><tbody>{records.map(r => <tr><td>{label(r.data)}</td><td>{r.id}</td><td>{collection === 'calendars' ? <a href={link(`events:${r.id}`)}>View events</a> : <details><summary>Source record</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-width:60ch">{JSON.stringify(r.data, null, 2)}</pre></details>}</td></tr>)}</tbody></table></div> : <p>No records to display. Run a sync, or check this account’s permissions.</p>}
+    {nextCursor && <a href={link(collection, nextCursor)}>Next page</a>}
+    <h2>Gmail</h2><p class="hint">Requires Gmail read access. Search results are message references, not a local mailbox.</p>
+    <form id="mail-search" class="inline-form"><div><label for="query">Gmail search</label><input id="query" name="query" placeholder="from:someone@example.com" maxlength="2000" /></div><button>Search Gmail</button></form>
+    <ul id="mail-results"></ul><button id="mail-next" hidden>Next results</button>
+    <button id="watch">Enable or renew mailbox notifications</button>
+    <p class="hint">Notifications require a configured Google Cloud Pub/Sub topic and authenticated push subscription.</p>
+  </>}
+</AdminLayout>
+<style>
+  .actions { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; margin: 1.5rem 0; }
+  h2 { margin-top: 2rem; margin-bottom: 1rem; }
+  .inline-form > div { min-width: 0; max-width: 100%; }
+  .inline-form select { width: 100%; min-width: 0; }
+</style>
+<script>
+  import { newHttpBatchRpcSession } from 'capnweb';
+  import type { CalendarApi } from '@enchiridion/oauth-client/calendar';
+  const sync = document.querySelector<HTMLButtonElement>('#sync');
+  const connection = sync?.dataset.connection!;
+  const status = document.querySelector<HTMLElement>('#result');
+  function message(text: string) { if (status) { status.hidden = false; status.textContent = text; } }
+  sync?.addEventListener('click', async () => {
+    sync.disabled = true; message('Syncing a batch…');
+    try {
+      using api = newHttpBatchRpcSession<CalendarApi>('/api/calendar/rpc');
+      const result = await api.syncGoogle(connection);
+      message(result.pending ? 'Background sync scheduled. It continues automatically; reload shortly to view records.' : `${result.changed} records processed. Reload to view the latest data.`);
+    } catch { message('Sync failed. Check permissions and retry; completed data and staged progress are retained.'); }
+    finally { sync.disabled = false; }
+  });
+  const watch = document.querySelector<HTMLButtonElement>('#watch');
+  watch?.addEventListener('click', async () => {
+    watch.disabled = true;
+    try { using api = newHttpBatchRpcSession<CalendarApi>('/api/calendar/rpc'); const result = await api.watchMail(connection); message(`Notifications enabled until ${new Date(result.expiration).toLocaleString()}. Renewal is automatic.`); }
+    catch { message('Could not enable notifications. Check Gmail permissions and Pub/Sub configuration.'); }
+    finally { watch.disabled = false; }
+  });
+  let next: string | undefined, query = '';
+  const more = document.querySelector<HTMLButtonElement>('#mail-next');
+  const form = document.querySelector<HTMLFormElement>('#mail-search');
+  async function search(page?: string) {
+    const button = form?.querySelector('button'); if (button) button.disabled = true;
+    if (more) more.disabled = true;
+    try {
+      using api = newHttpBatchRpcSession<CalendarApi>('/api/calendar/rpc');
+      const result = await api.searchMail(connection, query, page);
+      const list = document.querySelector('#mail-results')!; list.replaceChildren();
+      for (const item of result.messages) { const li = document.createElement('li'); li.textContent = `Message ${item.id} · Thread ${item.threadId}`; list.append(li); }
+      next = result.nextPageToken; if (more) more.hidden = !next;
+      message(`${result.messages.length} message references returned. Nothing saved locally.`);
+    } catch { message('Gmail search failed. Check permissions and retry.'); }
+    finally { if (button) button.disabled = false; if (more) more.disabled = false; }
+  }
+  form?.addEventListener('submit', event => { event.preventDefault(); query = String(new FormData(form).get('query') || ''); void search(); });
+  more?.addEventListener('click', () => { void search(next); });
+</script>

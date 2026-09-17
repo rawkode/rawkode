@@ -1,0 +1,40 @@
+---
+import { env } from 'cloudflare:workers';
+import type { OAuthAdminApi } from '@enchiridion/oauth-client';
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+let config: Awaited<ReturnType<OAuthAdminApi['getConfiguration']>> | undefined;
+try { using api = await env.OAUTH_ADMIN.admin(Astro.locals.admin!.ownerId); config = await api.getConfiguration(); } catch {}
+const provider = config?.providers[0];
+---
+<AdminLayout title="Create OAuth app" active="oauth">
+  <a class="back" href="/admin/oauth">← OAuth & accounts</a>
+  <div class="page-heading"><div><h1>Create OAuth app</h1><p class="muted">Register credentials from your Google Cloud project.</p></div></div>
+  {!config || !provider ? <div class="notice error" role="alert">The OAuth service is unavailable. <a href="/admin/oauth/new">Retry loading</a></div> :
+  <form id="create-app" class="form">
+    <div class="field"><label for="redirect">Authorized redirect URI</label><input id="redirect" readonly value={`${config.redirectOrigin}/oauth/callback/google`} /><p class="hint">Add this exact URI to a “Web application” OAuth client in Google Cloud. Enable the API you want to use.</p></div>
+    <div class="form-grid"><div class="field"><label for="name">App name</label><input id="name" name="name" placeholder="Personal Google Calendar" required maxlength="100" autocomplete="off" /></div><div class="field"><label for="preset">Integration</label><select id="preset" name="preset">{provider.presets.map((preset) => <option value={preset.id} data-scopes={preset.scopes.join('\n')}>{preset.name}</option>)}<option value="custom" data-scopes="">Google, custom permissions</option></select></div></div>
+    <div class="field"><label for="clientId">Client ID</label><input id="clientId" name="clientId" required maxlength="500" autocomplete="off" spellcheck="false" placeholder="Your Google OAuth client ID" /></div>
+    <div class="field"><label for="clientSecret">Client secret</label><input id="clientSecret" name="clientSecret" type="password" required maxlength="4096" autocomplete="new-password" /><p class="hint">Encrypted when saved. The secret is never returned to this interface.</p></div>
+    <div class="field"><label for="scopes">Requested scopes</label><textarea id="scopes" name="scopes" required spellcheck="false" aria-describedby="scope-help">{provider.presets[0].scopes.join('\n')}</textarea><p class="hint" id="scope-help">One scope per line. Basic account identity permissions are added automatically. Request only what this app needs.</p></div>
+    <p id="form-error" class="error-message" role="alert" hidden></p>
+    <div class="form-actions"><button class="primary" type="submit">Create OAuth app</button><a href="/admin/oauth">Cancel</a></div>
+  </form>}
+</AdminLayout>
+<script>
+  import { createOAuthAdminClient } from '@enchiridion/oauth-client';
+  const form = document.querySelector<HTMLFormElement>('#create-app');
+  const preset = document.querySelector<HTMLSelectElement>('#preset');
+  preset?.addEventListener('change', () => { document.querySelector<HTMLTextAreaElement>('#scopes')!.value = preset.selectedOptions[0].dataset.scopes || ''; });
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+    const error = document.querySelector<HTMLElement>('#form-error')!;
+    const values = new FormData(form);
+    button.disabled = true; button.textContent = 'Creating app…'; error.hidden = true;
+    try {
+      using api = createOAuthAdminClient();
+      await api.createApp({ name: String(values.get('name')), providerId: 'google', clientId: String(values.get('clientId')), clientSecret: String(values.get('clientSecret')), scopes: String(values.get('scopes')).split(/\s+/).filter(Boolean) });
+      form.reset(); window.location.assign('/admin/oauth?result=created');
+    } catch (failure) { error.textContent = failure instanceof Error ? failure.message : 'The app could not be created.'; error.hidden = false; button.disabled = false; button.textContent = 'Create OAuth app'; }
+  });
+</script>
