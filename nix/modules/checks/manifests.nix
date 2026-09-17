@@ -23,6 +23,13 @@
         traits = [ "laptop" ];
         modules = [ ];
       };
+      desktopManifest = validManifest // {
+        capabilities = [
+          "foundation"
+          "desktop"
+          "theming"
+        ];
+      };
 
       validates =
         manifest:
@@ -46,6 +53,32 @@
 
       contract =
         assert lib.assertMsg (validates validManifest) "A valid machine manifest must pass validation";
+        assert lib.assertMsg (
+          !(validates (desktopManifest // { disabledCapabilities = [ "theming" ]; }))
+        ) "Disabling required machine theming must fail before desktop modules are imported";
+        assert lib.assertMsg (
+          !(validates (desktopManifest // { users.alice.disabledCapabilities = [ "theming" ]; }))
+        ) "Disabling required user theming must fail before desktop modules are imported";
+        assert lib.assertMsg (
+          !(validates (
+            validManifest
+            // {
+              users.alice.capabilities = [
+                "desktop"
+                "theming"
+              ];
+            }
+          ))
+        ) "NixOS user-only desktop and theming require their system integrations";
+        assert lib.assertMsg (validates (
+          desktopManifest
+          // {
+            disabledCapabilities = [
+              "desktop"
+              "theming"
+            ];
+          }
+        )) "Disabling desktop together with theming remains a valid headless selection";
         assert lib.assertMsg (
           !(validates (validManifest // { users = { }; }))
         ) "A machine manifest without users must fail validation";
