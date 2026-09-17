@@ -8,6 +8,7 @@
       capabilityBundles = {
         desktop = { };
         foundation = { };
+        theming = { };
       };
       traits = {
         laptop = { };
@@ -63,6 +64,43 @@
         assert lib.assertMsg (
           !(validates (validManifest // { traits = [ "unknown" ]; }))
         ) "A machine manifest with an unknown trait must fail validation";
+        assert lib.assertMsg (
+          !(validates (
+            validManifest
+            // {
+              users.alice.capabilities = [ "unknown" ];
+            }
+          ))
+        ) "Unknown user capabilities must fail manifest validation";
+        assert lib.assertMsg (
+          !(validates (
+            validManifest
+            // {
+              capabilities = [
+                "foundation"
+                "desktop"
+              ];
+            }
+          ))
+        ) "Desktop requires explicit machine theming";
+        assert lib.assertMsg (
+          !(validates (
+            validManifest
+            // {
+              users.alice.capabilities = [ "theming" ];
+            }
+          ))
+        ) "NixOS user theming requires system integration";
+        assert lib.assertMsg (validates (
+          validManifest
+          // {
+            capabilities = [
+              "foundation"
+              "desktop"
+              "theming"
+            ];
+          }
+        )) "Explicit desktop and theming composition must validate";
         assert lib.assertMsg (
           expectedHomeConfigurations == actualHomeConfigurations
         ) "Home Manager outputs must exactly match manifest-declared user/machine pairs";
