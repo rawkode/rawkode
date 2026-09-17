@@ -8,6 +8,13 @@ let
     fileAsSeparatedString = path: builtins.readFile path;
   };
 
+  preferencesFor =
+    machine: username: preferences:
+    let
+      editor = inputs.self.machineManifests.${machine}.users.${username}.editor or null;
+    in
+    preferences // lib.optionalAttrs (editor != null) { inherit editor; };
+
   resolveConfig =
     config: args:
     if config == null then
@@ -41,6 +48,7 @@ let
       identity,
       preferences,
       homeModule,
+      stylixHomeFor,
     }:
     let
       manifests = machineManifest.machinesForUser {
@@ -67,13 +75,13 @@ let
                 inputs
                 system
                 identity
-                preferences
                 rawkOSLib
                 machine
                 ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
               osClass = "standalone";
-              stylixHome = true;
+              preferences = preferencesFor machine username preferences;
+              stylixHome = stylixHomeFor machine;
             };
           };
         }
@@ -107,6 +115,19 @@ let
       },
     }:
     let
+      stylixHomeFor =
+        machine:
+        builtins.elem "theming" (
+          capabilityResolver.resolveUserCapabilityNames {
+            inherit
+              machine
+              username
+              defaultCapabilities
+              disabledCapabilities
+              ;
+          }
+        );
+
       identity = {
         inherit username;
         name = if name != null then name else username;
@@ -122,6 +143,7 @@ let
           ...
         }:
         let
+          hostPreferences = preferencesFor machine username preferences;
           capabilityHomeImports = resolveCapabilityImports {
             kind = "home";
             inherit
@@ -141,10 +163,10 @@ let
             inherit stateVersion;
 
             sessionVariables = {
-              EDITOR = preferences.editor;
-              SUDO_EDITOR = preferences.editor;
-              SYSTEMD_EDITOR = preferences.editor;
-              VISUAL = preferences.editor;
+              EDITOR = hostPreferences.editor;
+              SUDO_EDITOR = hostPreferences.editor;
+              SYSTEMD_EDITOR = hostPreferences.editor;
+              VISUAL = hostPreferences.editor;
             };
           };
 
@@ -165,6 +187,7 @@ let
             capabilityHomeImports
             ++ extraImports
             ++ platformExtraImports
+            ++ (inputs.self.machineManifests.${machine}.users.${username}.modules or [ ])
             ++ lib.optional (homeExtraConfig != null) homeExtraConfig;
         };
 
@@ -181,18 +204,16 @@ let
             inherit
               inputs
               identity
-              preferences
               rawkOSLib
               machine
               ;
             inherit (pkgs.stdenv.hostPlatform) system;
-            inherit (pkgs.stdenv) isDarwin;
+            inherit (pkgs.stdenv.hostPlatform) isDarwin;
+            preferences = preferencesFor machine username preferences;
             osClass = "nixos";
-            # Whether Stylix's home-manager options exist for this host. On
-            # NixOS Stylix is only auto-imported into Home Manager when the
-            # system-level `rawkOS.stylix.enable` is on, so modules that set
-            # `stylix.*` must consult this instead of assuming it exists.
-            stylixHome = lib.attrByPath [ "rawkOS" "stylix" "enable" ] false config;
+            # Stylix only auto-imports its HM options when system theming is enabled.
+            stylixHome =
+              (config.stylix.enable or false) && (config.stylix.homeManagerIntegration.autoImport or false);
           };
           home-manager.users.${username}.imports = [ homeModule ];
         };
@@ -228,14 +249,14 @@ let
             inherit
               inputs
               identity
-              preferences
               rawkOSLib
               machine
               ;
             system = darwinSystem;
             isDarwin = true;
             osClass = "darwin";
-            stylixHome = true;
+            preferences = preferencesFor machine username preferences;
+            stylixHome = stylixHomeFor machine;
           };
           home-manager.users.${username} = homeModule;
         };
@@ -261,6 +282,7 @@ let
               identity
               preferences
               homeModule
+              stylixHomeFor
               ;
           }
         else

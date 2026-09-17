@@ -63,8 +63,17 @@ let
         };
       }
     else
+      { config, lib, ... }:
       {
         networking.hostName = machine;
+        # The primary user's Home Manager preferences own the editor. A host
+        # override therefore applies to both system and user environments.
+        environment.variables = lib.genAttrs [ "EDITOR" "SUDO_EDITOR" "SYSTEMD_EDITOR" "VISUAL" ] (
+          name:
+          config.home-manager.users.${
+            inputs.self.machineManifests.${machine}.primaryUser
+          }.home.sessionVariables.${name}
+        );
       };
 
   usersFor =

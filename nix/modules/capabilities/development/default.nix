@@ -44,6 +44,7 @@ mkCapability {
       imports = [
         inputs.self.nixosModules.ai
         inputs.self.nixosModules.android
+        inputs.self.nixosModules.containers
         inputs.self.nixosModules.documentation
       ];
 
@@ -60,6 +61,7 @@ mkCapability {
             ltrace
             neovim
             nmap
+            nodejs
             pkg-config
             podman-compose
             strace

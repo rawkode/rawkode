@@ -5,6 +5,8 @@
     primaryUser = "dflanagan";
     capabilities = [
       "foundation"
+      "theming"
+      "peripherals-multipass"
       "desktop"
       "productivity"
       "development"

@@ -104,7 +104,6 @@ in
           services.qemuGuest.enable = true;
 
           boot = {
-            lanzaboote.enable = lib.mkForce false;
             loader = {
               efi.canTouchEfiVariables = true;
               grub.enable = lib.mkForce false;
@@ -156,18 +155,14 @@ in
         }:
         {
           imports = [
-            # OrbStack runs NixOS as an LXC/Incus container; this sets
-            # `boot.isContainer`, which neutralises the bootloader, kernel,
-            # firmware, lanzaboote and TPM modules pulled in by `foundation`.
+            # OrbStack runs NixOS as an LXC/Incus container.
             "${modulesPath}/virtualisation/lxc-container.nix"
           ];
 
           nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
 
           # OrbStack (boot.isContainer) mounts the btrfs root subvolume itself,
-          # so NixOS must not manage any filesystems. `foundation`'s common
-          # module otherwise sets fileSystems."/".options, leaving a partial
-          # entry with no fsType that breaks evaluation.
+          # so NixOS must not manage any filesystems.
           fileSystems = lib.mkForce { };
 
           # OrbStack guest integration (paths provided by the OrbStack agent,
@@ -196,7 +191,6 @@ in
             useDHCP = false;
             useHostResolvConf = false;
             resolvconf.enable = lib.mkForce false;
-            wireless.iwd.enable = lib.mkForce false;
           };
           services.resolved.enable = lib.mkForce false;
           services.chrony.enable = lib.mkForce false;
@@ -214,10 +208,7 @@ in
             };
           };
 
-          # Headless container: no display-manager/greeter (foundation's greetd
-          # would otherwise try to launch a niri-session) and OrbStack provides
-          # its own SSH access, so disable the NixOS sshd.
-          services.greetd.enable = lib.mkForce false;
+          # OrbStack provides its own SSH access, so disable the NixOS sshd.
           services.openssh.enable = lib.mkForce false;
 
           # Match OrbStack's host-owned user mapping. Home Manager validates
@@ -232,19 +223,10 @@ in
             extraGroups = [ "orbstack" ];
           };
 
-          # Containers cannot set the host clock, mount debugfs, or access a
-          # host TPM resource manager.
-          rawkOS.tpm2.enable = false;
-          security.tpm2 = {
-            enable = lib.mkForce false;
-            abrmd.enable = lib.mkForce false;
-            pkcs11.enable = lib.mkForce false;
-            tctiEnvironment.enable = lib.mkForce false;
-          };
+          # Containers cannot set the host clock or mount debugfs.
           systemd.suppressedSystemUnits = [
             "chronyd.service"
             "sys-kernel-debug.mount"
-            "tpm2-abrmd.service"
           ];
 
           # OrbStack's lightweight VM has unreliable watchdog timing; disable

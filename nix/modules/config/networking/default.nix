@@ -8,21 +8,6 @@
 
         useNetworkd = true;
 
-        wireless = {
-          # Force false, as we let iwd handle
-          # WiFi.
-          enable = lib.mkForce false;
-
-          iwd = {
-            enable = true;
-            settings = {
-              Network = {
-                NameResolvingService = "systemd";
-                EnableIPv6 = true;
-              };
-            };
-          };
-        };
       };
 
       networking.resolvconf.enable = lib.mkForce false;

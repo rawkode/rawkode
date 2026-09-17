@@ -1,4 +1,6 @@
+{ inputs, ... }:
 {
+  flake.machineTraits.nixos-tpm2.nixos = [ inputs.self.nixosModules.tpm2 ];
   flake.nixosModules.tpm2 =
     {
       config,

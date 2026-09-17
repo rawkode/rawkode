@@ -1,7 +1,9 @@
+{ inputs, ... }:
 {
   flake.nixosModules.lanzaboote =
     { lib, pkgs, ... }:
     {
+      imports = [ inputs.lanzaboote.nixosModules.lanzaboote ];
       environment.systemPackages = with pkgs; [
         sbctl
         tpm2-tss

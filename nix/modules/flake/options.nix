@@ -2,6 +2,18 @@
 let
   capabilitySelectionType = lib.types.submodule {
     options = {
+      editor = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Editor override for this user on this machine, including standalone Home Manager.";
+      };
+
+      modules = lib.mkOption {
+        type = lib.types.listOf lib.types.deferredModule;
+        default = [ ];
+        description = "Host-local Home Manager modules, shared by integrated and standalone configurations.";
+      };
+
       capabilities = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];

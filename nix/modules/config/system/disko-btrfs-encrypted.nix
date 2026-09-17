@@ -1,8 +1,12 @@
 # Common disko configuration for encrypted Btrfs setup
-_: {
+{ inputs, ... }: {
   flake.nixosModules.disko-btrfs-encrypted =
     { config, lib, ... }:
     {
+      imports = [
+        inputs.disko.nixosModules.disko
+        inputs.self.nixosModules.disk-common
+      ];
       options.rawkOS.disko = {
         device = lib.mkOption {
           type = lib.types.str;

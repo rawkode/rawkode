@@ -1,15 +1,7 @@
 {
   flake.nixosModules.common =
     { pkgs, ... }:
-    let
-      editor = "zed --wait";
-    in
     {
-      fileSystems."/".options = [
-        "noatime"
-        "nodiratime"
-      ];
-
       i18n = {
         defaultLocale = "en_GB.UTF-8";
       };
@@ -23,35 +15,11 @@
           ];
           enableNTS = true;
         };
-        fwupd.enable = true;
-        hardware.bolt.enable = true;
-        libinput = {
-          enable = true;
-
-          touchpad = {
-            naturalScrolling = true;
-            scrollMethod = "twofinger";
-            tapping = true;
-            clickMethod = "clickfinger";
-            disableWhileTyping = true;
-          };
-
-          mouse = {
-            naturalScrolling = true;
-            scrollMethod = "twofinger";
-            tapping = true;
-            clickMethod = "clickfinger";
-            disableWhileTyping = true;
-          };
-        };
-        pcscd.enable = true;
-        smartd.enable = true;
       };
 
       programs = {
         fish.enable = true;
         git.enable = true;
-        kdeconnect.enable = true;
       };
 
       environment = {
@@ -59,13 +27,6 @@
           coreutils-full
           git
         ];
-
-        variables = {
-          EDITOR = editor;
-          SUDO_EDITOR = editor;
-          SYSTEMD_EDITOR = editor;
-          VISUAL = editor;
-        };
       };
     };
 }

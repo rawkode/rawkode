@@ -5,6 +5,8 @@
     primaryUser = "rawkode";
     capabilities = [
       "foundation"
+      "theming"
+      "peripherals-multipass"
       "desktop"
       "development"
       "platform"
@@ -12,6 +14,10 @@
     ];
     disabledCapabilities = [ ];
     traits = [
+      # Preserve the VM's existing service policy during the ownership split.
+      "nixos-hardware-maintenance"
+      "nixos-tpm2"
+      "nixos-wireless"
       "nixos-zen-kernel"
       "parallels-vm"
     ];

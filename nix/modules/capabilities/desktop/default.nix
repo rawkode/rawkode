@@ -35,9 +35,11 @@ mkCapability {
     };
 
   nixos = [
+    inputs.flatpaks.nixosModules.nix-flatpak
     inputs.self.nixosModules.audio
     inputs.self.nixosModules.bluetooth
     inputs.self.nixosModules.desktop-common
+    inputs.self.nixosModules.greetd
     inputs.self.nixosModules.flatpak
     inputs.self.nixosModules.firefox-nightly
     inputs.self.nixosModules.google-chrome
