@@ -46,5 +46,12 @@ schema.#Project & {
 			scriptShell: "nu"
 			hermetic:    false
 		}
+
+		"evaluate-machines": schema.#Task & {
+			description: "Evaluate all system and Home Manager derivations (requires CoreWeave source access)"
+			command:     "nix"
+			args: ["eval", "--no-eval-cache", "--json", ".#machineEvaluations"]
+			hermetic: false
+		}
 	}
 }

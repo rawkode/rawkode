@@ -7,21 +7,41 @@ on:
   push:
     paths:
       - "nix/**"
+      - "apps/kree/**"
+      - "apps/multipass/**"
       - ".github/workflows/rawkos-nix.yml"
   pull_request:
     paths:
       - "nix/**"
+      - "apps/kree/**"
+      - "apps/multipass/**"
       - ".github/workflows/rawkos-nix.yml"
 
 concurrency:
   group: rawkos-nix-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   flake-check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v23
-      - name: nix flake check
-        run: nix flake check ./nix --no-update-lock-file --print-build-logs
+      # Full work-Mac evaluation needs private CoreWeave sources. This check
+      # evaluates all public system/home derivations, plus headless fixtures.
+      - name: Build repository checks
+        shell: bash
+        run: |
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          nix build --no-link --no-update-lock-file --no-eval-cache --print-build-logs \
+            "./nix#checks.$system.treefmt" \
+            "./nix#checks.$system.manifest-contract" \
+            "./nix#checks.$system.capability-resolver" \
+            "./nix#checks.$system.machine-composition"
