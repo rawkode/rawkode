@@ -182,9 +182,10 @@ users.rawkode = {
 };
 ```
 
-The `machine-composition` check evaluates all public system/home derivations and
-headless fixtures on either CI platform. It also checks OrbStack home parity and
-the existing fleet's Multipass selections. Full fleet evaluation, including the
+The `eval-*` checks evaluate all public system/home derivations and headless
+fixtures on either CI platform. CI runs each check in a fresh Nix process to
+bound evaluator memory usage. `machine-composition` checks service ownership,
+OrbStack home parity and the existing fleet's Multipass selections. Full fleet evaluation, including the
 work Mac, is available through `cuenv task evaluate-machines` (or
 `nix eval --json .#machineEvaluations`) and requires access to private CoreWeave
 sources. Evaluation is distinct from a system build; run `cuenv task check-host`
