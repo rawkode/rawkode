@@ -34,15 +34,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v23
-      # Full work-Mac evaluation needs private CoreWeave sources. This check
-      # evaluates all public system/home derivations, plus headless fixtures.
+      # Full work-Mac evaluation needs private CoreWeave sources. Public
+      # systems/homes and fixtures each have a dedicated evaluation check.
+      # A fresh Nix process per check bounds peak evaluator memory use.
       - name: Build repository checks
         shell: bash
         run: |
           system=$(nix eval --impure --raw --expr builtins.currentSystem)
-          nix build --no-link --no-update-lock-file --no-eval-cache --print-build-logs \
-            "./nix#checks.$system.treefmt" \
-            "./nix#checks.$system.manifest-contract" \
-            "./nix#checks.$system.capability-resolver" \
-            "./nix#checks.$system.fish-editor" \
-            "./nix#checks.$system.machine-composition"
+          checks=$(nix eval --json --no-update-lock-file "./nix#checks.$system" \
+            --apply builtins.attrNames | jq -r '.[]')
+          while IFS= read -r check; do
+            echo "::group::$check"
+            nix build --no-link --no-update-lock-file --no-eval-cache --print-build-logs \
+              "./nix#checks.$system.\"$check\""
+            echo "::endgroup::"
+          done <<< "$checks"

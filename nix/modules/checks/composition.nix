@@ -204,44 +204,64 @@ in
 {
   # Explicit full-fleet evaluation for authenticated work environments.
   flake.machineEvaluations = evaluations;
-  perSystem = { pkgs, ... }: {
-    checks.fish-editor =
-      let
-        orbEditor =
-          pkgs.writeText "orb-editor.fish"
-            orbHome.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
-        studioEditor =
-          pkgs.writeText "studio-editor.fish"
-            inputs.self.darwinConfigurations.p4x-studio.config.home-manager.users.rawkode.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
-        verify = pkgs.writeText "verify-editor.fish" ''
-          for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
-            set --erase --global $name
-            set --universal --export $name stale-editor
-          end
-          source $argv[1]
-          for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
-            test "$$name" = "$argv[2]"; or exit 1
-            set --query --global $name; or exit 1
-          end
+  perSystem =
+    { pkgs, ... }:
+    lib.mkMerge [
+      {
+        checks.fish-editor =
+          let
+            orbEditor =
+              pkgs.writeText "orb-editor.fish"
+                orbHome.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
+            studioEditor =
+              pkgs.writeText "studio-editor.fish"
+                inputs.self.darwinConfigurations.p4x-studio.config.home-manager.users.rawkode.xdg.configFile."fish/conf.d/rawkos-editor.fish".text;
+            verify = pkgs.writeText "verify-editor.fish" ''
+              for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
+                set --erase --global $name
+                set --universal --export $name stale-editor
+              end
+              source $argv[1]
+              for name in EDITOR VISUAL SUDO_EDITOR SYSTEMD_EDITOR
+                test "$$name" = "$argv[2]"; or exit 1
+                set --query --global $name; or exit 1
+              end
+            '';
+          in
+          pkgs.runCommand "rawkos-fish-editor" { nativeBuildInputs = [ pkgs.fish ]; } ''
+            export HOME="$TMPDIR/home"
+            export XDG_CONFIG_HOME="$HOME/.config"
+            mkdir -p "$XDG_CONFIG_HOME"
+            fish --no-config ${verify} ${orbEditor} vim
+            fish --no-config ${verify} ${studioEditor} 'zed --wait'
+            touch "$out"
+          '';
+        checks.machine-composition = pkgs.runCommand "rawkos-machine-composition" { inherit contract; } ''
+          touch "$out"
         '';
-      in
-      pkgs.runCommand "rawkos-fish-editor" { nativeBuildInputs = [ pkgs.fish ]; } ''
-        export HOME="$TMPDIR/home"
-        export XDG_CONFIG_HOME="$HOME/.config"
-        mkdir -p "$XDG_CONFIG_HOME"
-        fish --no-config ${verify} ${orbEditor} vim
-        fish --no-config ${verify} ${studioEditor} 'zed --wait'
-        touch "$out"
-      '';
-    checks.machine-composition =
-      pkgs.runCommand "rawkos-machine-composition"
-        {
-          inherit contract;
-          evaluation = builtins.unsafeDiscardStringContext (builtins.toJSON publicEvaluations);
-          passAsFile = [ "evaluation" ];
-        }
-        ''
-          cp "$evaluationPath" "$out"
-        '';
-  };
+      }
+      {
+        # One derivation per evaluation lets CI run each in a fresh Nix process.
+        # Retaining the whole fleet's evaluated module graphs at once is costly
+        # on hosted runners. These checks still force complete derivation paths.
+        checks = builtins.listToAttrs (
+          lib.concatLists (
+            lib.mapAttrsToList (
+              kind: machines:
+              lib.mapAttrsToList (machine: drvPath: {
+                name = "eval-${kind}-${machine}";
+                value =
+                  pkgs.runCommand "rawkos-machine-evaluation"
+                    {
+                      evaluation = builtins.unsafeDiscardStringContext drvPath;
+                    }
+                    ''
+                      printf '%s\n' "$evaluation" > "$out"
+                    '';
+              }) machines
+            ) publicEvaluations
+          )
+        );
+      }
+    ];
 }
