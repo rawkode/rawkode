@@ -6,6 +6,8 @@
     primaryUser = "rawkode";
     capabilities = [
       "foundation"
+      "theming"
+      "peripherals-multipass"
       "desktop"
       "productivity"
       "personal-comms"
@@ -15,6 +17,9 @@
     ];
     disabledCapabilities = [ ];
     traits = [
+      "nixos-hardware-maintenance"
+      "nixos-tpm2"
+      "nixos-wireless"
       "nixos-amd-desktop"
       "nixos-zen-kernel"
       "nixos-secureboot"

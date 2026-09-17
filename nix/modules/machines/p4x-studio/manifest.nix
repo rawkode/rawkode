@@ -5,6 +5,8 @@
     primaryUser = "rawkode";
     capabilities = [
       "foundation"
+      "theming"
+      "peripherals-multipass"
       "desktop"
       "productivity"
       "personal-comms"

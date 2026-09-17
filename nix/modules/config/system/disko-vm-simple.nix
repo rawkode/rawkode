@@ -1,8 +1,12 @@
 # Simple disko configuration for VMs (no encryption)
-_: {
+{ inputs, ... }: {
   flake.nixosModules.disko-vm-simple =
     { config, lib, ... }:
     {
+      imports = [
+        inputs.disko.nixosModules.disko
+        inputs.self.nixosModules.disk-common
+      ];
       options.rawkOS.disko = {
         device = lib.mkOption {
           type = lib.types.str;
