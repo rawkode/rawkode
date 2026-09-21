@@ -65,7 +65,9 @@
             avoidUSBDSStore = true;
           };
           mail = {
-            personalizedSmartReplies = true;
+            # See modules/macos/system-defaults/mail.nix: disabled because writing
+            # com.apple.mail's sandboxed preferences domain breaks activation.
+            personalizedSmartReplies = false;
           };
           menuBar.clock = {
             analog = false;
