@@ -15,6 +15,12 @@
   ],
   "observability": { "enabled": true },
 
+  // Serve Worker Previews on workers.dev (pr-<number>-rawkode-dev.<subdomain>.workers.dev)
+  // while production stays on the rawkode.dev custom domain only. Without this,
+  // preview URLs follow workers_dev, which is off because of the route below.
+  // Cloudflare applies this setting on `wrangler deploy`, not `wrangler preview`.
+  "preview_urls": true,
+
   "vars": {
     "PDS_DID": "did:web:rawkode.dev",
     "PDS_HANDLE": "rawkode.dev",
