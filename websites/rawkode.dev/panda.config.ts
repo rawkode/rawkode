@@ -4,7 +4,8 @@ import { defineConfig } from '@pandacss/dev';
  * Design system for rawkode.dev.
  *
  * The site is dark-first and mobile-first. The palette is a screen-printed
- * gig poster: near-black ink, true off-white paper, and one signal red.
+ * gig poster: near-black ink, true off-white paper, and one fluorescent
+ * pink borrowed from Rawkode Academy.
  * Theme reactivity still uses the existing `[data-theme]` contract.
  */
 export default defineConfig({
@@ -71,16 +72,17 @@ export default defineConfig({
         },
 
         colors: {
-          /* Stage: near-black ink and signal red, like a screen-printed gig poster. */
+          /* Stage: near-black ink and fluorescent pink, like a screen-printed gig poster. */
           ink: {
-            950: { value: 'oklch(0.16 0.008 30)' },
-            900: { value: 'oklch(0.195 0.01 30)' },
-            850: { value: 'oklch(0.235 0.012 30)' },
-            100: { value: 'oklch(0.965 0.006 30)' },
+            950: { value: 'oklch(0.16 0.008 355)' },
+            900: { value: 'oklch(0.195 0.01 355)' },
+            850: { value: 'oklch(0.235 0.012 355)' },
+            100: { value: 'oklch(0.965 0.006 355)' },
           },
+          /* Rawkode Academy's accent (#ff7ab6), tuned per theme for contrast. */
           signal: {
-            dark: { value: 'oklch(0.665 0.225 30)' },
-            light: { value: 'oklch(0.55 0.215 29)' },
+            dark: { value: 'oklch(0.76 0.165 355)' },
+            light: { value: 'oklch(0.55 0.2 357)' },
           },
         },
       },
@@ -88,44 +90,44 @@ export default defineConfig({
       semanticTokens: {
         colors: {
           surface: {
-            '1':       { value: 'light-dark(oklch(0.975 0.002 30), oklch(0.16 0.008 30))' },
-            '2':       { value: 'light-dark(oklch(1 0 0), oklch(0.195 0.01 30))' },
-            '3':       { value: 'light-dark(oklch(0.935 0.004 30), oklch(0.235 0.012 30))' },
-            glass:     { value: 'light-dark(oklch(1 0 0 / 0.8), oklch(0.195 0.01 30 / 0.8))' },
-            raised:    { value: 'light-dark(oklch(1 0 0), oklch(0.235 0.012 30))' },
-            invert:    { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
+            '1':       { value: 'light-dark(oklch(0.975 0.002 355), oklch(0.16 0.008 355))' },
+            '2':       { value: 'light-dark(oklch(1 0 0), oklch(0.195 0.01 355))' },
+            '3':       { value: 'light-dark(oklch(0.935 0.004 355), oklch(0.235 0.012 355))' },
+            glass:     { value: 'light-dark(oklch(1 0 0 / 0.8), oklch(0.195 0.01 355 / 0.8))' },
+            raised:    { value: 'light-dark(oklch(1 0 0), oklch(0.235 0.012 355))' },
+            invert:    { value: 'light-dark(oklch(0.18 0.012 355), oklch(0.965 0.006 355))' },
           },
 
           text: {
-            primary:   { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
-            secondary: { value: 'light-dark(oklch(0.38 0.014 30), oklch(0.8 0.01 30))' },
-            tertiary:  { value: 'light-dark(oklch(0.48 0.014 30), oklch(0.68 0.012 30))' },
-            invert:    { value: 'light-dark(oklch(0.975 0.002 30), oklch(0.16 0.008 30))' },
+            primary:   { value: 'light-dark(oklch(0.18 0.012 355), oklch(0.965 0.006 355))' },
+            secondary: { value: 'light-dark(oklch(0.38 0.014 355), oklch(0.8 0.01 355))' },
+            tertiary:  { value: 'light-dark(oklch(0.48 0.014 355), oklch(0.68 0.012 355))' },
+            invert:    { value: 'light-dark(oklch(0.975 0.002 355), oklch(0.16 0.008 355))' },
           },
 
           accent: {
-            DEFAULT: { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
-            hover:   { value: 'light-dark(oklch(0.47 0.19 29), oklch(0.74 0.19 32))' },
-            ink:     { value: 'light-dark(oklch(0.99 0 0), oklch(0.14 0.02 30))' },
-            muted:   { value: 'light-dark(oklch(0.55 0.215 29 / 0.1), oklch(0.665 0.225 30 / 0.14))' },
-            soft:    { value: 'light-dark(oklch(0.55 0.215 29 / 0.14), oklch(0.665 0.225 30 / 0.18))' },
-            cyan:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
-            gold:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
-            rose:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            DEFAULT: { value: 'light-dark(oklch(0.55 0.2 357), oklch(0.76 0.165 355))' },
+            hover:   { value: 'light-dark(oklch(0.47 0.18 357), oklch(0.83 0.13 355))' },
+            ink:     { value: 'light-dark(oklch(0.99 0 0), oklch(0.15 0.03 355))' },
+            muted:   { value: 'light-dark(oklch(0.55 0.2 357 / 0.1), oklch(0.76 0.165 355 / 0.14))' },
+            soft:    { value: 'light-dark(oklch(0.55 0.2 357 / 0.14), oklch(0.76 0.165 355 / 0.18))' },
+            cyan:    { value: 'light-dark(oklch(0.55 0.2 357), oklch(0.76 0.165 355))' },
+            gold:    { value: 'light-dark(oklch(0.55 0.2 357), oklch(0.76 0.165 355))' },
+            rose:    { value: 'light-dark(oklch(0.55 0.2 357), oklch(0.76 0.165 355))' },
             success: { value: 'light-dark(oklch(0.5 0.13 150), oklch(0.78 0.16 150))' },
           },
 
           border: {
-            subtle:  { value: 'light-dark(oklch(0.18 0.012 30 / 0.12), oklch(0.965 0.006 30 / 0.12))' },
-            DEFAULT: { value: 'light-dark(oklch(0.18 0.012 30 / 0.24), oklch(0.965 0.006 30 / 0.24))' },
-            strong:  { value: 'light-dark(oklch(0.18 0.012 30 / 0.7), oklch(0.965 0.006 30 / 0.7))' },
+            subtle:  { value: 'light-dark(oklch(0.18 0.012 355 / 0.12), oklch(0.965 0.006 355 / 0.12))' },
+            DEFAULT: { value: 'light-dark(oklch(0.18 0.012 355 / 0.24), oklch(0.965 0.006 355 / 0.24))' },
+            strong:  { value: 'light-dark(oklch(0.18 0.012 355 / 0.7), oklch(0.965 0.006 355 / 0.7))' },
           },
 
           status: {
-            danger:  { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            danger:  { value: 'light-dark(oklch(0.55 0.2 357), oklch(0.76 0.165 355))' },
             warning: { value: 'light-dark(oklch(0.6 0.14 70), oklch(0.82 0.14 80))' },
             success: { value: 'light-dark(oklch(0.5 0.13 150), oklch(0.78 0.16 150))' },
-            info:    { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
+            info:    { value: 'light-dark(oklch(0.18 0.012 355), oklch(0.965 0.006 355))' },
           },
         },
       },

@@ -1,7 +1,7 @@
 /**
  * Generates /public/og.png at build time using sharp (SVG → PNG + photo composite).
- * Mirrors the site's gig-poster system: ink background, signal-red name, and a
- * red/black duotone portrait with a halftone screen.
+ * Mirrors the site's gig-poster system: ink background, pink name, and a
+ * pink/black duotone portrait with a halftone screen.
  * Run with: deno task generate-og
  */
 import path from 'node:path';
@@ -13,10 +13,10 @@ const outFile = path.resolve(__dirname, '../public/og.png');
 const photoFile = path.resolve(__dirname, '../src/assets/rawkode.jpg');
 
 // sRGB approximations of the site tokens (see panda.config.ts).
-const INK = '#110c0b'; // oklch(0.16 0.008 30)
-const PAPER = '#f7f2f1'; // oklch(0.965 0.006 30)
-const MUTED = '#a09694'; // oklch(0.68 0.012 30)
-const SIGNAL = '#ff4632'; // oklch(0.665 0.225 30)
+const INK = '#100c0d'; // oklch(0.16 0.008 355)
+const PAPER = '#f7f2f3'; // oklch(0.965 0.006 355)
+const MUTED = '#9f9598'; // oklch(0.68 0.012 355)
+const SIGNAL = '#ff80b6'; // oklch(0.76 0.165 355), Rawkode Academy pink
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -52,7 +52,7 @@ const halftone = `<svg xmlns="http://www.w3.org/2000/svg" width="${PHOTO_W}" hei
 </svg>`;
 
 async function generate() {
-  // Two-colour print: a high-contrast greyscale photo multiplied onto signal red.
+  // Two-colour print: a high-contrast greyscale photo multiplied onto pink.
   const grey = await sharp(photoFile)
     .resize(PHOTO_W, HEIGHT, { fit: 'cover', position: 'top' })
     .grayscale()

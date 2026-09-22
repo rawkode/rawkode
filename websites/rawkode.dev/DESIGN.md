@@ -4,24 +4,29 @@ rawkode.dev is set like a screen-printed gig poster: rawkode = rock + code.
 The apps are billed like a festival lineup, the Academy gets the one drenched
 surface, and the portrait is a two-colour print.
 
+The accent is Rawkode Academy's pink (`#ff7ab6`), which ties the two sites
+together and is also a classic fluorescent screen-print ink. It replaced an
+earlier signal red that read as hostile.
+
 ## Colour
 
-Committed strategy: near-black ink, true off-white paper, one signal red.
+Committed strategy: near-black ink, true off-white paper, one fluorescent
+pink. Neutrals carry a trace of the pink's hue (355) so they belong to it.
 Tokens live in `panda.config.ts` as `light-dark()` pairs; the `[data-theme]`
 contract and the system-theme fallback are unchanged.
 
 | Role | Dark | Light |
 | :-- | :-- | :-- |
-| Surface (`--surface-1`) | `oklch(0.16 0.008 30)` | `oklch(0.975 0.002 30)` |
-| Ink (`--text-primary`) | `oklch(0.965 0.006 30)` | `oklch(0.18 0.012 30)` |
-| Signal (`--color-accent`) | `oklch(0.665 0.225 30)` | `oklch(0.55 0.215 29)` |
-| Text on signal (`--color-accent-ink`) | ink | white |
+| Surface (`--surface-1`) | `oklch(0.16 0.008 355)` | `oklch(0.975 0.002 355)` |
+| Ink (`--text-primary`) | `oklch(0.965 0.006 355)` | `oklch(0.18 0.012 355)` |
+| Accent (`--color-accent`) | `oklch(0.76 0.165 355)` | `oklch(0.55 0.2 357)` |
+| Text on accent (`--color-accent-ink`) | `oklch(0.15 0.03 355)` | white |
 
-Measured contrast: body ≥ 9:1, tertiary ≥ 6:1, signal on surface ≥ 5:1,
-text on signal ≥ 5.2:1, in both themes.
+Measured contrast: body ≥ 9:1, tertiary ≥ 6:1, accent on surface ≥ 5:1,
+text on accent ≥ 5.2:1, in both themes.
 
-Signal red is for the name, hover ink, the primary button, and the Academy
-drench. Keep it off body copy.
+Pink is for the surname, hover ink, the primary button, the portrait duotone,
+the footer wordmark, and the Academy drench. Keep it off body copy.
 
 ## Type
 
@@ -40,7 +45,7 @@ Poster headings that must fill a column use container units
 ## Motion
 
 - Hero name: rises and compresses from 125% to 62% width on load.
-- Lineup acts: signal red wipes across the name on hover/focus (clip-path).
+- Lineup acts: pink wipes across the name on hover/focus (clip-path).
 - Portrait: prints in from the bottom (clip-path).
 - Scroll-driven extras (lineup tiers, article progress bar) sit behind
   `@supports (animation-timeline: …)`.
