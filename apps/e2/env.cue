@@ -59,7 +59,7 @@ ci: {
 	pipelines: {
 		productionPlan: {
 			environment: "production"
-			when: branch: "spike/native-web-rich-editor"
+			when: branch: "main"
 			derivePaths: false
 			tasks: [_t.productionPlan]
 			provider: github: runner: "ubuntu-latest"

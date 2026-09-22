@@ -5,7 +5,7 @@ name: e2-productionPlan
 on:
   push:
     branches:
-    - spike/native-web-rich-editor
+    - main
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
