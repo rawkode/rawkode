@@ -1,0 +1,5 @@
+{
+	"name": "@enchiridion/website",
+	"version": "0.0.0",
+	"exports": "./alchemy.ts"
+}

@@ -1,0 +1,17 @@
+{
+	"extends": "astro/tsconfigs/strict",
+	"include": [".astro/types.d.ts", "src/**/*"],
+	"exclude": ["dist"],
+	"compilerOptions": {
+		"types": ["@cloudflare/workers-types"],
+		"paths": {
+			"@enchiridion/documents/note": ["../packages/documents/src/note.ts"],
+			"@enchiridion/oauth-client/contracts": [
+				"../packages/oauth-client/src/contracts.ts"
+			],
+			"@enchiridion/oauth-client/calendar": [
+				"../packages/oauth-client/src/calendar.ts"
+			]
+		}
+	}
+}
