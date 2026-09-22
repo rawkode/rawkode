@@ -10,7 +10,7 @@
     {
       "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds-preview",
-      "database_id": "__RAWKODE_DEV_PDS_PREVIEW_ID__",
+      "database_id": "0ea1d366-4b53-4fec-a30b-0d6cd6108a1f",
       "migrations_dir": "./node_modules/@alteran-social/astro/migrations",
     },
   ],
