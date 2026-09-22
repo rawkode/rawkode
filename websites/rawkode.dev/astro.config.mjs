@@ -8,7 +8,8 @@ export default defineConfig({
   adapter: cloudflare({ mode: "advanced", imageService: "cloudflare" }),
   integrations: [
     expressiveCode({
-      // Match the dark-first Rosé Pine system used by the site.
+      // Rosé Pine keeps its syntax colours; surfaces are overridden below so
+      // code blocks sit on the site's own ink and paper.
       themes: ["rose-pine-dawn", "rose-pine"],
       // Selector that matches our explicit theme override.
       themeCssSelector: (theme) =>
@@ -24,7 +25,18 @@ export default defineConfig({
         preserveIndent: true,
       },
       styleOverrides: {
-        borderRadius: "var(--radii-md)",
+        borderRadius: "var(--radii-sm)",
+        borderColor: "var(--colors-border-subtle)",
+        codeBackground: "var(--colors-surface-2)",
+        frames: {
+          editorBackground: "var(--colors-surface-2)",
+          editorTabBarBackground: "var(--colors-surface-3)",
+          editorActiveTabBackground: "var(--colors-surface-2)",
+          terminalBackground: "var(--colors-surface-2)",
+          terminalTitlebarBackground: "var(--colors-surface-3)",
+          terminalTitlebarBorderBottomColor: "var(--colors-border-subtle)",
+          frameBoxShadowCssValue: "none",
+        },
         codeFontFamily: "var(--fonts-mono)",
         uiFontFamily: "var(--fonts-sans)",
       },

@@ -1,15 +1,15 @@
 ---
 const navLinks = [
-  { href: '/#apps', label: 'Apps' },
+  { href: '/#work', label: 'Work' },
   { href: '/read', label: 'Writing' },
-  { href: '/biography', label: 'Biography' },
+  { href: '/biography', label: 'Speaking' },
   { href: 'https://rawkode.academy', label: 'Academy', external: true },
 ];
 const currentPath = Astro.url.pathname;
 
 function isActive(href: string, external?: boolean) {
   if (external) return false;
-  if (href.startsWith('/#')) return currentPath === '/';
+  if (href.startsWith('/#')) return false;
   return currentPath === href || currentPath.startsWith(`${href}/`);
 }
 ---
@@ -17,7 +17,7 @@ function isActive(href: string, external?: boolean) {
 <header class="nav">
   <div class="container nav__inner">
     <a href="/" class="nav__logo" aria-label="rawkode.dev home">
-      <span>rawkode</span><span class="nav__logo-dot">.dev</span>
+      rawkode<span class="nav__logo-dot" aria-hidden="true"></span>
     </a>
 
     <nav class="nav__desktop" aria-label="Primary navigation">
@@ -27,9 +27,16 @@ function isActive(href: string, external?: boolean) {
             <a
               href={link.href}
               class:list={['nav__link', { 'nav__link--active': isActive(link.href, link.external) }]}
+              aria-current={isActive(link.href, link.external) ? 'page' : undefined}
               {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
             >
               {link.label}
+              {link.external && (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                  <path d="M7 17 17 7M9 7h8v8"/>
+                </svg>
+              )}
+              {link.external && <span class="sr-only">(opens in a new tab)</span>}
             </a>
           </li>
         ))}
@@ -37,34 +44,33 @@ function isActive(href: string, external?: boolean) {
     </nav>
 
     <div class="nav__tools">
-      <button class="theme-toggle" id="theme-toggle" aria-label="Colour theme: system">
-        <svg class="theme-icon theme-icon--light" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Colour theme: system">
+        <svg class="theme-icon theme-icon--light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
         </svg>
-        <svg class="theme-icon theme-icon--dark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg class="theme-icon theme-icon--dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
         </svg>
-        <svg class="theme-icon theme-icon--system" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+        <svg class="theme-icon theme-icon--system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="1"/><path d="M8 21h8M12 17v4"/>
         </svg>
       </button>
 
       <details class="mobile-menu">
         <summary class="mobile-menu__summary" aria-label="Open navigation menu">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <path d="M5 7h14M5 12h14M5 17h14"/>
-          </svg>
+          <span class="mobile-menu__bars" aria-hidden="true"><i></i><i></i></span>
         </summary>
         <nav class="mobile-menu__panel" aria-label="Mobile navigation">
           {navLinks.map((link) => (
             <a
               href={link.href}
               class:list={['mobile-menu__link', { 'mobile-menu__link--active': isActive(link.href, link.external) }]}
+              aria-current={isActive(link.href, link.external) ? 'page' : undefined}
               {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
             >
               <span>{link.label}</span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M7 17 17 7M9 7h8v8"/>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                {link.external ? <path d="M7 17 17 7M9 7h8v8"/> : <path d="M5 12h14M13 5l7 7-7 7"/>}
               </svg>
             </a>
           ))}
@@ -109,6 +115,18 @@ function isActive(href: string, external?: boolean) {
 
   if (toggle) toggle.setAttribute('aria-label', labels[current()]);
   toggle?.addEventListener('click', () => apply(cycle[current()]));
+
+  // Close the mobile menu after picking a same-page anchor or pressing Escape.
+  const menu = document.querySelector<HTMLDetailsElement>('.mobile-menu');
+  menu?.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('a')) menu.open = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menu?.open) {
+      menu.open = false;
+      menu.querySelector('summary')?.focus();
+    }
+  });
 </script>
 
 <style>
@@ -116,34 +134,45 @@ function isActive(href: string, external?: boolean) {
     position: sticky;
     top: 0;
     z-index: var(--z-sticky);
+    background: var(--surface-1);
     border-bottom: 1px solid var(--border-subtle);
-    background: color-mix(in oklch, var(--surface-1) 78%, transparent);
-    backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
   }
 
   .nav__inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 64px;
+    min-height: 60px;
     gap: var(--space-4);
   }
 
   .nav__logo {
     display: inline-flex;
     align-items: baseline;
-    gap: 0;
-    font-size: 1rem;
-    font-weight: 700;
+    gap: 0.12em;
     color: var(--text-primary);
-    text-decoration: none;
+    font-size: 1.6rem;
+    font-stretch: var(--stretch-poster);
+    font-weight: 880;
+    line-height: 1;
     letter-spacing: 0;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+
+  .nav__logo:hover {
+    color: var(--text-primary);
   }
 
   .nav__logo-dot {
-    color: var(--color-accent);
-    font-weight: 600;
+    width: 0.24em;
+    height: 0.24em;
+    background: var(--color-accent);
+    transition: transform var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .nav__logo:hover .nav__logo-dot {
+    transform: scale(1.5) rotate(45deg);
   }
 
   .nav__desktop {
@@ -153,7 +182,7 @@ function isActive(href: string, external?: boolean) {
   .nav__links {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
     list-style: none;
     margin: 0;
     padding: 0;
@@ -163,33 +192,41 @@ function isActive(href: string, external?: boolean) {
     position: relative;
     display: inline-flex;
     align-items: center;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-md);
+    gap: 0.3em;
+    min-height: 44px;
+    padding: 0 0.85rem;
     color: var(--text-secondary);
-    font-size: 0.875rem;
+    font-size: 0.95rem;
     font-weight: 560;
     text-decoration: none;
-    transition:
-      color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .nav__link svg {
+    width: 0.8em;
+    height: 0.8em;
+  }
+
+  .nav__link::after {
+    content: "";
+    position: absolute;
+    left: 0.85rem;
+    right: 0.85rem;
+    bottom: 8px;
+    height: 2px;
+    background: var(--color-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
   }
 
   .nav__link:hover,
   .nav__link--active {
     color: var(--text-primary);
-    background: var(--surface-glass);
   }
 
+  .nav__link:hover::after,
   .nav__link--active::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    bottom: 0.15rem;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    transform: translateX(-50%);
+    transform: scaleX(1);
   }
 
   .nav__tools {
@@ -206,28 +243,25 @@ function isActive(href: string, external?: boolean) {
     width: 44px;
     height: 44px;
     padding: 0;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--surface-glass);
-    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-primary);
     cursor: pointer;
     transition:
       color var(--dur-fast) var(--ease-out-expo),
       border-color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo),
-      transform var(--dur-fast) var(--ease-out-expo);
+      background var(--dur-fast) var(--ease-out-expo);
   }
 
   .theme-toggle:hover,
   .mobile-menu__summary:hover {
-    color: var(--text-primary);
-    border-color: var(--border-default);
-    background: var(--surface-raised);
+    border-color: var(--text-primary);
   }
 
-  .theme-toggle:active,
-  .mobile-menu__summary:active {
-    transform: translateY(1px);
+  .theme-toggle svg {
+    width: 18px;
+    height: 18px;
   }
 
   .theme-icon { display: none; }
@@ -236,7 +270,7 @@ function isActive(href: string, external?: boolean) {
   :global([data-ui-theme="system"]) .theme-icon--system { display: block; }
 
   .mobile-menu {
-    position: relative;
+    position: static;
   }
 
   .mobile-menu__summary {
@@ -247,21 +281,47 @@ function isActive(href: string, external?: boolean) {
     display: none;
   }
 
-  .mobile-menu__summary svg {
+  .mobile-menu__bars {
+    display: grid;
+    gap: 6px;
     width: 18px;
-    height: 18px;
+  }
+
+  .mobile-menu__bars i {
+    display: block;
+    height: 2px;
+    background: currentcolor;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .mobile-menu[open] .mobile-menu__bars i:first-child { transform: translateY(4px) rotate(45deg); }
+  .mobile-menu[open] .mobile-menu__bars i:last-child { transform: translateY(-4px) rotate(-45deg); }
+
+  .mobile-menu[open] .mobile-menu__summary {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
   }
 
   .mobile-menu__panel {
     position: absolute;
-    top: calc(100% + var(--space-3));
+    top: 100%;
+    left: 0;
     right: 0;
-    width: min(78vw, 280px);
-    padding: var(--space-2);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    background: var(--surface-2);
-    box-shadow: none;
+    display: grid;
+    padding: var(--space-2) var(--gutter) var(--space-6);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-1);
+    animation: menu-drop var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .mobile-menu:not([open]) .mobile-menu__panel {
+    display: none;
+  }
+
+  @keyframes menu-drop {
+    from { clip-path: inset(0 0 100% 0); }
+    to { clip-path: inset(0 0 0 0); }
   }
 
   .mobile-menu__link {
@@ -269,24 +329,26 @@ function isActive(href: string, external?: boolean) {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-    font-weight: 600;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-size: 2.4rem;
+    font-stretch: var(--stretch-poster);
+    font-weight: 840;
+    line-height: 1;
+    text-transform: uppercase;
     text-decoration: none;
   }
 
-  .mobile-menu__link:hover,
-  .mobile-menu__link--active {
-    color: var(--text-primary);
-    background: var(--surface-raised);
+  .mobile-menu__link--active,
+  .mobile-menu__link:hover {
+    color: var(--color-accent);
   }
 
   .mobile-menu__link svg {
-    width: 16px;
-    height: 16px;
-    color: var(--text-tertiary);
+    width: 22px;
+    height: 22px;
+    color: var(--color-accent);
   }
 
   @media (min-width: 760px) {
@@ -296,7 +358,7 @@ function isActive(href: string, external?: boolean) {
 
     .nav__desktop {
       display: block;
-      margin-inline: auto;
+      margin-left: auto;
     }
 
     .mobile-menu {

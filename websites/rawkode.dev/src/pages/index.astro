@@ -5,14 +5,15 @@ import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
-import AppCard from '../components/AppCard.astro';
+import Lineup from '../components/Lineup.astro';
+import { academyIconPath, academyLinks } from '../lib/academy';
 import { calculateReadingMinutes } from '../utils/readingTime';
 import { getCollection } from 'astro:content';
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const recentPosts = allPosts
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
-  .slice(0, 3);
+  .slice(0, 4);
 const appOrder = ['rawkode-academy', 'cuenv', 'kubectl-ditto', 'kree', 'prescience', 'waddle'];
 const apps = (await getCollection('apps')).sort((a, b) => {
   if (a.data.featured !== b.data.featured) return a.data.featured ? -1 : 1;
@@ -22,99 +23,115 @@ const apps = (await getCollection('apps')).sort((a, b) => {
   return a.data.name.localeCompare(b.data.name);
 });
 
+const topics = ['Kubernetes', 'Platform engineering', 'Developer tooling', 'Rust', 'GPU infrastructure', 'Open source'];
+
 function formatShortDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
-
 ---
 
 <Layout>
   <Nav />
   <main id="main-content">
-    <section class="hero">
+    <section class="hero" aria-labelledby="hero-title">
       <div class="container hero__inner">
         <div class="hero__copy">
-          <h1>David Flanagan</h1>
-          <p class="hero__handle">rawkode</p>
+          <p class="hero__kicker">
+            <span class="hero__square" aria-hidden="true"></span>
+            rawkode, from Glasgow, Scotland
+          </p>
+          <h1 id="hero-title" class="hero__title poster">
+            <span class="hero__line"><span>David</span></span>
+            <span class="hero__line"><span>Flanagan</span></span>
+          </h1>
           <p class="hero__lead">
-            Cloud-native tooling, open-source systems, and deep infrastructure education from Rawkode.
+            Twenty years close to the metal, from embedded C to the GPU clusters
+            behind today's AI. I help teams run that infrastructure at CoreWeave,
+            then teach what I learn, free, at Rawkode Academy.
           </p>
           <div class="hero__actions">
-            <a href="#apps" class="button button--primary">
-              See the work
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M5 12h14M13 5l7 7-7 7"/>
+            <a href="#work" class="button button--primary">
+              See what I've shipped
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                <path d="M12 5v14M5 12l7 7 7-7"/>
               </svg>
             </a>
-            <a href="/read" class="button button--secondary">
-              Read writing
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <a href="/biography" class="button button--ghost">
+              Book me to speak
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
                 <path d="M5 12h14M13 5l7 7-7 7"/>
               </svg>
             </a>
           </div>
         </div>
 
-        <figure class="hero-card">
-          <img
-            src={rawkodePhoto.src}
-            width={rawkodePhoto.width}
-            height={rawkodePhoto.height}
-            alt="David Flanagan"
-            class="hero-card__photo"
-            loading="eager"
-            decoding="async"
-          />
-          <figcaption class="hero-card__meta">
-            <span><i aria-hidden="true"></i> Glasgow, Scotland</span>
-            <span>Principal Developer</span>
+        <figure class="portrait">
+          <div class="portrait__frame">
+            <img
+              src={rawkodePhoto.src}
+              width={rawkodePhoto.width}
+              height={rawkodePhoto.height}
+              alt="David Flanagan smiling at the camera, short red hair and beard, black t-shirt"
+              class="portrait__photo"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+            />
+          </div>
+          <figcaption>
+            <dl class="credits">
+              <div>
+                <dt>Senior Solutions Engineer</dt>
+                <dd><a href="https://coreweave.com" target="_blank" rel="noopener noreferrer">CoreWeave</a></dd>
+              </div>
+              <div>
+                <dt>Founder</dt>
+                <dd><a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer">Rawkode Academy</a></dd>
+              </div>
+            </dl>
           </figcaption>
         </figure>
       </div>
     </section>
 
-    <section class="section" id="apps">
-      <div class="container section__grid">
-        <header class="section__header">
-          <div>
-            <h2>Apps, systems, and teaching</h2>
-            <p class="section__desc">
-              Open-source systems, teaching projects, and developer tools from the Rawkode ecosystem.
-            </p>
-          </div>
-          <a href="https://github.com/rawkode" target="_blank" rel="noopener noreferrer" class="section__link">View GitHub profile</a>
-        </header>
-        <div class="panel">
-          <ul class="app-list" role="list">
-            {apps.map((entry) => (
-              <li><AppCard app={entry.data} /></li>
-            ))}
-          </ul>
-        </div>
+    <section class="work" id="work" aria-labelledby="work-title">
+      <div class="container">
+        <h2 id="work-title" class="billing-line">Rawkode presents</h2>
+        <Lineup apps={apps.map((entry) => entry.data)} />
+        <p class="billing-line billing-line--end">
+          <a href="https://github.com/rawkode" target="_blank" rel="noopener noreferrer">
+            …and more on GitHub<span class="sr-only"> (opens in a new tab)</span>
+          </a>
+        </p>
       </div>
     </section>
 
     {recentPosts.length > 0 && (
-      <section class="section">
-        <div class="container writing-layout">
-          <header class="section__header">
-            <div>
-              <h2>Recent writing</h2>
-              <p class="section__desc">Notes from the workbench on infrastructure, tooling, and building in public.</p>
-            </div>
-            <a href="/read" class="section__link">Read all writing</a>
+      <section class="writing" aria-labelledby="writing-title">
+        <div class="container writing__inner">
+          <header class="writing__head">
+            <h2 id="writing-title" class="poster">Writing</h2>
+            <p>Field notes on infrastructure, tooling, and building in public.</p>
+            <a href="/read" class="text-link">
+              All writing
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                <path d="M5 12h14M13 5l7 7-7 7"/>
+              </svg>
+            </a>
           </header>
-          <ol class="writing-list" role="list">
+          <ol class="posts" role="list">
             {recentPosts.map((post) => (
               <li>
-                <a href={`/read/${post.id}`} class="writing-row">
-                  <time datetime={post.data.pubDate.toISOString()}>{formatShortDate(post.data.pubDate)}</time>
-                  <span class="writing-row__dot" aria-hidden="true"></span>
-                  <span class="writing-row__content">
-                    <strong>{post.data.title}</strong>
+                <a href={`/read/${post.id}`} class="post">
+                  <span class="post__meta">
+                    <time datetime={post.data.pubDate.toISOString()}>{formatShortDate(post.data.pubDate)}</time>
                     <span>{calculateReadingMinutes(post.body)} min read</span>
                   </span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <span class="post__body">
+                    <strong class="post__title">{post.data.title}</strong>
+                    <span class="post__desc">{post.data.description}</span>
+                  </span>
+                  <svg class="post__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
                     <path d="M5 12h14M13 5l7 7-7 7"/>
                   </svg>
                 </a>
@@ -125,28 +142,60 @@ function formatShortDate(date: Date) {
       </section>
     )}
 
-    <section class="section">
-      <div class="container">
-        <div class="academy-panel">
-          <div class="academy-panel__mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m5 10 7 4 7-4v5l-7 4-7-4v-5Z"/>
-            </svg>
-          </div>
-          <div>
-            <h2>Learn the infrastructure behind the work</h2>
-            <p>
-              Rawkode Academy turns the same systems thinking into practical courses
-              and projects for cloud-native engineers.
-            </p>
-          </div>
-          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="button button--secondary">
-            Explore Rawkode Academy
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <section class="stage" aria-labelledby="stage-title">
+      <div class="container stage__inner">
+        <h2 id="stage-title" class="poster stage__title">On stage</h2>
+        <div class="stage__copy">
+          <p>
+            Keynotes, talks, panels, and hands-on workshops on the infrastructure
+            I work with every day. Based in Glasgow, travelling worldwide.
+          </p>
+          <ul class="topics" role="list" aria-label="Speaking topics">
+            {topics.map((topic) => <li>{topic}</li>)}
+          </ul>
+          <a href="/biography" class="button button--primary">
+            Get the speaker kit
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
               <path d="M5 12h14M13 5l7 7-7 7"/>
             </svg>
           </a>
         </div>
+      </div>
+    </section>
+
+    <section class="academy" aria-labelledby="academy-title">
+      <div class="container academy__inner">
+        <div class="academy__lead">
+          <svg class="academy__mark" viewBox="32 32 192 192" fill="currentColor" fill-rule="evenodd" aria-hidden="true">
+            <path d={academyIconPath} />
+          </svg>
+          <h2 id="academy-title" class="poster">Everything I learn, taught free</h2>
+          <p>
+            Rawkode Academy is where the work turns into teaching: Kubernetes, Nix,
+            Rust, and the wider cloud-native stack, from first principles to production.
+          </p>
+          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="button button--ink">
+            Start learning at rawkode.academy
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+              <path d="M7 17 17 7M9 7h8v8"/>
+            </svg>
+            <span class="sr-only">(opens in a new tab)</span>
+          </a>
+        </div>
+        <ul class="academy__links" role="list">
+          {academyLinks.map((link) => (
+            <li>
+              <a href={link.href} target="_blank" rel="noopener noreferrer">
+                <strong class="poster">{link.label}</strong>
+                <span>{link.detail}</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                  <path d="M7 17 17 7M9 7h8v8"/>
+                </svg>
+                <span class="sr-only">(opens in a new tab)</span>
+              </a>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   </main>
@@ -154,325 +203,487 @@ function formatShortDate(date: Date) {
 </Layout>
 
 <style>
+  /* ─── Hero ─────────────────────────────────────────────────────────── */
   .hero {
-    padding-block: var(--space-8) var(--space-7);
+    padding-block: clamp(2.5rem, 7vw, 6rem) clamp(4rem, 9vw, 8rem);
   }
 
   .hero__inner {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
+    gap: clamp(2.5rem, 6vw, 4rem);
   }
 
   .hero__copy {
     display: grid;
-    gap: var(--space-4);
-    align-content: center;
+    align-content: end;
+    gap: var(--space-6);
+    min-width: 0;
   }
 
-  .hero h1 {
+  .hero__kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6em;
     margin: 0;
-    font-size: clamp(3.35rem, 15vw, 4.8rem);
-    font-weight: 680;
-    letter-spacing: 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 560;
+    font-style: italic;
+    font-stretch: 112%;
+    animation: fade-up 700ms var(--ease-out-expo) 80ms both;
   }
 
-  .hero__handle {
-    margin: calc(-1 * var(--space-3)) 0 0;
-    color: var(--text-secondary);
-    font-size: clamp(1.4rem, 6vw, 2rem);
-    font-weight: 650;
-    line-height: 1.1;
+  .hero__square {
+    width: 0.6em;
+    height: 0.6em;
+    background: var(--color-accent);
+    animation: on-air 2.4s steps(1) 1.2s infinite;
+  }
+
+  @keyframes on-air {
+    50% { opacity: 0.25; }
+  }
+
+  .hero__title {
+    display: grid;
+    margin: 0;
+    font-size: clamp(5rem, 23vw, 11.5rem);
+    line-height: 0.84;
+  }
+
+  .hero__line {
+    display: block;
+    overflow: clip;
+    overflow-clip-margin: 0.05em;
+    padding-bottom: 0.02em;
+  }
+
+  .hero__line > span {
+    display: block;
+    animation: slam 1.25s var(--ease-out-expo) both;
+  }
+
+  .hero__line:nth-child(2) > span {
+    color: var(--color-accent);
+    animation-delay: 110ms;
+  }
+
+  /* The name arrives wide and compresses into poster width. */
+  @keyframes slam {
+    from {
+      transform: translateY(100%);
+      font-stretch: 125%;
+    }
+    60% {
+      transform: none;
+    }
+    to {
+      transform: none;
+      font-stretch: 62%;
+    }
   }
 
   .hero__lead {
-    max-width: 28rem;
+    max-width: 38ch;
     margin: 0;
     color: var(--text-primary);
-    font-size: clamp(1rem, 2.5vw, 1.18rem);
-    line-height: 1.65;
+    font-size: clamp(1.1rem, 1.8vw, 1.3rem);
+    line-height: 1.5;
+    animation: fade-up 800ms var(--ease-out-expo) 380ms both;
   }
 
   .hero__actions {
-    display: grid;
-    grid-column: 1 / -1;
-    gap: var(--space-3);
-    margin-top: var(--space-2);
-  }
-
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    min-height: 48px;
-    padding: 0.78rem 1rem;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    font-weight: 650;
-    text-decoration: none;
-    transition:
-      transform var(--dur-fast) var(--ease-out-expo),
-      border-color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo);
-  }
-
-  .button svg {
-    width: 17px;
-    height: 17px;
-  }
-
-  .button:hover {
-    transform: translateY(-1px);
-    text-decoration: none;
-  }
-
-  .button:active {
-    transform: translateY(1px);
-  }
-
-  .button--primary {
-    border-color: var(--surface-invert);
-    background: var(--surface-invert);
-    color: var(--text-invert);
-    box-shadow: none;
-  }
-
-  .button--secondary {
-    background: var(--surface-glass);
-  }
-
-  .button--secondary:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-raised);
-  }
-
-  .hero-card {
-    display: none;
-    overflow: hidden;
-    width: 100%;
-    margin: 0;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    background: var(--surface-raised);
-    box-shadow: none;
-  }
-
-  .hero-card__photo {
-    display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 4 / 3.35;
-    object-fit: cover;
-    object-position: top center;
-    filter: saturate(0.84) contrast(1.06) brightness(0.82);
-  }
-
-  .hero-card__meta {
-    display: grid;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    border-top: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    font-size: 0.86rem;
-  }
-
-  .hero-card__meta span {
-    min-width: 0;
-  }
-
-  .hero-card__meta span {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .hero-card__meta i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-accent-success);
-  }
-
-  .section {
-    padding-block: var(--space-8);
-  }
-
-  .section__grid,
-  .writing-layout {
-    display: grid;
-    gap: var(--space-5);
-  }
-
-  .section__header {
     display: flex;
     flex-wrap: wrap;
-    align-items: end;
-    justify-content: space-between;
+    gap: var(--space-3);
+    animation: fade-up 800ms var(--ease-out-expo) 500ms both;
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem);
+    }
+  }
+
+  /* ─── Portrait: a two-colour screen print that develops on hover ──── */
+  .portrait {
+    display: grid;
     gap: var(--space-4);
+    width: min(100%, 420px);
+    margin: 0;
+    justify-self: start;
   }
 
-  .section__header h2,
-  .academy-panel h2 {
-    margin: var(--space-1) 0 0;
-    font-size: clamp(1.5rem, 6vw, 2.25rem);
+  .portrait__frame {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 4 / 5;
+    background: var(--color-accent);
+    animation: print 1.1s var(--ease-out-expo) 200ms both;
   }
 
-  .section__desc {
-    margin: var(--space-2) 0 0;
+  @keyframes print {
+    from { clip-path: inset(100% 0 0 0); }
+    to { clip-path: inset(0 0 0 0); }
+  }
+
+  .portrait__photo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 20%;
+    filter: grayscale(1) contrast(1.35) brightness(1.08);
+    mix-blend-mode: multiply;
+    transform: scale(1.04);
+    transition:
+      filter var(--dur-slow) var(--ease-out-expo),
+      transform 1.2s var(--ease-out-expo);
+  }
+
+  /* Halftone screen over the print. */
+  .portrait__frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at center, oklch(0 0 0 / 0.28) 0.9px, transparent 1.3px);
+    background-size: 5px 5px;
+    mix-blend-mode: multiply;
+    pointer-events: none;
+    transition: opacity var(--dur-slow) var(--ease-out-expo);
+  }
+
+  .portrait:hover .portrait__photo {
+    transform: scale(1);
+  }
+
+  .credits {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+  }
+
+  .credits div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0 var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-default);
+  }
+
+  .credits dt {
     color: var(--text-secondary);
-    font-size: 0.92rem;
+    font-size: 0.95rem;
   }
 
-  .section__link {
-    color: var(--text-secondary);
-    font-size: 0.86rem;
+  .credits dd {
+    margin: 0;
     font-weight: 650;
+  }
+
+  .credits a {
     text-decoration: none;
+  }
+
+  /* ─── Work: the bill ───────────────────────────────────────────────── */
+  .work {
+    padding-block: clamp(4rem, 10vw, 8rem);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .billing-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin: 0 0 clamp(2.5rem, 6vw, 4.5rem);
+    color: var(--text-primary);
+    font-size: clamp(1.1rem, 2vw, 1.4rem);
+    font-stretch: 125%;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1.2;
     white-space: nowrap;
   }
 
-  .section__link::after {
-    content: " →";
-    color: var(--text-primary);
+  .billing-line::before,
+  .billing-line::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-default);
   }
 
-  .panel {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
+  .billing-line--end {
+    margin: clamp(3rem, 7vw, 5rem) 0 0;
   }
 
-  .app-list,
-  .writing-list {
+  .billing-line a {
+    text-decoration: none;
+  }
+
+  /* ─── Writing ──────────────────────────────────────────────────────── */
+  .writing {
+    padding-block: clamp(4rem, 9vw, 7rem);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .writing__inner {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-8);
+  }
+
+  .writing__head {
+    display: grid;
+    align-content: start;
+    gap: var(--space-4);
+    container-type: inline-size;
+  }
+
+  /* Sized to fill its column exactly, whatever the column width. */
+  .writing__head h2 {
+    margin: 0;
+    font-size: min(8.5rem, 100cqi / 3.75);
+  }
+
+  .writing__head p {
+    max-width: 26ch;
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .posts {
     margin: 0;
     padding: 0;
     list-style: none;
+    border-bottom: 1px solid var(--border-default);
   }
 
-  .writing-row {
+  .post {
     display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
-    gap: var(--space-3);
-    align-items: center;
-    min-height: 74px;
-    padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3) var(--space-6);
+    padding-block: var(--space-6);
+    border-top: 1px solid var(--border-default);
     color: var(--text-primary);
     text-decoration: none;
   }
 
-  .writing-row:hover {
-    border-color: var(--border-default);
-    background: var(--surface-raised);
-    text-decoration: none;
+  .post__meta {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: var(--space-4);
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
   }
 
-  .writing-row time,
-  .writing-row__content span {
-    color: var(--text-secondary);
-    font-family: var(--fonts-mono);
-    font-size: 0.8125rem;
-  }
-
-  .writing-row__dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-accent);
-  }
-
-  .writing-row__content {
+  .post__body {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-2);
     min-width: 0;
   }
 
-  .writing-row__content strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .post__title {
     color: var(--text-primary);
-    font-size: 0.95rem;
-    line-height: 1.35;
+    font-size: clamp(1.5rem, 3.2vw, 2.4rem);
+    font-stretch: var(--stretch-head);
+    font-weight: 760;
+    line-height: 1.06;
+    text-wrap: balance;
+    transition: color var(--dur-fast) var(--ease-out-expo);
   }
 
-  .writing-row svg {
-    width: 18px;
-    height: 18px;
+  .post__desc {
+    max-width: 60ch;
     color: var(--text-secondary);
+    line-height: 1.5;
   }
 
-  .academy-panel {
-    display: grid;
-    gap: var(--space-5);
-    padding: var(--space-5);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    box-shadow: none;
+  .post__arrow {
+    align-self: center;
+    width: 28px;
+    height: 28px;
+    color: var(--text-tertiary);
+    transition:
+      transform var(--dur-normal) var(--ease-out-expo),
+      color var(--dur-fast) var(--ease-out-expo);
   }
 
-  .academy-panel__mark {
-    display: grid;
-    place-items: center;
-    width: 60px;
-    aspect-ratio: 1;
-    border-radius: var(--radius-full);
-    background: color-mix(in oklch, var(--color-accent) 18%, var(--surface-3));
+  .post:hover {
+    color: var(--text-primary);
+  }
+
+  .post:hover .post__title {
     color: var(--color-accent);
   }
 
-  .academy-panel__mark svg {
-    width: 28px;
-    height: 28px;
+  .post:hover .post__arrow {
+    color: var(--color-accent);
+    transform: translateX(6px);
   }
 
-  .academy-panel p {
-    max-width: 58ch;
-    margin: var(--space-3) 0 0;
+  /* ─── Stage ────────────────────────────────────────────────────────── */
+  .stage {
+    padding-block: clamp(4rem, 9vw, 7rem);
+    border-top: 1px solid var(--border-subtle);
   }
 
-  @media (min-width: 560px) {
-    .hero__actions {
-      grid-column: auto;
-      grid-template-columns: repeat(2, minmax(0, 180px));
-    }
+  .stage__inner {
+    display: grid;
+    gap: var(--space-8);
+    align-items: end;
   }
 
-  @media (min-width: 860px) {
-    .hero {
-      padding-block: var(--space-16) var(--space-10);
-    }
+  .stage__title {
+    margin: 0;
+    font-size: clamp(4.5rem, 19vw, 13rem);
+    line-height: 0.8;
+  }
 
+  .stage__copy {
+    display: grid;
+    gap: var(--space-6);
+    justify-items: start;
+  }
+
+  .stage__copy p {
+    max-width: 44ch;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: clamp(1.1rem, 1.8vw, 1.3rem);
+    line-height: 1.5;
+  }
+
+  /* ─── Academy: the one drenched surface ────────────────────────────── */
+  .academy {
+    padding-block: clamp(4rem, 10vw, 8rem);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  .academy__inner {
+    display: grid;
+    gap: clamp(3rem, 6vw, 5rem);
+  }
+
+  .academy__lead {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: var(--space-6);
+  }
+
+  .academy__mark {
+    width: clamp(3.5rem, 7vw, 5rem);
+    height: auto;
+  }
+
+  .academy h2 {
+    margin: 0;
+    color: inherit;
+    font-size: clamp(3.4rem, 10vw, 7.5rem);
+    line-height: 0.86;
+  }
+
+  .academy__lead p {
+    max-width: 44ch;
+    margin: 0;
+    color: inherit;
+    font-size: clamp(1.05rem, 1.6vw, 1.2rem);
+    line-height: 1.55;
+  }
+
+  .academy__links {
+    align-self: end;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 2px solid currentcolor;
+  }
+
+  .academy__links a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-4);
+    align-items: center;
+    padding-block: var(--space-5);
+    border-top: 2px solid currentcolor;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .academy__links strong {
+    color: inherit;
+    font-size: clamp(2rem, 4.5vw, 3rem);
+  }
+
+  .academy__links span:not(.sr-only) {
+    grid-column: 1;
+    max-width: 48ch;
+    font-size: 1rem;
+    line-height: 1.45;
+  }
+
+  .academy__links svg {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    width: 32px;
+    height: 32px;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .academy__links a:hover {
+    color: inherit;
+  }
+
+  .academy__links a:hover svg {
+    transform: translate(4px, -4px);
+  }
+
+  .academy__links a:hover strong {
+    text-decoration: underline;
+    text-decoration-thickness: 0.06em;
+    text-underline-offset: 0.08em;
+  }
+
+  .academy :focus-visible {
+    outline-color: currentcolor;
+  }
+
+  /* ─── Layout breakpoints ───────────────────────────────────────────── */
+  @media (min-width: 900px) {
     .hero__inner {
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-      align-items: center;
-      gap: var(--space-12);
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      align-items: end;
     }
 
-    .hero__actions {
-      grid-column: auto;
-    }
-
-    .hero-card {
-      display: grid;
+    .portrait {
       justify-self: end;
     }
 
-    .writing-layout {
-      grid-template-columns: minmax(0, 1fr);
+    .writing__inner {
+      grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 2fr);
+      gap: var(--space-16);
     }
 
-    .academy-panel {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      padding: var(--space-8);
+    .writing__head {
+      position: sticky;
+      top: calc(var(--nav-height-offset) + var(--space-4));
     }
+
+    .stage__inner {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: var(--space-12);
+    }
+
+    .academy__inner {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero__square { animation: none; }
   }
 </style>

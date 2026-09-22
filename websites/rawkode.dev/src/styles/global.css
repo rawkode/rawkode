@@ -1,5 +1,8 @@
 /* ─── Fonts ─────────────────────────────────────────────────────────────── */
-@import '@fontsource-variable/figtree/index.css';
+/* Archivo with its width axis (62–125%). One family, used at two widths:
+   extra-condensed black for poster display, normal width for reading. */
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/archivo/wdth-italic.css';
 
 /* ─── Panda CSS layers ──────────────────────────────────────────────────── */
 @layer reset, base, tokens, recipes, utilities;
@@ -9,9 +12,14 @@
   html {
     font-size: 16px;
     scroll-behavior: smooth;
+    scroll-padding-top: 76px;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    --nav-height-offset: 92px;
+    --nav-height-offset: 88px;
+    --gutter: clamp(1rem, 4vw, 3rem);
+    --measure: 68ch;
+    --stretch-poster: 62%;
+    --stretch-head: 78%;
   }
 }
 
@@ -21,69 +29,64 @@
     min-height: 100dvh;
     margin: 0;
     font-family: var(--fonts-sans);
-    font-size: 1rem;
+    font-size: 1.0625rem;
     font-weight: 400;
-    line-height: 1.6;
+    font-stretch: 100%;
+    line-height: 1.62;
     color: var(--colors-text-primary);
-    background:
-      var(--page-glow),
-      linear-gradient(180deg, var(--colors-surface-1) 0%, color-mix(in oklch, var(--colors-surface-1) 84%, black) 100%);
     background-color: var(--colors-surface-1);
-    background-attachment: fixed;
     font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+    font-optical-sizing: auto;
     text-rendering: optimizelegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
     transition:
       background-color var(--durations-normal) var(--easings-in-out),
       color var(--durations-normal) var(--easings-in-out);
   }
 
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background-image:
-      linear-gradient(to right, color-mix(in oklch, var(--colors-border-subtle) 52%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in oklch, var(--colors-border-subtle) 42%, transparent) 1px, transparent 1px);
-    background-size: 40px 40px;
-    mask-image: linear-gradient(to bottom, oklch(0% 0 0 / 0.22), transparent 64%);
-    opacity: 0.32;
+  /* Light type on dark ink reads thinner; give it more air. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) body { line-height: 1.68; }
   }
+  [data-theme='dark'] body { line-height: 1.68; }
 
   ::selection {
     background-color: var(--colors-accent);
-    color: var(--colors-text-invert);
+    color: var(--colors-accent-ink);
   }
 
   time { font-variant-numeric: tabular-nums; }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--fonts-sans);
-    font-weight: 650;
-    line-height: 1.05;
-    letter-spacing: 0;
+    font-stretch: var(--stretch-head);
+    font-weight: 780;
+    line-height: 1.02;
+    letter-spacing: -0.005em;
     color: var(--colors-text-primary);
     text-wrap: balance;
   }
 
-  h1 { font-size: clamp(2.35rem, 8vw, 4.6rem); }
-  h2 { font-size: clamp(1.65rem, 5vw, 2.75rem); }
-  h3 { font-size: clamp(1.12rem, 3vw, 1.5rem); }
-  h4 { font-size: 1rem; }
+  h1 { font-size: clamp(2.5rem, 7vw, 5rem); }
+  h2 { font-size: clamp(1.75rem, 4.2vw, 3rem); }
+  h3 { font-size: clamp(1.2rem, 2.4vw, 1.5rem); }
+  h4 { font-size: 1.05rem; }
 
   p {
-    line-height: 1.72;
     color: var(--colors-text-secondary);
+    text-wrap: pretty;
   }
 
   p + p { margin-top: var(--spacing-4); }
 
   a {
-    color: var(--colors-accent-hover);
+    color: inherit;
     text-decoration: underline;
-    text-decoration-color: transparent;
-    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklch, currentcolor 35%, transparent);
+    text-underline-offset: 0.2em;
     transition:
       color var(--durations-fast) var(--easings-out-expo),
       text-decoration-color var(--durations-fast) var(--easings-out-expo);
@@ -95,18 +98,17 @@
   }
 
   strong {
-    font-weight: 650;
+    font-weight: 680;
     color: var(--colors-text-primary);
   }
 
   code {
     font-family: var(--fonts-mono);
-    font-size: 0.875em;
-    background: var(--colors-surface-raised);
-    border: 1px solid var(--colors-border-subtle);
+    font-size: 0.86em;
+    background: var(--colors-surface-3);
     border-radius: var(--radii-sm);
-    padding: 0.12em 0.42em;
-    color: var(--colors-accent-hover);
+    padding: 0.1em 0.38em;
+    color: var(--colors-text-primary);
   }
 
   :focus { outline: none; }
@@ -114,7 +116,118 @@
   :focus-visible {
     outline: 2px solid var(--colors-accent);
     outline-offset: 3px;
-    border-radius: var(--radii-sm);
+    border-radius: var(--radii-xs);
+  }
+}
+
+/* ─── Shared components ─────────────────────────────────────────────────── */
+@layer recipes {
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    min-height: 52px;
+    padding: 0.8rem 1.25rem;
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+    font-weight: 650;
+    line-height: 1.2;
+    text-decoration: none;
+    transition:
+      transform var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo),
+      color var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .button svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .button:hover svg {
+    transform: translateX(3px);
+  }
+
+  .button:active {
+    transform: translateY(1px);
+  }
+
+  .button--primary {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  .button--primary:hover {
+    background: var(--text-primary);
+    color: var(--surface-1);
+  }
+
+  .button--ghost {
+    border-color: var(--text-primary);
+    color: var(--text-primary);
+  }
+
+  .button--ghost:hover {
+    background: var(--text-primary);
+    color: var(--surface-1);
+  }
+
+  .button--ink {
+    background: var(--color-accent-ink);
+    color: var(--color-accent);
+  }
+
+  .button--ink:hover {
+    background: transparent;
+    border-color: var(--color-accent-ink);
+    color: var(--color-accent-ink);
+  }
+
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: fit-content;
+    min-height: 44px;
+    color: var(--text-primary);
+    font-weight: 650;
+    text-decoration: underline;
+    text-decoration-color: var(--color-accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.3em;
+  }
+
+  .text-link svg {
+    width: 16px;
+    height: 16px;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
+  }
+
+  .text-link:hover svg {
+    transform: translateX(3px);
+  }
+
+  .topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .topics li {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    color: var(--text-primary);
+    font-size: 0.92rem;
+    font-weight: 540;
   }
 }
 
@@ -122,13 +235,18 @@
 @layer utilities {
   .container {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1360px;
     margin-inline: auto;
-    padding-inline: var(--spacing-4);
+    padding-inline: var(--gutter);
   }
 
-  @media (min-width: 768px) {
-    .container { padding-inline: var(--spacing-8); }
+  /* Poster display type: extra-condensed, black, uppercase. */
+  .poster {
+    font-stretch: var(--stretch-poster);
+    font-weight: 860;
+    line-height: 0.86;
+    letter-spacing: 0.005em;
+    text-transform: uppercase;
   }
 
   .sr-only {
@@ -148,6 +266,7 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

@@ -5,6 +5,7 @@ import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import { calculateWordCount } from '../utils/readingTime';
 
 const tagline =
   'Helping developers, platform engineers, and infrastructure operators level up with Kubernetes.';
@@ -12,24 +13,21 @@ const tagline =
 const bios = [
   {
     id: 'short',
-    label: 'Short bio',
-    note: '50 words',
+    label: 'Short',
     paragraphs: [
       'David Flanagan (aka rawkode) is a Senior Solutions Engineer at CoreWeave and the founder of Rawkode Academy, where he teaches engineers the practical work behind Kubernetes, platform engineering, and cloud-native infrastructure.',
     ],
   },
   {
     id: 'medium',
-    label: 'Medium bio',
-    note: '150 words',
+    label: 'Medium',
     paragraphs: [
       "Based in Glasgow, Scotland, David Flanagan (better known as rawkode) has spent twenty years close to the metal, from embedded C to the GPU clusters powering today's AI. As a Senior Solutions Engineer at CoreWeave he helps teams tame that infrastructure, and as the founder of Rawkode Academy he gives the knowledge away, teaching Kubernetes, platform engineering, and cloud-native systems through free courses and building in the open.",
     ],
   },
   {
     id: 'long',
-    label: 'Long bio',
-    note: '300 words',
+    label: 'Long',
     paragraphs: [
       'Based in Glasgow, Scotland, David Flanagan, better known online as rawkode, has spent twenty years close to the metal. He began with embedded C in 2004 and worked his way up the stack as the industry moved from bare servers to containers to the GPU clusters now powering modern AI.',
       'Today he sits at that frontier as a Senior Solutions Engineer at CoreWeave, helping teams run demanding AI workloads where Kubernetes meets large-scale GPU compute. The same instinct to make hard infrastructure approachable runs through Rawkode Academy, the company he founded, where he gives that knowledge away, building in the open and publishing free courses on Kubernetes, platform engineering, and cloud-native systems so developers, platform engineers, and infrastructure operators can level up alongside him.',
@@ -38,13 +36,10 @@ const bios = [
   },
 ];
 
-const facts = [
+const facts: { label: string; value: string; status?: boolean }[] = [
   { label: 'Focus', value: 'Developer tooling, platform engineering, authz, and systems' },
   { label: 'Current', value: 'Building in public, shipping tools, teaching at Rawkode Academy' },
-  { label: 'Location', value: 'Glasgow, Scotland' },
-  { label: 'Availability', value: 'Available for speaking', status: true },
   { label: 'Format', value: 'Keynotes, talks, panels, workshops' },
-  { label: 'Travel', value: 'Worldwide' },
 ];
 
 const topics = [
@@ -61,41 +56,15 @@ const topics = [
 ];
 
 const socials = [
-  { icon: 'email', label: 'Email', handle: 'david@rawkode.dev', href: 'mailto:david@rawkode.dev' },
-  { icon: 'website', label: 'Website', handle: 'rawkode.dev', href: 'https://rawkode.dev' },
-  { icon: 'academy', label: 'Academy', handle: 'rawkode.academy', href: 'https://rawkode.academy' },
-  { icon: 'github', label: 'GitHub', handle: 'github.com/rawkode', href: 'https://github.com/rawkode' },
-  { icon: 'bluesky', label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
-  { icon: 'linkedin', label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
-] as const;
+  { label: 'Email', handle: 'david@rawkode.dev', href: 'mailto:david@rawkode.dev' },
+  { label: 'Website', handle: 'rawkode.dev', href: 'https://rawkode.dev' },
+  { label: 'Academy', handle: 'rawkode.academy', href: 'https://rawkode.academy' },
+  { label: 'GitHub', handle: 'github.com/rawkode', href: 'https://github.com/rawkode' },
+  { label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
+  { label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
+];
 
-const socialIconPaths = {
-  email: [
-    'M4 6h16v12H4Z',
-    'm4 7 8 6 8-6',
-  ],
-  website: [
-    'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
-    'M2 12h20',
-    'M12 2a15 15 0 0 1 0 20',
-    'M12 2a15 15 0 0 0 0 20',
-  ],
-  github: [
-    'M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-6.5.1-1.3-.3-2.5-1-3.5.3-1.1.3-2.3 0-3.5 0 0-1 0-3 1.5a13.4 13.4 0 0 0-8 0C6 1 5 1 5 1c-.3 1.2-.3 2.4 0 3.5A5.6 5.6 0 0 0 4 8c0 4.5 3 6.5 6 6.5-.7.8-1 1.7-1 3.5v4',
-    'M9 18c-4.5 2-5-2-7-2',
-  ],
-  bluesky: [
-    'M7.5 5.5c2 1.5 3.2 4.2 4.5 6.2 1.3-2 2.5-4.7 4.5-6.2 1.5-1.1 3.2-.4 3.4 1.5.2 2.2-1.3 5.2-4.5 6.1 2.5.4 3.7 2 3.1 3.6-.6 1.8-3 2.2-5 .6-.8-.6-1.4-1.4-1.5-2.3-.1.9-.7 1.7-1.5 2.3-2 1.6-4.4 1.2-5-.6-.6-1.6.6-3.2 3.1-3.6-3.2-.9-4.7-3.9-4.5-6.1.2-1.9 1.9-2.6 3.4-1.5Z',
-  ],
-  linkedin: [
-    'M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
-    'M2 9h4v12H2Z',
-    'M10 9h4v2a4 4 0 0 1 8 2v8h-4v-7a2 2 0 0 0-4 0v7h-4Z',
-  ],
-} as const;
-
-const academyIconPath =
-  'M128,32C74.980712890625,32,32,74.98095703125,32,128C32,181.01904296875,74.980712890625,224,128,224C181.01904296875,224,224,181.01904296875,224,128C224,74.98095703125,181.01904296875,32,128,32ZM102.7740478515625,169.697998046875L82.7235107421875,193.3570556640625L82.7235107421875,85.686767578125C82.7275390625,79.032958984375,88.123046875,73.640869140625,94.7767333984375,73.640380859375L145.5450439453125,73.630859375C143.135986328125,76.696044921875,140.696044921875,79.745849609375,138.31494140625,82.721923828125C135.425048828125,86.334228515625,132.4439697265625,90.0601806640625,129.5379638671875,93.787841796875L102.7740478515625,93.787841796875L102.7740478515625,169.697998046875ZM159.52197265625,175.945068359375C156.343994140625,172.280029296875,152.68798828125,168.1090087890625,148.98095703125,163.8790283203125C141.7490234375,155.625,134.26904296875,147.091064453125,129.85400390625,141.77001953125L128.260009765625,139.8499755859375L126.64501953125,141.751953125C121.677978515625,147.60498046875,116.6300048828125,153.47705078125,111.7769775390625,159.10205078125L111.7769775390625,129.85693359375C123.949951171875,114.824951171875,142.7239990234375,91.4534912109375,156.947021484375,73.625732421875L184.22705078125,73.625732421875C170.0880126953125,89.8582763671875,155.56201171875,106.60693359375,141.47705078125,123.9119873046875L140.373046875,125.26708984375L141.510986328125,126.595947265625C143.18505859375,128.552001953125,174.3389892578125,164.4990234375,184.259033203125,175.945068359375L159.52197265625,175.945068359375Z';
+const factId = (label: string) => `fact-${label.toLowerCase().replaceAll(' ', '-')}`;
 
 const personJsonLd = {
   '@context': 'https://schema.org',
@@ -120,48 +89,85 @@ const personJsonLd = {
 >
   <Nav />
   <main id="main-content">
-    <section class="bio-hero">
-      <div class="container bio-hero__inner">
-        <div class="bio-hero__copy">
-          <h1>David Flanagan</h1>
-          <p class="bio-hero__handle">rawkode</p>
-          <p class="bio-hero__location">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
-            </svg>
-            Glasgow, Scotland
-          </p>
-          <p class="bio-hero__tagline">{tagline}</p>
+    <section class="kit-hero" aria-labelledby="kit-title">
+      <div class="container kit-hero__inner">
+        <div class="kit-hero__copy">
+          <p class="kit-hero__kicker">Speaker kit</p>
+          <h1 id="kit-title" class="poster">David<br />Flanagan</h1>
+          <p class="kit-hero__tagline">{tagline}</p>
+          <dl class="kit-hero__status">
+            <div>
+              <dt>Availability</dt>
+              <dd><span class="status-dot" aria-hidden="true"></span>Available for speaking</dd>
+            </div>
+            <div>
+              <dt>Based in</dt>
+              <dd>Glasgow, Scotland</dd>
+            </div>
+            <div>
+              <dt>Travel</dt>
+              <dd>Worldwide</dd>
+            </div>
+          </dl>
         </div>
 
-        <figure class="portrait-card">
+        <figure class="headshot">
           <img
             src={rawkodePhoto.src}
             width={rawkodePhoto.width}
             height={rawkodePhoto.height}
-            alt="David Flanagan"
-            class="portrait-card__photo"
+            alt="David Flanagan smiling at the camera, short red hair and beard, black t-shirt"
+            class="headshot__photo"
             loading="eager"
+            fetchpriority="high"
             decoding="async"
           />
-          <a href={rawkodePhoto.src} download="david-flanagan-headshot.jpg" class="portrait-card__download" aria-label="Download high-resolution headshot">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>
-            </svg>
-            <span>Download HD</span>
-          </a>
           <figcaption>
-            <span>Speaker, Educator, Continuous Learner.</span>
+            <a href={rawkodePhoto.src} download="david-flanagan-headshot.jpg" class="button button--primary headshot__download">
+              Download headshot
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                <path d="M12 4v12M6 10l6 6 6-6M5 20h14"/>
+              </svg>
+            </a>
+            <span>Full resolution, {rawkodePhoto.width} × {rawkodePhoto.height} JPEG</span>
           </figcaption>
         </figure>
       </div>
     </section>
 
-    <section class="bio-section">
-      <div class="container bio-grid">
-        <div class="bio-panel">
-          <header class="panel-head">
-            <h2>Quick facts</h2>
+    <section class="kit-section" aria-labelledby="bios-title">
+      <div class="container">
+        <header class="kit-section__head">
+          <h2 id="bios-title" class="poster">Bios</h2>
+          <p>Third person, ready to paste into a programme. Pick the length your schedule allows.</p>
+        </header>
+        <ol class="bios" role="list">
+          {bios.map((bio) => (
+            <li class="bio">
+              <div class="bio__side">
+                <h3 class="bio__label poster">{bio.label}</h3>
+                <p class="bio__count">{calculateWordCount(bio.paragraphs.join(' '))} words</p>
+                <button class="copy-btn" type="button" data-copy-target={`bio-${bio.id}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/>
+                  </svg>
+                  <span class="copy-btn__label">Copy {bio.label.toLowerCase()} bio</span>
+                </button>
+              </div>
+              <div class="bio__text" id={`bio-${bio.id}`}>
+                {bio.paragraphs.map((para) => <p>{para}</p>)}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+
+    <section class="kit-section" aria-labelledby="facts-title">
+      <div class="container kit-split">
+        <div>
+          <header class="kit-section__head">
+            <h2 id="facts-title" class="poster">Facts</h2>
           </header>
           <dl class="facts">
             {facts.map((fact) => (
@@ -169,94 +175,52 @@ const personJsonLd = {
                 <dt>{fact.label}</dt>
                 <dd>
                   {fact.status && <span class="status-dot" aria-hidden="true"></span>}
-                  <span id={`fact-${fact.label.toLowerCase().replaceAll(' ', '-')}`}>{fact.value}</span>
-                  <button class="copy-btn copy-btn--icon" type="button" data-copy-target={`fact-${fact.label.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Copy ${fact.label}`}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
-                    </svg>
-                  </button>
+                  <span id={factId(fact.label)}>{fact.value}</span>
                 </dd>
+                <button class="copy-btn copy-btn--icon" type="button" data-copy-target={factId(fact.label)} aria-label={`Copy ${fact.label}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/>
+                  </svg>
+                </button>
               </div>
             ))}
           </dl>
         </div>
 
-        <div class="bio-panel bio-panel--bios">
-          <header class="panel-head">
-            <h2>Biography</h2>
+        <div>
+          <header class="kit-section__head">
+            <h2 id="topics-title" class="poster">Topics</h2>
           </header>
-          <div class="bio-cards">
-            {bios.map((bio) => (
-              <article class="bio-card">
-                <header>
-                  <h2>{bio.label}</h2>
-                  <span>{bio.note}</span>
-                  <button class="copy-btn" type="button" data-copy-target={`bio-${bio.id}`}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
-                    </svg>
-                    <span class="copy-btn__label">Copy</span>
-                  </button>
-                </header>
-                <div class="bio-card__text" id={`bio-${bio.id}`}>
-                  {bio.paragraphs.map((para) => <p>{para}</p>)}
-                </div>
-              </article>
-            ))}
-          </div>
+          <ul class="topics topics--large" role="list" aria-labelledby="topics-title">
+            {topics.map((topic) => <li>{topic}</li>)}
+          </ul>
         </div>
       </div>
     </section>
 
-    <section class="bio-section">
-      <div class="container bio-bottom">
-        <div class="bio-panel">
-          <header class="panel-head">
-            <h2>Topics</h2>
-          </header>
-          <ul class="topics" role="list">
-            {topics.map((topic) => <li>{topic}</li>)}
-          </ul>
-        </div>
-
-        <div class="bio-panel">
-          <header class="panel-head">
-            <h2>Connect</h2>
-          </header>
-          <ul class="socials" role="list">
-            {socials.map((social) => (
+    <section class="kit-section" aria-labelledby="links-title">
+      <div class="container">
+        <header class="kit-section__head">
+          <h2 id="links-title" class="poster">Links</h2>
+          <p>For the speaker page, the social posts, and the "find him online" slide.</p>
+        </header>
+        <ul class="links" role="list">
+          {socials.map((social) => {
+            const external = !social.href.startsWith('mailto:');
+            return (
               <li>
-                <a href={social.href} target={social.href.startsWith('mailto:') ? undefined : '_blank'} rel={social.href.startsWith('mailto:') ? undefined : 'noopener noreferrer'}>
-                  <span class="socials__label">
-                    {social.icon === 'academy' ? (
-                      <svg class="socials__icon socials__icon--academy" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-                        <rect x="71" y="62" width="114" height="134" class="socials__academy-backplate"></rect>
-                        <path d={academyIconPath}></path>
-                      </svg>
-                    ) : (
-                      <svg class="socials__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        {socialIconPaths[social.icon].map((path) => <path d={path} />)}
-                      </svg>
-                    )}
-                    <span>{social.label}</span>
-                  </span>
-                  <strong>{social.handle}</strong>
-                  <svg class="socials__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <a href={social.href} {...(external ? { target: '_blank', rel: 'me noopener noreferrer' } : {})}>
+                  <span class="links__label">{social.label}</span>
+                  <strong class="links__handle">{social.handle}</strong>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
                     <path d="M7 17 17 7M9 7h8v8"/>
                   </svg>
+                  {external && <span class="sr-only">(opens in a new tab)</span>}
                 </a>
               </li>
-            ))}
-          </ul>
-        </div>
-
-        <a href={rawkodePhoto.src} download="david-flanagan.jpg" class="download-card">
-          <span>Download headshot</span>
-          <strong>High-resolution speaker photo</strong>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>
-          </svg>
-        </a>
+            );
+          })}
+        </ul>
       </div>
     </section>
   </main>
@@ -303,572 +267,359 @@ const personJsonLd = {
 </script>
 
 <style>
-  .bio-hero {
-    padding-block: var(--space-10) var(--space-6);
+  /* ─── Hero ─────────────────────────────────────────────────────────── */
+  .kit-hero {
+    padding-block: clamp(2.5rem, 7vw, 6rem) clamp(3rem, 7vw, 6rem);
   }
 
-  .bio-hero__inner {
+  .kit-hero__inner {
     display: grid;
-    gap: var(--space-8);
+    gap: clamp(2.5rem, 6vw, 4rem);
   }
 
-  .bio-hero__copy {
+  .kit-hero__copy {
     display: grid;
-    gap: var(--space-3);
-    align-content: center;
+    align-content: end;
+    gap: var(--space-6);
   }
 
-  .bio-hero h1 {
+  .kit-hero__kicker {
     margin: 0;
-    font-size: clamp(2.35rem, 10vw, 4.5rem);
-  }
-
-  .bio-hero__handle {
-    margin: calc(-1 * var(--space-2)) 0 0;
     color: var(--color-accent);
-    font-size: clamp(1.35rem, 6vw, 2rem);
-    font-weight: 650;
-    line-height: 1.1;
+    font-size: clamp(1.1rem, 2vw, 1.4rem);
+    font-stretch: 125%;
+    font-style: italic;
+    font-weight: 560;
   }
 
-  .bio-hero__location {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin: var(--space-2) 0 0;
-    color: var(--text-secondary);
-    font-size: 0.92rem;
-  }
-
-  .bio-hero__location svg {
-    width: 16px;
-    height: 16px;
-    color: var(--color-accent-cyan);
-  }
-
-  .bio-hero__tagline {
-    max-width: 42rem;
-    margin: var(--space-2) 0 0;
-    color: var(--text-secondary);
-    font-size: 1rem;
-  }
-
-  .portrait-card {
-    position: relative;
-    overflow: hidden;
-    width: min(100%, 360px);
+  .kit-hero h1 {
     margin: 0;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-xl);
-    background: var(--surface-raised);
-    box-shadow: none;
+    font-size: clamp(4.5rem, 20vw, 10rem);
+    line-height: 0.84;
   }
 
-  .portrait-card__photo {
+  .kit-hero__tagline {
+    max-width: 36ch;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: clamp(1.1rem, 1.8vw, 1.3rem);
+    line-height: 1.5;
+  }
+
+  .kit-hero__status {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: var(--space-4);
+    margin: 0;
+  }
+
+  .kit-hero__status div {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-default);
+  }
+
+  .kit-hero__status dt {
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
+  }
+
+  .kit-hero__status dd {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin: var(--space-1) 0 0;
+    font-weight: 650;
+  }
+
+  .status-dot {
+    flex: none;
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    background: var(--color-accent-success);
+    box-shadow: 0 0 0 0.25em color-mix(in oklch, var(--color-accent-success) 25%, transparent);
+  }
+
+  .headshot {
+    display: grid;
+    gap: var(--space-4);
+    width: min(100%, 420px);
+    margin: 0;
+  }
+
+  .headshot__photo {
     display: block;
     width: 100%;
     height: auto;
-    aspect-ratio: 4 / 3.35;
+    aspect-ratio: 4 / 5;
     object-fit: cover;
-    object-position: top center;
-    filter: saturate(0.84) contrast(1.05) brightness(0.86);
+    object-position: 50% 20%;
   }
 
-  .portrait-card__download {
-    position: absolute;
-    top: var(--space-3);
-    right: var(--space-3);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: 34px;
-    padding: 0.42rem 0.62rem;
-    border: 1px solid color-mix(in oklch, var(--border-default) 76%, white);
-    border-radius: var(--radius-md);
-    background: color-mix(in oklch, var(--surface-raised) 82%, transparent);
-    color: var(--text-primary);
-    font-size: 0.78rem;
-    font-weight: 650;
-    line-height: 1;
-    text-decoration: none;
-    box-shadow: var(--shadow-sm);
-    opacity: 1;
-    z-index: 1;
-    backdrop-filter: blur(14px) saturate(1.2);
-    transition:
-      opacity var(--dur-fast) var(--ease-out-expo),
-      transform var(--dur-fast) var(--ease-out-expo),
-      border-color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo);
+  .headshot figcaption {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-3);
   }
 
-  .portrait-card__download:hover,
-  .portrait-card__download:focus-visible {
-    border-color: var(--border-strong);
-    background: var(--surface-raised);
-    text-decoration: none;
-    transform: translateY(-1px);
+  .headshot figcaption span {
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
   }
 
-  .portrait-card__download svg {
-    width: 15px;
-    height: 15px;
-    color: var(--color-accent);
+  .headshot__download svg {
+    transition: transform var(--dur-normal) var(--ease-out-expo);
   }
 
-  .portrait-card figcaption {
-    padding: var(--space-4);
+  .headshot__download:hover svg {
+    transform: translateY(3px);
+  }
+
+  /* ─── Sections ─────────────────────────────────────────────────────── */
+  .kit-section {
+    padding-block: clamp(3.5rem, 8vw, 6rem);
     border-top: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    font-size: 0.88rem;
   }
 
-  .portrait-card span {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .portrait-card i,
-  .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-accent-success);
-  }
-
-  @media (hover: hover) and (pointer: fine) {
-    .portrait-card__download {
-      opacity: 0;
-      pointer-events: none;
-      transform: translateY(-4px);
-    }
-
-    .portrait-card:hover .portrait-card__download,
-    .portrait-card:focus-within .portrait-card__download {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(0);
-    }
-  }
-
-  .bio-section {
-    padding-block: var(--space-5);
-  }
-
-  .bio-grid,
-  .bio-bottom {
+  .kit-section__head {
     display: grid;
-    align-items: start;
-    gap: var(--space-4);
+    gap: var(--space-3);
+    margin-bottom: clamp(2rem, 4vw, 3rem);
   }
 
-  .bio-panel,
-  .download-card {
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-xl);
-    background: var(--surface-glass);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .bio-panel {
-    overflow: hidden;
-  }
-
-  .panel-head {
-    padding: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .panel-head h2 {
+  .kit-section__head h2 {
     margin: 0;
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: clamp(3.5rem, 11vw, 7rem);
   }
 
-  .facts {
-    display: grid;
+  .kit-section__head p {
+    max-width: 48ch;
     margin: 0;
+    font-size: 1.05rem;
   }
 
-  .facts__row {
+  /* ─── Bios ─────────────────────────────────────────────────────────── */
+  .bios {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .bio {
     display: grid;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
+    gap: var(--space-5);
+    padding-block: var(--space-8);
+    border-top: 1px solid var(--border-default);
   }
 
-  .facts__row:last-child {
-    border-bottom: 0;
-  }
-
-  .facts dt {
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-  }
-
-  .facts dd {
+  .bio__side {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .bio__label {
+    margin: 0;
+    color: var(--color-accent);
+    font-size: clamp(2.4rem, 5vw, 3.5rem);
+  }
+
+  .bio__count {
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bio__text {
+    max-width: var(--measure);
+  }
+
+  .bio__text p {
     margin: 0;
     color: var(--text-primary);
-    font-size: 0.92rem;
+    font-size: clamp(1.05rem, 1.5vw, 1.15rem);
   }
 
-  .facts dd span:not(.status-dot) {
-    min-width: 0;
+  .bio__text p + p {
+    margin-top: var(--space-4);
   }
 
   .copy-btn {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: 34px;
-    padding: 0.35rem 0.7rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--surface-glass);
-    color: var(--text-secondary);
-    font-family: var(--fonts-sans);
-    font-size: 0.82rem;
-    font-weight: 650;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 0.9rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
     cursor: pointer;
     transition:
-      color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo),
       border-color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo);
-  }
-
-  .copy-btn:hover,
-  .copy-btn.is-copied {
-    color: var(--text-primary);
-    border-color: var(--border-default);
-    background: var(--surface-raised);
+      color var(--dur-fast) var(--ease-out-expo);
   }
 
   .copy-btn svg {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .copy-btn:hover {
+    border-color: var(--text-primary);
+  }
+
+  .copy-btn.is-copied {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
   }
 
   .copy-btn--icon {
-    width: 32px;
-    min-height: 32px;
+    justify-content: center;
+    width: 44px;
     padding: 0;
-    margin-left: auto;
   }
 
-  .bio-cards {
+  /* ─── Facts & topics ───────────────────────────────────────────────── */
+  .kit-split {
     display: grid;
+    gap: clamp(3.5rem, 8vw, 5rem);
   }
 
-  .bio-card {
-    display: grid;
-    gap: var(--space-3);
-    padding: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .bio-card:last-child {
-    border-bottom: 0;
-  }
-
-  .bio-card header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-  .bio-card h2 {
+  .facts {
     margin: 0;
-    font-size: 1rem;
+    border-bottom: 1px solid var(--border-default);
   }
 
-  .bio-card header > span {
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-  }
-
-  .bio-card__text {
-    display: grid;
-    gap: var(--space-3);
-  }
-
-  .bio-card__text p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 0.92rem;
-    line-height: 1.65;
-  }
-
-  .topics {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin: 0;
-    padding: var(--space-4);
-    list-style: none;
-  }
-
-  .topics li {
-    padding: 0.38rem 0.58rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    font-size: 0.82rem;
-  }
-
-  .socials {
-    display: grid;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .socials a {
-    display: grid;
-    grid-template-columns: minmax(7rem, 8rem) minmax(0, 1fr) auto;
-    gap: var(--space-3);
-    align-items: center;
-    padding: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-    text-decoration: none;
-  }
-
-  .socials li:last-child a {
-    border-bottom: 0;
-  }
-
-  .socials a:hover {
-    background: var(--surface-raised);
-    text-decoration: none;
-  }
-
-  .socials__label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-  }
-
-  .socials__label span {
-    overflow: hidden;
-    min-width: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .socials__icon {
-    flex: 0 0 auto;
-    width: 16px;
-    height: 16px;
-    color: var(--color-accent-cyan);
-    opacity: 0.9;
-    transition:
-      color var(--dur-fast) var(--ease-out-expo),
-      opacity var(--dur-fast) var(--ease-out-expo);
-  }
-
-  .socials__icon--academy {
-    stroke: none;
-    transform: scale(1.08);
-  }
-
-  .socials__academy-backplate {
-    fill: var(--surface-raised);
-  }
-
-  .socials strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    white-space: nowrap;
-  }
-
-  .socials__arrow {
-    width: 16px;
-    height: 16px;
-    color: var(--text-secondary);
-  }
-
-  .socials a:hover .socials__icon {
-    color: var(--color-accent);
-    opacity: 1;
-  }
-
-  .download-card {
+  .facts__row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-1) var(--space-4);
     align-items: center;
-    padding: var(--space-4);
+    padding-block: var(--space-4);
+    border-top: 1px solid var(--border-default);
+  }
+
+  .facts dt {
+    grid-column: 1;
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
+  }
+
+  .facts dd {
+    grid-column: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.55em;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    font-weight: 560;
+    line-height: 1.4;
+  }
+
+  .facts .copy-btn {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .topics--large li {
+    padding: 0.5rem 1rem;
+    font-size: 1.05rem;
+  }
+
+  /* ─── Links ────────────────────────────────────────────────────────── */
+  .links {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .links a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-4);
+    align-items: center;
+    padding-block: var(--space-5);
+    border-top: 1px solid var(--border-default);
     color: var(--text-primary);
     text-decoration: none;
   }
 
-  .download-card:hover {
-    border-color: var(--border-default);
-    background: var(--surface-raised);
-    text-decoration: none;
-  }
-
-  .download-card span {
+  .links__label {
     color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    text-transform: uppercase;
+    font-size: 0.9rem;
   }
 
-  .download-card strong {
+  .links__handle {
     grid-column: 1;
-    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+    font-size: clamp(1.5rem, 3.4vw, 2.4rem);
+    font-stretch: var(--stretch-head);
+    font-weight: 760;
+    line-height: 1.1;
+    transition: color var(--dur-fast) var(--ease-out-expo);
   }
 
-  .download-card svg {
-    grid-row: 1 / span 2;
+  .links svg {
     grid-column: 2;
-    width: 20px;
-    height: 20px;
+    grid-row: 1 / span 2;
+    width: 28px;
+    height: 28px;
+    color: var(--text-tertiary);
+    transition:
+      transform var(--dur-normal) var(--ease-out-expo),
+      color var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .links a:hover .links__handle,
+  .links a:hover svg {
     color: var(--color-accent);
   }
 
-  @media (min-width: 640px) and (max-width: 759px) {
-    .bio-hero {
-      padding-block: var(--space-8) var(--space-5);
-    }
-
-    .bio-hero__inner {
-      grid-template-columns: minmax(0, 1fr) clamp(176px, 26vw, 208px);
-      grid-template-areas:
-        "name portrait"
-        "handle portrait"
-        "location portrait"
-        "tagline tagline";
-      align-items: start;
-      gap: var(--space-2) var(--space-5);
-    }
-
-    .bio-hero__copy {
-      display: contents;
-    }
-
-    .bio-hero h1 {
-      grid-area: name;
-      font-size: clamp(3.35rem, 8vw, 3.85rem);
-    }
-
-    .bio-hero__handle {
-      grid-area: handle;
-    }
-
-    .bio-hero__location {
-      grid-area: location;
-      margin-top: var(--space-3);
-    }
-
-    .bio-hero__tagline {
-      grid-area: tagline;
-      max-width: 38rem;
-      margin-top: var(--space-5);
-    }
-
-    .portrait-card {
-      grid-area: portrait;
-      justify-self: end;
-      width: 100%;
-      border-radius: var(--radius-lg);
-    }
-
-    .portrait-card__photo {
-      aspect-ratio: 1 / 1;
-    }
-
-    .portrait-card figcaption {
-      padding: var(--space-3);
-      font-size: 0.78rem;
-    }
+  .links a:hover svg {
+    transform: translate(4px, -4px);
   }
 
-  @media (min-width: 760px) {
-    .bio-hero {
-      padding-block: var(--space-12) var(--space-8);
+  @media (min-width: 900px) {
+    .kit-hero__inner {
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      align-items: end;
     }
 
-    .bio-hero__inner {
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-      align-items: center;
+    .headshot {
+      justify-self: end;
+    }
+
+    .bio {
+      grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 2fr);
       gap: var(--space-12);
     }
 
-    .portrait-card {
-      justify-self: end;
+    .bio__side {
+      flex-direction: column;
+      align-items: start;
+      align-content: start;
     }
 
-    .facts__row {
-      grid-template-columns: 9rem minmax(0, 1fr);
-      align-items: center;
+    .kit-split {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: var(--space-16);
     }
 
-    .bio-bottom {
-      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-    }
-
-    .download-card {
-      grid-column: 1 / -1;
-    }
-  }
-
-  @media (min-width: 1040px) {
-    .bio-hero {
-      padding-block: var(--space-8) var(--space-5);
-    }
-
-    .portrait-card {
-      width: min(100%, 320px);
-    }
-
-    .bio-section {
-      padding-block: var(--space-4);
-    }
-
-    .bio-grid {
-      grid-template-columns: minmax(460px, 0.92fr) minmax(0, 1.08fr);
-    }
-
-    .bio-grid .panel-head {
-      padding: var(--space-3) var(--space-4);
-    }
-
-    .bio-grid .facts__row {
-      grid-template-columns: 8rem minmax(0, 1fr);
-      padding: var(--space-3) var(--space-4);
-    }
-
-    .bio-grid .facts dd {
-      font-size: 0.88rem;
-      line-height: 1.5;
-    }
-
-    .bio-grid .bio-card {
-      padding: var(--space-3) var(--space-4);
-    }
-
-    .bio-grid .bio-card__text p {
-      line-height: 1.58;
+    .links {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: var(--space-12);
     }
   }
 </style>

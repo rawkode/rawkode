@@ -3,8 +3,8 @@ import { defineConfig } from '@pandacss/dev';
 /**
  * Design system for rawkode.dev.
  *
- * The site is dark-first and mobile-first. Rosé Pine drives the primary
- * palette, with a restrained light variant kept for explicit user overrides.
+ * The site is dark-first and mobile-first. The palette is a screen-printed
+ * gig poster: near-black ink, true off-white paper, and one signal red.
  * Theme reactivity still uses the existing `[data-theme]` contract.
  */
 export default defineConfig({
@@ -21,7 +21,7 @@ export default defineConfig({
     extend: {
       tokens: {
         fonts: {
-          sans: { value: "'Figtree Variable', 'Figtree', system-ui, sans-serif" },
+          sans: { value: "'Archivo Variable', 'Archivo', system-ui, sans-serif" },
           mono: { value: "'SFMono-Regular', 'Cascadia Code', 'Source Code Pro', ui-monospace, Menlo, monospace" },
         },
 
@@ -42,11 +42,11 @@ export default defineConfig({
         },
 
         radii: {
-          xs: { value: '4px' },
-          sm: { value: '6px' },
-          md: { value: '8px' },
-          lg: { value: '10px' },
-          xl: { value: '14px' },
+          xs: { value: '1px' },
+          sm: { value: '2px' },
+          md: { value: '3px' },
+          lg: { value: '4px' },
+          xl: { value: '6px' },
           full: { value: '9999px' },
         },
 
@@ -71,40 +71,16 @@ export default defineConfig({
         },
 
         colors: {
-          rosePine: {
-            base: { value: '#191724' },
-            surface: { value: '#1f1d2e' },
-            overlay: { value: '#26233a' },
-            muted: { value: '#6e6a86' },
-            subtle: { value: '#908caa' },
-            text: { value: '#e0def4' },
-            love: { value: '#eb6f92' },
-            gold: { value: '#f6c177' },
-            rose: { value: '#ebbcba' },
-            pine: { value: '#31748f' },
-            foam: { value: '#9ccfd8' },
-            iris: { value: '#9ccfd8' },
-            highlightLow: { value: '#21202e' },
-            highlightMed: { value: '#403d52' },
-            highlightHigh: { value: '#524f67' },
+          /* Stage: near-black ink and signal red, like a screen-printed gig poster. */
+          ink: {
+            950: { value: 'oklch(0.16 0.008 30)' },
+            900: { value: 'oklch(0.195 0.01 30)' },
+            850: { value: 'oklch(0.235 0.012 30)' },
+            100: { value: 'oklch(0.965 0.006 30)' },
           },
-
-          rosePineDawn: {
-            base: { value: '#f8f7fb' },
-            surface: { value: '#ffffff' },
-            overlay: { value: '#f0eef6' },
-            muted: { value: '#797593' },
-            subtle: { value: '#6e6a86' },
-            text: { value: '#232136' },
-            love: { value: '#b4637a' },
-            gold: { value: '#ea9d34' },
-            rose: { value: '#d7827e' },
-            pine: { value: '#286983' },
-            foam: { value: '#56949f' },
-            iris: { value: '#286983' },
-            highlightLow: { value: '#f1eff7' },
-            highlightMed: { value: '#ddd9ea' },
-            highlightHigh: { value: '#cecacd' },
+          signal: {
+            dark: { value: 'oklch(0.665 0.225 30)' },
+            light: { value: 'oklch(0.55 0.215 29)' },
           },
         },
       },
@@ -112,43 +88,44 @@ export default defineConfig({
       semanticTokens: {
         colors: {
           surface: {
-            '1':       { value: 'light-dark(#f8f7fb, #191724)' },
-            '2':       { value: 'light-dark(#ffffff, #1f1d2e)' },
-            '3':       { value: 'light-dark(#f0eef6, #26233a)' },
-            glass:     { value: 'light-dark(rgb(255 255 255 / 0.72), rgb(38 35 58 / 0.64))' },
-            raised:    { value: 'light-dark(rgb(255 255 255 / 0.86), rgb(44 40 66 / 0.72))' },
-            invert:    { value: 'light-dark(#191724, #ffffff)' },
+            '1':       { value: 'light-dark(oklch(0.975 0.002 30), oklch(0.16 0.008 30))' },
+            '2':       { value: 'light-dark(oklch(1 0 0), oklch(0.195 0.01 30))' },
+            '3':       { value: 'light-dark(oklch(0.935 0.004 30), oklch(0.235 0.012 30))' },
+            glass:     { value: 'light-dark(oklch(1 0 0 / 0.8), oklch(0.195 0.01 30 / 0.8))' },
+            raised:    { value: 'light-dark(oklch(1 0 0), oklch(0.235 0.012 30))' },
+            invert:    { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
           },
 
           text: {
-            primary:   { value: 'light-dark(#232136, #e0def4)' },
-            secondary: { value: 'light-dark(#6e6a86, #908caa)' },
-            tertiary:  { value: 'light-dark(#797593, #6e6a86)' },
-            invert:    { value: 'light-dark(#ffffff, #191724)' },
+            primary:   { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
+            secondary: { value: 'light-dark(oklch(0.38 0.014 30), oklch(0.8 0.01 30))' },
+            tertiary:  { value: 'light-dark(oklch(0.48 0.014 30), oklch(0.68 0.012 30))' },
+            invert:    { value: 'light-dark(oklch(0.975 0.002 30), oklch(0.16 0.008 30))' },
           },
 
           accent: {
-            DEFAULT: { value: 'light-dark(#286983, #9ccfd8)' },
-            hover:   { value: 'light-dark(#1f586d, #e0def4)' },
-            muted:   { value: 'light-dark(#edf4f6, #1d2f3a)' },
-            soft:    { value: 'light-dark(rgb(40 105 131 / 0.14), rgb(156 207 216 / 0.16))' },
-            cyan:    { value: 'light-dark(#56949f, #9ccfd8)' },
-            gold:    { value: 'light-dark(#ea9d34, #f6c177)' },
-            rose:    { value: 'light-dark(#d7827e, #ebbcba)' },
-            success: { value: 'light-dark(#56949f, #6bd98f)' },
+            DEFAULT: { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            hover:   { value: 'light-dark(oklch(0.47 0.19 29), oklch(0.74 0.19 32))' },
+            ink:     { value: 'light-dark(oklch(0.99 0 0), oklch(0.14 0.02 30))' },
+            muted:   { value: 'light-dark(oklch(0.55 0.215 29 / 0.1), oklch(0.665 0.225 30 / 0.14))' },
+            soft:    { value: 'light-dark(oklch(0.55 0.215 29 / 0.14), oklch(0.665 0.225 30 / 0.18))' },
+            cyan:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            gold:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            rose:    { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            success: { value: 'light-dark(oklch(0.5 0.13 150), oklch(0.78 0.16 150))' },
           },
 
           border: {
-            subtle:  { value: 'light-dark(#ddd9ea, rgb(224 222 244 / 0.16))' },
-            DEFAULT: { value: 'light-dark(#cecacd, rgb(224 222 244 / 0.24))' },
-            strong:  { value: 'light-dark(#6e6a86, rgb(224 222 244 / 0.38))' },
+            subtle:  { value: 'light-dark(oklch(0.18 0.012 30 / 0.12), oklch(0.965 0.006 30 / 0.12))' },
+            DEFAULT: { value: 'light-dark(oklch(0.18 0.012 30 / 0.24), oklch(0.965 0.006 30 / 0.24))' },
+            strong:  { value: 'light-dark(oklch(0.18 0.012 30 / 0.7), oklch(0.965 0.006 30 / 0.7))' },
           },
 
           status: {
-            danger:  { value: 'light-dark(#b4637a, #eb6f92)' },
-            warning: { value: 'light-dark(#ea9d34, #f6c177)' },
-            success: { value: 'light-dark(#56949f, #6bd98f)' },
-            info:    { value: 'light-dark(#286983, #9ccfd8)' },
+            danger:  { value: 'light-dark(oklch(0.55 0.215 29), oklch(0.665 0.225 30))' },
+            warning: { value: 'light-dark(oklch(0.6 0.14 70), oklch(0.82 0.14 80))' },
+            success: { value: 'light-dark(oklch(0.5 0.13 150), oklch(0.78 0.16 150))' },
+            info:    { value: 'light-dark(oklch(0.18 0.012 30), oklch(0.965 0.006 30))' },
           },
         },
       },
@@ -158,27 +135,27 @@ export default defineConfig({
   globalCss: {
     ':root': {
       colorScheme: 'dark light',
-      '--shadows-sm': '0 1px 2px oklch(0% 0 0 / 0.24), 0 0 0 1px oklch(100% 0 0 / 0.02)',
-      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
-      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
+      '--shadows-sm': 'none',
+      '--shadows-md': 'none',
+      '--shadows-lg': '0 30px 80px oklch(0% 0 0 / 0.35)',
       '--page-glow':
         'none',
     },
 
     '[data-theme=light]': {
       colorScheme: 'light',
-      '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.04)',
-      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.10), 0 1px 0 oklch(100% 0 0 / 0.70) inset',
-      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.14), 0 1px 0 oklch(100% 0 0 / 0.80) inset',
+      '--shadows-sm': 'none',
+      '--shadows-md': 'none',
+      '--shadows-lg': '0 30px 80px oklch(0% 0 0 / 0.35)',
       '--page-glow':
         'none',
     },
 
     '[data-theme=dark]': {
       colorScheme: 'dark',
-      '--shadows-sm': '0 1px 2px oklch(0% 0 0 / 0.24), 0 0 0 1px oklch(100% 0 0 / 0.02)',
-      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
-      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
+      '--shadows-sm': 'none',
+      '--shadows-md': 'none',
+      '--shadows-lg': '0 30px 80px oklch(0% 0 0 / 0.35)',
       '--page-glow':
         'none',
     },
@@ -239,6 +216,7 @@ export default defineConfig({
       '--color-accent-gold': 'var(--colors-accent-gold)',
       '--color-accent-rose': 'var(--colors-accent-rose)',
       '--color-accent-success': 'var(--colors-accent-success)',
+      '--color-accent-ink': 'var(--colors-accent-ink)',
 
       '--border-subtle': 'var(--colors-border-subtle)',
       '--border-default': 'var(--colors-border)',

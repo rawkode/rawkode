@@ -4,8 +4,7 @@
     "npm:@alteran-social/astro@~0.9.5": "0.9.6_typescript@5.9.3",
     "npm:@astrojs/cloudflare@13.6.0": "13.6.0_astro@6.3.3_wrangler@4.95.0",
     "npm:@astrojs/internal-helpers@0.9.1": "0.9.1",
-    "npm:@fontsource-variable/figtree@5.2.10": "5.2.10",
-    "npm:@fontsource-variable/newsreader@5.2.10": "5.2.10",
+    "npm:@fontsource-variable/archivo@5.3.0": "5.3.0",
     "npm:@oslojs/encoding@1.1.0": "1.1.0",
     "npm:@pandacss/dev@1.11.1": "1.11.1_typescript@5.9.3",
     "npm:astro-expressive-code@0.42.0": "0.42.0_astro@6.3.3",
@@ -816,11 +815,8 @@
         "@expressive-code/core"
       ]
     },
-    "@fontsource-variable/figtree@5.2.10": {
-      "integrity": "sha512-a5Gumbpy3mdd+Yg31g6Qb7CmjYbrfyutJa3bWfP5q8A4GclIOwX7mI+ZuSHsJnw/mHvW6r9oh1AHJcJTIxK4JA=="
-    },
-    "@fontsource-variable/newsreader@5.2.10": {
-      "integrity": "sha512-MdI2iRwrqWpMOU/2aV2BgfZ4dJNlj/XlYaY8Zb7t87mWqHskYW0XiUANkt1cyOCiEfW2VQ0bQ5vZgGPp6B2B4w=="
+    "@fontsource-variable/archivo@5.3.0": {
+      "integrity": "sha512-HogK8FJelrD1o7TlZlkIVtHgc20bO5PZRWE7mUeUTdMN055alznQV6/00J00IBeu8FQAH4s3zW9UJNvKExXf+g=="
     },
     "@hono/node-server@1.19.14_hono@4.12.23": {
       "integrity": "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==",
@@ -4472,8 +4468,7 @@
       "dependencies": [
         "ansi-colors",
         "crosspath",
-        "object-path",
-        "typescript@5.9.3"
+        "object-path"
       ]
     },
     "ts-morph@28.0.0": {
@@ -4818,8 +4813,7 @@
     "dependencies": [
       "npm:@astrojs/cloudflare@13.6.0",
       "npm:@astrojs/internal-helpers@0.9.1",
-      "npm:@fontsource-variable/figtree@5.2.10",
-      "npm:@fontsource-variable/newsreader@5.2.10",
+      "npm:@fontsource-variable/archivo@5.3.0",
       "npm:@oslojs/encoding@1.1.0",
       "npm:@pandacss/dev@1.11.1",
       "npm:astro-expressive-code@0.42.0",

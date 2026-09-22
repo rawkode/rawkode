@@ -3,8 +3,7 @@
   "imports": {
     "@astrojs/cloudflare": "npm:@astrojs/cloudflare@13.6.0",
     "@astrojs/internal-helpers": "npm:@astrojs/internal-helpers@0.9.1",
-    "@fontsource-variable/figtree": "npm:@fontsource-variable/figtree@5.2.10",
-    "@fontsource-variable/newsreader": "npm:@fontsource-variable/newsreader@5.2.10",
+    "@fontsource-variable/archivo": "npm:@fontsource-variable/archivo@5.3.0",
     "@oslojs/encoding": "npm:@oslojs/encoding@1.1.0",
     "@pandacss/dev": "npm:@pandacss/dev@1.11.1",
     "astro": "npm:astro@6.3.3",
