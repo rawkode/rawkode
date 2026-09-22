@@ -28,6 +28,11 @@ _previewName: """
 	esac
 	"""
 
+// `cuenv ci` starts tasks with a cleared environment. Forward the runner's
+// PATH so they can find deno, which the Deno contributor installs (there is
+// no Nix runtime here to provide it).
+_hostPath: PATH: schema.#EnvPassthrough & {cuenvPassthrough: true}
+
 _previewInputs: [
 	"astro.config.mjs",
 	"deno.json",
@@ -43,6 +48,7 @@ _previewInputs: [
 tasks: {
 	install: schema.#Task & {
 		description: "Install Deno-managed npm dependencies"
+		env:         _hostPath
 		command:     "deno"
 		args: ["task", "install"]
 		hermetic: false
@@ -67,6 +73,7 @@ tasks: {
 
 	build: schema.#Task & {
 		description: "Build the production site"
+		env:         _hostPath
 		command:     "deno"
 		args: ["task", "build"]
 		dependsOn: [_t.install]
@@ -105,6 +112,7 @@ tasks: {
 
 		migrate: schema.#Task & {
 			description: "Apply Alteran D1 migrations to the shared preview database"
+			env:         _hostPath
 			command:     "deno"
 			args: ["task", "wrangler", "d1", "migrations", "apply", "ALTERAN_DB", "--remote", "--config", "wrangler.preview-migrations.jsonc"]
 			dependsOn: [_t.install]
@@ -114,7 +122,7 @@ tasks: {
 
 		deploy: schema.#Task & {
 			description: "Create or update the Worker Preview for this pull request"
-			env: GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}
+			env: _hostPath & {GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}}
 			script: _previewName + "\n" + """
 				deno task wrangler preview ${preview_name:+--name "$preview_name"} --json
 				"""
@@ -129,7 +137,7 @@ tasks: {
 
 		delete: schema.#Task & {
 			description: "Delete the Worker Preview for a closed pull request"
-			env: GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}
+			env: _hostPath & {GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}}
 			script: _previewName + "\n" + """
 				deno task wrangler preview delete ${preview_name:+--name "$preview_name"} --skip-confirmation
 				"""
