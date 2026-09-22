@@ -19,11 +19,11 @@
     "postcss": "npm:postcss@8.5.14",
     "sharp": "npm:sharp@0.34.5",
     "unstorage": "npm:unstorage@1.17.5",
-    "wrangler": "npm:wrangler@4.95.0",
+    "wrangler": "npm:wrangler@4.136.1",
     "zod": "npm:zod@4.4.3"
   },
   "tasks": {
-    "install": "deno install --allow-scripts=npm:sharp@0.34.5,npm:workerd@1.20260511.1",
+    "install": "deno install --allow-scripts=npm:sharp@0.34.5,npm:workerd@1.20260921.1",
     "codegen": "NO_UPDATE_NOTIFIER=1 deno run -A npm:@pandacss/dev@1.11.1 codegen --silent",
     "generate-og": "deno run -A scripts/generate-og.mjs",
     "prebuild": "deno task codegen && deno task generate-og",
@@ -32,7 +32,7 @@
     "preview": "deno run -A npm:astro@6.3.3 preview",
     "astro": "deno run -A npm:astro@6.3.3",
     "panda": "deno run -A npm:@pandacss/dev@1.11.1",
-    "wrangler": "deno run -A npm:wrangler@4.95.0",
+    "wrangler": "deno run -A npm:wrangler@4.136.1",
     "deploy": "deno task wrangler deploy"
   },
   "exclude": [

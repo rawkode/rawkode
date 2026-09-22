@@ -1,12 +1,15 @@
 package cuenv
 
 import (
+	c "github.com/cuenv/cuenv/contrib/contributors"
 	"github.com/cuenv/cuenv/schema"
 )
 
 schema.#Project & {
 	name: "rawkode.dev"
 }
+
+let _t = tasks
 
 env: {
 	environment: production: {
@@ -15,7 +18,38 @@ env: {
 	}
 }
 
+// Preview name for the current pull request: GITHUB_REF_NAME is "<number>/merge"
+// on pull_request events. Outside a PR, fall back to wrangler's default (the
+// current git branch).
+_previewName: """
+	case "${GITHUB_REF_NAME:-}" in
+	  */merge) preview_name="pr-${GITHUB_REF_NAME%%/*}" ;;
+	  *) preview_name="" ;;
+	esac
+	"""
+
+_previewInputs: [
+	"astro.config.mjs",
+	"deno.json",
+	"deno.lock",
+	"env.cue",
+	"public/**/*",
+	"scripts/**/*",
+	"src/**/*",
+	"wrangler.jsonc",
+	"wrangler.preview-migrations.jsonc",
+]
+
 tasks: {
+	install: schema.#Task & {
+		description: "Install Deno-managed npm dependencies"
+		command:     "deno"
+		args: ["task", "install"]
+		hermetic: false
+		inputs: ["deno.json", "deno.lock", "package.json"]
+		outputs: ["node_modules"]
+	}
+
 	codegen: schema.#Task & {
 		description: "Generate Panda CSS styled-system"
 		command:     "deno"
@@ -35,6 +69,8 @@ tasks: {
 		description: "Build the production site"
 		command:     "deno"
 		args: ["task", "build"]
+		dependsOn: [_t.install]
+		hermetic: false
 		inputs: [
 			"astro.config.mjs",
 			"deno.json",
@@ -60,5 +96,86 @@ tasks: {
 		command:     "deno"
 		args: ["task", "deploy"]
 		hermetic: false
+	}
+
+	// Cloudflare Worker Previews, one per pull request.
+	// https://developers.cloudflare.com/workers/previews/
+	previews: schema.#TaskGroup & {
+		type: "group"
+
+		migrate: schema.#Task & {
+			description: "Apply Alteran D1 migrations to the shared preview database"
+			command:     "deno"
+			args: ["task", "wrangler", "d1", "migrations", "apply", "ALTERAN_DB", "--remote", "--config", "wrangler.preview-migrations.jsonc"]
+			dependsOn: [_t.install]
+			hermetic: false
+			inputs: _previewInputs
+		}
+
+		deploy: schema.#Task & {
+			description: "Create or update the Worker Preview for this pull request"
+			env: GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}
+			script: _previewName + "\n" + """
+				deno task wrangler preview ${preview_name:+--name "$preview_name"} --json
+				"""
+			dependsOn: [_t.build, _t.previews.migrate]
+			hermetic: false
+			inputs: _previewInputs
+			captures: previewUrl: {
+				// `wrangler preview --json` reports `preview_urls` (or `preview.urls`).
+				pattern: #"(?:preview_)?urls"\s*:\s*\[\s*"(https://[^"]+)""#
+			}
+		}
+
+		delete: schema.#Task & {
+			description: "Delete the Worker Preview for a closed pull request"
+			env: GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}
+			script: _previewName + "\n" + """
+				deno task wrangler preview delete ${preview_name:+--name "$preview_name"} --skip-confirmation
+				"""
+			dependsOn: [_t.install]
+			hermetic: false
+		}
+	}
+}
+
+// cuenv ships no Deno contributor; install it with the official action.
+_deno: schema.#Contributor & {
+	id: "deno"
+	when: always: true
+	tasks: [{
+		id:       "deno.setup"
+		label:    "Setup Deno"
+		priority: 20
+		script:   "curl -fsSL https://deno.land/install.sh | sh -s -- --yes && echo \"$HOME/.deno/bin\" >> \"$GITHUB_PATH\""
+		provider: github: {
+			uses: "denoland/setup-deno@v2"
+			with: "deno-version": "v2.x"
+		}
+	}]
+}
+
+ci: {
+	providers: ["github"]
+	contributors: [
+		c.#CuenvRelease,
+		c.#OnePassword,
+		_deno,
+	]
+	provider: github: permissions: {
+		contents:        "read"
+		checks:          "write"
+		"pull-requests": "write"
+	}
+	pipelines: {
+		pullRequest: {
+			environment: "production"
+			when: pullRequest: true
+			tasks: [_t.previews.deploy]
+			annotations: "Preview URL": schema.#TaskCaptureRef & {
+				cuenvTask:    "previews.deploy"
+				cuenvCapture: "previewUrl"
+			}
+		}
 	}
 }

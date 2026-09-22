@@ -1,0 +1,17 @@
+// Applies Alteran's D1 migrations to the shared preview database before
+// `wrangler preview` runs. database_name and database_id must match
+// previews.d1_databases in wrangler.jsonc.
+// See https://developers.cloudflare.com/workers/previews/resources/#d1-migrations
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "rawkode-dev",
+  "compatibility_date": "2025-09-27",
+  "d1_databases": [
+    {
+      "binding": "ALTERAN_DB",
+      "database_name": "rawkode-dev-pds-preview",
+      "database_id": "__RAWKODE_DEV_PDS_PREVIEW_ID__",
+      "migrations_dir": "./node_modules/@alteran-social/astro/migrations",
+    },
+  ],
+}
