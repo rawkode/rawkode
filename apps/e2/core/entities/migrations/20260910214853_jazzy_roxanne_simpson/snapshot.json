@@ -1,0 +1,1186 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "9a0c91ef-ccc0-4c7d-9507-4dd923b41344",
+  "prevIds": [
+    "726cf93b-7e1a-4d68-ab5a-8fe807a86baf"
+  ],
+  "ddl": [
+    {
+      "name": "audit_events",
+      "entityType": "tables"
+    },
+    {
+      "name": "entities",
+      "entityType": "tables"
+    },
+    {
+      "name": "entity_aliases",
+      "entityType": "tables"
+    },
+    {
+      "name": "entity_redirects",
+      "entityType": "tables"
+    },
+    {
+      "name": "entity_tags",
+      "entityType": "tables"
+    },
+    {
+      "name": "entity_user_values",
+      "entityType": "tables"
+    },
+    {
+      "name": "field_definitions",
+      "entityType": "tables"
+    },
+    {
+      "name": "field_source_preferences",
+      "entityType": "tables"
+    },
+    {
+      "name": "source_aliases",
+      "entityType": "tables"
+    },
+    {
+      "name": "source_observations",
+      "entityType": "tables"
+    },
+    {
+      "name": "supertags",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subject_type",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subject_id",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cause",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rationale",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "normalized_label",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "body_document_id",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "archived",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "entities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "entity_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "alias",
+      "entityType": "columns",
+      "table": "entity_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "normalized",
+      "entityType": "columns",
+      "table": "entity_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "from_entity_id",
+      "entityType": "columns",
+      "table": "entity_redirects"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "to_entity_id",
+      "entityType": "columns",
+      "table": "entity_redirects"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "entity_redirects"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "entity_tags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "entity_tags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "entity_user_values"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "field_id",
+      "entityType": "columns",
+      "table": "entity_user_values"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "entity_user_values"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cardinality",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "required",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "options",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "default_value",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "archived",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "field_definitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "field_id",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_type",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "field_source_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_type",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "alias",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "normalized",
+      "entityType": "columns",
+      "table": "source_aliases"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_type",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_revision",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "values",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "true",
+      "generated": null,
+      "name": "active",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "source_observations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_id",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "root_id",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "depth",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "revision",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "archived",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "supertags"
+    },
+    {
+      "columns": [
+        "entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_aliases_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "entity_aliases"
+    },
+    {
+      "columns": [
+        "from_entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_redirects_from_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "entity_redirects"
+    },
+    {
+      "columns": [
+        "to_entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_redirects_to_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "entity_redirects"
+    },
+    {
+      "columns": [
+        "entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_tags_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "entity_tags"
+    },
+    {
+      "columns": [
+        "tag_id"
+      ],
+      "tableTo": "supertags",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_tags_tag_id_supertags_id_fk",
+      "entityType": "fks",
+      "table": "entity_tags"
+    },
+    {
+      "columns": [
+        "entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_user_values_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "entity_user_values"
+    },
+    {
+      "columns": [
+        "field_id"
+      ],
+      "tableTo": "field_definitions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_entity_user_values_field_id_field_definitions_id_fk",
+      "entityType": "fks",
+      "table": "entity_user_values"
+    },
+    {
+      "columns": [
+        "tag_id"
+      ],
+      "tableTo": "supertags",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_field_definitions_tag_id_supertags_id_fk",
+      "entityType": "fks",
+      "table": "field_definitions"
+    },
+    {
+      "columns": [
+        "entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_field_source_preferences_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "field_source_preferences"
+    },
+    {
+      "columns": [
+        "field_id"
+      ],
+      "tableTo": "field_definitions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_field_source_preferences_field_id_field_definitions_id_fk",
+      "entityType": "fks",
+      "table": "field_source_preferences"
+    },
+    {
+      "columns": [
+        "entity_id"
+      ],
+      "tableTo": "entities",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_source_observations_entity_id_entities_id_fk",
+      "entityType": "fks",
+      "table": "source_observations"
+    },
+    {
+      "columns": [
+        "tag_id"
+      ],
+      "tableTo": "supertags",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_source_observations_tag_id_supertags_id_fk",
+      "entityType": "fks",
+      "table": "source_observations"
+    },
+    {
+      "columns": [
+        "entity_id",
+        "normalized"
+      ],
+      "nameExplicit": false,
+      "name": "entity_aliases_pk",
+      "entityType": "pks",
+      "table": "entity_aliases"
+    },
+    {
+      "columns": [
+        "entity_id",
+        "tag_id"
+      ],
+      "nameExplicit": false,
+      "name": "entity_tags_pk",
+      "entityType": "pks",
+      "table": "entity_tags"
+    },
+    {
+      "columns": [
+        "entity_id",
+        "field_id"
+      ],
+      "nameExplicit": false,
+      "name": "entity_user_values_pk",
+      "entityType": "pks",
+      "table": "entity_user_values"
+    },
+    {
+      "columns": [
+        "entity_id",
+        "field_id"
+      ],
+      "nameExplicit": false,
+      "name": "field_source_preferences_pk",
+      "entityType": "pks",
+      "table": "field_source_preferences"
+    },
+    {
+      "columns": [
+        "provider",
+        "connection_id",
+        "resource_type",
+        "resource_id",
+        "normalized"
+      ],
+      "nameExplicit": false,
+      "name": "source_aliases_pk",
+      "entityType": "pks",
+      "table": "source_aliases"
+    },
+    {
+      "columns": [
+        "provider",
+        "connection_id",
+        "resource_type",
+        "resource_id"
+      ],
+      "nameExplicit": false,
+      "name": "source_observations_pk",
+      "entityType": "pks",
+      "table": "source_observations"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "audit_events_pk",
+      "table": "audit_events",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "entities_pk",
+      "table": "entities",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "from_entity_id"
+      ],
+      "nameExplicit": false,
+      "name": "entity_redirects_pk",
+      "table": "entity_redirects",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "field_definitions_pk",
+      "table": "field_definitions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "supertags_pk",
+      "table": "supertags",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "subject_type",
+          "isExpression": false
+        },
+        {
+          "value": "subject_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "audit_events_subject",
+      "entityType": "indexes",
+      "table": "audit_events"
+    },
+    {
+      "columns": [
+        {
+          "value": "normalized_label",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "entities_normalized_label",
+      "entityType": "indexes",
+      "table": "entities"
+    },
+    {
+      "columns": [
+        {
+          "value": "normalized",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "entity_aliases_normalized",
+      "entityType": "indexes",
+      "table": "entity_aliases"
+    },
+    {
+      "columns": [
+        {
+          "value": "tag_id",
+          "isExpression": false
+        },
+        {
+          "value": "key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "field_definitions_tag_key",
+      "entityType": "indexes",
+      "table": "field_definitions"
+    },
+    {
+      "columns": [
+        {
+          "value": "entity_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "source_observations_entity",
+      "entityType": "indexes",
+      "table": "source_observations"
+    },
+    {
+      "columns": [
+        {
+          "value": "parent_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "supertags_parent",
+      "entityType": "indexes",
+      "table": "supertags"
+    },
+    {
+      "columns": [
+        {
+          "value": "root_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "supertags_root",
+      "entityType": "indexes",
+      "table": "supertags"
+    },
+    {
+      "columns": [
+        "body_document_id"
+      ],
+      "nameExplicit": false,
+      "name": "entities_body_document_id_unique",
+      "entityType": "uniques",
+      "table": "entities"
+    },
+    {
+      "value": "\"depth\" >= 0 AND \"depth\" <= 32",
+      "name": "supertags_depth",
+      "entityType": "checks",
+      "table": "supertags"
+    }
+  ],
+  "renames": []
+}
