@@ -1,133 +1,185 @@
 ---
 const year = new Date().getFullYear();
-const links = [
+const socials = [
   { href: 'https://github.com/rawkode', label: 'GitHub' },
   { href: 'https://bsky.app/profile/rawkode.dev', label: 'Bluesky' },
   { href: 'https://www.youtube.com/@RawkodeAcademy', label: 'YouTube' },
   { href: 'https://www.linkedin.com/in/rawkode', label: 'LinkedIn' },
 ];
-const navLinks = [
-  { href: '/#apps', label: 'Apps' },
+const pages = [
+  { href: '/#work', label: 'Work' },
   { href: '/read', label: 'Writing' },
-  { href: '/biography', label: 'Biography' },
-  { href: 'https://rawkode.academy', label: 'Academy' },
+  { href: '/biography', label: 'Speaker kit' },
+  { href: 'https://rawkode.academy', label: 'Rawkode Academy', external: true },
 ];
 ---
 
 <footer class="footer">
   <div class="container footer__inner">
-    <div class="footer__brand">
-      <a href="/" class="footer__logo">rawkode<span>.dev</span></a>
-      <p>&copy; {year} David Flanagan</p>
-      <p class="footer__signal">Inspire &middot; Educate &middot; Support</p>
+    <div class="footer__contact">
+      <p class="footer__ask">Building something, or need a speaker?</p>
+      <a href="mailto:david@rawkode.dev" class="footer__email">david@rawkode.dev</a>
     </div>
 
-    <nav class="footer__nav" aria-label="Footer navigation">
-      <p class="footer__label">Navigation</p>
+    <nav class="footer__col" aria-label="Footer navigation">
       <ul role="list">
-        {navLinks.map((link) => (
-          <li><a href={link.href}>{link.label}</a></li>
-        ))}
-      </ul>
-    </nav>
-
-    <nav class="footer__nav" aria-label="Social links">
-      <p class="footer__label">Connect</p>
-      <ul role="list">
-        {links.map((link) => (
+        {pages.map((link) => (
           <li>
-            <a href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a>
+            <a href={link.href} {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
+              {link.label}
+            </a>
           </li>
         ))}
       </ul>
     </nav>
 
-    <div class="footer__system">
-      <p class="footer__label">System</p>
-      <p>Based in Glasgow, Scotland</p>
-      <p>Working globally</p>
-      <p>Always building</p>
+    <nav class="footer__col" aria-label="Social links">
+      <ul role="list">
+        {socials.map((link) => (
+          <li>
+            <a href={link.href} target="_blank" rel="me noopener noreferrer">{link.label}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    <div class="footer__base">
+      <p>&copy; {year} David Flanagan. Glasgow, Scotland.</p>
+      <p>
+        Astro on Cloudflare Workers. This domain is also my
+        <a href="/read/introducing-alteran-atproto-pds-cloudflare-astro">atproto PDS</a>.
+      </p>
     </div>
+  </div>
+
+  <div class="footer__mark" aria-hidden="true">
+    <span>rawkode</span>
   </div>
 </footer>
 
 <style>
   .footer {
-    margin-top: var(--space-16);
-    border-top: 1px solid var(--border-subtle);
-    background: var(--surface-2);
+    overflow: clip;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-1);
   }
 
   .footer__inner {
     display: grid;
-    gap: var(--space-8);
-    padding-block: var(--space-8);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-10) var(--space-6);
+    padding-block: clamp(3.5rem, 8vw, 6rem) var(--space-8);
   }
 
-  .footer__brand,
-  .footer__nav,
-  .footer__system {
+  .footer__contact,
+  .footer__base {
+    grid-column: 1 / -1;
+  }
+
+  .footer__contact {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    min-width: 0;
   }
 
-  .footer__logo {
+  .footer__ask {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+  }
+
+  .footer__email {
     width: fit-content;
+    max-width: 100%;
     color: var(--text-primary);
-    font-weight: 700;
-    text-decoration: none;
+    font-size: clamp(1.9rem, 5.4vw, 4rem);
+    font-stretch: var(--stretch-head);
+    font-weight: 780;
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+    text-decoration: underline;
+    text-decoration-color: var(--color-accent);
+    text-decoration-thickness: 0.07em;
+    text-underline-offset: 0.14em;
   }
 
-  .footer__logo span {
+  .footer__email:hover {
     color: var(--color-accent);
   }
 
-  .footer p,
-  .footer a {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    text-decoration: none;
-  }
-
-  .footer a:hover {
-    color: var(--text-primary);
-  }
-
-  .footer__signal {
-    font-family: var(--fonts-mono);
-  }
-
-  .footer__signal span {
-    color: var(--color-accent-success);
-  }
-
-  .footer .footer__label {
-    color: var(--text-primary);
-    font-family: var(--fonts-mono);
-    font-size: 0.75rem;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  .footer ul {
+  .footer__col ul {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-1);
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .footer__system p:not(.footer__label)::before {
-    content: "›";
-    margin-right: var(--space-2);
-    color: var(--color-accent-success);
+  .footer__col a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 540;
+    text-decoration: none;
+  }
+
+  .footer__col a:hover {
+    color: var(--color-accent);
+  }
+
+  .footer__base {
+    display: grid;
+    gap: var(--space-2);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .footer__base p {
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
+  }
+
+  .footer__base a {
+    color: var(--text-secondary);
+  }
+
+  /* Wordmark set to the exact column width, bleeding off the bottom edge. */
+  .footer__mark {
+    max-width: 1360px;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    container-type: inline-size;
+    user-select: none;
+  }
+
+  .footer__mark span {
+    display: block;
+    margin-bottom: -0.2em;
+    color: var(--color-accent);
+    font-size: calc(100cqi / 3.7);
+    font-stretch: var(--stretch-poster);
+    font-weight: 900;
+    line-height: 0.9;
+    letter-spacing: -0.015em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   @media (min-width: 760px) {
     .footer__inner {
-      grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(9rem, 1fr));
-      align-items: start;
+      grid-template-columns: minmax(0, 2.2fr) repeat(2, minmax(9rem, 0.6fr));
+      align-items: end;
+    }
+
+    .footer__contact {
+      grid-column: auto;
+    }
+
+    .footer__base {
+      grid-template-columns: 1fr auto;
     }
   }
 </style>

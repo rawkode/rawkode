@@ -51,42 +51,39 @@ function formatDate(date: Date) {
   <Nav />
 
   <main id="main-content">
-    <section class="writing-hero">
+    <section class="writing-hero" aria-labelledby="writing-title">
       <div class="container writing-hero__inner">
-        <div>
-          <p class="page-label">Writing</p>
-          <h1>Writing</h1>
-          <p>
-            Thoughts on infrastructure, developer tooling, and building in public.
-          </p>
-        </div>
+        <h1 id="writing-title" class="poster">Writing</h1>
+        <p>
+          Field notes on infrastructure, developer tooling, and building in public.
+          <span class="writing-hero__count">{posts.length} {posts.length === 1 ? 'piece' : 'pieces'} so far.</span>
+        </p>
       </div>
     </section>
 
-    <section class="writing-content">
+    <section class="writing-content" aria-label="All writing">
       <div class="container">
         {posts.length === 0 ? (
-          <p class="empty">Nothing here yet. Check back soon.</p>
+          <p class="empty">Nothing published yet. The first piece is on its way.</p>
         ) : (
           <ol class="post-list" role="list">
             {posts.map((post) => (
               <li>
                 <a href={`/read/${post.id}`} class="post-row">
-                  <span class="post-row__marker" aria-hidden="true"></span>
-                  <div class="post-row__content">
+                  <span class="post-row__meta">
+                    <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+                    <span>{calculateReadingMinutes(post.body)} min read</span>
+                  </span>
+                  <span class="post-row__content">
                     <h2>{post.data.title}</h2>
                     <p>{post.data.description}</p>
                     {post.data.tags.length > 0 && (
-                      <ul class="post-row__tags" role="list" aria-label="Tags">
-                        {post.data.tags.map((tag: string) => <li>{tag}</li>)}
-                      </ul>
+                      <span class="post-row__tags">
+                        {post.data.tags.map((tag: string) => <span>#{tag}</span>)}
+                      </span>
                     )}
-                  </div>
-                  <div class="post-row__meta">
-                    <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
-                    <span>{calculateReadingMinutes(post.body)} min read</span>
-                  </div>
-                  <svg class="post-row__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  </span>
+                  <svg class="post-row__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
                     <path d="M5 12h14M13 5l7 7-7 7"/>
                   </svg>
                 </a>
@@ -103,172 +100,141 @@ function formatDate(date: Date) {
 
 <style>
   .writing-hero {
-    padding-block: var(--space-10) var(--space-6);
+    padding-block: clamp(2.5rem, 7vw, 6rem) clamp(2.5rem, 5vw, 4rem);
   }
 
   .writing-hero__inner {
     display: grid;
     gap: var(--space-6);
-  }
-
-  .page-label {
-    margin: 0 0 var(--space-3);
-    color: var(--color-accent);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    align-items: end;
+    container-type: inline-size;
   }
 
   .writing-hero h1 {
     margin: 0;
-    font-size: clamp(2.4rem, 10vw, 4.2rem);
+    font-size: min(14rem, 100cqi / 3.75);
+    line-height: 0.82;
   }
 
-  .writing-hero p:not(.page-label) {
-    max-width: 34rem;
-    margin: var(--space-3) 0 0;
-    color: var(--text-secondary);
-    font-size: 1rem;
+  .writing-hero p {
+    max-width: 30ch;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: clamp(1.1rem, 1.8vw, 1.3rem);
+    line-height: 1.5;
+  }
+
+  .writing-hero__count {
+    display: block;
+    margin-top: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: 0.95rem;
   }
 
   .writing-content {
-    padding-block: var(--space-4) var(--space-16);
+    padding-block: 0 clamp(4rem, 9vw, 7rem);
   }
 
   .empty {
-    color: var(--text-tertiary);
-    padding-block: var(--space-12);
+    padding-block: var(--space-8);
+    border-top: 1px solid var(--border-default);
+    color: var(--text-secondary);
   }
 
   .post-list {
-    display: grid;
-    gap: var(--space-3);
-    max-width: 920px;
     margin: 0;
     padding: 0;
     list-style: none;
+    border-bottom: 1px solid var(--border-default);
   }
 
   .post-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: var(--space-3);
-    align-items: center;
-    padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3) var(--space-6);
+    padding-block: var(--space-8);
+    border-top: 1px solid var(--border-default);
     color: var(--text-primary);
     text-decoration: none;
-    box-shadow: var(--shadow-sm);
-    transition:
-      border-color var(--dur-fast) var(--ease-out-expo),
-      background var(--dur-fast) var(--ease-out-expo),
-      transform var(--dur-fast) var(--ease-out-expo);
   }
 
-  .post-row:hover {
-    border-color: var(--border-default);
-    background: var(--surface-raised);
-    transform: translateY(-1px);
-    text-decoration: none;
-  }
-
-  .post-row__marker {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    box-shadow: 0 0 0 4px var(--color-accent-soft);
-  }
-
-  .post-row:nth-child(3n + 2) .post-row__marker {
-    background: var(--color-accent-cyan);
-  }
-
-  .post-row:nth-child(3n) .post-row__marker {
-    background: var(--color-accent-rose);
+  .post-row__meta {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    color: var(--text-tertiary);
+    font-size: 0.92rem;
   }
 
   .post-row__content {
-    min-width: 0;
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    min-width: 0;
   }
 
   .post-row h2 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: clamp(1rem, 4vw, 1.35rem);
-    line-height: 1.24;
+    font-size: clamp(1.8rem, 4.4vw, 3.4rem);
+    line-height: 1.02;
+    transition: color var(--dur-fast) var(--ease-out-expo);
   }
 
   .post-row p {
-    display: none;
+    max-width: 62ch;
     margin: 0;
-    color: var(--text-secondary);
-    font-size: 0.92rem;
+    font-size: 1.05rem;
     line-height: 1.55;
   }
 
   .post-row__tags {
-    display: none;
+    display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .post-row__tags li {
-    padding: 0.2rem 0.45rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
+    gap: var(--space-1) var(--space-3);
     color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.68rem;
-  }
-
-  .post-row__meta {
-    display: grid;
-    gap: var(--space-1);
-    justify-items: end;
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.7rem;
-    white-space: nowrap;
+    font-size: 0.92rem;
   }
 
   .post-row__arrow {
-    display: none;
-    width: 18px;
-    height: 18px;
-    color: var(--text-secondary);
+    align-self: center;
+    width: 32px;
+    height: 32px;
+    color: var(--text-tertiary);
+    transition:
+      transform var(--dur-normal) var(--ease-out-expo),
+      color var(--dur-fast) var(--ease-out-expo);
   }
 
-  @media (min-width: 720px) {
-    .writing-hero {
-      padding-block: var(--space-16) var(--space-8);
+  .post-row:hover {
+    color: var(--text-primary);
+  }
+
+  .post-row:hover h2,
+  .post-row:hover .post-row__arrow {
+    color: var(--color-accent);
+  }
+
+  .post-row:hover .post-row__arrow {
+    transform: translateX(6px);
+  }
+
+  @media (min-width: 900px) {
+    .writing-hero__inner {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
 
-    .writing-hero__inner {
-      grid-template-columns: minmax(0, 1fr) 320px;
-      align-items: end;
+    .writing-hero h1 {
+      font-size: min(14rem, 100cqi / 5.2);
     }
 
     .post-row {
-      grid-template-columns: auto minmax(0, 1fr) auto auto;
-      padding: var(--space-5);
+      grid-template-columns: 11rem minmax(0, 1fr) auto;
     }
 
-    .post-row p,
-    .post-row__tags {
-      display: flex;
-    }
-
-    .post-row__arrow {
-      display: block;
+    .post-row__meta {
+      grid-column: auto;
+      flex-direction: column;
+      padding-top: 0.6rem;
     }
   }
 </style>

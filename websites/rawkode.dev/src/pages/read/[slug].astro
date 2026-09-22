@@ -16,7 +16,8 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+const toc = headings.filter((heading) => heading.depth === 2);
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const chronological = allPosts.sort((a, b) => a.data.pubDate.valueOf() - b.data.pubDate.valueOf());
@@ -70,217 +71,253 @@ const articleJsonLd = {
   jsonLd={articleJsonLd}
 >
   <Nav />
+  <div class="progress" aria-hidden="true"></div>
 
   <main id="main-content">
     <article class="article">
-      <div class="container article__layout">
-        <div class="article__main">
-          <a href="/read" class="back-link" aria-label="Back to all thoughts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <header class="article__header">
+        <div class="container">
+          <a href="/read" class="back-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
               <path d="M19 12H5M11 5l-7 7 7 7"/>
             </svg>
-            All thoughts
+            All writing
           </a>
-
-          <header class="article__header">
-            <h1>{post.data.title}</h1>
-            <p class="article__deck">{post.data.description}</p>
-            <div class="article__byline">
-              <span class="article__avatar" aria-hidden="true">DF</span>
-              <span>David Flanagan</span>
-              <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
-              <span>{readMinutes} min read</span>
+          <h1>{post.data.title}</h1>
+          <p class="article__deck">{post.data.description}</p>
+          <dl class="article__meta">
+            <div>
+              <dt>Published</dt>
+              <dd><time datetime={publishedTime}>{formatDate(post.data.pubDate)}</time></dd>
             </div>
-          </header>
-
-          <div class="article__meta-strip">
-            <span>Thought</span>
-            <span><strong>{wordCount.toLocaleString('en-GB')}</strong> words</span>
-            <span>Updated <time datetime={modifiedTime}>{formatDate(new Date(modifiedTime))}</time></span>
-          </div>
-
-          {post.data.tags.length > 0 && (
-            <ul class="article__tags" role="list" aria-label="Tags">
-              {post.data.tags.map((tag: string) => <li>{tag}</li>)}
-            </ul>
-          )}
-
-          <div class="prose">
-            <Content />
-          </div>
-
-          <footer class="article__footer">
-            {previous && (
-              <a href={`/read/${previous.id}`} class="article__pager">
-                <span>Previous</span>
-                <strong>{previous.data.title}</strong>
-              </a>
+            {modifiedTime !== publishedTime && (
+              <div>
+                <dt>Updated</dt>
+                <dd><time datetime={modifiedTime}>{formatDate(new Date(modifiedTime))}</time></dd>
+              </div>
             )}
-            {next && (
-              <a href={`/read/${next.id}`} class="article__pager article__pager--next">
-                <span>Next</span>
-                <strong>{next.data.title}</strong>
-              </a>
+            <div>
+              <dt>Length</dt>
+              <dd>{readMinutes} min read, {wordCount.toLocaleString('en-GB')} words</dd>
+            </div>
+            {post.data.tags.length > 0 && (
+              <div>
+                <dt>Tags</dt>
+                <dd class="article__tags">{post.data.tags.map((tag: string) => <span>#{tag}</span>)}</dd>
+              </div>
             )}
-          </footer>
+          </dl>
+        </div>
+      </header>
+
+      <div class="container article__layout">
+        <div class="prose">
+          <Content />
         </div>
 
-        <aside class="article__aside" aria-label="Article context">
-          <div class="aside-card">
-            <p class="aside-card__label">Article</p>
-            <p>{readMinutes} min read</p>
-            <p>{wordCount.toLocaleString('en-GB')} words</p>
-          </div>
-          {post.data.tags.length > 0 && (
-            <div class="aside-card">
-              <p class="aside-card__label">Tags</p>
-              <ul role="list">
-                {post.data.tags.map((tag: string) => <li>{tag}</li>)}
-              </ul>
-            </div>
-          )}
-        </aside>
+        {toc.length > 1 && (
+          <aside class="toc" aria-labelledby="toc-title">
+            <p id="toc-title" class="toc__title">On this page</p>
+            <ol role="list">
+              {toc.map((heading) => (
+                <li><a href={`#${heading.slug}`} data-toc={heading.slug}>{heading.text}</a></li>
+              ))}
+            </ol>
+          </aside>
+        )}
       </div>
+
+      {(previous || next) && (
+        <nav class="container pager" aria-label="More writing">
+          {previous ? (
+            <a href={`/read/${previous.id}`} class="pager__link">
+              <span>Previous</span>
+              <strong>{previous.data.title}</strong>
+            </a>
+          ) : <span />}
+          {next && (
+            <a href={`/read/${next.id}`} class="pager__link pager__link--next">
+              <span>Next</span>
+              <strong>{next.data.title}</strong>
+            </a>
+          )}
+        </nav>
+      )}
     </article>
   </main>
 
   <Footer />
 </Layout>
 
+<script>
+  // Highlight the section currently being read in the table of contents.
+  const links = new Map(
+    [...document.querySelectorAll<HTMLAnchorElement>('[data-toc]')].map((link) => [link.dataset.toc, link]),
+  );
+  if (links.size > 0 && 'IntersectionObserver' in window) {
+    const setActive = (id: string) => {
+      links.forEach((link, key) => link.toggleAttribute('aria-current', key === id));
+    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting);
+        if (visible.length > 0) setActive(visible[0].target.id);
+      },
+      { rootMargin: '-20% 0px -70% 0px' },
+    );
+    links.forEach((_, id) => {
+      const heading = id ? document.getElementById(id) : null;
+      if (heading) observer.observe(heading);
+    });
+  }
+</script>
+
 <style>
-  .article {
-    padding-block: var(--space-8) var(--space-16);
+  /* Reading progress: a signal-red bar under the nav, driven by scroll. */
+  .progress {
+    display: none;
   }
 
-  .article__layout {
-    display: grid;
-    gap: var(--space-8);
+  @supports (animation-timeline: scroll()) {
+    .progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: var(--z-toast);
+      display: block;
+      height: 3px;
+      background: var(--color-accent);
+      transform-origin: left;
+      animation: progress linear both;
+      animation-timeline: scroll(root);
+    }
+
+    @keyframes progress {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
   }
 
-  .article__main {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-6);
+  .article__header {
+    padding-block: clamp(2rem, 5vw, 4rem) clamp(2.5rem, 6vw, 4.5rem);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .back-link {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: 0.5rem;
     min-height: 44px;
-    width: fit-content;
-    color: var(--text-tertiary);
-    font-size: 0.88rem;
-    font-weight: 650;
-    text-decoration: none;
-  }
-
-  .back-link:hover {
-    color: var(--text-primary);
+    margin-bottom: clamp(1.5rem, 4vw, 3rem);
+    color: var(--text-secondary);
+    font-weight: 600;
     text-decoration: none;
   }
 
   .back-link svg {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
+    transition: transform var(--dur-normal) var(--ease-out-expo);
   }
 
-  .article__header {
-    display: grid;
-    gap: var(--space-4);
-    max-width: 780px;
+  .back-link:hover svg {
+    transform: translateX(-4px);
   }
 
   .article__header h1 {
+    max-width: 18ch;
     margin: 0;
-    font-size: clamp(2rem, 8vw, 4rem);
+    font-size: clamp(2.6rem, 7vw, 5.6rem);
+    font-stretch: 72%;
+    font-weight: 820;
+    line-height: 0.95;
   }
 
   .article__deck {
-    max-width: 58ch;
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: clamp(1rem, 3vw, 1.18rem);
-  }
-
-  .article__byline {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
-    color: var(--text-tertiary);
-    font-size: 0.86rem;
-  }
-
-  .article__byline > :not(:first-child)::before {
-    content: "·";
-    margin-right: var(--space-3);
-    color: var(--border-strong);
-  }
-
-  .article__avatar {
-    display: inline-grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 50%;
-    background: var(--surface-raised);
-    color: var(--color-accent);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    font-weight: 700;
-  }
-
-  .article__meta-strip {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    width: fit-content;
-    max-width: 100%;
-    padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-  }
-
-  .article__meta-strip span {
-    padding: 0.35rem 0.55rem;
-    border-radius: var(--radius-md);
-  }
-
-  .article__meta-strip span:first-child {
-    background: var(--color-accent-soft);
+    max-width: 48ch;
+    margin: var(--space-6) 0 0;
     color: var(--text-primary);
+    font-size: clamp(1.15rem, 2vw, 1.4rem);
+    line-height: 1.45;
+  }
+
+  .article__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-10);
+    margin: clamp(2rem, 4vw, 3rem) 0 0;
+  }
+
+  .article__meta dt {
+    color: var(--text-tertiary);
+    font-size: 0.88rem;
+  }
+
+  .article__meta dd {
+    margin: var(--space-1) 0 0;
+    color: var(--text-primary);
+    font-weight: 560;
   }
 
   .article__tags {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-3);
+  }
+
+  .article__layout {
+    display: grid;
+    gap: var(--space-10);
+    padding-block: clamp(2.5rem, 6vw, 4.5rem);
+  }
+
+  /* ─── Table of contents ────────────────────────────────────────────── */
+  .toc {
+    display: none;
+  }
+
+  .toc__title {
+    margin: 0 0 var(--space-3);
+    color: var(--text-primary);
+    font-weight: 650;
+  }
+
+  .toc ol {
+    display: grid;
     margin: 0;
     padding: 0;
     list-style: none;
+    border-left: 1px solid var(--border-default);
   }
 
-  .article__tags li,
-  .aside-card li {
-    padding: 0.24rem 0.5rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.7rem;
+  .toc a {
+    display: block;
+    margin-left: -1px;
+    padding: 0.35rem 0 0.35rem var(--space-4);
+    border-left: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    line-height: 1.35;
+    text-decoration: none;
+    transition:
+      color var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo);
   }
 
-  .prose {
-    max-width: 70ch;
+  .toc a:hover,
+  .toc a[aria-current] {
+    border-left-color: var(--color-accent);
     color: var(--text-primary);
-    font-size: clamp(1rem, 2.5vw, 1.08rem);
-    line-height: 1.76;
+  }
+
+  /* ─── Prose ────────────────────────────────────────────────────────── */
+  .prose {
+    min-width: 0;
+    max-width: var(--measure);
+    color: var(--text-primary);
+    font-size: clamp(1.05rem, 1.4vw, 1.125rem);
+    line-height: 1.72;
   }
 
   .prose :global(*) {
@@ -290,33 +327,38 @@ const articleJsonLd = {
   .prose :global(p) {
     margin: var(--space-5) 0 0;
     color: var(--text-primary);
-    line-height: 1.76;
   }
 
-  .prose :global(p:first-child) {
+  .prose :global(> :first-child) {
     margin-top: 0;
   }
 
   .prose :global(h2) {
-    margin: var(--space-12) 0 var(--space-3);
-    font-size: clamp(1.45rem, 4vw, 2rem);
+    margin: var(--space-16) 0 var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 2px solid var(--text-primary);
+    font-size: clamp(1.9rem, 4vw, 2.8rem);
+    font-stretch: 72%;
+    font-weight: 820;
+    line-height: 1;
+    scroll-margin-top: calc(var(--nav-height-offset) + var(--space-4));
   }
 
   .prose :global(h3) {
-    margin: var(--space-8) 0 var(--space-2);
-    font-size: 1.2rem;
+    margin: var(--space-10) 0 var(--space-2);
+    font-size: 1.4rem;
+    scroll-margin-top: calc(var(--nav-height-offset) + var(--space-4));
   }
 
   .prose :global(ul),
   .prose :global(ol) {
     margin: var(--space-4) 0 0;
     padding-left: var(--space-6);
-    color: var(--text-primary);
   }
 
   .prose :global(li) {
     margin-top: var(--space-2);
-    line-height: 1.62;
+    line-height: 1.6;
   }
 
   .prose :global(li::marker) {
@@ -324,17 +366,27 @@ const articleJsonLd = {
   }
 
   .prose :global(a) {
-    color: var(--color-accent-hover);
-    text-decoration-color: color-mix(in oklch, currentcolor 38%, transparent);
+    text-decoration-color: var(--color-accent);
+    text-decoration-thickness: 2px;
   }
 
   .prose :global(blockquote) {
-    margin: var(--space-8) 0;
-    padding: var(--space-4);
-    border: 1px solid color-mix(in oklch, var(--color-accent) 34%, var(--border-subtle));
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--color-accent-soft) 38%, var(--surface-glass));
+    margin: var(--space-10) 0;
+    padding: 0 0 0 var(--space-6);
     color: var(--text-primary);
+    font-size: 1.25em;
+    font-style: italic;
+    line-height: 1.5;
+    quotes: none;
+  }
+
+  .prose :global(blockquote::before) {
+    content: "";
+    display: block;
+    width: 2.5rem;
+    height: 0.5rem;
+    margin-bottom: var(--space-3);
+    background: var(--color-accent);
   }
 
   .prose :global(blockquote p) {
@@ -344,9 +396,9 @@ const articleJsonLd = {
 
   .prose :global(hr) {
     height: 1px;
-    margin: var(--space-10) 0;
+    margin: var(--space-12) 0;
     border: 0;
-    background: var(--border-subtle);
+    background: var(--border-default);
   }
 
   .prose :global(.expressive-code) {
@@ -354,146 +406,116 @@ const articleJsonLd = {
   }
 
   .prose :global(.expressive-code .frame) {
-    border-color: var(--border-subtle);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-sm);
+    box-shadow: none;
   }
 
   .prose :global(> pre) {
     overflow-x: auto;
     margin-block: var(--space-8);
     padding: var(--space-5);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--surface-2) 86%, black);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
     color: var(--text-primary);
     font-family: var(--fonts-mono);
     font-size: 0.88rem;
     line-height: 1.7;
-    box-shadow: var(--shadow-md);
   }
 
   .prose :global(> pre code) {
     padding: 0;
-    border: 0;
     background: none;
     color: inherit;
     font-size: inherit;
   }
 
+  .prose :global(table) {
+    display: block;
+    overflow-x: auto;
+    margin-block: var(--space-8);
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+
+  .prose :global(th),
+  .prose :global(td) {
+    padding: var(--space-2) var(--space-4) var(--space-2) 0;
+    border-bottom: 1px solid var(--border-default);
+    text-align: left;
+    vertical-align: top;
+  }
+
   .prose :global(aside.sidenote),
   .prose :global(aside.marginalia) {
-    margin: var(--space-6) 0;
-    padding: var(--space-4);
-    border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--border-subtle));
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--color-accent-soft) 30%, var(--surface-glass));
-    color: var(--text-secondary);
-    font-size: 0.92rem;
-    line-height: 1.58;
+    margin: var(--space-8) 0;
+    padding: var(--space-5);
+    background: var(--color-accent-muted);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.6;
   }
 
   .prose :global(.footnotes) {
-    margin-top: var(--space-12);
+    margin-top: var(--space-16);
     padding-top: var(--space-6);
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-default);
     color: var(--text-secondary);
     font-size: 0.92rem;
   }
 
-  .article__footer {
+  /* ─── Pager ────────────────────────────────────────────────────────── */
+  .pager {
     display: grid;
-    gap: var(--space-3);
-    max-width: 70ch;
-    margin-top: var(--space-4);
+    gap: var(--space-4);
+    padding-bottom: clamp(3rem, 7vw, 5rem);
   }
 
-  .article__pager {
+  .pager__link {
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
+    padding-top: var(--space-4);
+    border-top: 2px solid var(--text-primary);
     color: var(--text-primary);
     text-decoration: none;
   }
 
-  .article__pager:hover {
-    border-color: var(--border-default);
-    background: var(--surface-raised);
-    text-decoration: none;
-  }
-
-  .article__pager span {
+  .pager__link span {
     color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    text-transform: uppercase;
+    font-size: 0.9rem;
   }
 
-  .article__pager strong {
-    font-size: 0.95rem;
-    line-height: 1.35;
+  .pager__link strong {
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-stretch: var(--stretch-head);
+    font-weight: 780;
+    line-height: 1.1;
+    transition: color var(--dur-fast) var(--ease-out-expo);
   }
 
-  .article__aside {
-    display: none;
+  .pager__link:hover strong {
+    color: var(--color-accent);
   }
 
-  .aside-card {
-    display: grid;
-    gap: var(--space-3);
-    padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
-  }
-
-  .aside-card p {
-    margin: 0;
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.75rem;
-  }
-
-  .aside-card .aside-card__label {
-    color: var(--text-primary);
-    text-transform: uppercase;
-  }
-
-  .aside-card ul {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  @media (min-width: 900px) {
-    .article {
-      padding-block: var(--space-12) var(--space-20);
-    }
-
+  @media (min-width: 1000px) {
     .article__layout {
-      grid-template-columns: minmax(0, 1fr) 240px;
+      grid-template-columns: minmax(0, var(--measure)) minmax(12rem, 16rem);
+      justify-content: space-between;
       align-items: start;
-      gap: var(--space-10);
+      gap: var(--space-16);
     }
 
-    .article__aside {
+    .toc {
       position: sticky;
-      top: var(--nav-height-offset);
-      display: grid;
-      gap: var(--space-4);
+      top: calc(var(--nav-height-offset) + var(--space-4));
+      display: block;
     }
 
-    .article__footer {
+    .pager {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-12);
     }
 
-    .article__pager--next {
+    .pager__link--next {
       text-align: right;
     }
   }
