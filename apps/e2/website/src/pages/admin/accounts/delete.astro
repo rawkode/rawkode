@@ -8,7 +8,7 @@ if (!account) return new Response('Account not found', {status: 404});
 <AdminLayout title="Delete account">
   <a class="back" href="/admin/oauth">Back to accounts</a>
   <h1>Delete {account.accountLabel}?</h1>
-  <p>This removes the connection and its stored contacts and calendar events from Apsides. Your original Google data is unchanged.</p>
+  <p>This removes the connection and its stored contacts and calendar events from Enchiridion. Your original Google data is unchanged.</p>
   <p class="muted">You can connect the account again later to start a fresh sync.</p>
   <form method="post" action="/admin/accounts/action" data-pending="Deleting account…" class="form-actions">
     <input type="hidden" name="connectionId" value={account.id}/><input type="hidden" name="action" value="delete"/>

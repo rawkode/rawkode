@@ -14,7 +14,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 		const identity = await authenticate(context.request, bindings);
 		if (!identity) {
 			return new Response(
-				"Sign in through Cloudflare Access to open Apsides.",
+				"Sign in through Cloudflare Access to open Enchiridion.",
 				{
 					status: 401,
 					headers: { "Cache-Control": "no-store" },

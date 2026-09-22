@@ -151,7 +151,7 @@ onBeforeUnmount(() => {
 <template>
 	<div class="pane-workspace app-shell">
 		<aside class="workspace-sidebar" aria-label="Workspace">
-			<a class="workspace-brand" href="/" aria-label="Apsides today">Apsides</a>
+			<a class="workspace-brand" href="/" aria-label="Enchiridion today">Enchiridion</a>
 			<nav class="workspace-links" aria-label="Workspace navigation">
 				<a href="/" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>Today</a>
 				<a href="/admin/supertags"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 4 7 20M17 4l-2 16M4 9h16M3 15h16"/></svg>Supertags</a>
