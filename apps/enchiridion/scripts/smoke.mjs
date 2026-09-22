@@ -67,7 +67,7 @@ const { D1, Text, Service, DurableObjectNamespace, SecretsStore } =
 	await runtimeImport(
 		"core/bindings",
 	);
-const temporary = await mkdtemp(join(tmpdir(), "e2-smoke-"));
+const temporary = await mkdtemp(join(tmpdir(), "enchiridion-smoke-"));
 // Isolate the local service registry; this test never discovers running user Workers.
 for (const kind of ["CACHE", "CONFIG", "DATA", "STATE"]) {
 	process.env[`XDG_${kind}_HOME`] = join(temporary, kind.toLowerCase());
@@ -86,10 +86,12 @@ const secretValues = {
 };
 const tokenFixture = await createTokenVault({
 	TOKEN_KEYRING: { get: () => Promise.resolve(secretValues.keyring) },
-}).encrypt("e2-smoke-google-token", "connection:account:access");
+}).encrypt("enchiridion-smoke-google-token", "connection:account:access");
 const providerState = { hold: false, release: undefined };
 const provider = createServer((request, response) => {
-	if (request.headers.authorization !== "Bearer e2-smoke-google-token") {
+	if (
+		request.headers.authorization !== "Bearer enchiridion-smoke-google-token"
+	) {
 		response.writeHead(401).end();
 		return;
 	}
@@ -147,7 +149,7 @@ await new Promise((resolve, reject) => {
 });
 const providerOrigin = `http://127.0.0.1:${provider.address().port}`;
 const secretBinding = (binding, secretName) =>
-	SecretsStore.local({ binding, storeId: "e2-smoke", secretName });
+	SecretsStore.local({ binding, storeId: "enchiridion-smoke", secretName });
 const textBindings = (values) =>
 	Object.entries(values).map(([name, value]) => Text.local(name, value));
 const oauthBinding = () =>
@@ -253,7 +255,7 @@ const configs = [
 		secretBinding("OAUTH_SERVICE_CREDENTIAL", "github"),
 	]),
 	{
-		name: "e2-smoke-gateway",
+		name: "enchiridion-smoke-gateway",
 		...await compatibility("integrations-oauth"),
 		modules: [{
 			name: "index.js",
@@ -261,8 +263,11 @@ const configs = [
 			content: await readFile("test/runtime/gateway.mjs", "utf8"),
 		}],
 		bindings: [
-			SecretsStore.admin({ binding: "SECRET_STORE", storeId: "e2-smoke" }),
-			Service.local({ binding: "API", scriptName: "e2-api" }),
+			SecretsStore.admin({
+				binding: "SECRET_STORE",
+				storeId: "enchiridion-smoke",
+			}),
+			Service.local({ binding: "API", scriptName: "enchiridion-api" }),
 			oauthBinding(),
 			Service.local({
 				binding: "OAUTH_ADMIN",
@@ -297,7 +302,7 @@ const configs = [
 		],
 	},
 	{
-		name: "e2-api",
+		name: "enchiridion-api",
 		...await compatibility("integrations-google"),
 		modules: [{ name: "index.js", type: "ESModule", content: apiWrapper }, {
 			name: "api.js",

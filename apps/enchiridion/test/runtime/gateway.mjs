@@ -248,7 +248,7 @@ export default {
 			).bind(JSON.stringify(grantedScopes)).run();
 			const control = async (name) => {
 				const response = await fetch(`${env.PROVIDER_ORIGIN}/control/${name}`, {
-					headers: { Authorization: "Bearer e2-smoke-google-token" },
+					headers: { Authorization: "Bearer enchiridion-smoke-google-token" },
 				});
 				return response.json();
 			};

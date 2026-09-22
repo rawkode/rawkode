@@ -69,7 +69,7 @@ const dispatchEntity = (
 	entity: { id: string; label: string },
 	presentation: "link" | "mention",
 ) =>
-	window.dispatchEvent(new CustomEvent("e2-insert-entity", {
+	window.dispatchEvent(new CustomEvent("enchiridion-insert-entity", {
 		detail: {
 			version: 1,
 			entityId: entity.id,

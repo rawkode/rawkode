@@ -22,7 +22,9 @@ export const POST: APIRoute = async (
 		const flow = await api.beginConnection({ appId, browserBindingHash });
 		const secure = bindings.WEBSITE_ORIGIN.startsWith("https:");
 		cookies.set(
-			`${secure ? "__Host-" : ""}e2-oauth-${flow.stateId.slice(0, 24)}`,
+			`${secure ? "__Host-" : ""}enchiridion-oauth-${
+				flow.stateId.slice(0, 24)
+			}`,
 			binding,
 			{
 				httpOnly: true,
