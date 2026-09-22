@@ -163,7 +163,7 @@ const finishTaskComposer = (task: Task) => {
 		error.value =
 			"Task created in Tasks. Its link could not be inserted into this note.";
 	closeTaskComposer();
-	window.dispatchEvent(new CustomEvent("e2-tasks-changed"));
+	window.dispatchEvent(new CustomEvent("enchiridion-tasks-changed"));
 };
 const entityMenu = ref<EntityComposerMatch & {
 	x: number;
@@ -974,7 +974,7 @@ onMounted(() => {
 	window.visualViewport?.addEventListener("resize", updateKeyboardInset);
 	window.visualViewport?.addEventListener("scroll", updateKeyboardInset);
 	window.addEventListener("beforeunload", warnBeforeLeaving);
-	window.addEventListener("e2-insert-entity", insertExternalEntity);
+	window.addEventListener("enchiridion-insert-entity", insertExternalEntity);
 	void loadToday();
 });
 onBeforeUnmount(() => {
@@ -982,7 +982,7 @@ onBeforeUnmount(() => {
 	window.visualViewport?.removeEventListener("resize", updateKeyboardInset);
 	window.visualViewport?.removeEventListener("scroll", updateKeyboardInset);
 	window.removeEventListener("beforeunload", warnBeforeLeaving);
-	window.removeEventListener("e2-insert-entity", insertExternalEntity);
+	window.removeEventListener("enchiridion-insert-entity", insertExternalEntity);
   saver?.dispose();
   editor.value?.destroy();
 });

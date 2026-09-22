@@ -64,7 +64,7 @@ const localRuntime = (directory) =>
 const { Text, Service, DurableObjectNamespace } = await runtimeImport(
 	"core/bindings",
 );
-const temporary = await mkdtemp(join(tmpdir(), "e2-website-"));
+const temporary = await mkdtemp(join(tmpdir(), "enchiridion-website-"));
 for (const kind of ["CACHE", "CONFIG", "DATA", "STATE"]) {
 	process.env[`XDG_${kind}_HOME`] = join(temporary, kind.toLowerCase());
 }
@@ -577,7 +577,7 @@ const exercise = async (urls) => {
 	assert.equal(response.status, 303);
 	assert.match(
 		response.headers.get("set-cookie"),
-		/e2-oauth-aaaaaaaaaaaaaaaaaaaaaaaa=/,
+		/enchiridion-oauth-aaaaaaaaaaaaaaaaaaaaaaaa=/,
 	);
 	response = await get("/mock-consent");
 	assert.equal(response.status, 303);

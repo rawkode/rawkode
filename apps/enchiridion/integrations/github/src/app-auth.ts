@@ -134,7 +134,7 @@ export const githubRequest = async (
 		headers: {
 			Accept: "application/vnd.github+json",
 			"X-GitHub-Api-Version": "2022-11-28",
-			"User-Agent": "e2-integrations-github-app",
+			"User-Agent": "enchiridion-integrations-github-app",
 			...Object.fromEntries(new Headers(init.headers).entries()),
 		},
 		redirect: "manual",

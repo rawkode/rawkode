@@ -36,7 +36,7 @@ for (
 				id: name,
 				...workerSource,
 				entry: { kind: "external" },
-				stack: { name: "e2", stage: "build" },
+				stack: { name: "enchiridion", stage: "build" },
 				extraOptions: undefined,
 			})
 		),

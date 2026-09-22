@@ -84,7 +84,7 @@ export const createGitHubApi = (
 				Accept: "application/vnd.github+json",
 				Authorization: `Bearer ${token.accessToken}`,
 				"X-GitHub-Api-Version": "2022-11-28",
-				"User-Agent": "e2-integrations-github",
+				"User-Agent": "enchiridion-integrations-github",
 			},
 			redirect: "manual",
 			signal: signal ?? AbortSignal.timeout(10_000),

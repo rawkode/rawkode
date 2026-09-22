@@ -112,7 +112,7 @@ Deno.test("GitHub reads fixed API routes, protects credentials, and preserves bo
 		assert.equal(init?.redirect, "manual");
 		const headers = new Headers(init?.headers);
 		assert.equal(headers.get("Authorization"), "Bearer secret-token");
-		assert.equal(headers.get("User-Agent"), "e2-integrations-github");
+		assert.equal(headers.get("User-Agent"), "enchiridion-integrations-github");
 		paths.push(url.pathname);
 		if (url.pathname === "/user") {
 			return Promise.resolve(Response.json({ id: 123, login: "alice" }));

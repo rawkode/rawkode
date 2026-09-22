@@ -8,7 +8,7 @@ import { coversScopes, normalizeScopes, provider } from "./providers.ts";
 import type { ConnectionRow, SessionRow } from "./store.ts";
 
 export const bindingCookieName = (stateId: string, secure: boolean): string => {
-	return `${secure ? "__Host-" : ""}e2-oauth-${stateId.slice(0, 24)}`;
+	return `${secure ? "__Host-" : ""}enchiridion-oauth-${stateId.slice(0, 24)}`;
 };
 
 export const callback = async (
@@ -214,7 +214,7 @@ const readIdentity = async (
 			headers: {
 				Authorization: `Bearer ${tokens.access_token}`,
 				Accept: "application/vnd.github+json",
-				"User-Agent": "e2-integrations-oauth",
+				"User-Agent": "enchiridion-integrations-oauth",
 			},
 			// workerd supports manual/follow only. Never forward the bearer token.
 			redirect: "manual",

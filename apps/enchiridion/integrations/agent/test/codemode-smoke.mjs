@@ -61,7 +61,9 @@ const localRuntime = (directory) =>
 
 const { WorkerLoader } = await runtimeImport("core/bindings");
 const esbuild = requireAlchemy("esbuild");
-const temporary = await mkdtemp(join(tmpdir(), "e2-voice-code-smoke-"));
+const temporary = await mkdtemp(
+	join(tmpdir(), "enchiridion-voice-code-smoke-"),
+);
 for (const kind of ["CACHE", "CONFIG", "DATA", "STATE"]) {
 	process.env[`XDG_${kind}_HOME`] = join(temporary, kind.toLowerCase());
 }
