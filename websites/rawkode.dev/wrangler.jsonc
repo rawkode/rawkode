@@ -56,4 +56,50 @@
   "migrations": [
     { "tag": "v1", "new_classes": ["Sequencer"] },
   ],
+
+  // Worker Previews (`wrangler preview`), one per pull request.
+  // Previews inherit nothing from the top level, and every storage binding
+  // points at a preview-only resource so no preview can read or write the
+  // production PDS. Previews get no secrets, so they cannot sign as
+  // did:web:rawkode.dev. Durable Objects get a fresh namespace per preview
+  // automatically; the binding still has to be declared here.
+  "previews": {
+    "vars": {
+      "PDS_DID": "did:web:rawkode.dev",
+      "PDS_HANDLE": "rawkode.dev",
+      "PDS_HOSTNAME": "rawkode.dev",
+      "PDS_CORS_ORIGIN": "https://rawkode.dev,https://bsky.app",
+      "PDS_EMAIL": "david@rawkode.dev",
+      "PDS_CONTACT_EMAIL": "david@rawkode.dev",
+    },
+
+    // Keep in sync with wrangler.preview-migrations.jsonc.
+    "d1_databases": [
+      {
+        "binding": "ALTERAN_DB",
+        "database_name": "rawkode-dev-pds-preview",
+        "database_id": "__RAWKODE_DEV_PDS_PREVIEW_ID__",
+      },
+    ],
+
+    "r2_buckets": [
+      {
+        "binding": "ALTERAN_BLOBS",
+        "bucket_name": "rawkode-dev-pds-preview",
+      },
+    ],
+
+    "kv_namespaces": [
+      {
+        "binding": "SESSION",
+        "id": "3f486f9aa91a40bf8ee5bc7701c6601a",
+      },
+    ],
+
+    "durable_objects": {
+      "bindings": [
+        { "name": "ALTERAN_SEQUENCER", "class_name": "Sequencer" },
+      ],
+    },
+  },
 }

@@ -1,0 +1,58 @@
+# Deletes the rawkode.dev Worker Preview when its pull request closes.
+# cuenv pipelines cannot trigger on `pull_request: closed`, so this workflow is
+# hand-written. It runs the cuenv task `previews.delete` from
+# websites/rawkode.dev/env.cue with the same secrets as the generated
+# rawkodedev-pullrequest.yml.
+name: rawkode.dev-previewCleanup
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - websites/rawkode.dev/**
+      - .github/workflows/rawkodedev-preview-cleanup.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  delete-preview:
+    name: Delete Worker Preview
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      # The merge ref can be gone once a PR closes; the head commit is kept.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup cuenv (release)
+        run: |-
+          curl -sSL -o /usr/local/bin/cuenv "https://github.com/cuenv/cuenv/releases/download/0.55.1/cuenv-linux-x64"
+          chmod +x /usr/local/bin/cuenv
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup 1Password
+        run: cuenv exec -- cuenv secrets setup onepassword
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Delete Preview
+        working-directory: websites/rawkode.dev
+        run: cuenv -e production task previews.delete
+        env:
+          # Same shape as pull_request runs ("<number>/merge") so the task
+          # derives the same Preview name, pr-<number>.
+          GITHUB_REF_NAME: ${{ github.event.pull_request.number }}/merge
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
