@@ -17,9 +17,18 @@ esac
 case "${1:-}" in
   deploy)
     if [ -n "$name" ]; then
-      exec deno task wrangler preview --name "$name" --json
+      out=$(deno task wrangler preview --name "$name" --json)
+    else
+      out=$(deno task wrangler preview --json)
     fi
-    exec deno task wrangler preview --json
+    printf '%s\n' "$out"
+    # A Preview with no URL is unreachable; fail instead of reporting success.
+    if ! printf '%s' "$out" | tr -d ' \n' | grep -q '"urls":\["https://'; then
+      echo "error: the Preview deployed but Cloudflare returned no URL." >&2
+      echo "Enable Preview URLs for the rawkode-dev Worker: deploy with" >&2
+      echo "\"preview_urls\": true in wrangler.jsonc, or turn on Domains > Worker URL > Preview in the dashboard." >&2
+      exit 1
+    fi
     ;;
   delete)
     if [ -n "$name" ]; then
