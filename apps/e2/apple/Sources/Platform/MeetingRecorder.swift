@@ -1,5 +1,5 @@
 #if os(iOS)
-import ApsidesCore
+import EnchiridionCore
 import Combine
 import CoreMedia
 import Foundation

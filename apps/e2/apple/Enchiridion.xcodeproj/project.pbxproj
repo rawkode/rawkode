@@ -9,8 +9,8 @@
 /* Begin PBXBuildFile section */
 		0091CD34FBA34FDFA7C0493A /* DayTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EF9AB0ABD77982D2EBFD026 /* DayTimelineView.swift */; };
 		01FAAB784E0492C20E2B5344 /* LocalDaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */; };
-		0282D6CC775C674F344B7BDB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA869EC6CD92F535B5CAFA73 /* ApsidesCore */; };
-		03386BEA24270C60A8AD8447 /* ApsidesWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0282D6CC775C674F344B7BDB /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA869EC6CD92F535B5CAFA73 /* EnchiridionCore */; };
+		03386BEA24270C60A8AD8447 /* EnchiridionWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 064525E0DE0D2E612EF6F3B7 /* EnchiridionWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		043549B45AABBA4529F5D945 /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D339ED709F3AE9E20B8181 /* TaskModels.swift */; };
 		0F22241DD22FD62A5E3703C8 /* TaskListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */; };
 		1133FE0C24EE7C25AB0AF3E2 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
@@ -24,27 +24,27 @@
 		26ADFE7E087C046CAF95FDD4 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
 		3234CD0241817E0CA74578C7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BE1B8C546F541BE80A452D /* Theme.swift */; };
 		3923DC0CBCBE3E3C356149A8 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330102EFA2A403311173C2A6 /* TasksView.swift */; };
-		39B389E75543649FED8AB0BB /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1EA8645593814310160E36B3 /* ApsidesCore */; };
-		43B89668E105556DE7A4E71F /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
+		39B389E75543649FED8AB0BB /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1EA8645593814310160E36B3 /* EnchiridionCore */; };
+		43B89668E105556DE7A4E71F /* EnchiridionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* EnchiridionApp.swift */; };
 		4749BF77870E9F24C61FA696 /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
 		48029F0A23EEBE7DF495ADA5 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */; };
-		4D4903F9387256FB7DF03B15 /* ApsidesWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */; };
+		4D4903F9387256FB7DF03B15 /* EnchiridionWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531EF1CDB23572DD6BCAACEB /* EnchiridionWatchApp.swift */; };
 		4E1E4857A2E5402D37AE55BD /* ContextViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500427B31BBB3B632B18DC1 /* ContextViews.swift */; };
 		50E8163C8EA847E73DF05A14 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7191CBF699F2AAF28D9678FF /* CarPlaySceneDelegate.swift */; };
 		526216E5FB65363AFAEA4512 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B3786D613EF8FCE68AB709 /* WorkspaceStore.swift */; };
 		5A6784BDDF18C12B94B8D077 /* PhoneTodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4659E09FD3FDBF1BF786DEB /* PhoneTodayView.swift */; };
 		5DD9CA9CBCD42075DF91F9C9 /* LocalDaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1B32DA4518AE279A32EB4D /* LocalDaybookView.swift */; };
 		6401C43EE444CCD4C26C23C1 /* WebEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */; };
-		679DCF11AAC820CA8007FBDE /* ApsidesWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		6EC5127F1939AF9DD4231868 /* ApsidesWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */; };
+		679DCF11AAC820CA8007FBDE /* EnchiridionWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 75C9428C75CDA89D29F0BDFB /* EnchiridionWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6EC5127F1939AF9DD4231868 /* EnchiridionWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D80FE81C972E5B6D985C5F /* EnchiridionWidget.swift */; };
 		700041508702093FC503305A /* MeetingRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA8086D3419903EC741D330 /* MeetingRecorder.swift */; };
 		73DC0349B9E32FFAECE485B5 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3FCE16CE7A5191A5F928D /* WatchBridge.swift */; };
 		749B9089C7FD3C2E21DFF5E7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */; };
 		75D4BAF44BC0FFEC0F565C78 /* CaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01101CE06932177CF893D8F3 /* CaptureIntent.swift */; };
 		7690EF81CEFE0E7E1BFC7E9D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BE1B8C546F541BE80A452D /* Theme.swift */; };
-		772C1AD549EAC3DDCC1E5CAD /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3F74FC662D9F3E7F5865B333 /* ApsidesCore */; };
+		772C1AD549EAC3DDCC1E5CAD /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3F74FC662D9F3E7F5865B333 /* EnchiridionCore */; };
 		7CCF5422835131563D562DC8 /* CaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01101CE06932177CF893D8F3 /* CaptureIntent.swift */; };
-		80E9F389FA2A7286FA367D34 /* ApsidesAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */; };
+		80E9F389FA2A7286FA367D34 /* EnchiridionAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83484C5F6B26C864D2C0767F /* EnchiridionAppDelegate.swift */; };
 		83C5F549626D8DC03AD17034 /* ContextViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500427B31BBB3B632B18DC1 /* ContextViews.swift */; };
 		8499DB45A68E4B5FFEF47CD1 /* DemoContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9A1EBBC62157B945574E86 /* DemoContent.swift */; };
 		87DCF2447BBD1CF8522F7CB9 /* TasksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */; };
@@ -53,8 +53,8 @@
 		93753900B113140E073F5356 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */; };
 		940D6BB310B75A894CD56C56 /* WebEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */; };
 		94A347A9C913A44C3DB321E3 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354AC8040C6FF7BB1C216F9A /* NativeSession.swift */; };
-		959695C479172277F7554932 /* ApsidesCore in Frameworks */ = {isa = PBXBuildFile; productRef = 14A63658B3EA59F83FB92B5B /* ApsidesCore */; };
-		9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* ApsidesApp.swift */; };
+		959695C479172277F7554932 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 14A63658B3EA59F83FB92B5B /* EnchiridionCore */; };
+		9B0FA25BB4332B78A36EA41E /* EnchiridionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3045B1CAC13E5377DB178446 /* EnchiridionApp.swift */; };
 		A2FE61D6CA0D1EC4F25DC1F7 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD764DAE25A4D1A1C9A9769 /* WorkspaceView.swift */; };
 		A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		A785BF9A9B0719A3E82525F5 /* VoiceAccountConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E30302D821BED417572F77 /* VoiceAccountConnection.swift */; };
@@ -67,7 +67,7 @@
 		C278B4B6920D6FC9271AEAA4 /* CalendarColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513A50F329344A47E70A5AC4 /* CalendarColor.swift */; };
 		C583934A6EEF52563C18D434 /* AgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C812172F3A7C19D4C18E10AD /* AgendaView.swift */; };
 		C6F1891578C1740B8F782100 /* VoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */; };
-		C82A6683C503096AC1348FE4 /* ApsidesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */; };
+		C82A6683C503096AC1348FE4 /* EnchiridionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99282C0E6F2FE75121AB78 /* EnchiridionUITests.swift */; };
 		C95D53C8B7FA660E767959C4 /* VoiceWindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */; };
 		CB6884B4DB55ED9A9B9CFBEE /* TaskListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */; };
 		CD8EFBDFE6587D2E00F9852A /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D339ED709F3AE9E20B8181 /* TaskModels.swift */; };
@@ -85,7 +85,7 @@
 		E92F35AABF0ADA1BB2B36827 /* TasksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54CFEAFF3922DF426E1C8E8 /* TasksStore.swift */; };
 		EE96D69883EF5F396989FFCA /* MeetingCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */; };
 		EF46BF728F689773AF42C0ED /* WatchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3AD27230C2A97DD1EEE835 /* WatchStore.swift */; };
-		EF5199F0D07EAA7247C7B4A1 /* ApsidesAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */; };
+		EF5199F0D07EAA7247C7B4A1 /* EnchiridionAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83484C5F6B26C864D2C0767F /* EnchiridionAppDelegate.swift */; };
 		FB239DCC5A0D070DE125738D /* MacVoiceConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */; };
 		FB29E08779A4E3C3763E613D /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF2C4F1D4BAC5BFAC11D071 /* TodayView.swift */; };
 		FCCC40858B23751CA526DB1E /* PersonDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162ACC4946122F75142724F2 /* PersonDetailView.swift */; };
@@ -99,21 +99,21 @@
 			containerPortal = 4E65C30B994F8AF6B7EBAA48 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = D14506CD77A86C6454802600;
-			remoteInfo = ApsidesIOS;
+			remoteInfo = EnchiridionIOS;
 		};
 		E169B456B35B947010D4CB97 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4E65C30B994F8AF6B7EBAA48 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 2B0F3640374409FBF6F52D67;
-			remoteInfo = ApsidesWidget;
+			remoteInfo = EnchiridionWidget;
 		};
 		E19AA9F27CEAE770263AD2DE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4E65C30B994F8AF6B7EBAA48 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = D820F41B1C45F40CD9A7610A;
-			remoteInfo = ApsidesWatch;
+			remoteInfo = EnchiridionWatch;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -124,7 +124,7 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				03386BEA24270C60A8AD8447 /* ApsidesWatch.app in Embed Watch Content */,
+				03386BEA24270C60A8AD8447 /* EnchiridionWatch.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -135,7 +135,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				679DCF11AAC820CA8007FBDE /* ApsidesWidget.appex in Embed Foundation Extensions */,
+				679DCF11AAC820CA8007FBDE /* EnchiridionWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -144,23 +144,23 @@
 
 /* Begin PBXFileReference section */
 		01101CE06932177CF893D8F3 /* CaptureIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureIntent.swift; sourceTree = "<group>"; };
-		064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ApsidesWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		064525E0DE0D2E612EF6F3B7 /* EnchiridionWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EnchiridionWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		09D25FFF26A60C97EF0BF8FF /* VoiceConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceConversation.swift; sourceTree = "<group>"; };
 		0F3AD27230C2A97DD1EEE835 /* WatchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchStore.swift; sourceTree = "<group>"; };
 		11C9A845DC543F6478264ACF /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = .; sourceTree = SOURCE_ROOT; };
 		162ACC4946122F75142724F2 /* PersonDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonDetailView.swift; sourceTree = "<group>"; };
-		1D06C340DEE3D3A23068E941 /* ApsidesMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ApsidesMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		3045B1CAC13E5377DB178446 /* ApsidesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesApp.swift; sourceTree = "<group>"; };
+		1D06C340DEE3D3A23068E941 /* EnchiridionMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EnchiridionMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3045B1CAC13E5377DB178446 /* EnchiridionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionApp.swift; sourceTree = "<group>"; };
 		330102EFA2A403311173C2A6 /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
 		3459A9C917A02ADE5AA13DA2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		354AC8040C6FF7BB1C216F9A /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
-		38997F6D4D948D13A4974CC7 /* ApsidesUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ApsidesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		38997F6D4D948D13A4974CC7 /* EnchiridionUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnchiridionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3EF9AB0ABD77982D2EBFD026 /* DayTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayTimelineView.swift; sourceTree = "<group>"; };
 		4E00F06EEBE03672E4CDA7B0 /* WebEditorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorController.swift; sourceTree = "<group>"; };
 		513A50F329344A47E70A5AC4 /* CalendarColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarColor.swift; sourceTree = "<group>"; };
-		531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWatchApp.swift; sourceTree = "<group>"; };
+		531EF1CDB23572DD6BCAACEB /* EnchiridionWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionWatchApp.swift; sourceTree = "<group>"; };
 		60E30302D821BED417572F77 /* VoiceAccountConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAccountConnection.swift; sourceTree = "<group>"; };
-		64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesWidget.swift; sourceTree = "<group>"; };
+		64D80FE81C972E5B6D985C5F /* EnchiridionWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionWidget.swift; sourceTree = "<group>"; };
 		65DEAF02C8A45C90F662FBAC /* WebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebRTC; path = Vendor/WebRTC; sourceTree = SOURCE_ROOT; };
 		686D60DF17093AA7954F83E5 /* MeetingCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCaptureView.swift; sourceTree = "<group>"; };
 		6EA8086D3419903EC741D330 /* MeetingRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecorder.swift; sourceTree = "<group>"; };
@@ -168,15 +168,15 @@
 		7001F43AA83FF1D9DAD50AD9 /* MacAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = MacAssets.xcassets; sourceTree = "<group>"; };
 		7191CBF699F2AAF28D9678FF /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		742282E8409B0C7FDACE3492 /* VoiceWindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWindowCloseObserver.swift; sourceTree = "<group>"; };
-		75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ApsidesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		75C9428C75CDA89D29F0BDFB /* EnchiridionWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		81B31BADDDBC29DECA162A94 /* VoiceConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceConversationView.swift; sourceTree = "<group>"; };
 		82D339ED709F3AE9E20B8181 /* TaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskModels.swift; sourceTree = "<group>"; };
-		83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesAppDelegate.swift; sourceTree = "<group>"; };
-		83D84418589D887D76F550C8 /* ApsidesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ApsidesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		83484C5F6B26C864D2C0767F /* EnchiridionAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionAppDelegate.swift; sourceTree = "<group>"; };
+		83D84418589D887D76F550C8 /* EnchiridionIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnchiridionIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8D9A1EBBC62157B945574E86 /* DemoContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoContent.swift; sourceTree = "<group>"; };
 		93F92CF7EE6BFC94941E4384 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		97BE1B8C546F541BE80A452D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
-		9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApsidesUITests.swift; sourceTree = "<group>"; };
+		9B99282C0E6F2FE75121AB78 /* EnchiridionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionUITests.swift; sourceTree = "<group>"; };
 		9F2B994CD3DA3D1A10A6F7E9 /* CaptureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViews.swift; sourceTree = "<group>"; };
 		A0C0C77B836BFEE79AB61B07 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A3A547348260EEBE89306DE9 /* MacVoiceConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVoiceConversationView.swift; sourceTree = "<group>"; };
@@ -197,7 +197,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0282D6CC775C674F344B7BDB /* ApsidesCore in Frameworks */,
+				0282D6CC775C674F344B7BDB /* EnchiridionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,7 +206,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BCE3B588C96AD83010123AA0 /* WebRTC in Frameworks */,
-				959695C479172277F7554932 /* ApsidesCore in Frameworks */,
+				959695C479172277F7554932 /* EnchiridionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -214,7 +214,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				39B389E75543649FED8AB0BB /* ApsidesCore in Frameworks */,
+				39B389E75543649FED8AB0BB /* EnchiridionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -223,7 +223,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E15BB472DAE847B42414E8CB /* WebRTC in Frameworks */,
-				772C1AD549EAC3DDCC1E5CAD /* ApsidesCore in Frameworks */,
+				772C1AD549EAC3DDCC1E5CAD /* EnchiridionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,7 +233,7 @@
 		18D3EE2C08DD85150EA11FE1 /* Widget */ = {
 			isa = PBXGroup;
 			children = (
-				64D80FE81C972E5B6D985C5F /* ApsidesWidget.swift */,
+				64D80FE81C972E5B6D985C5F /* EnchiridionWidget.swift */,
 			);
 			name = Widget;
 			path = Sources/Widget;
@@ -266,11 +266,11 @@
 		76F464A0A386540253CDCE5C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				83D84418589D887D76F550C8 /* ApsidesIOS.app */,
-				1D06C340DEE3D3A23068E941 /* ApsidesMac.app */,
-				38997F6D4D948D13A4974CC7 /* ApsidesUITests.xctest */,
-				064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */,
-				75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */,
+				83D84418589D887D76F550C8 /* EnchiridionIOS.app */,
+				1D06C340DEE3D3A23068E941 /* EnchiridionMac.app */,
+				38997F6D4D948D13A4974CC7 /* EnchiridionUITests.xctest */,
+				064525E0DE0D2E612EF6F3B7 /* EnchiridionWatch.app */,
+				75C9428C75CDA89D29F0BDFB /* EnchiridionWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -329,7 +329,7 @@
 		BC04B2ECAFA9B98E93D8E41E /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				9B99282C0E6F2FE75121AB78 /* ApsidesUITests.swift */,
+				9B99282C0E6F2FE75121AB78 /* EnchiridionUITests.swift */,
 			);
 			name = UI;
 			path = Tests/UI;
@@ -338,7 +338,7 @@
 		CD3A70DCD560A52819D4A8A9 /* Watch */ = {
 			isa = PBXGroup;
 			children = (
-				531EF1CDB23572DD6BCAACEB /* ApsidesWatchApp.swift */,
+				531EF1CDB23572DD6BCAACEB /* EnchiridionWatchApp.swift */,
 				0F3AD27230C2A97DD1EEE835 /* WatchStore.swift */,
 			);
 			name = Watch;
@@ -357,8 +357,8 @@
 		D35D04D13F849E17AB7EC502 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				3045B1CAC13E5377DB178446 /* ApsidesApp.swift */,
-				83484C5F6B26C864D2C0767F /* ApsidesAppDelegate.swift */,
+				3045B1CAC13E5377DB178446 /* EnchiridionApp.swift */,
+				83484C5F6B26C864D2C0767F /* EnchiridionAppDelegate.swift */,
 				8D9A1EBBC62157B945574E86 /* DemoContent.swift */,
 				FC50A9D2B93754743886B1A3 /* TaskListProjection.swift */,
 				82D339ED709F3AE9E20B8181 /* TaskModels.swift */,
@@ -372,9 +372,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		043B0693B95676408BEC2C9B /* ApsidesMac */ = {
+		043B0693B95676408BEC2C9B /* EnchiridionMac */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 46A56078BE9D7575170202BA /* Build configuration list for PBXNativeTarget "ApsidesMac" */;
+			buildConfigurationList = 46A56078BE9D7575170202BA /* Build configuration list for PBXNativeTarget "EnchiridionMac" */;
 			buildPhases = (
 				FE13C692D9187B721DA90D55 /* Sources */,
 				D2D00A3E0BC631C9D248DF4F /* Resources */,
@@ -385,18 +385,18 @@
 			);
 			dependencies = (
 			);
-			name = ApsidesMac;
+			name = EnchiridionMac;
 			packageProductDependencies = (
 				53AF96BC55A2445438CAF7FC /* WebRTC */,
-				14A63658B3EA59F83FB92B5B /* ApsidesCore */,
+				14A63658B3EA59F83FB92B5B /* EnchiridionCore */,
 			);
-			productName = ApsidesMac;
-			productReference = 1D06C340DEE3D3A23068E941 /* ApsidesMac.app */;
+			productName = EnchiridionMac;
+			productReference = 1D06C340DEE3D3A23068E941 /* EnchiridionMac.app */;
 			productType = "com.apple.product-type.application";
 		};
-		2B0F3640374409FBF6F52D67 /* ApsidesWidget */ = {
+		2B0F3640374409FBF6F52D67 /* EnchiridionWidget */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C7C63AC85BD6F6D5DB250944 /* Build configuration list for PBXNativeTarget "ApsidesWidget" */;
+			buildConfigurationList = C7C63AC85BD6F6D5DB250944 /* Build configuration list for PBXNativeTarget "EnchiridionWidget" */;
 			buildPhases = (
 				107C7BB8D47E7D629046BF97 /* Sources */,
 				46F2924F6E17A44CBBA9EBEF /* Frameworks */,
@@ -405,17 +405,17 @@
 			);
 			dependencies = (
 			);
-			name = ApsidesWidget;
+			name = EnchiridionWidget;
 			packageProductDependencies = (
-				1EA8645593814310160E36B3 /* ApsidesCore */,
+				1EA8645593814310160E36B3 /* EnchiridionCore */,
 			);
-			productName = ApsidesWidget;
-			productReference = 75C9428C75CDA89D29F0BDFB /* ApsidesWidget.appex */;
+			productName = EnchiridionWidget;
+			productReference = 75C9428C75CDA89D29F0BDFB /* EnchiridionWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		388285793BA8F6ECF0CBD91D /* ApsidesUITests */ = {
+		388285793BA8F6ECF0CBD91D /* EnchiridionUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5FD89DC5A439C22134A3882F /* Build configuration list for PBXNativeTarget "ApsidesUITests" */;
+			buildConfigurationList = 5FD89DC5A439C22134A3882F /* Build configuration list for PBXNativeTarget "EnchiridionUITests" */;
 			buildPhases = (
 				3145593D44A55BF3C96C2EC0 /* Sources */,
 			);
@@ -424,16 +424,16 @@
 			dependencies = (
 				E96356811A4B07084DE20DF1 /* PBXTargetDependency */,
 			);
-			name = ApsidesUITests;
+			name = EnchiridionUITests;
 			packageProductDependencies = (
 			);
-			productName = ApsidesUITests;
-			productReference = 38997F6D4D948D13A4974CC7 /* ApsidesUITests.xctest */;
+			productName = EnchiridionUITests;
+			productReference = 38997F6D4D948D13A4974CC7 /* EnchiridionUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		D14506CD77A86C6454802600 /* ApsidesIOS */ = {
+		D14506CD77A86C6454802600 /* EnchiridionIOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 042E916FD7AF2DA84E95B064 /* Build configuration list for PBXNativeTarget "ApsidesIOS" */;
+			buildConfigurationList = 042E916FD7AF2DA84E95B064 /* Build configuration list for PBXNativeTarget "EnchiridionIOS" */;
 			buildPhases = (
 				36195CC5FDB0483E810A9123 /* Sources */,
 				D3C39F0F187C3A61D259C411 /* Resources */,
@@ -448,18 +448,18 @@
 				F4CE05FEC44E9F5BA1A6F94F /* PBXTargetDependency */,
 				BEBDBF37F722559EF1BBFE13 /* PBXTargetDependency */,
 			);
-			name = ApsidesIOS;
+			name = EnchiridionIOS;
 			packageProductDependencies = (
 				8280CA1FB8524F7B7DC3EECE /* WebRTC */,
-				3F74FC662D9F3E7F5865B333 /* ApsidesCore */,
+				3F74FC662D9F3E7F5865B333 /* EnchiridionCore */,
 			);
-			productName = ApsidesIOS;
-			productReference = 83D84418589D887D76F550C8 /* ApsidesIOS.app */;
+			productName = EnchiridionIOS;
+			productReference = 83D84418589D887D76F550C8 /* EnchiridionIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
-		D820F41B1C45F40CD9A7610A /* ApsidesWatch */ = {
+		D820F41B1C45F40CD9A7610A /* EnchiridionWatch */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 417183EC7C58037A82B06BBB /* Build configuration list for PBXNativeTarget "ApsidesWatch" */;
+			buildConfigurationList = 417183EC7C58037A82B06BBB /* Build configuration list for PBXNativeTarget "EnchiridionWatch" */;
 			buildPhases = (
 				332289A6DB3B6B46DAA5324B /* Sources */,
 				5DD99618A1525D920DBA25FD /* Resources */,
@@ -469,12 +469,12 @@
 			);
 			dependencies = (
 			);
-			name = ApsidesWatch;
+			name = EnchiridionWatch;
 			packageProductDependencies = (
-				AA869EC6CD92F535B5CAFA73 /* ApsidesCore */,
+				AA869EC6CD92F535B5CAFA73 /* EnchiridionCore */,
 			);
-			productName = ApsidesWatch;
-			productReference = 064525E0DE0D2E612EF6F3B7 /* ApsidesWatch.app */;
+			productName = EnchiridionWatch;
+			productReference = 064525E0DE0D2E612EF6F3B7 /* EnchiridionWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -509,7 +509,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 74133A46D723AB1B0547D804 /* Build configuration list for PBXProject "Apsides" */;
+			buildConfigurationList = 74133A46D723AB1B0547D804 /* Build configuration list for PBXProject "Enchiridion" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -527,11 +527,11 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				043B0693B95676408BEC2C9B /* ApsidesMac */,
-				D14506CD77A86C6454802600 /* ApsidesIOS */,
-				D820F41B1C45F40CD9A7610A /* ApsidesWatch */,
-				2B0F3640374409FBF6F52D67 /* ApsidesWidget */,
-				388285793BA8F6ECF0CBD91D /* ApsidesUITests */,
+				043B0693B95676408BEC2C9B /* EnchiridionMac */,
+				D14506CD77A86C6454802600 /* EnchiridionIOS */,
+				D820F41B1C45F40CD9A7610A /* EnchiridionWatch */,
+				2B0F3640374409FBF6F52D67 /* EnchiridionWidget */,
+				388285793BA8F6ECF0CBD91D /* EnchiridionUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -613,7 +613,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6EC5127F1939AF9DD4231868 /* ApsidesWidget.swift in Sources */,
+				6EC5127F1939AF9DD4231868 /* EnchiridionWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -621,7 +621,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C82A6683C503096AC1348FE4 /* ApsidesUITests.swift in Sources */,
+				C82A6683C503096AC1348FE4 /* EnchiridionUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -629,7 +629,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D4903F9387256FB7DF03B15 /* ApsidesWatchApp.swift in Sources */,
+				4D4903F9387256FB7DF03B15 /* EnchiridionWatchApp.swift in Sources */,
 				1133FE0C24EE7C25AB0AF3E2 /* WatchBridge.swift in Sources */,
 				EF46BF728F689773AF42C0ED /* WatchStore.swift in Sources */,
 			);
@@ -640,8 +640,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				C583934A6EEF52563C18D434 /* AgendaView.swift in Sources */,
-				9B0FA25BB4332B78A36EA41E /* ApsidesApp.swift in Sources */,
-				EF5199F0D07EAA7247C7B4A1 /* ApsidesAppDelegate.swift in Sources */,
+				9B0FA25BB4332B78A36EA41E /* EnchiridionApp.swift in Sources */,
+				EF5199F0D07EAA7247C7B4A1 /* EnchiridionAppDelegate.swift in Sources */,
 				D9BE3EE5987288E5E9D7CEB3 /* CalendarColor.swift in Sources */,
 				7CCF5422835131563D562DC8 /* CaptureIntent.swift in Sources */,
 				E6222213B492B702E9D33154 /* CaptureViews.swift in Sources */,
@@ -680,8 +680,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A740431E00A1C66E33802D03 /* AgendaView.swift in Sources */,
-				43B89668E105556DE7A4E71F /* ApsidesApp.swift in Sources */,
-				80E9F389FA2A7286FA367D34 /* ApsidesAppDelegate.swift in Sources */,
+				43B89668E105556DE7A4E71F /* EnchiridionApp.swift in Sources */,
+				80E9F389FA2A7286FA367D34 /* EnchiridionAppDelegate.swift in Sources */,
 				C278B4B6920D6FC9271AEAA4 /* CalendarColor.swift in Sources */,
 				75D4BAF44BC0FFEC0F565C78 /* CaptureIntent.swift in Sources */,
 				1D2F0B9C2C1710A1AA13D305 /* CaptureViews.swift in Sources */,
@@ -720,17 +720,17 @@
 /* Begin PBXTargetDependency section */
 		BEBDBF37F722559EF1BBFE13 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 2B0F3640374409FBF6F52D67 /* ApsidesWidget */;
+			target = 2B0F3640374409FBF6F52D67 /* EnchiridionWidget */;
 			targetProxy = E169B456B35B947010D4CB97 /* PBXContainerItemProxy */;
 		};
 		E96356811A4B07084DE20DF1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = D14506CD77A86C6454802600 /* ApsidesIOS */;
+			target = D14506CD77A86C6454802600 /* EnchiridionIOS */;
 			targetProxy = 507B0704F44C80CFCA3AA701 /* PBXContainerItemProxy */;
 		};
 		F4CE05FEC44E9F5BA1A6F94F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = D820F41B1C45F40CD9A7610A /* ApsidesWatch */;
+			target = D820F41B1C45F40CD9A7610A /* EnchiridionWatch */;
 			targetProxy = E19AA9F27CEAE770263AD2DE /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -911,7 +911,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = ApsidesIOS;
+				TEST_TARGET_NAME = EnchiridionIOS;
 			};
 			name = Release;
 		};
@@ -942,7 +942,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = rawkode.academy.enchiridion.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = ApsidesIOS;
+				TEST_TARGET_NAME = EnchiridionIOS;
 			};
 			name = Debug;
 		};
@@ -1050,7 +1050,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		042E916FD7AF2DA84E95B064 /* Build configuration list for PBXNativeTarget "ApsidesIOS" */ = {
+		042E916FD7AF2DA84E95B064 /* Build configuration list for PBXNativeTarget "EnchiridionIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				40C49E7327D5994463CFF1FA /* Debug */,
@@ -1059,7 +1059,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		417183EC7C58037A82B06BBB /* Build configuration list for PBXNativeTarget "ApsidesWatch" */ = {
+		417183EC7C58037A82B06BBB /* Build configuration list for PBXNativeTarget "EnchiridionWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3923BD0624C715D1ECEEA710 /* Debug */,
@@ -1068,7 +1068,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		46A56078BE9D7575170202BA /* Build configuration list for PBXNativeTarget "ApsidesMac" */ = {
+		46A56078BE9D7575170202BA /* Build configuration list for PBXNativeTarget "EnchiridionMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				58E50749015958539558D3E6 /* Debug */,
@@ -1077,7 +1077,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		5FD89DC5A439C22134A3882F /* Build configuration list for PBXNativeTarget "ApsidesUITests" */ = {
+		5FD89DC5A439C22134A3882F /* Build configuration list for PBXNativeTarget "EnchiridionUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BC34D81FB576A6662164DA91 /* Debug */,
@@ -1086,7 +1086,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		74133A46D723AB1B0547D804 /* Build configuration list for PBXProject "Apsides" */ = {
+		74133A46D723AB1B0547D804 /* Build configuration list for PBXProject "Enchiridion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				5DCDEA8C18F8BF1BE5EBA533 /* Debug */,
@@ -1095,7 +1095,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		C7C63AC85BD6F6D5DB250944 /* Build configuration list for PBXNativeTarget "ApsidesWidget" */ = {
+		C7C63AC85BD6F6D5DB250944 /* Build configuration list for PBXNativeTarget "EnchiridionWidget" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				202291E4361656CC5F91EEFD /* Debug */,
@@ -1118,17 +1118,17 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		14A63658B3EA59F83FB92B5B /* ApsidesCore */ = {
+		14A63658B3EA59F83FB92B5B /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ApsidesCore;
+			productName = EnchiridionCore;
 		};
-		1EA8645593814310160E36B3 /* ApsidesCore */ = {
+		1EA8645593814310160E36B3 /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ApsidesCore;
+			productName = EnchiridionCore;
 		};
-		3F74FC662D9F3E7F5865B333 /* ApsidesCore */ = {
+		3F74FC662D9F3E7F5865B333 /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ApsidesCore;
+			productName = EnchiridionCore;
 		};
 		53AF96BC55A2445438CAF7FC /* WebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1138,9 +1138,9 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = WebRTC;
 		};
-		AA869EC6CD92F535B5CAFA73 /* ApsidesCore */ = {
+		AA869EC6CD92F535B5CAFA73 /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ApsidesCore;
+			productName = EnchiridionCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

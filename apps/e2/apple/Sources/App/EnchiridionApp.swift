@@ -1,17 +1,17 @@
 import SwiftUI
 
 @main
-struct ApsidesApp: App {
+struct EnchiridionApp: App {
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
     #if os(iOS)
-    @UIApplicationDelegateAdaptor(ApsidesAppDelegate.self) private var applicationDelegate
+    @UIApplicationDelegateAdaptor(EnchiridionAppDelegate.self) private var applicationDelegate
     private var store: WorkspaceStore { applicationDelegate.store }
     #else
     @StateObject private var store = WorkspaceStore()
     #endif
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     var body: some Scene {
         #if os(macOS)
         WindowGroup {
@@ -24,7 +24,7 @@ struct ApsidesApp: App {
             CommandGroup(after: .newItem) {
                 Button("Voice Conversation") { openWindow(id: "voice") }.keyboardShortcut("v", modifiers: [.command, .shift])
                 Button("Quick Capture") { store.capturePresented = true }.keyboardShortcut("n", modifiers: [.command, .shift])
-                Button("Today") { NotificationCenter.default.post(name: Notification.Name("apsidesShowToday"), object: nil) }.keyboardShortcut("t", modifiers: [.command])
+                Button("Today") { NotificationCenter.default.post(name: Notification.Name("enchiridionShowToday"), object: nil) }.keyboardShortcut("t", modifiers: [.command])
             }
         }
         Window("Voice — Enchiridion", id: "voice") {

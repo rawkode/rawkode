@@ -247,7 +247,7 @@ enum LinkMetadataResolver {
         let portHeader = url.port.map { ":\($0)" } ?? ""
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let path = (components?.percentEncodedPath.isEmpty == false ? components!.percentEncodedPath : "/") + (components?.percentEncodedQuery.map { "?\($0)" } ?? "")
-        let request = "GET \(path) HTTP/1.1\r\nHost: \(hostHeader)\(portHeader)\r\nAccept: text/html,application/json,video/*;q=0.8,*/*;q=0.5\r\nAccept-Encoding: identity\r\nConnection: close\r\nUser-Agent: ApsidesLinkPreview/1\r\n\r\n"
+        let request = "GET \(path) HTTP/1.1\r\nHost: \(hostHeader)\(portHeader)\r\nAccept: text/html,application/json,video/*;q=0.8,*/*;q=0.5\r\nAccept-Encoding: identity\r\nConnection: close\r\nUser-Agent: EnchiridionLinkPreview/1\r\n\r\n"
         try await send(Data(request.utf8), on: connection)
         return try await receive(on: connection)
     }

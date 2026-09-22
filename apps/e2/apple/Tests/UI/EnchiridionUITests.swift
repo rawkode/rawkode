@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor
-final class ApsidesUITests: XCTestCase {
+final class EnchiridionUITests: XCTestCase {
     private var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -110,7 +110,7 @@ final class ApsidesUITests: XCTestCase {
     func testVoiceOpensWithoutStartingMicrophone() throws {
         #if os(iOS)
         app.terminate()
-        app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = "http://127.0.0.1:9"
+        app.launchEnvironment["ENCHIRIDION_EDITOR_TEST_ORIGIN"] = "http://127.0.0.1:9"
         app.launch()
         openWorkspaceSidebar()
         let voice = app.buttons["openVoiceConversation"]
@@ -209,7 +209,7 @@ final class ApsidesUITests: XCTestCase {
         relaunchPreservingData()
         XCTAssertTrue(app.descendants(matching: .any)["Release week"].firstMatch.waitForExistence(timeout: 5))
         openContext("GitHub")
-        XCTAssertTrue(app.staticTexts["rawkode/apsides"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["rawkode/enchiridion"].waitForExistence(timeout: 5))
     }
 
     func testFreshLaunchHasEmptyDaybookAndCaptures() {
@@ -316,7 +316,7 @@ final class ApsidesUITests: XCTestCase {
     func testRepositoryOpensTimelineAndFiltersActivityType() {
         launchDemo()
         openContext("GitHub")
-        let repository = app.staticTexts["rawkode/apsides"].firstMatch
+        let repository = app.staticTexts["rawkode/enchiridion"].firstMatch
         XCTAssertTrue(repository.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["1 activity"].exists)
         activate(repository)
@@ -508,7 +508,7 @@ final class ApsidesUITests: XCTestCase {
 
     func testWebEditorMentionListsAndInsertsEntity() throws {
         let editor = try launchWebEditor()
-        let entity = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ENTITY"] ?? "Ada Lovelace"
+        let entity = ProcessInfo.processInfo.environment["ENCHIRIDION_EDITOR_TEST_ENTITY"] ?? "Ada Lovelace"
         activate(editor)
         editor.typeText("\n@\(entity)")
         let match = app.webViews.descendants(matching: .any).matching(
@@ -589,12 +589,12 @@ final class ApsidesUITests: XCTestCase {
 
     @discardableResult
     private func launchWebEditor() throws -> XCUIElement {
-        guard let origin = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ORIGIN"],
+        guard let origin = ProcessInfo.processInfo.environment["ENCHIRIDION_EDITOR_TEST_ORIGIN"],
               !origin.isEmpty, !origin.hasPrefix("$(") else {
-            throw XCTSkip("Set APSIDES_EDITOR_TEST_ORIGIN to the running editor fixture to test the real WKWebView.")
+            throw XCTSkip("Set ENCHIRIDION_EDITOR_TEST_ORIGIN to the running editor fixture to test the real WKWebView.")
         }
         app.terminate()
-        app.launchEnvironment["APSIDES_EDITOR_TEST_ORIGIN"] = origin
+        app.launchEnvironment["ENCHIRIDION_EDITOR_TEST_ORIGIN"] = origin
         app.launchArguments = ["--ui-testing", "--reset-test-data"]
         app.launch()
         openDailyNoteIfNeeded()

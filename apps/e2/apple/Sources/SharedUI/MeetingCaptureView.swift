@@ -1,10 +1,10 @@
 #if os(iOS)
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct MeetingCaptureLibraryView: View {
     @ObservedObject var store: WorkspaceStore
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var selected: MeetingCaptureSelection?
 
     var body: some View {
@@ -56,7 +56,7 @@ private struct MeetingCaptureView: View {
     private let ownerID: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var participantsInformed = false
     @State private var closing = false
     @State private var showingNotes = false

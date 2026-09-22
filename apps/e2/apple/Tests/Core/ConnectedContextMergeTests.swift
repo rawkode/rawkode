@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class ConnectedContextMergeTests: XCTestCase {
     func testPartialCalendarStaysUnpublishableToWatchAfterPersistence() throws {

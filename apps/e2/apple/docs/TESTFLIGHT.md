@@ -1,10 +1,10 @@
 # Enchiridion via Xcode Cloud
 
-The checked-in `Apsides.xcodeproj` is the cloud build input. Its internal target
-names remain stable; the installed app is Enchiridion. The local Swift package
-has no external dependencies. Cloud builds need no Homebrew, XcodeGen, Deno,
-1Password, local signing certificate, or device registration. Regenerate the
-project locally after editing `project.yml` and commit both files.
+The checked-in `Enchiridion.xcodeproj` is the cloud build input. Its internal
+target names remain stable; the installed app is Enchiridion. The local Swift
+package has no external dependencies. Cloud builds need no Homebrew, XcodeGen,
+Deno, 1Password, local signing certificate, or device registration. Regenerate
+the project locally after editing `project.yml` and commit both files.
 
 ## First workflow
 
@@ -15,15 +15,16 @@ project locally after editing `project.yml` and commit both files.
    `group.rawkode.academy.enchiridion`.
 2. Create the Enchiridion iOS app record with that iOS bundle ID in App Store
    Connect. The Watch app is embedded in the iOS app, not a separate app record.
-3. Open `apps/e2/apple/Apsides.xcodeproj` in Xcode. Start Xcode Cloud
+3. Open `apps/e2/apple/Enchiridion.xcodeproj` in Xcode. Start Xcode Cloud
    onboarding, choose the iOS product and authorize repository access to
    `rawkode/rawkode`.
 4. Create an **Enchiridion Internal TestFlight** workflow using the shared
-   `ApsidesIOS` scheme. Select an available Xcode version supporting all APIs in
-   this project (locally validated with Xcode 27; deployment targets remain 26).
-   Use an Archive action for iOS, Release configuration, and TestFlight internal
-   testing distribution. Enable automatic signing. Start with a manual build of
-   the reviewed release branch; add a branch-change condition after it succeeds.
+   `EnchiridionIOS` scheme. Select an available Xcode version supporting all
+   APIs in this project (locally validated with Xcode 27; deployment targets
+   remain 26). Use an Archive action for iOS, Release configuration, and
+   TestFlight internal testing distribution. Enable automatic signing. Start
+   with a manual build of the reviewed release branch; add a branch-change
+   condition after it succeeds.
 5. Add a TestFlight internal testing group containing the intended App Store
    Connect users, enable automatic distribution, and select it in the workflow's
    TestFlight post-action. Complete any required beta information and export
@@ -40,10 +41,10 @@ project and all Swift dependencies are already in the repository.
 
 ## Identity and installation
 
-The new bundle ID installs alongside the old Apsides development app. Its native
-sandbox and App Group are new: existing on-device notes and captures do not move
-automatically. Connected server notes remain on the existing service. Keep the
-old app installed to retain access to its local data.
+The new bundle ID installs alongside the old Enchiridion development app. Its
+native sandbox and App Group are new: existing on-device notes and captures do
+not move automatically. Connected server notes remain on the existing service.
+Keep the old app installed to retain access to its local data.
 
 The Mac product uses `rawkode.academy.enchiridion.mac`; it needs its own App
 Store Connect product/workflow and distribution qualification. The first
@@ -135,7 +136,7 @@ availability still require confirmation in App Store Connect.
 
 The website production plan now executes in GitHub Actions, but run
 `34700483957` stops before Alchemy because the existing 1Password service
-account cannot resolve the `apsides` vault. Required vault visibility or the
+account cannot resolve the `enchiridion` vault. Required vault visibility or the
 verified secret references must be corrected before production deployment. No
 website changes were deployed by that run.
 

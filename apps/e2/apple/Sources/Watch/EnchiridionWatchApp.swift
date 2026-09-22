@@ -1,8 +1,8 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 @main
-struct ApsidesWatchApp: App {
+struct EnchiridionWatchApp: App {
     @StateObject private var store = WatchStore()
     @Environment(\.scenePhase) private var scenePhase
 

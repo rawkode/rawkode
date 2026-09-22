@@ -1,7 +1,7 @@
 import { expect } from "expect";
 import { forwardVoiceRequest } from "../src/lib/voice.ts";
 
-const origin = "https://apsides.rawkode.academy";
+const origin = "https://enchiridion.rawkode.academy";
 
 Deno.test("voice proxy forwards POST status and rejects GET status", async () => {
 	let calls = 0;

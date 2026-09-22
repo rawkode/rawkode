@@ -17,7 +17,7 @@ public struct VaultPersistence: Sendable {
     public init(url: URL) { self.url = url }
     public static func defaultURL() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Apsides", isDirectory: true).appendingPathComponent("notebook.json")
+            .appendingPathComponent("Enchiridion", isDirectory: true).appendingPathComponent("notebook.json")
     }
     public func load() throws -> Vault {
         guard FileManager.default.fileExists(atPath: url.path) else { return Vault() }

@@ -2,7 +2,7 @@ import { expect } from "expect";
 import { authenticate, sameOriginPost } from "../src/lib/auth.ts";
 import { readForm, requiredField } from "../src/lib/forms.ts";
 
-const origin = "https://apsides.rawkode.academy";
+const origin = "https://enchiridion.rawkode.academy";
 const config = {
 	WEBSITE_ORIGIN: origin,
 	ACCESS_TEAM_DOMAIN: "example.cloudflareaccess.com",

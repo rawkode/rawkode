@@ -16,7 +16,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private var stateRetry: Task<Void, Never>?
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene, didConnect interfaceController: CPInterfaceController) {
-        guard #available(iOS 26.4, *), let store = ApsidesAppDelegate.current?.store else { return }
+        guard #available(iOS 26.4, *), let store = EnchiridionAppDelegate.current?.store else { return }
         self.store = store
         controller = interfaceController
         interfaceController.delegate = self

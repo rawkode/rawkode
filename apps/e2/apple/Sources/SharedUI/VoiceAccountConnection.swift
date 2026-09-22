@@ -4,7 +4,7 @@ import SwiftUI
 /// Account recovery stays beside the action that needs it, using the editor's cookie store.
 struct VoiceAccountConnection: View {
     @ObservedObject var session: NativeSession
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var signInPresented = false
     @State private var checkID = 0
 

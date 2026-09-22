@@ -6,7 +6,7 @@ struct TodayView: View {
     @ObservedObject var store: WorkspaceStore
     let showAgenda: () -> Void
     @StateObject private var editor: WebEditorController
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
 
     init(store: WorkspaceStore, showAgenda: @escaping () -> Void, editor: WebEditorController? = nil) {
         self.store = store

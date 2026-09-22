@@ -18,7 +18,7 @@ const theme = Astro.url.searchParams.get('theme') === 'dark' ? 'dark' : 'dawn';
     <meta name="robots" content="noindex,nofollow" />
     <title>Today · Enchiridion</title>
     <script is:inline>
-      window.addEventListener('apsides-theme-change', (event) => {
+      window.addEventListener('enchiridion-theme-change', (event) => {
         const theme = event.detail?.theme;
         if (theme === 'dark' || theme === 'dawn') document.documentElement.dataset.theme = theme;
       });

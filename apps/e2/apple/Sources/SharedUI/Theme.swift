@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum ApsidesTheme: String, CaseIterable, Identifiable {
+enum EnchiridionTheme: String, CaseIterable, Identifiable {
     case dawn, dark
     var id: String { rawValue }
     var label: String { self == .dawn ? "Rosé Pine Dawn" : "Rosé Pine Dark" }
@@ -16,9 +16,9 @@ extension Color {
 }
 
 /// Keep automated appearance tests separate from the user’s saved palette.
-enum ApsidesPreferences {
+enum EnchiridionPreferences {
     static var store: UserDefaults {
         ProcessInfo.processInfo.arguments.contains("--ui-testing")
-            ? UserDefaults(suiteName: "dev.rawkode.apsides.ui-tests")! : .standard
+            ? UserDefaults(suiteName: "dev.rawkode.enchiridion.ui-tests")! : .standard
     }
 }

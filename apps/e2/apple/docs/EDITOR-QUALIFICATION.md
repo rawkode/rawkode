@@ -28,10 +28,10 @@ Context → On this device.
 - Independent read-only integration review caught a formatting-control anchor
   that could overlap document text; the final placement and test correct it.
 
-Machine-local evidence: `/tmp/apsides-editor-qualified.xcresult` (four final
-editor tests), `/tmp/apsides-editor-final-tests.xcresult` (eight native journeys
-passed; an earlier mention assertion was corrected in the final run), and
-`/tmp/apsides-editor-verify.log` (shared verification).
+Machine-local evidence: `/tmp/enchiridion-editor-qualified.xcresult` (four final
+editor tests), `/tmp/enchiridion-editor-final-tests.xcresult` (eight native
+journeys passed; an earlier mention assertion was corrected in the final run),
+and `/tmp/enchiridion-editor-verify.log` (shared verification).
 
 ## Screenshots
 

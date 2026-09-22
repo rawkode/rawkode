@@ -4,14 +4,14 @@ import WebKit
 struct SettingsView: View {
     @ObservedObject var store: WorkspaceStore
     @ObservedObject var session: NativeSession
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var signIn = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             Form {
                 Section("Appearance") {
-                    Picker("Palette", selection: $theme) { ForEach(ApsidesTheme.allCases) { Text($0.label).tag($0) } }
+                    Picker("Palette", selection: $theme) { ForEach(EnchiridionTheme.allCases) { Text($0.label).tag($0) } }
                 }
                 Section("Enchiridion account") {
                     Text(session.email ?? session.origin.host ?? "Enchiridion").font(.callout)

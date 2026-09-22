@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class MeetingTranscriptTests: XCTestCase {
     func segment(_ id: MeetingSegmentID, _ revision: Int, _ text: String, final: Bool = false, start: Double = 0) throws -> MeetingTranscriptSegment {

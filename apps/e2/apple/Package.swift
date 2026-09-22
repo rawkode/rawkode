@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ApsidesCore",
+    name: "EnchiridionCore",
     platforms: [.macOS("26.0"), .iOS("26.0"), .watchOS("26.0")],
-    products: [.library(name: "ApsidesCore", targets: ["ApsidesCore"])],
+    products: [.library(name: "EnchiridionCore", targets: ["EnchiridionCore"])],
     targets: [
-        .target(name: "ApsidesCore", path: "Sources/Core"),
-        .testTarget(name: "ApsidesCoreTests", dependencies: ["ApsidesCore"], path: "Tests/Core")
+        .target(name: "EnchiridionCore", path: "Sources/Core"),
+        .testTarget(name: "EnchiridionCoreTests", dependencies: ["EnchiridionCore"], path: "Tests/Core")
     ]
 )

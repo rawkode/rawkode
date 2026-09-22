@@ -1,5 +1,5 @@
 #if os(iOS) || os(macOS)
-import ApsidesCore
+import EnchiridionCore
 import Combine
 import Foundation
 import WebKit

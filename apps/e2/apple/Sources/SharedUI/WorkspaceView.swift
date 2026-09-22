@@ -26,7 +26,7 @@ struct WorkspaceView: View {
     @State private var voicePresented = false
     @State private var contextPath: [WorkspaceDestination] = []
     @Namespace private var captureTransition
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
@@ -55,9 +55,9 @@ struct WorkspaceView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { store.importSpool() } }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesCaptureArrived"))) { _ in store.importSpool() }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesShowToday"))) { _ in selection = .today; contextPath = []; todayRecenter += 1; store.selectedDay = .now }
-        .onOpenURL { url in if ["apsides", "enchiridion"].contains(url.scheme ?? "") {
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("enchiridionCaptureArrived"))) { _ in store.importSpool() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("enchiridionShowToday"))) { _ in selection = .today; contextPath = []; todayRecenter += 1; store.selectedDay = .now }
+        .onOpenURL { url in if ["enchiridion", "enchiridion"].contains(url.scheme ?? "") {
             if url.host == "capture" { store.capturePresented = true }
             if url.host == "today" { selection = .today; contextPath = []; todayRecenter += 1; store.selectedDay = .now }
         } }

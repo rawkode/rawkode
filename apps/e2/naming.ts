@@ -1,2 +1,2 @@
 export const workerName = (name: string, stage: string): string =>
-	`apsides-${name}${stage === "production" ? "" : `-${stage}`}`;
+	`enchiridion-${name}${stage === "production" ? "" : `-${stage}`}`;

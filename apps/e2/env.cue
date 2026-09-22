@@ -102,34 +102,34 @@ env: schema.#Env & {
 	}
 	environment: {
 		production: {
-			WEBSITE_DOMAIN: "apsides.rawkode.academy"
+			WEBSITE_DOMAIN: "enchiridion.rawkode.academy"
 		}
 		development: {
-			WEBSITE_DOMAIN: "apsides.rawkode.dev"
+			WEBSITE_DOMAIN: "enchiridion.rawkode.dev"
 		}
 	}
 	GOOGLE_CLIENT_ID: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-google/username"
+		ref: "op://enchiridion/integration-google/username"
 	}
 	GOOGLE_CLIENT_SECRET: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-google/password"
+		ref: "op://enchiridion/integration-google/password"
 	}
 	GITHUB_CLIENT_ID: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github/username"
+		ref: "op://enchiridion/integration-github/username"
 	}
 	GITHUB_CLIENT_SECRET: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github/password"
+		ref: "op://enchiridion/integration-github/password"
 	}
 	GITHUB_APP_ID: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github-app/app-id"
+		ref: "op://enchiridion/integration-github-app/app-id"
 	}
 	GITHUB_APP_SLUG: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github-app/slug"
+		ref: "op://enchiridion/integration-github-app/slug"
 	}
 	GITHUB_APP_PRIVATE_KEY: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github-app/private-key"
+		ref: "op://enchiridion/integration-github-app/private-key"
 	}
 	GITHUB_APP_WEBHOOK_SECRET: schema.#OnePasswordRef & {
-		ref: "op://apsides/integration-github-app/webhook-secret"
+		ref: "op://enchiridion/integration-github-app/webhook-secret"
 	}
 }

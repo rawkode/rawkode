@@ -2,17 +2,17 @@
 
 A Deno workspace of Cloudflare Workers, deployed with Alchemy v2.
 
-| Worker                        | Responsibility                                                                             | Deployment                       |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------- |
-| `apsides-core-documents`      | Owner-scoped daily notes in Durable Object SQLite                                          | `core/documents/alchemy.ts`      |
-| `apsides-api`                 | Composed GraphQL queries over owner-scoped integration services                            | `api/alchemy.ts`                 |
-| `apsides-website`             | Account management, Google contacts and events, authenticated gateway                      | `website/alchemy.ts`             |
-| `apsides-integrations-oauth`  | Google/GitHub OAuth, encrypted credentials and tokens, service grants                      | `integrations/oauth/alchemy.ts`  |
-| `apsides-integrations-google` | Calendar/contact mirrors, Gmail search and notifications, account sync                     | `integrations/google/alchemy.ts` |
-| `apsides-integrations-github` | OAuth-backed profile, repository, issue, pull request, discussion, and Today activity data | `integrations/github/alchemy.ts` |
+| Worker                            | Responsibility                                                                             | Deployment                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------- |
+| `enchiridion-core-documents`      | Owner-scoped daily notes in Durable Object SQLite                                          | `core/documents/alchemy.ts`      |
+| `enchiridion-api`                 | Composed GraphQL queries over owner-scoped integration services                            | `api/alchemy.ts`                 |
+| `enchiridion-website`             | Account management, Google contacts and events, authenticated gateway                      | `website/alchemy.ts`             |
+| `enchiridion-integrations-oauth`  | Google/GitHub OAuth, encrypted credentials and tokens, service grants                      | `integrations/oauth/alchemy.ts`  |
+| `enchiridion-integrations-google` | Calendar/contact mirrors, Gmail search and notifications, account sync                     | `integrations/google/alchemy.ts` |
+| `enchiridion-integrations-github` | OAuth-backed profile, repository, issue, pull request, discussion, and Today activity data | `integrations/github/alchemy.ts` |
 
-`naming.ts` defines the shared `apsides-` Worker prefix and full stage suffix
-rule. Each deployment uses `workerName(logicalName, stage)`.
+`naming.ts` defines the shared `enchiridion-` Worker prefix and full stage
+suffix rule. Each deployment uses `workerName(logicalName, stage)`.
 
 Each Worker defines its own resources, bindings, secrets, migrations, and
 schedules. The root `alchemy.run.ts` imports and connects these definitions in
@@ -60,10 +60,10 @@ Durable Object classes contain thin prototype adapters.
 deployment token directly from 1Password and supplies the website domain.
 Deployment code derives its HTTPS origin from `WEBSITE_DOMAIN`:
 
-| cuenv environment | Alchemy stage | Website                           |
-| ----------------- | ------------- | --------------------------------- |
-| `development`     | `development` | `https://apsides.rawkode.dev`     |
-| `production`      | `production`  | `https://apsides.rawkode.academy` |
+| cuenv environment | Alchemy stage | Website                               |
+| ----------------- | ------------- | ------------------------------------- |
+| `development`     | `development` | `https://enchiridion.rawkode.dev`     |
+| `production`      | `production`  | `https://enchiridion.rawkode.academy` |
 
 Run from `apps/e2` with 1Password authentication available to cuenv. The
 configured Cloudflare token must cover the account that owns both zones:
@@ -85,13 +85,13 @@ automatically; no manually copied audience value is needed.
 
 Register both exact Google OAuth redirect URIs:
 
-- `https://apsides.rawkode.dev/oauth/callback/google`
-- `https://apsides.rawkode.academy/oauth/callback/google`
+- `https://enchiridion.rawkode.dev/oauth/callback/google`
+- `https://enchiridion.rawkode.academy/oauth/callback/google`
 
 Register these exact GitHub OAuth callback URLs on the GitHub OAuth app:
 
-- `https://apsides.rawkode.dev/oauth/callback/github`
-- `https://apsides.rawkode.academy/oauth/callback/github`
+- `https://enchiridion.rawkode.dev/oauth/callback/github`
+- `https://enchiridion.rawkode.academy/oauth/callback/github`
 
 The managed GitHub app requests `read:user user:email`. This is enough for
 account identity, email, and public activity. Do not add the classic OAuth

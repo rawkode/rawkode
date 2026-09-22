@@ -1,5 +1,5 @@
 #if os(iOS)
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct VoiceConversationView: View {
@@ -7,7 +7,7 @@ struct VoiceConversationView: View {
     @ObservedObject var conversation: VoiceConversation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var typing = false
     @State private var draft = ""
     @State private var changingMode = false

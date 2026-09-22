@@ -16,8 +16,8 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D820F41B1C45F40CD9A7610A"
                BuildableName = "Enchiridion.app"
-               BlueprintName = "ApsidesWatch"
-               ReferencedContainer = "container:Apsides.xcodeproj">
+               BlueprintName = "EnchiridionWatch"
+               ReferencedContainer = "container:Enchiridion.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,8 +32,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D820F41B1C45F40CD9A7610A"
             BuildableName = "Enchiridion.app"
-            BlueprintName = "ApsidesWatch"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            BlueprintName = "EnchiridionWatch"
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -55,7 +55,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D820F41B1C45F40CD9A7610A"
             BuildableName = "Enchiridion.app"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -71,7 +71,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D820F41B1C45F40CD9A7610A"
             BuildableName = "Enchiridion.app"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

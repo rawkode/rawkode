@@ -1,4 +1,4 @@
-# Apsides
+# Enchiridion
 
 ## Register
 
@@ -6,14 +6,14 @@ product
 
 ## Users
 
-A single signed-in owner uses Apsides throughout the day to write portable
+A single signed-in owner uses Enchiridion throughout the day to write portable
 notes, connect trusted services, and turn people, events, work, and knowledge
 into a typed personal workspace. The primary task is writing and following
 context without leaving the document flow.
 
 ## Product Purpose
 
-Apsides is a calm, strongly typed knowledge layer centered on Today and
+Enchiridion is a calm, strongly typed knowledge layer centered on Today and
 Supertags. Notes remain authoritative documents. Canonical entities connect
 those documents to user-defined structure and attributable Google and GitHub
 observations without making provider records the product model.

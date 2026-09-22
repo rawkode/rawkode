@@ -1,4 +1,4 @@
-# Apsides accounts
+# Enchiridion accounts
 
 ## Register
 
@@ -6,7 +6,7 @@ product
 
 ## Users and purpose
 
-The existing Enchiridion administration interface, migrated to Apsides. The
+The existing Enchiridion administration interface, migrated to Enchiridion. The
 signed-in owner lands on Today, edits the shared `.native-note` document format,
 connects Google and, when configured, GitHub accounts, starts synchronization,
 reads contacts, calendar events, and supported GitHub activity, and deletes

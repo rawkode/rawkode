@@ -1,9 +1,9 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct VoiceCaptionList: View {
     let captions: VoiceCaptions
-    let theme: ApsidesTheme
+    let theme: EnchiridionTheme
     @State private var followsLatest = true
     @State private var userScrolling = false
     @State private var atBottom = true

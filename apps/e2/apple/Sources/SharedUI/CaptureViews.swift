@@ -1,8 +1,8 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct CaptureSheet: View {
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @ObservedObject var store: WorkspaceStore
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
@@ -35,7 +35,7 @@ struct CaptureSheet: View {
     }
 }
 struct CaptureListView: View {
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @ObservedObject var store: WorkspaceStore
     @State private var query = ""
     var filtered: [Capture] { store.captures.filter { query.isEmpty || $0.text.localizedCaseInsensitiveContains(query) } }

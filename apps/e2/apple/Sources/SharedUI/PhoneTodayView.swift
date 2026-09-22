@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 #if os(iOS)
@@ -17,7 +17,7 @@ struct PhoneTodayView: View {
     }
     @State private var searchPresented = false
     @State private var voicePresented = false
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @StateObject private var editor: WebEditorController
     @State private var notesPresented = false
     @State private var closeError = false
@@ -98,7 +98,7 @@ struct PhoneTodayView: View {
                 }
             }
             .onChange(of: recenter) { _, _ in selectedDay = .now }
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("apsidesOpenDailyNote"))) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("enchiridionOpenDailyNote"))) { _ in
                 notesPresented = true
             }
     }
@@ -215,7 +215,7 @@ struct PhoneTodayView: View {
 private struct DaySearchView: View {
     @ObservedObject var store: WorkspaceStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var query = ""
     private func matches(_ text: String) -> Bool { text.localizedCaseInsensitiveContains(query) }
     var body: some View {

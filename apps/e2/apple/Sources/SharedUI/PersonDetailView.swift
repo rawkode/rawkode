@@ -1,9 +1,9 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct PersonDetailView: View {
     let person: ContextPerson
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
 
     private var emails: [String] {
         Array(Set(person.emails.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

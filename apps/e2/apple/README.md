@@ -1,7 +1,7 @@
 > Distribution: see [Enchiridion TestFlight setup](docs/TESTFLIGHT.md) for the
 > new bundle identity and Xcode Cloud workflow.
 
-# Apsides for Apple
+# Enchiridion for Apple
 
 A native SwiftUI notebook and capture app for Mac, iPhone, iPad, and Apple
 Watch, with a next-event WidgetKit extension and a capture App Intent. This is a
@@ -24,20 +24,20 @@ apple/script/build_and_run.sh --verify
 
 # Generate/open native targets
 xcodegen generate --spec apple/project.yml
-open apple/Apsides.xcodeproj
+open apple/Enchiridion.xcodeproj
 
 # Core persistence and transport contracts
 swift test --package-path apple
 ```
 
-Select ApsidesIOS for iPhone/iPad (embeds Watch and widget), ApsidesWatch for
-Watch, or ApsidesMac. Simulator builds use CODE_SIGNING_ALLOWED=NO. Physical
-devices need your development team, provisioning, and the
-group.rawkode.academy.enchiridion app group on the iOS app and widget.
-XcodeGen's project.yml is the project source of truth.
+Select EnchiridionIOS for iPhone/iPad (embeds Watch and widget),
+EnchiridionWatch for Watch, or EnchiridionMac. Simulator builds use
+CODE_SIGNING_ALLOWED=NO. Physical devices need your development team,
+provisioning, and the group.rawkode.academy.enchiridion app group on the iOS app
+and widget. XcodeGen's project.yml is the project source of truth.
 
 The Mac Run script supports --logs, --debug, and --telemetry. Use
-APSIDES_BUILD_DIR to put build output elsewhere. No telemetry collection is
+ENCHIRIDION_BUILD_DIR to put build output elsewhere. No telemetry collection is
 implemented.
 
 ## What works locally
@@ -59,11 +59,11 @@ implemented.
 - Unique native captures can be sent through the existing authenticated API and
   fetched by the same account. Existing rich web documents are never flattened.
 
-Local notebook storage is Application Support/Apsides/notebook.json. Unreadable
-or future-version files are preserved and opened read-only, with a recovery
-message. Sign-out removes downloaded account context and captures;
+Local notebook storage is Application Support/Enchiridion/notebook.json.
+Unreadable or future-version files are preserved and opened read-only, with a
+recovery message. Sign-out removes downloaded account context and captures;
 device-created notes remain local. The App Intent uses Application
-Support/Apsides/Incoming.
+Support/Enchiridion/Incoming.
 
 ## Boundaries still to ship
 
@@ -83,11 +83,12 @@ satisfied.
 
 ## iPhone editor update (12 September)
 
-Today now hosts the deployed Apsides web editor in WKWebView, with the shared
-website cookie store. Slash commands, mentions, and document saving are provided
-by the deployed website. Opening it requires network access and a website
-sign-in; this is not a bundled offline editor. Wait for the web editor's saved
-status before closing the app. Native quick capture remains available offline.
+Today now hosts the deployed Enchiridion web editor in WKWebView, with the
+shared website cookie store. Slash commands, mentions, and document saving are
+provided by the deployed website. Opening it requires network access and a
+website sign-in; this is not a bundled offline editor. Wait for the web editor's
+saved status before closing the app. Native quick capture remains available
+offline.
 
 Earlier local daybooks remain under **Context → On this device**. **Add to
 device notes** in Captures still targets those local notes; it does not insert
@@ -120,9 +121,9 @@ Earlier device-only notes are available at **Context → On this device**.
 
 For simulator UI qualification, run the website fixture with
 `node website/test/runtime.mjs --serve --dense`, then pass its loopback URL as
-`TEST_RUNNER_APSIDES_EDITOR_TEST_ORIGIN` when running `xcodebuild test`. The app
-accepts this origin override only in debug UI-test mode. This does not bypass
-production authentication.
+`TEST_RUNNER_ENCHIRIDION_EDITOR_TEST_ORIGIN` when running `xcodebuild test`. The
+app accepts this origin override only in debug UI-test mode. This does not
+bypass production authentication.
 
 See [editor qualification](docs/EDITOR-QUALIFICATION.md) for current
 screenshots, interaction checks, and deployment status.
