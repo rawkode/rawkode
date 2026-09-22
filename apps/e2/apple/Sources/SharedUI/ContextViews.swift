@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 /// A section's own success time; old caches deliberately make no freshness claim.
@@ -7,7 +7,7 @@ struct ContextFreshnessCaption: View {
     var legacyDate: Date? = nil
     var refreshFailed = false
     var legacyPartial = false
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
 
     private var message: String {
         let success = freshness?.lastSuccessAt ?? (freshness == nil ? legacyDate : nil)
@@ -29,7 +29,7 @@ struct ContextFreshnessCaption: View {
 struct ContextConnectionView: View {
     @ObservedObject var store: WorkspaceStore
     var freshness: ContextSectionFreshness? = nil
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if store.snapshot != nil {
@@ -46,7 +46,7 @@ struct ContextConnectionView: View {
 }
 struct PeopleView: View {
     @ObservedObject var store: WorkspaceStore
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var query = ""
     private var people: [ContextPerson] {
         (store.context?.people ?? []).filter { query.isEmpty || ($0.name + " " + $0.emails.joined(separator: " ")).localizedCaseInsensitiveContains(query) }
@@ -75,7 +75,7 @@ struct PeopleView: View {
 }
 struct RepositoryListView: View {
     @ObservedObject var store: WorkspaceStore
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @State private var query = ""
     var repositories: [String] { Array(NSOrderedSet(array: (store.context?.activity ?? []).map(\.repository))) as? [String] ?? [] }
     var body: some View {
@@ -111,7 +111,7 @@ struct RepositoryListView: View {
     }
 }
 struct RepositoryTimeline: View {
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     let repository: String
     let items: [RepositoryActivity]
     var freshness: ContextSectionFreshness? = nil
@@ -156,7 +156,7 @@ struct RepositoryTimeline: View {
 }
 
 private struct ContextListAppearance: ViewModifier {
-    let theme: ApsidesTheme
+    let theme: EnchiridionTheme
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
@@ -198,7 +198,7 @@ struct GitHubMark: View {
 
 struct GitHubActivityCard: View {
     let item: RepositoryActivity
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     private var resource: String {
         activityKind(item.kind) + (item.number.map { " #\($0)" } ?? "")
     }

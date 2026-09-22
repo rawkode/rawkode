@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class MeetingArchiveTests: XCTestCase {
     func testRecognitionCanResegmentProvisionalTextWithoutLosingSavedFinals() throws {

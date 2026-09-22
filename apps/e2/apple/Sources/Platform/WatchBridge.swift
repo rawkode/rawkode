@@ -1,5 +1,5 @@
 #if os(iOS) || os(watchOS)
-import ApsidesCore
+import EnchiridionCore
 import Combine
 import Foundation
 @preconcurrency import WatchConnectivity

@@ -1,5 +1,5 @@
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class GitHubActivityTests: XCTestCase {
     func testActivityDetailsSurviveGraphQLDecoding() throws {

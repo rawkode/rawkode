@@ -142,7 +142,7 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   supplied key versus a replacement key still needs clarification. No automatic
   model substitution was made.
 - Production deployment completed: live Cloudflare metadata confirms the website
-  VOICE service points to apsides-integrations-agent and OPENAI_API_KEY is a
+  VOICE service points to enchiridion-integrations-agent and OPENAI_API_KEY is a
   secrets_store_secret binding to the existing active secret. Runtime secret
   retrieval and authenticated spoken conversation remain unverified.
 - Deployment verification caught the previous custom OpenAI binding being
@@ -345,10 +345,11 @@ ownership.
   cache/outbox record. Local durability and server revisions must remain
   distinct; bundled pages need a versioned bridge handshake instead of the
   current remote-origin save guard. This proposal is not implemented.
-- CI run 34758504979 confirms the service-account cannot access the `apsides`
-  vault. Cloudflare's reference is corrected to the personal website's existing
-  service-account vault; eight integration references remain inaccessible.
-  Existing workflow applies no changes: it runs a production dry-run.
+- CI run 34758504979 confirms the service-account cannot access the
+  `enchiridion` vault. Cloudflare's reference is corrected to the personal
+  website's existing service-account vault; eight integration references remain
+  inaccessible. Existing workflow applies no changes: it runs a production
+  dry-run.
 - Installed Alchemy requires values for owned Secrets Store resources on update.
   Replacing them with references would remove owned declarations and schedule
   deletion. Do not bypass the credential issue with references, retain, adoption

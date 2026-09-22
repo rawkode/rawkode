@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 import WebKit
 import Combine
@@ -7,7 +7,7 @@ import Combine
 final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegate {
     let webView: WKWebView
     private let session: NativeSession
-    private var theme: ApsidesTheme = .dawn
+    private var theme: EnchiridionTheme = .dawn
     private var started = false
     private var navigationGeneration = 0
     private var hasEditorDocument = false
@@ -118,7 +118,7 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
         components.queryItems = [URLQueryItem(name: "pane", value: "document:daily:" + DayIdentity.key(.now)), URLQueryItem(name: "theme", value: theme.rawValue)]
         webView.load(URLRequest(url: components.url!))
     }
-    func applyTheme(_ theme: ApsidesTheme) {
+    func applyTheme(_ theme: EnchiridionTheme) {
         self.theme = theme
         #if os(iOS)
         let color = UIColor(theme.canvas)
@@ -127,7 +127,7 @@ final class WebEditorController: NSObject, ObservableObject, WKNavigationDelegat
         webView.underPageBackgroundColor = color
         #endif
         guard webView.url?.host == session.origin.host else { return }
-        webView.evaluateJavaScript("document.documentElement.dataset.theme = '\(theme.rawValue)'; try { localStorage.setItem('apsides-theme', '\(theme.rawValue)'); } catch {}", completionHandler: nil)
+        webView.evaluateJavaScript("document.documentElement.dataset.theme = '\(theme.rawValue)'; try { localStorage.setItem('enchiridion-theme', '\(theme.rawValue)'); } catch {}", completionHandler: nil)
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         clearPreview()

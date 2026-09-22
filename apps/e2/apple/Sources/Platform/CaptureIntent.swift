@@ -1,6 +1,6 @@
 #if os(iOS) || os(macOS)
 import AppIntents
-import ApsidesCore
+import EnchiridionCore
 import Foundation
 
 struct CaptureThoughtIntent: AppIntent {
@@ -17,13 +17,13 @@ struct CaptureThoughtIntent: AppIntent {
         let capture = Capture(text: text.trimmingCharacters(in: .whitespacesAndNewlines), source: .shortcut)
         try CaptureSpool(directory: CaptureSpool.defaultDirectory()).save(capture)
         await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("apsidesCaptureArrived"), object: nil)
+            NotificationCenter.default.post(name: Notification.Name("enchiridionCaptureArrived"), object: nil)
         }
         return .result(dialog: "Saved on this device for your Enchiridion inbox.")
     }
 }
 
-struct ApsidesCaptureShortcuts: AppShortcutsProvider {
+struct EnchiridionCaptureShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: CaptureThoughtIntent(),

@@ -1,13 +1,13 @@
 # CarPlay test
 
-Apsides provides an **Up next** widget on iOS 26 and later. It shows the next
-timed calendar event, including an event currently in progress. This is the
+Enchiridion provides an **Up next** widget on iOS 26 and later. It shows the
+next timed calendar event, including an event currently in progress. This is the
 native WidgetKit surface; it does not expose the document editor, a full CarPlay
 app, or voice capture in the car.
 
 ## September 12 diagnosis: no app on CarPlay
 
-There is no Apsides icon in the CarPlay app launcher in this build. The iOS
+There is no Enchiridion icon in the CarPlay app launcher in this build. The iOS
 scene manifest has no CarPlay scene, and the app's entitlements do not request a
 CarPlay app category entitlement. This is an implementation gap relative to a
 full CarPlay app, not evidence that the iPhone installation failed.
@@ -22,13 +22,13 @@ gallery discovers the widget.
 A full launcher app requires a supported category, Apple's entitlement approval,
 and a CarPlay scene built with the permitted templates. A general notes/calendar
 app is not automatically a driving-task app: Apple says that category must help
-with the drive itself. Apsides's eligibility is unresolved. Do not add an
+with the drive itself. Enchiridion's eligibility is unresolved. Do not add an
 arbitrary category entitlement or claim that a widget completes the requested
 CarPlay app.
 
 ## Before the journey
 
-1. With the car parked, open Apsides on iPhone and connect your workspace
+1. With the car parked, open Enchiridion on iPhone and connect your workspace
    account.
 2. Open **Context → Account & appearance → Refresh connected context**, then
    check the native calendar pane for the real event. Today attempts a native
@@ -36,21 +36,22 @@ CarPlay app.
    this refresh succeeded. The widget uses the authenticated native snapshot; it
    cannot refresh the account independently.
 3. On iPhone open **Settings → General → CarPlay → your car → Widgets → Add
-   Widgets**. Choose Apsides **Up next** and add it to a stack.
+   Widgets**. Choose Enchiridion **Up next** and add it to a stack.
 4. Connect to CarPlay and navigate to the widgets to the left of its Dashboard.
 5. Compare the event and start time with Today. Check that the title remains
    legible and the widget works with the phone locked. Privacy settings may
    redact titles.
 
 The installed extension must be present before it appears in the widget gallery.
-If the gallery does not list Apsides, first open the installed app and retry the
-gallery; do not remove the app and its local notes as a troubleshooting step.
+If the gallery does not list Enchiridion, first open the installed app and retry
+the gallery; do not remove the app and its local notes as a troubleshooting
+step.
 
 ## Distinguish discovery from missing data
 
 Perform these checks when parked, with the phone available:
 
-1. Check the iPhone Home Screen widget gallery for **Apsides Up Next / Up
+1. Check the iPhone Home Screen widget gallery for **Enchiridion Up Next / Up
    next**. Missing from both galleries points toward widget extension
    registration or installation; record the installed build and collect
    extension launch logs.

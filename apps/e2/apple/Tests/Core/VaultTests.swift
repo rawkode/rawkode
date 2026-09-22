@@ -1,5 +1,5 @@
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class VaultTests: XCTestCase {
     func testCaptureRetryIsIdempotentAndRejectsChangedPayload() throws {

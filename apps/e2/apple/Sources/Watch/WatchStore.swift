@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import Combine
 import Foundation
 

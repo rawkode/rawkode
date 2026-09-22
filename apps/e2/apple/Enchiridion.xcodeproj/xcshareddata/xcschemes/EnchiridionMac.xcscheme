@@ -14,10 +14,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D14506CD77A86C6454802600"
+               BlueprintIdentifier = "043B0693B95676408BEC2C9B"
                BuildableName = "Enchiridion.app"
-               BlueprintName = "ApsidesIOS"
-               ReferencedContainer = "container:Apsides.xcodeproj">
+               BlueprintName = "EnchiridionMac"
+               ReferencedContainer = "container:Enchiridion.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -26,34 +26,17 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "NO">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D14506CD77A86C6454802600"
+            BlueprintIdentifier = "043B0693B95676408BEC2C9B"
             BuildableName = "Enchiridion.app"
-            BlueprintName = "ApsidesIOS"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            BlueprintName = "EnchiridionMac"
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "APSIDES_EDITOR_TEST_ORIGIN"
-            value = "$(APSIDES_EDITOR_TEST_ORIGIN)"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
       <Testables>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "388285793BA8F6ECF0CBD91D"
-               BuildableName = "ApsidesUITests.xctest"
-               BlueprintName = "ApsidesUITests"
-               ReferencedContainer = "container:Apsides.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
@@ -70,10 +53,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D14506CD77A86C6454802600"
+            BlueprintIdentifier = "043B0693B95676408BEC2C9B"
             BuildableName = "Enchiridion.app"
-            BlueprintName = "ApsidesIOS"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            BlueprintName = "EnchiridionMac"
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -87,10 +70,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D14506CD77A86C6454802600"
+            BlueprintIdentifier = "043B0693B95676408BEC2C9B"
             BuildableName = "Enchiridion.app"
-            BlueprintName = "ApsidesIOS"
-            ReferencedContainer = "container:Apsides.xcodeproj">
+            BlueprintName = "EnchiridionMac"
+            ReferencedContainer = "container:Enchiridion.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

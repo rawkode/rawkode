@@ -154,7 +154,7 @@ and 163–177.
 
 ## Watch
 
-File: `apple/Sources/Watch/ApsidesWatchApp.swift`, lines 21–68 and 74–122.
+File: `apple/Sources/Watch/EnchiridionWatchApp.swift`, lines 21–68 and 74–122.
 
 - Native NavigationStack/List/Form and standard text input are already the right
   structure. Keep them.
@@ -171,7 +171,7 @@ File: `apple/Sources/Watch/ApsidesWatchApp.swift`, lines 21–68 and 74–122.
 
 ## Widget
 
-File: `apple/Sources/Widget/ApsidesWidget.swift`, lines 32–65.
+File: `apple/Sources/Widget/EnchiridionWidget.swift`, lines 32–65.
 
 - **P1 qualification risk:** the same multi-line layout and title-sized time
   serve both systemSmall and accessoryRectangular. Use native `widgetFamily`

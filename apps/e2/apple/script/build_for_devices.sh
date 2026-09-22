@@ -5,9 +5,9 @@ if [[ $# -ne 2 ]]; then
   exit 2
 fi
 APPLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${APSIDES_BUILD_DIR:-$APPLE_ROOT/DerivedData/Devices}"
+BUILD_DIR="${ENCHIRIDION_BUILD_DIR:-$APPLE_ROOT/DerivedData/Devices}"
 xcodegen generate --spec "$APPLE_ROOT/project.yml"
-xcodebuild -project "$APPLE_ROOT/Apsides.xcodeproj" -scheme ApsidesIOS \
+xcodebuild -project "$APPLE_ROOT/Enchiridion.xcodeproj" -scheme EnchiridionIOS \
   -destination 'generic/platform=iOS' -derivedDataPath "$BUILD_DIR" \
   CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
 python3 "$APPLE_ROOT/script/verify_device_build.py" \

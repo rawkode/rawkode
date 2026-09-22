@@ -38,7 +38,7 @@ export const deploymentAccess = Effect.flatMap(
 					Effect.map(
 						Effect.all({
 							application: Cloudflare.Access.Application("website-access", {
-								name: `Apsides ${stage}`,
+								name: `Enchiridion ${stage}`,
 								type: "self_hosted",
 								domain,
 								sessionDuration: "24h",
@@ -51,7 +51,7 @@ export const deploymentAccess = Effect.flatMap(
 							// hostname-wide application, allowing GitHub to reach the endpoint.
 							// The Worker still verifies the exact raw body HMAC before parsing it.
 							webhook: Cloudflare.Access.Application("github-webhook-access", {
-								name: `Apsides GitHub webhook ${stage}`,
+								name: `Enchiridion GitHub webhook ${stage}`,
 								type: "self_hosted",
 								domain: `${domain}/github/webhook`,
 								policies: [{

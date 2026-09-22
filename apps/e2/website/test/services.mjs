@@ -236,7 +236,7 @@ class GitHub extends RpcTarget {
 					actor: { login: index % 2 ? "rawkode" : "contributor" },
 					repo: {
 						name: [
-							"rawkode/apsides",
+							"rawkode/enchiridion",
 							"cuenv/cuenv",
 							"rawkode-academy/website",
 						][index % 3],
@@ -253,7 +253,7 @@ class GitHub extends RpcTarget {
 								"Handle overlapping events in the day view",
 								"Update documentation links",
 							][index % 5] + ` (${index + 1})`,
-							html_url: `https://github.com/rawkode/apsides/issues/${
+							html_url: `https://github.com/rawkode/enchiridion/issues/${
 								index + 100
 							}`,
 						},

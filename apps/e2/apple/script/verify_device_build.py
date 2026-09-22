@@ -72,7 +72,7 @@ def main():
     bundles = [
         ("iPhone", args.app, args.iphone),
         ("Watch", args.app / "Watch/Enchiridion.app", args.watch),
-        ("Widget", args.app / "PlugIns/ApsidesWidget.appex", args.iphone),
+        ("Widget", args.app / "PlugIns/EnchiridionWidget.appex", args.iphone),
     ]
     results = {}
     failures = []

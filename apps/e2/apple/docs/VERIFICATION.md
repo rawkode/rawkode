@@ -83,10 +83,11 @@ Secondary text colors are explicitly chosen for content readability: Dawn
 audit.
 
 UI result bundles for this qualification are
-/tmp/apsides-phone-liquid-glass-tests.xcresult (seven journeys passed; a
+/tmp/enchiridion-phone-liquid-glass-tests.xcresult (seven journeys passed; a
 settings-control selector needed correction),
-/tmp/apsides-phone-palette-tests.xcresult (corrected theme journey passed), and
-/tmp/apsides-ipad-liquid-glass-tests.xcresult (all eight passed). Final contrast
-screenshots use /tmp/apsides-final-screenshots.xcresult. Build products live
-under /tmp/apsides-apple-build and /tmp/apsides-ios-build. These temporary
-artifacts are machine-local; committed screenshots preserve visual evidence.
+/tmp/enchiridion-phone-palette-tests.xcresult (corrected theme journey passed),
+and /tmp/enchiridion-ipad-liquid-glass-tests.xcresult (all eight passed). Final
+contrast screenshots use /tmp/enchiridion-final-screenshots.xcresult. Build
+products live under /tmp/enchiridion-apple-build and /tmp/enchiridion-ios-build.
+These temporary artifacts are machine-local; committed screenshots preserve
+visual evidence.

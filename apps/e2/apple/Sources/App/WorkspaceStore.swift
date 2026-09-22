@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import Combine
 import Foundation
 import WidgetKit
@@ -38,15 +38,15 @@ final class WorkspaceStore: ObservableObject {
         isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
         let arguments = ProcessInfo.processInfo.arguments
         let override = arguments.firstIndex(of: "--storage").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-        let testURL = FileManager.default.temporaryDirectory.appendingPathComponent("apsides-ui-tests/notebook.json")
+        let testURL = FileManager.default.temporaryDirectory.appendingPathComponent("enchiridion-ui-tests/notebook.json")
         if arguments.contains("--ui-testing") && arguments.contains("--reset-test-data") {
-            UserDefaults(suiteName: "dev.rawkode.apsides.ui-tests")?.removePersistentDomain(forName: "dev.rawkode.apsides.ui-tests")
+            UserDefaults(suiteName: "dev.rawkode.enchiridion.ui-tests")?.removePersistentDomain(forName: "dev.rawkode.enchiridion.ui-tests")
             try? FileManager.default.removeItem(at: testURL.deletingLastPathComponent())
         }
         disk = VaultPersistence(url: arguments.contains("--ui-testing") ? testURL : override.map { URL(fileURLWithPath: $0) } ?? VaultPersistence.defaultURL())
-        var editorOrigin = URL(string: "https://apsides.rawkode.academy")!
+        var editorOrigin = URL(string: "https://enchiridion.rawkode.academy")!
         #if DEBUG
-        if isUITesting, let value = ProcessInfo.processInfo.environment["APSIDES_EDITOR_TEST_ORIGIN"],
+        if isUITesting, let value = ProcessInfo.processInfo.environment["ENCHIRIDION_EDITOR_TEST_ORIGIN"],
            let url = URL(string: value), ["localhost", "127.0.0.1"].contains(url.host ?? "") {
             editorOrigin = url
         }

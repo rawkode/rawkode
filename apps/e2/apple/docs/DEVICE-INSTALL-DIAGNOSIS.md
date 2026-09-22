@@ -2,7 +2,7 @@
 
 ## Watch: confirmed package defect
 
-The signed iPhone build embedded `Watch/ApsidesWatch.app`, with the correct
+The signed iPhone build embedded `Watch/EnchiridionWatch.app`, with the correct
 companion bundle identifier, watchOS platform, device family 4, OS 26 minimum,
 and matching application versions. Its signature verifies. However, its embedded
 wildcard development profile does **not** contain the intended physical Watch's
@@ -45,7 +45,7 @@ substitute for this gate.
 ## Remaining repair
 
 When Xcode account access is available, refresh or create development
-provisioning for `dev.rawkode.apsides.watchkitapp` including the registered
+provisioning for `dev.rawkode.enchiridion.watchkitapp` including the registered
 Watch. Rebuild and pass the gate above. When the devices return, verify Watch
 installation, launch, and capture acknowledgement on the actual paired devices.
 No reinstall, app removal, or action on a moving user's phone is attempted by

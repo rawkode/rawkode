@@ -1,10 +1,10 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct LocalDaybookView: View {
     @ObservedObject var store: WorkspaceStore
     let showAgenda: () -> Void
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             ViewThatFits(in: .horizontal) {

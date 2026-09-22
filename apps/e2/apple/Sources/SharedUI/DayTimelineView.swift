@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 /// The connected day is a read-only projection. Writing remains in the shared editor.
@@ -7,7 +7,7 @@ struct DayTimelineView: View {
     var recenter: Int = 0
     @Binding var selectedDay: Date
     var openSidebar: (() -> Void)? = nil
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var monthSize: CGFloat = 34
     @State private var selectedEvent: AgendaEvent?
@@ -238,7 +238,7 @@ private struct DayTimelineCanvas: View {
     let day: Date
     let now: Date
     let recenter: Int
-    let theme: ApsidesTheme
+    let theme: EnchiridionTheme
     let selectEvent: (AgendaEvent) -> Void
     let selectActivity: (DayActivityCluster) -> Void
     private let hourHeight: CGFloat = 80
@@ -331,7 +331,7 @@ private struct DayTimelineEvent: View {
     let item: DayAgendaLayout.Item
     let width: CGFloat
     let hourHeight: CGFloat
-    let theme: ApsidesTheme
+    let theme: EnchiridionTheme
     let select: () -> Void
     private var columnWidth: CGFloat { width / CGFloat(item.columnCount) }
     private var accent: Color { calendarAccent(item.event.calendarColor, fallback: theme.accent) }
@@ -368,7 +368,7 @@ private struct DayActivityCluster: Identifiable {
 private struct DayActivityDetails: View {
     let cluster: DayActivityCluster
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     var body: some View {
         NavigationStack {
             ScrollView {

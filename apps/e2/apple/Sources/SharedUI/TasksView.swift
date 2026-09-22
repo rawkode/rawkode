@@ -15,7 +15,7 @@ struct TasksView: View {
     @State private var collection: TaskCollection = .today
     @State private var query = ""
     @State private var editing: PendingTaskEdit?
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     init(workspace: WorkspaceStore) { self.workspace = workspace; tasks = workspace.tasks; session = workspace.session }
     private var today: String { TaskDay.key(.now) }
     private var displayedTasks: [GraphTask] { projectTaskList(tasks: tasks.tasks, pending: tasks.pending) }
@@ -153,7 +153,7 @@ private struct TaskEditor: View {
     @State private var saving = false
     @State private var saveError: String?
     @FocusState private var titleFocused: Bool
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     init(tasks: TasksStore, initial: PendingTaskEdit) {
         self.tasks = tasks; _scope = State(initialValue: tasks.scopeID); _edit = State(initialValue: initial)
         let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"

@@ -1,5 +1,5 @@
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class VoiceCaptionsTests: XCTestCase {
     private func event(_ id: String, _ text: String, _ start: Double, _ end: Double, assistant: Bool = false) throws -> Data {

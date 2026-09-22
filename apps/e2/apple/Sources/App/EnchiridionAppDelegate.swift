@@ -2,8 +2,8 @@
 import UIKit
 
 @MainActor
-final class ApsidesAppDelegate: NSObject, UIApplicationDelegate {
-    private(set) static weak var current: ApsidesAppDelegate?
+final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
+    private(set) static weak var current: EnchiridionAppDelegate?
     let store = WorkspaceStore()
 
     override init() {

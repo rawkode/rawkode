@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-run}"
-BUILD_DIR="${APSIDES_BUILD_DIR:-$ROOT_DIR/DerivedData}"
+BUILD_DIR="${ENCHIRIDION_BUILD_DIR:-$ROOT_DIR/DerivedData}"
 mkdir -p "$BUILD_DIR"
 BUILD_DIR="$(cd "$BUILD_DIR" && pwd -P)"
 APP_BUNDLE="$BUILD_DIR/Build/Products/Debug/Enchiridion.app"
@@ -17,7 +17,7 @@ while IFS= read -r app_pid; do
   fi
 done < <(pgrep -x Enchiridion || true)
 xcodegen generate --spec "$ROOT_DIR/project.yml"
-xcodebuild -project "$ROOT_DIR/Apsides.xcodeproj" -scheme ApsidesMac -derivedDataPath "$BUILD_DIR" CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project "$ROOT_DIR/Enchiridion.xcodeproj" -scheme EnchiridionMac -derivedDataPath "$BUILD_DIR" CODE_SIGNING_ALLOWED=NO build
 codesign --force --deep --sign - "$APP_BUNDLE"
 if [[ "$MODE" == --debug ]]; then
   lldb -- "$APP_BUNDLE/Contents/MacOS/Enchiridion"

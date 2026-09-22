@@ -6,7 +6,7 @@ const toggle = () => {
 	dark.value = !dark.value;
 	const theme = dark.value ? "dark" : "dawn";
 	document.documentElement.dataset.theme = theme;
-	try { localStorage.setItem("apsides-theme", theme); } catch { /* Theme still applies when storage is unavailable. */ }
+	try { localStorage.setItem("enchiridion-theme", theme); } catch { /* Theme still applies when storage is unavailable. */ }
 };
 </script>
 <template>

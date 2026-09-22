@@ -6,7 +6,7 @@ struct NativeVoiceSmokeApp: App {
     var body: some Scene { WindowGroup { SetupView() } }
 }
 struct SetupView: View {
-    @State private var origin = "https://apsides.rawkode.academy"
+    @State private var origin = "https://enchiridion.rawkode.academy"
     @State private var model: SmokeModel?
     @State private var error: String?
     var body: some View {

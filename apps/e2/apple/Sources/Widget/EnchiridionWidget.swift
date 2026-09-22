@@ -1,4 +1,4 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 import WidgetKit
 
@@ -74,9 +74,9 @@ struct NextEventWidgetView: View {
     }
 }
 @main
-struct ApsidesWidget: Widget {
+struct EnchiridionWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "ApsidesNextEvent", provider: AgendaProvider()) { NextEventWidgetView(entry: $0) }
+        StaticConfiguration(kind: "EnchiridionNextEvent", provider: AgendaProvider()) { NextEventWidgetView(entry: $0) }
             .configurationDisplayName("Up next")
             .description("Your next event at a glance.")
             .supportedFamilies([.systemSmall, .accessoryRectangular])

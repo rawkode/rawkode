@@ -1,5 +1,5 @@
 import XCTest
-@testable import ApsidesCore
+@testable import EnchiridionCore
 
 final class RemoteCaptureTests: XCTestCase {
     private let id = "capture:00000000-0000-4000-8000-000000000001"

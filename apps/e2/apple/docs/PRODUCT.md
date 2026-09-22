@@ -1,13 +1,13 @@
-# Apsides for Apple
+# Enchiridion for Apple
 
 Status: product contract and release plan, not evidence of shipped capabilities.
 
 ## The job
 
 Keep the thought, prepare for the next commitment, and return to useful context.
-Apsides should earn its place on each device by doing that job in the physical
-setting where the device is used. A universal product shares identity and data;
-it does not repeat the desktop interface on every screen.
+Enchiridion should earn its place on each device by doing that job in the
+physical setting where the device is used. A universal product shares identity
+and data; it does not repeat the desktop interface on every screen.
 
 The first useful slice is a private, durable notebook that works without signing
 in. Capture must survive closing the app and being offline. The complete first
@@ -134,7 +134,7 @@ Apple's current overview includes voice-based conversational apps among
 supported categories. It also says small widgets and Live Activities can appear
 in CarPlay. A next-event widget is therefore the first candidate for useful
 in-car context. This is a product inference, not confirmation that any specific
-Apsides build is eligible or renders correctly.
+Enchiridion build is eligible or renders correctly.
 [Apple CarPlay overview](https://developer.apple.com/carplay/)
 
 A full CarPlay app requires the appropriate category entitlement. Apple reviews

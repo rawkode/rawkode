@@ -3,7 +3,7 @@ options:
   deploymentTarget:
     iOS: "26.0"
 packages:
-  ApsidesCore:
+  EnchiridionCore:
     path: ../..
   WebRTC:
     path: ../../Vendor/WebRTC
@@ -26,7 +26,7 @@ targets:
         SUPPORTED_PLATFORMS: iphonesimulator
         CODE_SIGNING_ALLOWED: NO
     dependencies:
-      - package: ApsidesCore
+      - package: EnchiridionCore
       - package: WebRTC
 schemes:
   NativeVoiceSmoke:

@@ -1,4 +1,4 @@
-name: Apsides
+name: Enchiridion
 options:
   bundleIdPrefix: rawkode.academy
   deploymentTarget:
@@ -15,10 +15,10 @@ settings:
 packages:
   WebRTC:
     path: Vendor/WebRTC
-  ApsidesCore:
+  EnchiridionCore:
     path: .
 targets:
-  ApsidesMac:
+  EnchiridionMac:
     type: application
     platform: macOS
     sources:
@@ -31,7 +31,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: WebRTC
-      - package: ApsidesCore
+      - package: EnchiridionCore
     postBuildScripts:
       - name: Include WebRTC debug symbols
         script: '"${SRCROOT}/scripts/install-webrtc-dsym.sh"'
@@ -56,7 +56,7 @@ targets:
         NSMicrophoneUsageDescription: Enchiridion uses the microphone for voice conversations you choose to start.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [enchiridion]
-  ApsidesIOS:
+  EnchiridionIOS:
     type: application
     platform: iOS
     sources:
@@ -69,10 +69,10 @@ targets:
         buildPhase: resources
     dependencies:
       - package: WebRTC
-      - package: ApsidesCore
-      - target: ApsidesWatch
+      - package: EnchiridionCore
+      - target: EnchiridionWatch
         embed: true
-      - target: ApsidesWidget
+      - target: EnchiridionWidget
         embed: true
     postBuildScripts:
       - name: Include WebRTC debug symbols
@@ -118,7 +118,7 @@ targets:
           UIInterfaceOrientationLandscapeLeft,
           UIInterfaceOrientationLandscapeRight,
         ]
-  ApsidesWatch:
+  EnchiridionWatch:
     type: application
     platform: watchOS
     sources:
@@ -127,7 +127,7 @@ targets:
       - path: Resources/Assets.xcassets
         buildPhase: resources
     dependencies:
-      - package: ApsidesCore
+      - package: EnchiridionCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.watchkitapp
@@ -142,12 +142,12 @@ targets:
         CFBundleDisplayName: Enchiridion
         WKApplication: true
         WKCompanionAppBundleIdentifier: rawkode.academy.enchiridion
-  ApsidesWidget:
+  EnchiridionWidget:
     type: app-extension
     platform: iOS
     sources: [Sources/Widget]
     dependencies:
-      - package: ApsidesCore
+      - package: EnchiridionCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.widget
@@ -162,32 +162,32 @@ targets:
         CFBundleDisplayName: Up Next
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
-  ApsidesUITests:
+  EnchiridionUITests:
     type: bundle.ui-testing
     platform: iOS
     sources: [Tests/UI]
     dependencies:
-      - target: ApsidesIOS
+      - target: EnchiridionIOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.uitests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
-  ApsidesMac:
+  EnchiridionMac:
     build:
       targets:
-        ApsidesMac: all
-  ApsidesIOS:
+        EnchiridionMac: all
+  EnchiridionIOS:
     build:
       targets:
-        ApsidesIOS: all
+        EnchiridionIOS: all
     test:
-      targets: [ApsidesUITests]
+      targets: [EnchiridionUITests]
       environmentVariables:
-        APSIDES_EDITOR_TEST_ORIGIN: "$(APSIDES_EDITOR_TEST_ORIGIN)"
+        ENCHIRIDION_EDITOR_TEST_ORIGIN: "$(ENCHIRIDION_EDITOR_TEST_ORIGIN)"
     archive:
       config: Release
-  ApsidesWatch:
+  EnchiridionWatch:
     build:
       targets:
-        ApsidesWatch: all
+        EnchiridionWatch: all

@@ -1,9 +1,9 @@
-import ApsidesCore
+import EnchiridionCore
 import SwiftUI
 
 struct AgendaView: View {
     @ObservedObject var store: WorkspaceStore
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var day = Date()
     @State private var showList = false
@@ -80,7 +80,7 @@ private struct DayCalendar: View {
     let snapshot: ContextSnapshot
     let day: Date
     @Binding var selectedEvent: AgendaEvent?
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
     private let hourHeight: Double = 80
     private var start: Date { Calendar.current.startOfDay(for: day) }
     private var items: [DayAgendaLayout.Item] { DayAgendaLayout.items(events: snapshot.events, day: day, minimumVisualMinutes: 18) }
@@ -132,7 +132,7 @@ private struct CalendarEventButton: View {
     let item: DayAgendaLayout.Item
     let availableWidth: CGFloat
     let hourHeight: Double
-    let theme: ApsidesTheme
+    let theme: EnchiridionTheme
     let select: () -> Void
 
     private var columnWidth: CGFloat { max(0, availableWidth) / CGFloat(item.columnCount) }

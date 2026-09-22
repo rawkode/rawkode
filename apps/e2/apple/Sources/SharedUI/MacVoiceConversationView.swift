@@ -5,7 +5,7 @@ import SwiftUI
 struct MacVoiceConversationView: View {
     @ObservedObject var session: NativeSession
     @ObservedObject var conversation: VoiceConversation
-    @AppStorage("apsidesTheme", store: ApsidesPreferences.store) private var theme: ApsidesTheme = .dawn
+    @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
 
     @State private var typing = false
     @State private var draft = ""
