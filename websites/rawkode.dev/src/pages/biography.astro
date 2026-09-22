@@ -5,7 +5,7 @@ import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
-import { calculateWordCount } from '../utils/readingTime';
+import { calculateCharacterCount, calculateWordCount } from '../utils/readingTime';
 
 const tagline =
   'Helping developers, platform engineers, and infrastructure operators level up with Kubernetes.';
@@ -63,6 +63,15 @@ const socials = [
   { label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
   { label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
 ];
+
+// Counted on exactly what the copy button puts on the clipboard.
+const bioCounts = (paragraphs: string[]) => {
+  const text = paragraphs.map((para) => para.trim()).join('\n\n');
+  return {
+    words: calculateWordCount(text).toLocaleString('en-GB'),
+    characters: calculateCharacterCount(text).toLocaleString('en-GB'),
+  };
+};
 
 const factId = (label: string) => `fact-${label.toLowerCase().replaceAll(' ', '-')}`;
 
@@ -146,7 +155,10 @@ const personJsonLd = {
             <li class="bio">
               <div class="bio__side">
                 <h3 class="bio__label poster">{bio.label}</h3>
-                <p class="bio__count">{calculateWordCount(bio.paragraphs.join(' '))} words</p>
+                <p class="bio__count">
+                  <span>{bioCounts(bio.paragraphs).words} words</span>
+                  <span>{bioCounts(bio.paragraphs).characters} characters</span>
+                </p>
                 <button class="copy-btn" type="button" data-copy-target={`bio-${bio.id}`}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
                     <rect x="9" y="9" width="11" height="11"/><path d="M5 15V5h10"/>
@@ -427,6 +439,9 @@ const personJsonLd = {
   }
 
   .bio__count {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
     margin: 0;
     color: var(--text-tertiary);
     font-size: 0.95rem;
@@ -610,6 +625,10 @@ const personJsonLd = {
       flex-direction: column;
       align-items: start;
       align-content: start;
+    }
+
+    .bio__count {
+      flex-direction: column;
     }
 
     .kit-split {
