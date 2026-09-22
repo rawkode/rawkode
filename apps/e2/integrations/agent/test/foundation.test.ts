@@ -316,8 +316,9 @@ Deno.test("only explicit provider client rejections release the reservation", as
 			reserve: () =>
 				Promise.resolve({
 					isCurrent: () => Promise.resolve(true),
-					record: async (value) => {
+					record: (value) => {
 						outcomes.push(value);
+						return Promise.resolve();
 					},
 				}),
 			fetch: (() =>

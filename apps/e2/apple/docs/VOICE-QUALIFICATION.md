@@ -10,9 +10,9 @@ Updated 13 September 2026. Passing one surface does not qualify another.
 - Production greeting: new and resumed sessions returned model-chosen greetings
   with no caller speech, captured audio, and HTTP 200 cleanup.
 - Graph writes: the actual migrated SQLite store was exercised through voice
-  tools to create a tagged bookmark, read back its URL, update it, reject a stale
-  revision, and reopen the store to verify persistence. This was local fixture
-  data, not a production spoken mutation.
+  tools to create a tagged bookmark, read back its URL, update it, reject a
+  stale revision, and reopen the store to verify persistence. This was local
+  fixture data, not a production spoken mutation.
 - Voice/backend regression suite: 94 tests passed after entity-write tools were
   added. Unknown write outcomes block further writes in that turn.
 - Native iOS: Simulator build passed after fixing interruption-end teardown and
@@ -38,16 +38,17 @@ Updated 13 September 2026. Passing one surface does not qualify another.
 4. Switch Speak → Type → Speak. The microphone stops before typing, text uses
    the same history, returning to Speak requires Start, and account changes
    clear earlier-account content.
-5. Verify Mac Return/Shift-Return behavior, window close, sleep, and native audio.
+5. Verify Mac Return/Shift-Return behavior, window close, sleep, and native
+   audio.
 6. Verify CarPlay appearance, cold launch without a phone window, locked-phone
    authentication, explicit Start, Mute/End, Siri/call interruption, and
-   disconnection during setup, active speech, and remote closure. No captions
-   or model-answer text may appear on the car screen.
+   disconnection during setup, active speech, and remote closure. No captions or
+   model-answer text may appear on the car screen.
 
 The native synthetic-audio target bypasses AVAudioSession route and interruption
-handlers. Its success would qualify native transport and graph integration,
-not microphone permission, speaker/Bluetooth behavior, or vehicle behavior.
-The paired physical iPhone was unavailable and the Mac was locked at the latest
+handlers. Its success would qualify native transport and graph integration, not
+microphone permission, speaker/Bluetooth behavior, or vehicle behavior. The
+paired physical iPhone was unavailable and the Mac was locked at the latest
 interactive verification attempt. Do not weaken credential protection or use
 simulated account identity to pass those gates.
 
@@ -63,20 +64,20 @@ confirmed the updated URL at revision 2. No failed creation was retried.
 
 Fixture retained: `Enchiridion voice verification 2026-09-13`, URL
 `https://example.com/enchiridion-voice-verified`. This establishes authenticated
-production typed mutation and persistence, not native spoken mutation. The
-agent regression directory passed 93 tests; the SDK policy regression includes
+production typed mutation and persistence, not native spoken mutation. The agent
+regression directory passed 93 tests; the SDK policy regression includes
 exactly-one-write and prior-result continuation assertions.
 
 ## Spoken reasoning deadline parity
 
-Speak previously limited delegated work to 12 seconds while Type allowed 30.
-The live multi-step typed update took longer than the spoken limit. Both now
-use a shared 30-second reasoning bound; executor calls still have a 5-second
-limit and each turn retains the 12-connector-call budget. Ending a call cancels
-work immediately. Failure commentary now explains that a change may already
-have persisted and directs read-only verification before any further change,
-rather than inviting a retry. This is deployed backend behavior; actual native
-spoken completion remains to be qualified.
+Speak previously limited delegated work to 12 seconds while Type allowed 30. The
+live multi-step typed update took longer than the spoken limit. Both now use a
+shared 30-second reasoning bound; executor calls still have a 5-second limit and
+each turn retains the 12-connector-call budget. Ending a call cancels work
+immediately. Failure commentary now explains that a change may already have
+persisted and directs read-only verification before any further change, rather
+than inviting a retry. This is deployed backend behavior; actual native spoken
+completion remains to be qualified.
 
 ## Build 30 App Store artifact inspection
 
@@ -84,8 +85,8 @@ Downloaded the actual Xcode Cloud App Store export, unpacked its IPA, and
 verified bundle version 30 / marketing version 0.1.0. Its built Info.plist has
 the CarPlay scene role, Enchiridion.CarPlaySceneDelegate, and audio background
 mode. `codesign -d --entitlements <output>` decoded the signed entitlement
-`com.apple.developer.carplay-voice-based-conversation = true`; the embedded
-App Store provisioning profile also grants it and disables get-task-allow.
-The local Mac's deep signature trust check returned CSSMERR_TP_NOT_TRUSTED,
-so this inspection does not claim local trust-chain or physical launch proof.
-Apple processed this build successfully and confirmed IN_BETA_TESTING.
+`com.apple.developer.carplay-voice-based-conversation = true`; the embedded App
+Store provisioning profile also grants it and disables get-task-allow. The local
+Mac's deep signature trust check returned CSSMERR_TP_NOT_TRUSTED, so this
+inspection does not claim local trust-chain or physical launch proof. Apple
+processed this build successfully and confirmed IN_BETA_TESTING.

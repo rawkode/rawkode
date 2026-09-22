@@ -106,7 +106,8 @@
 		"exclude": [
 			"integrations/*/migrations/",
 			"core/*/migrations/",
-			"apple/Resources/**/*.imageset/GitHubMark.svg"
+			"apple/Resources/**/*.imageset/GitHubMark.svg",
+			"apple/Vendor/"
 		]
 	}
 }
