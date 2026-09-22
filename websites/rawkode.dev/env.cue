@@ -18,16 +18,6 @@ env: {
 	}
 }
 
-// Preview name for the current pull request: GITHUB_REF_NAME is "<number>/merge"
-// on pull_request events. Outside a PR, fall back to wrangler's default (the
-// current git branch).
-_previewName: """
-	case "${GITHUB_REF_NAME:-}" in
-	  */merge) preview_name="pr-${GITHUB_REF_NAME%%/*}" ;;
-	  *) preview_name="" ;;
-	esac
-	"""
-
 // `cuenv ci` starts tasks with a cleared environment. Forward the runner's
 // PATH so they can find deno, which the Deno contributor installs (there is
 // no Nix runtime here to provide it).
@@ -123,9 +113,10 @@ tasks: {
 		deploy: schema.#Task & {
 			description: "Create or update the Worker Preview for this pull request"
 			env: _hostPath & {GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}}
-			script: _previewName + "\n" + """
-				deno task wrangler preview ${preview_name:+--name "$preview_name"} --json
-				"""
+			// A script file, not an inline `script:`: cuenv ci mangles multi-line
+			// inline shell. It names the preview pr-<number> from GITHUB_REF_NAME.
+			command: "sh"
+			args: ["scripts/preview.sh", "deploy"]
 			dependsOn: [_t.build, _t.previews.migrate]
 			hermetic: false
 			inputs: _previewInputs
@@ -138,9 +129,8 @@ tasks: {
 		delete: schema.#Task & {
 			description: "Delete the Worker Preview for a closed pull request"
 			env: _hostPath & {GITHUB_REF_NAME: schema.#EnvPassthrough & {cuenvPassthrough: true}}
-			script: _previewName + "\n" + """
-				deno task wrangler preview delete ${preview_name:+--name "$preview_name"} --skip-confirmation
-				"""
+			command: "sh"
+			args: ["scripts/preview.sh", "delete"]
 			dependsOn: [_t.install]
 			hermetic: false
 		}
