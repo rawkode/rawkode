@@ -1,0 +1,382 @@
+.context-pane {
+	padding: 24px;
+	min-width: 0;
+	color: var(--ink);
+}
+.context-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 24px;
+}
+.context-header h2 {
+	font-family: Georgia, serif;
+	font-size: 1.7rem;
+	font-weight: 500;
+	margin: 4px 0 0;
+	letter-spacing: -.04em;
+}
+.context-date,
+.context-state,
+.context-notice {
+	color: var(--muted);
+	font-size: .875rem;
+	line-height: 1.6;
+}
+.context-date {
+	margin: 0;
+}
+.context-pane button,
+.context-pane input,
+.context-pane select {
+	font: inherit;
+}
+.context-refresh {
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	font-size: 1.3rem !important;
+	padding: 8px;
+	cursor: pointer;
+}
+.context-pane :is(button, a, input, select):focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+.context-pane button:disabled {
+	opacity: .6;
+	cursor: wait;
+}
+.context-state {
+	padding: 16px 0;
+}
+.context-notice {
+	padding: 8px 0;
+}
+.calendar-all-day {
+	display: grid;
+	grid-template-columns: 54px 1fr;
+	gap: 8px;
+	padding-bottom: 12px;
+	font-size: .75rem;
+	color: var(--muted);
+}
+.calendar-all-day > div {
+	display: grid;
+	gap: 4px;
+}
+.calendar-all-day button {
+	background: var(--rp-overlay);
+	color: var(--ink);
+	border: 0;
+	padding: 7px 10px;
+	text-align: left;
+	cursor: pointer;
+}
+.calendar-all-day small {
+	display: block;
+	color: var(--muted);
+	margin-top: 3px;
+}
+.calendar-scroll {
+	height: min(65vh, 660px);
+	overflow: auto;
+	scrollbar-width: thin;
+}
+.calendar-day {
+	height: 1440px;
+	position: relative;
+	margin-top: 8px;
+}
+.calendar-hour {
+	position: absolute;
+	left: 0;
+	right: 0;
+	height: 60px;
+}
+.calendar-hour::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 62px;
+	right: 0;
+	border-top: 1px solid var(--line);
+}
+.calendar-hour > span {
+	display: block;
+	width: 50px;
+	text-align: right;
+	transform: translateY(-7px);
+	font-size: .65rem;
+	color: var(--muted);
+}
+.calendar-events {
+	position: absolute;
+	left: 62px;
+	right: 0;
+	top: 0;
+	bottom: 0;
+}
+.calendar-event {
+	position: absolute;
+	overflow: hidden;
+	border: 0;
+	border-radius: 3px;
+	padding: 5px 7px;
+	text-align: left;
+	background: color-mix(in oklch, var(--rp-foam) 14%, var(--surface));
+	color: var(--ink);
+	cursor: pointer;
+	min-width: 0;
+}
+.calendar-event strong {
+	display: block;
+	font-size: .75rem;
+	font-weight: 550;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+.calendar-event span,
+.calendar-event small {
+	display: block;
+	font-size: .75rem;
+	margin-top: 4px;
+}
+.context-filters {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 18px;
+}
+.context-filters input,
+.context-filters select {
+	min-width: 0;
+	border: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink);
+	border-radius: 6px;
+	padding: 9px 10px;
+	font-size: .78rem;
+}
+.context-filters input {
+	flex: 1;
+	width: 100%;
+}
+.context-filters input::placeholder {
+	color: var(--muted);
+}
+.context-people,
+.context-repository ul {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+.context-people li + li,
+.context-repository li + li {
+	border-top: 1px solid var(--line);
+}
+.context-people button {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	padding: 12px 0;
+	cursor: pointer;
+}
+.context-people button:hover,
+.context-repository a:hover {
+	background: var(--rp-overlay);
+}
+.person-initial {
+	display: grid;
+	place-items: center;
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	background: var(--rp-overlay);
+	color: var(--rp-iris);
+	font-family: Georgia, serif;
+}
+.context-people strong,
+.context-repository strong {
+	display: block;
+	font-size: .875rem;
+	font-weight: 550;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+.context-people small,
+.context-repository small {
+	display: block;
+	color: var(--muted);
+	font-size: .75rem;
+	line-height: 1.5;
+	margin-top: 3px;
+	overflow-wrap: anywhere;
+}
+.context-resolving {
+	font-size: .68rem;
+	margin-left: auto;
+	color: var(--muted);
+}
+.context-repository {
+	margin-top: 24px;
+}
+.context-repository h3 {
+	margin: 0 0 8px;
+	font-size: .77rem;
+	font-weight: 550;
+	overflow-wrap: anywhere;
+}
+.context-repository h3 span {
+	color: var(--muted);
+	margin-left: 6px;
+	font-weight: 400;
+}
+.context-repository a {
+	display: block;
+	position: relative;
+	padding: 12px 22px 12px 0;
+	color: inherit;
+	text-decoration: none;
+}
+.context-repository a > span[aria-hidden] {
+	position: absolute;
+	top: 12px;
+	right: 0;
+	color: var(--muted);
+}
+.context-unlinked {
+	padding: 12px 0;
+}
+.context-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+@media (max-width: 600px) {
+	.context-pane {
+		padding: 18px;
+	}
+	.context-filters {
+		flex-wrap: wrap;
+	}
+	.context-filters input {
+		flex-basis: 100%;
+	}
+}
+
+.pane-workspace:has(.pane-breadcrumbs button:nth-child(2)) main.pane-stack {
+	min-height: calc(100dvh - 50px);
+}
+
+.github-repositories,
+.github-timeline {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+.github-repositories li + li {
+	border-top: 1px solid var(--line);
+}
+.github-repositories button {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 24px;
+	width: 100%;
+	padding: 20px 8px;
+	border: 0;
+	color: var(--ink);
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+}
+.github-repositories button:hover {
+	background: var(--rp-overlay);
+}
+.github-repositories strong {
+	font-size: 1rem;
+	font-weight: 550;
+	overflow-wrap: anywhere;
+}
+.github-repositories small,
+.github-timeline small {
+	display: block;
+	margin-top: 6px;
+	font-size: .8rem;
+	line-height: 1.5;
+	color: var(--muted);
+}
+.github-back {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--primary);
+	cursor: pointer;
+}
+.github-timeline-heading {
+	margin: 24px 0;
+}
+.github-timeline-heading h3 {
+	margin: 0 0 20px;
+	font-size: 1.25rem;
+	font-weight: 550;
+	overflow-wrap: anywhere;
+}
+.github-timeline-heading .context-filters {
+	align-items: center;
+	font-size: .8rem;
+	color: var(--muted);
+}
+.github-timeline li {
+	display: grid;
+	grid-template-columns: 64px minmax(0, 1fr);
+	gap: 16px;
+}
+.github-timeline li > time {
+	padding-top: 2px;
+	font-size: .8rem;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+.github-timeline-entry {
+	position: relative;
+	border-left: 1px solid var(--line);
+	padding: 0 0 28px 22px;
+}
+.github-timeline-entry::before {
+	content: '';
+	position: absolute;
+	left: -4px;
+	top: 6px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--primary);
+}
+.github-timeline-entry a,
+.github-timeline-entry strong {
+	color: var(--ink);
+	font-size: .9rem;
+	font-weight: 550;
+	text-decoration: none;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+.github-timeline-entry a:hover {
+	text-decoration: underline;
+}
+.github-timeline-entry a > span[aria-hidden] {
+	color: var(--muted);
+}
+.github-timeline li:last-child .github-timeline-entry {
+	border-left-color: transparent;
+}

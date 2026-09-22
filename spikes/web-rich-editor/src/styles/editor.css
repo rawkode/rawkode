@@ -1,0 +1,489 @@
+/* A daylight desk: a quiet writing surface with a small blue active state. */
+.new-note-dialog {
+	max-width: 480px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	padding: 24px;
+	color: var(--ink);
+	background: var(--bg);
+}
+.new-note-dialog::backdrop {
+	background: oklch(0.2 0 0 / 0.3);
+}
+.new-note-dialog h2 {
+	font-size: 21px;
+	margin: 0 0 12px;
+}
+.new-note-dialog p {
+	line-height: 1.5;
+	color: var(--muted);
+}
+.new-note-dialog > div {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+}
+.tiptap ul[data-type="taskList"] > li {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding-left: 0;
+}
+.tiptap ul[data-type="taskList"] > li > label {
+	padding-top: 3px;
+	user-select: none;
+}
+.tiptap ul[data-type="taskList"] > li > div {
+	flex: 1;
+	min-width: 0;
+}
+:root {
+	--bg: oklch(1 0 0);
+	--surface: oklch(0.97 0.005 230);
+	--ink: oklch(0.24 0.015 230);
+	--muted: oklch(0.47 0.02 230);
+	--line: oklch(0.87 0.008 230);
+	--primary: oklch(0.46 0.105 230);
+	--accent: oklch(0.9 0.04 180);
+	--error: oklch(0.43 0.15 25);
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	color: var(--ink);
+	background: var(--bg);
+	font-size: 16px;
+	font-synthesis: none;
+}
+* {
+	box-sizing: border-box;
+}
+body {
+	margin: 0;
+}
+button,
+input,
+textarea,
+select {
+	font: inherit;
+	color: inherit;
+}
+button,
+select {
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: transparent;
+	padding: 7px 10px;
+	cursor: pointer;
+}
+button:hover,
+select:hover {
+	background: var(--surface);
+}
+button:active {
+	background: var(--line);
+}
+button:disabled {
+	opacity: 0.5;
+	cursor: wait;
+}
+button[aria-pressed="true"],
+button[aria-selected="true"] {
+	color: var(--primary);
+	background: oklch(0.94 0.025 230);
+}
+:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+button.primary {
+	background: var(--primary);
+	color: white;
+	padding: 9px 14px;
+}
+button.primary:hover {
+	background: oklch(0.4 0.105 230);
+}
+a {
+	color: var(--primary);
+}
+.app-header {
+	height: 76px;
+	padding: 0 36px;
+	border-bottom: 1px solid var(--line);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20px;
+}
+.wordmark {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	text-decoration: none;
+	font-weight: 650;
+	font-size: 18px;
+	color: var(--ink);
+}
+.wordmark svg {
+	width: 25px;
+	height: 25px;
+	fill: none;
+	stroke: var(--primary);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.wordmark span {
+	font-weight: 400;
+	font-size: 13px;
+	color: var(--muted);
+	margin-left: 2px;
+}
+.file-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+}
+.file-input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+.document-meta {
+	max-width: 940px;
+	margin: 30px auto 15px;
+	padding: 0 26px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	font-size: 12px;
+	color: var(--muted);
+}
+.filename {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.editor-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	max-width: 940px;
+	margin: 0 auto;
+	padding: 9px 16px;
+	background: var(--bg);
+	border-block: 1px solid var(--line);
+	flex-wrap: wrap;
+}
+.editor-toolbar button {
+	min-width: 30px;
+	height: 32px;
+	padding: 4px 7px;
+	font-size: 14px;
+}
+.editor-toolbar select {
+	font-size: 13px;
+	min-width: 112px;
+}
+.toolbar-divider {
+	height: 20px;
+	width: 1px;
+	background: var(--line);
+	margin: 0 5px;
+}
+.editor-toolbar .insert-button {
+	margin-left: auto;
+	padding: 4px 12px;
+	font-size: 13px;
+}
+.app-shell main {
+	max-width: 890px;
+	min-height: 65vh;
+	margin: 0 auto;
+	padding: 42px 26px 80px;
+}
+.tiptap {
+	outline: none;
+	min-height: 55vh;
+	font-size: 17px;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+.tiptap p {
+	margin: 0 0 12px;
+	min-height: 1.6em;
+	white-space: pre-wrap;
+}
+.tiptap h1,
+.tiptap h2,
+.tiptap h3 {
+	text-wrap: balance;
+	line-height: 1.25;
+	margin: 26px 0 14px;
+	letter-spacing: -0.02em;
+}
+.tiptap > :first-child {
+	margin-top: 0;
+}
+.tiptap h1 {
+	font-size: 36px;
+	font-weight: 700;
+}
+.tiptap h2 {
+	font-size: 27px;
+	font-weight: 650;
+}
+.tiptap h3 {
+	font-size: 21px;
+	font-weight: 650;
+}
+.tiptap blockquote {
+	margin: 18px 0;
+	padding: 12px 20px;
+	background: var(--surface);
+	color: var(--muted);
+	border-radius: 6px;
+}
+.tiptap blockquote p:last-child {
+	margin-bottom: 0;
+}
+.tiptap ul,
+.tiptap ol {
+	padding-left: 28px;
+	margin: 8px 0 16px;
+}
+.tiptap li {
+	padding-left: 3px;
+	margin: 4px 0;
+}
+.tiptap li p {
+	margin: 0;
+}
+.tiptap li ul,
+.tiptap li ol {
+	margin: 4px 0;
+}
+.tiptap ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0;
+}
+.tiptap li[data-type="taskItem"] {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding-left: 0;
+}
+.tiptap li[data-type="taskItem"] > label {
+	padding-top: 3px;
+	user-select: none;
+}
+.tiptap li[data-type="taskItem"] > div {
+	flex: 1;
+	min-width: 0;
+}
+.tiptap input[type="checkbox"] {
+	accent-color: var(--primary);
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
+}
+.tiptap code {
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	background: var(--surface);
+	border-radius: 3px;
+	padding: 2px 4px;
+	font-size: 0.88em;
+}
+.tiptap pre {
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+	background: var(--surface);
+	padding: 18px 20px;
+	border-radius: 8px;
+	line-height: 1.55;
+	font-size: 14px;
+	white-space: pre-wrap;
+}
+.tiptap pre code {
+	padding: 0;
+	background: none;
+	font-size: inherit;
+}
+.tiptap p.is-editor-empty:first-child:before {
+	color: var(--muted);
+	content: attr(data-placeholder);
+	float: left;
+	pointer-events: none;
+	height: 0;
+}
+.tiptap .ProseMirror-selectednode {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+.tiptap a {
+	text-decoration: underline;
+}
+.tiptap ::selection {
+	background: oklch(0.9 0.05 230);
+}
+footer {
+	max-width: 940px;
+	padding: 18px 26px;
+	margin: 0 auto;
+	display: flex;
+	justify-content: space-between;
+	gap: 15px;
+	border-top: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 12px;
+}
+kbd {
+	font-family: ui-monospace, monospace;
+	border: 1px solid var(--line);
+	padding: 1px 5px;
+	border-radius: 3px;
+}
+.block-menu {
+	position: fixed;
+	z-index: 30;
+	width: 278px;
+	max-height: 355px;
+	overflow-y: auto;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 6px;
+}
+.block-menu > button {
+	display: flex;
+	width: 100%;
+	gap: 12px;
+	text-align: left;
+	align-items: center;
+	padding: 8px;
+	font-size: 13px;
+}
+.block-menu small {
+	display: block;
+	color: var(--muted);
+	font-size: 11px;
+	margin-top: 3px;
+}
+.block-icon {
+	width: 30px;
+	height: 30px;
+	display: grid;
+	place-items: center;
+	font-size: 14px;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	flex: none;
+}
+.menu-title {
+	font-size: 12px;
+	color: var(--muted);
+	padding: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.insert-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 20;
+	background: transparent;
+}
+.insert-menu {
+	right: max(20px, calc((100vw - 910px) / 2));
+	top: 175px;
+}
+.error-message {
+	max-width: 888px;
+	margin: 18px auto 0;
+	padding: 12px 16px;
+	border: 1px solid var(--error);
+	border-radius: 6px;
+	color: var(--error);
+	display: flex;
+	gap: 15px;
+	align-items: center;
+	font-size: 13px;
+}
+.error-message p {
+	flex: 1;
+	margin: 0;
+}
+.loading-note div {
+	background: var(--surface);
+	height: 18px;
+	margin: 20px 0;
+	width: 75%;
+	border-radius: 4px;
+}
+.loading-note div:first-child {
+	width: 40%;
+	height: 40px;
+}
+@media (max-width: 700px) {
+	.app-header {
+		padding: 0 16px;
+		height: 68px;
+	}
+	.wordmark span {
+		display: none;
+	}
+	.file-actions {
+		gap: 2px;
+	}
+	.file-actions button {
+		padding: 7px;
+	}
+	.document-meta {
+		margin-top: 20px;
+		padding: 0 20px;
+	}
+	.editor-toolbar {
+		padding: 7px 12px;
+		gap: 1px;
+	}
+	.editor-toolbar select {
+		min-width: 95px;
+	}
+	.toolbar-divider {
+		margin: 0 2px;
+	}
+	.app-shell main {
+		padding: 30px 20px 60px;
+	}
+	.tiptap {
+		font-size: 16px;
+	}
+	.tiptap h1 {
+		font-size: 30px;
+	}
+	.error-message {
+		margin: 16px;
+	}
+	.insert-menu {
+		right: 12px;
+		top: 160px;
+	}
+	footer {
+		padding-inline: 20px;
+		flex-wrap: wrap;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*:before,
+	*:after {
+		animation: none !important;
+		scroll-behavior: auto !important;
+		transition: none !important;
+	}
+}

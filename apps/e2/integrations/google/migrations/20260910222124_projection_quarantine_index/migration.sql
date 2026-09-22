@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS `entity_projection_outbox_delivery`;--> statement-breakpoint
+CREATE INDEX `entity_projection_outbox_active_delivery` ON `entity_projection_outbox` (`connection_id`,`quarantined_at`,`sequence`);
