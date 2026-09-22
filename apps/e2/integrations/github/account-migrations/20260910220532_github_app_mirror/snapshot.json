@@ -1,0 +1,655 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "eeb9effe-fc0a-474f-bbca-7a6b114ca70b",
+	"prevIds": [
+		"00000000-0000-0000-0000-000000000000"
+	],
+	"ddl": [
+		{
+			"name": "github_entity_projection_outbox",
+			"entityType": "tables"
+		},
+		{
+			"name": "github_records",
+			"entityType": "tables"
+		},
+		{
+			"name": "installation_state",
+			"entityType": "tables"
+		},
+		{
+			"name": "github_repositories",
+			"entityType": "tables"
+		},
+		{
+			"name": "github_sync_cursors",
+			"entityType": "tables"
+		},
+		{
+			"name": "github_webhook_deliveries",
+			"entityType": "tables"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": true,
+			"default": null,
+			"generated": null,
+			"name": "sequence",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "projection_id",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "resource_type",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "resource_id",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "source_revision",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "tag_id",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "label",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "aliases",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "values",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "false",
+			"generated": null,
+			"name": "deleted",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "attempts",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "last_error",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "created_at",
+			"entityType": "columns",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "resource_type",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "resource_id",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "repository_id",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "data",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "source_revision",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "true",
+			"generated": null,
+			"name": "active",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "generation",
+			"entityType": "columns",
+			"table": "github_records"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "installation_id",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "owner_id",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "account_id",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "account_login",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "target_type",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "status",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "rate_limit_until",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "failures",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "last_success_at",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "last_error",
+			"entityType": "columns",
+			"table": "installation_state"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "node_id",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "owner_login",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "owner_type",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "name",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "full_name",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "url",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "private",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "true",
+			"generated": null,
+			"name": "active",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "generation",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "source_revision",
+			"entityType": "columns",
+			"table": "github_repositories"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "kind",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "''",
+			"generated": null,
+			"name": "repository_id",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "cursor",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "generation",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "status",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "updated_at",
+			"entityType": "columns",
+			"table": "github_sync_cursors"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "github_webhook_deliveries"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "event",
+			"entityType": "columns",
+			"table": "github_webhook_deliveries"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "received_at",
+			"entityType": "columns",
+			"table": "github_webhook_deliveries"
+		},
+		{
+			"columns": [
+				"resource_type",
+				"resource_id"
+			],
+			"nameExplicit": false,
+			"name": "github_records_pk",
+			"entityType": "pks",
+			"table": "github_records"
+		},
+		{
+			"columns": [
+				"kind",
+				"repository_id"
+			],
+			"nameExplicit": false,
+			"name": "github_sync_cursors_pk",
+			"entityType": "pks",
+			"table": "github_sync_cursors"
+		},
+		{
+			"columns": [
+				"sequence"
+			],
+			"nameExplicit": false,
+			"name": "github_entity_projection_outbox_pk",
+			"table": "github_entity_projection_outbox",
+			"entityType": "pks"
+		},
+		{
+			"columns": [
+				"installation_id"
+			],
+			"nameExplicit": false,
+			"name": "installation_state_pk",
+			"table": "installation_state",
+			"entityType": "pks"
+		},
+		{
+			"columns": [
+				"id"
+			],
+			"nameExplicit": false,
+			"name": "github_repositories_pk",
+			"table": "github_repositories",
+			"entityType": "pks"
+		},
+		{
+			"columns": [
+				"id"
+			],
+			"nameExplicit": false,
+			"name": "github_webhook_deliveries_pk",
+			"table": "github_webhook_deliveries",
+			"entityType": "pks"
+		},
+		{
+			"columns": [
+				{
+					"value": "projection_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"name": "github_entity_outbox_projection",
+			"entityType": "indexes",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"columns": [
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"name": "github_entity_outbox_delivery",
+			"entityType": "indexes",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"columns": [
+				{
+					"value": "repository_id",
+					"isExpression": false
+				},
+				{
+					"value": "resource_type",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"name": "github_records_repository",
+			"entityType": "indexes",
+			"table": "github_records"
+		},
+		{
+			"value": "json_valid(\"aliases\")",
+			"name": "github_entity_outbox_aliases_json",
+			"entityType": "checks",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"value": "\"values\" IS NULL OR json_valid(\"values\")",
+			"name": "github_entity_outbox_values_json",
+			"entityType": "checks",
+			"table": "github_entity_projection_outbox"
+		},
+		{
+			"value": "json_valid(\"data\")",
+			"name": "github_records_data_json",
+			"entityType": "checks",
+			"table": "github_records"
+		}
+	],
+	"renames": []
+}
