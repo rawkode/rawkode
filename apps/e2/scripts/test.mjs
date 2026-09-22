@@ -22,6 +22,8 @@ const args = [
 	"--allow-env",
 	"--allow-read",
 	"--allow-net=127.0.0.1,localhost",
+	// @vercel/oidc, pulled in by the AI SDK, reads the hostname at import time.
+	"--allow-sys=hostname",
 ];
 
 files.forEach((file) => {

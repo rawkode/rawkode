@@ -30,26 +30,28 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   Simulator UI journeys passed across focused runs: capture, device-note and
   palette persistence; fresh launch; offline tasks; task dark mode; calendar;
   repository filtering; meeting note switching/relaunch; voice mode switching;
-  voice account recovery with no microphone start; sidebar and daily-note access.
-  Two tests initially referenced replaced controls and passed after navigation
-  updates that retained their functional assertions.
+  voice account recovery with no microphone start; sidebar and daily-note
+  access. Two tests initially referenced replaced controls and passed after
+  navigation updates that retained their functional assertions.
 - Exported XCTest screenshots were visually reviewed and drove further removal
-  of redundant task and voice labels. [Screenshots](../apple/docs/screenshots/native-review/)
-  use test fixtures, not the user's live native account. No physical-device,
-  VoiceOver, long meeting, live audio-route or CarPlay qualification is claimed.
+  of redundant task and voice labels.
+  [Screenshots](../apple/docs/screenshots/native-review/) use test fixtures, not
+  the user's live native account. No physical-device, VoiceOver, long meeting,
+  live audio-route or CarPlay qualification is claimed.
 - Cloud Build 35 (the preceding editor-only push) archived and exported an IPA,
   but failed App Store preparation: Apple's Session Proxy Provider could not
   authenticate with App Store Connect. The native update's release status must
   be checked independently; a push is not TestFlight availability.
 - Follow-ups remain explicit in both screen audits: task conflict reapplication,
-  safe capture append into a daily note, full offline rich editing, and remaining
-  device/accessibility qualification. These are not represented as completed.
+  safe capture append into a daily note, full offline rich editing, and
+  remaining device/accessibility qualification. These are not represented as
+  completed.
 
 ### Daily-note task creation — 13 September, 22:00 BST
 
-- The production editor now offers **New task** in the touch formatting menu
-  and `/task` in the slash menu. It creates a canonical task and inserts its
-  entity link at the saved selection; the daily note's date is the default due date.
+- The production editor now offers **New task** in the touch formatting menu and
+  `/task` in the slash menu. It creates a canonical task and inserts its entity
+  link at the saved selection; the daily note's date is the default due date.
   Checklists remain separate and are labelled **Checklist**.
 - Live verification created `Daily note task verification`
   (`4f93a0cd-9f74-414a-95af-27054df6946b`). The note link survived reload and
@@ -60,8 +62,9 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   including real SQLite task persistence, uncertain-response retry identity and
   Tiptap update suppression. Vue typecheck passed. Both production deployments
   completed successfully; no native release is required for this editor change.
-- Native screen source audits are recorded in [core](native-screen-audit-core.md)
-  and [companion](native-screen-audit-companion.md). Implementation and runtime
+- Native screen source audits are recorded in
+  [core](native-screen-audit-core.md) and
+  [companion](native-screen-audit-companion.md). Implementation and runtime
   qualification are in progress, not yet a completed visual review.
 
 ### Latest verified status — 13 September, 21:32 BST
@@ -72,8 +75,8 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
   through `6cd85b7f` are pushed; the voice backend is deployed in production.
 - Voice tools can create graph items and update their field values, as well as
   create/edit Supertags. A production typed test created a bookmark but returned
-  an uncertain outcome. Direct GraphQL inspection confirmed persistence. The
-  SDK regression reproduced the missing final-answer step; reserving a fifth,
+  an uncertain outcome. Direct GraphQL inspection confirmed persistence. The SDK
+  regression reproduced the missing final-answer step; reserving a fifth,
   tool-free answer step fixed that path. A live update then returned HTTP 200,
   independently verified at revision 2. The failed creation was not retried.
 - Spoken and typed reasoning share a 30-second limit; individual executor calls
@@ -83,9 +86,10 @@ single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 - The agent chooses its initial greeting. Authenticated browser audio and graph
   lookup were verified; this is not physical iPhone or native Mac voice proof.
 - Native CarPlay scene and Mac Speak/Type are integrated, reviewed and build
-  verified. Build 30's actual App Store IPA contains the CarPlay scene and signed
-  voice entitlement; its provisioning profile grants that entitlement. Vehicle
-  appearance, audio routing and locked-phone operation remain unverified.
+  verified. Build 30's actual App Store IPA contains the CarPlay scene and
+  signed voice entitlement; its provisioning profile grants that entitlement.
+  Vehicle appearance, audio routing and locked-phone operation remain
+  unverified.
 - Current goal status is blocked on native access: the Mac was locked and the
   paired iPhone unavailable at the last direct check. Do not substitute further
   source reviews for a spoken native write, or advance lower priorities as if
@@ -246,18 +250,19 @@ not lost by this change. No entity data was changed.
 
 ## Current ownership and acceptance
 
-| Priority | Work | Owner | Verified state / remaining gate |
-| --- | --- | --- | --- |
-| 1 | Voice on iPhone, then Mac and CarPlay | Product owner; completed implementation handoffs below | Backend deployed, browser audio/read and typed mutation verified, native builds and signed CarPlay packaging verified. Native spoken mutation and device interaction remain blocked on access. |
-| 2 | First-class tasks | Product owner / task owner | Existing implementation requires status/due/project/day and restart acceptance after voice. |
-| 3 | Meeting capture | Meeting owner | Transcript foundation exists; real microphone, interruption recovery and retained editable notes remain required. |
-| 4 | Offline notes and tasks | Data owner | Cached context is partial evidence only; durable offline edits and safe reconnection remain required. |
-| Supporting | Release delivery | Product owner | Build 32 verified in internal TestFlight. No release job is needed for unchanged app behavior. |
-| Backlog | Booking links and wider Tana/Fibery parity | Product owner | Follow ordered priorities; require public/private isolation and calendar-write authorization. |
+| Priority   | Work                                       | Owner                                                  | Verified state / remaining gate                                                                                                                                                                |
+| ---------- | ------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1          | Voice on iPhone, then Mac and CarPlay      | Product owner; completed implementation handoffs below | Backend deployed, browser audio/read and typed mutation verified, native builds and signed CarPlay packaging verified. Native spoken mutation and device interaction remain blocked on access. |
+| 2          | First-class tasks                          | Product owner / task owner                             | Existing implementation requires status/due/project/day and restart acceptance after voice.                                                                                                    |
+| 3          | Meeting capture                            | Meeting owner                                          | Transcript foundation exists; real microphone, interruption recovery and retained editable notes remain required.                                                                              |
+| 4          | Offline notes and tasks                    | Data owner                                             | Cached context is partial evidence only; durable offline edits and safe reconnection remain required.                                                                                          |
+| Supporting | Release delivery                           | Product owner                                          | Build 32 verified in internal TestFlight. No release job is needed for unchanged app behavior.                                                                                                 |
+| Backlog    | Booking links and wider Tana/Fibery parity | Product owner                                          | Follow ordered priorities; require public/private isolation and calendar-write authorization.                                                                                                  |
 
 Voice and meeting capture are separate capabilities. A conversational assistant
-is not automatically a recorder, and an audio stream is not a durable transcript.
-The following dated handoffs are historical evidence, not current ownership.
+is not automatically a recorder, and an audio stream is not a durable
+transcript. The following dated handoffs are historical evidence, not current
+ownership.
 
 ## First delegated handoff — 13 September
 

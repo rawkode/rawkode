@@ -1,7 +1,7 @@
 name: NativeVoiceSmoke
 options:
   deploymentTarget:
-    iOS: '26.0'
+    iOS: "26.0"
 packages:
   ApsidesCore:
     path: ../..
@@ -19,8 +19,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rawkode.academy.enchiridion.voicesmoke
-        SWIFT_VERSION: '6.0'
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG ENCHIRIDION_VOICE_AUDIO_HARNESS'
+        SWIFT_VERSION: "6.0"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG ENCHIRIDION_VOICE_AUDIO_HARNESS"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SUPPORTED_PLATFORMS: iphonesimulator

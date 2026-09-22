@@ -65,9 +65,9 @@ provider HTTP and sideband attachment each have explicit finite deadlines.
 - `entity-tools.ts`: owner-bound item creation, readback and revision-checked
   field updates, including bookmarks. The shared runner blocks further writes
   after an uncertain outcome. Identical creation calls coalesce within one turn;
-  the entity API does not provide durable cross-turn creation idempotency.
-  Local migrated SQLite tests verify saved URLs and stale-edit rejection; this
-  is not evidence of a successful physical iPhone spoken mutation.
+  the entity API does not provide durable cross-turn creation idempotency. Local
+  migrated SQLite tests verify saved URLs and stale-edit rejection; this is not
+  evidence of a successful physical iPhone spoken mutation.
 - `execution-limits.ts`: network-denied sandbox loader, configured
   CPU/subrequest budgets and bounded model-facing results. Generated logs are
   discarded. Code-mode execution is stateless so tool results are not retained
@@ -105,13 +105,14 @@ isolation and execution deadlines. Passing mocked tests is not a substitute for
 this runtime qualification or a deployed spoken conversation.
 
 Voice startup appends one brief English greeting after the server attaches to
-the created session. The model chooses natural wording using the
-conversation context, including whether it is starting or resuming. The greeting then yields to the
-caller. It does not look up personal data, change graph content, or repeat on
-reflected startup events. Acceptance and rejection are tracked without logging
-the spoken content, and rejection does not prevent the caller from speaking.
-As with tool replies, input audio must continue through silence for the greeting
-to play. See [greeting guidance](https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks).
+the created session. The model chooses natural wording using the conversation
+context, including whether it is starting or resuming. The greeting then yields
+to the caller. It does not look up personal data, change graph content, or
+repeat on reflected startup events. Acceptance and rejection are tracked without
+logging the spoken content, and rejection does not prevent the caller from
+speaking. As with tool replies, input audio must continue through silence for
+the greeting to play. See
+[greeting guidance](https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks).
 
 Relevant official contracts:
 
