@@ -31,7 +31,7 @@ const messages: Record<string, string> = {
 };
 ---
 <AdminLayout title="Accounts">
-  <div class="page-heading"><div><h1>Accounts</h1><p class="muted">Connect your accounts to bring contacts and calendar events into Apsides.</p></div></div>
+  <div class="page-heading"><div><h1>Accounts</h1><p class="muted">Connect your accounts to bring contacts and calendar events into Enchiridion.</p></div></div>
   {result && messages[result] && <div class:list={['notice', {error: result.includes('failed')}]} role="status"><p>{messages[result]}</p></div>}
   {unavailable ? <div class="notice error" role="alert"><p>Accounts are unavailable right now. Reload this page to try again.</p></div> : <>
     <section aria-labelledby="add-heading">
@@ -45,8 +45,8 @@ const messages: Record<string, string> = {
       </div>}
     </section>
     <section aria-labelledby="connected-heading">
-      <div class="section-heading"><div><h2 id="connected-heading">Connected accounts</h2><p class="muted">Choose which connected accounts Apsides should sync into Today.</p></div></div>
-      {connections.length === 0 ? <div class="empty"><h3>No accounts connected</h3><p>Add an account above to bring its data into Apsides. Provider data stays in its own account storage.</p></div> : connections.map((account) => <article class="account-row">
+      <div class="section-heading"><div><h2 id="connected-heading">Connected accounts</h2><p class="muted">Choose which connected accounts Enchiridion should sync into Today.</p></div></div>
+      {connections.length === 0 ? <div class="empty"><h3>No accounts connected</h3><p>Add an account above to bring its data into Enchiridion. Provider data stays in its own account storage.</p></div> : connections.map((account) => <article class="account-row">
         <div class="account-heading"><div><h3>{account.accountLabel}</h3><p class="muted">{account.providerId === 'google' ? 'Google' : 'GitHub'} · {account.appName}</p></div><span class:list={['status', {warning: account.status !== 'connected'}]}>{account.status === 'connected' ? 'Connected' : 'Reconnect required'}</span></div>
         {account.status !== 'connected' && <p class="error-message">Access has expired or permissions have changed. Reconnect this account to continue syncing.</p>}
         <div class="account-actions">

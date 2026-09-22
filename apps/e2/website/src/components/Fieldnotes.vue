@@ -991,12 +991,12 @@ onBeforeUnmount(() => {
 <template>
 	<div :class="['app-shell', { 'document-editor': props.embedded }]">
 		<header v-if="!props.embedded" class="app-header">
-			<a class="wordmark" href="/" aria-label="Apsides today"
+			<a class="wordmark" href="/" aria-label="Enchiridion today"
 				><svg aria-hidden="true" viewBox="0 0 24 24">
 					<path
 						d="M6 3h11a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M8 3v18 M11 8h5 M11 12h5"
 					/></svg
-				>Apsides <span>{{ props.title }}</span></a
+				>Enchiridion <span>{{ props.title }}</span></a
 			>
 			<div class="file-actions">
         <ThemeToggle />

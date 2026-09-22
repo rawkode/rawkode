@@ -494,7 +494,7 @@ onBeforeUnmount(() => detailAbort?.abort());
 					</div>
 					<p v-if="tagArchiveError" class="error-message" role="alert">{{ tagArchiveError }}</p>
 				</section>
-				<p v-else class="locked-note">{{ details.tag.kind !== "user" ? "Managed by Apsides." : "Archived Supertags are read-only." }}</p>
+				<p v-else class="locked-note">{{ details.tag.kind !== "user" ? "Managed by Enchiridion." : "Archived Supertags are read-only." }}</p>
 			</template>
 			<p v-else class="supertag-empty">Choose a Supertag to inspect its fields and usage.</p>
 		</section>
