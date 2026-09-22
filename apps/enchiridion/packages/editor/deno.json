@@ -1,0 +1,6 @@
+{
+	"name": "@enchiridion/editor",
+	"exports": {
+		"./contracts": "./src/contracts.ts"
+	}
+}
