@@ -25,6 +25,7 @@ final class WorkspaceStore: ObservableObject {
     let session: NativeSession
     lazy var tasks = TasksStore(session: session, directory: disk.url.deletingLastPathComponent())
     lazy var voice = VoiceConversation(session: session)
+    lazy var nativeNote = NativeNoteController(store: self)
     let demo: Bool
     let isUITesting: Bool
     private var connectionGeneration = 0
@@ -52,6 +53,14 @@ final class WorkspaceStore: ObservableObject {
         }
         #endif
         session = try! NativeSession(origin: editorOrigin)
+        #if DEBUG
+        if isUITesting, editorOrigin.scheme == "http" {
+            session.trustsLoopbackFixture = true
+        }
+        if isUITesting, arguments.contains("--native-editor") {
+            EnchiridionPreferences.store.set(true, forKey: "enchiridionNativeEditor")
+        }
+        #endif
         do {
             #if DEBUG
             if isUITesting && arguments.contains("--seed-cached-context") {

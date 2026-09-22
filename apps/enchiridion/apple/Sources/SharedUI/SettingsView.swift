@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var store: WorkspaceStore
     @ObservedObject var session: NativeSession
     @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
+    @AppStorage("enchiridionNativeEditor", store: EnchiridionPreferences.store) private var nativeEditor = false
     @State private var signIn = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -12,6 +13,13 @@ struct SettingsView: View {
             Form {
                 Section("Appearance") {
                     Picker("Palette", selection: $theme) { ForEach(EnchiridionTheme.allCases) { Text($0.label).tag($0) } }
+                }
+                Section {
+                    Toggle("Native editor (preview)", isOn: $nativeEditor)
+                } header: {
+                    Text("Editor")
+                } footer: {
+                    Text("Edits today’s note with the native SwiftUI editor instead of the website. Diagrams render and link previews are discovered on the web; the note format is identical.")
                 }
                 Section("Enchiridion account") {
                     Text(session.email ?? session.origin.host ?? "Enchiridion").font(.callout)

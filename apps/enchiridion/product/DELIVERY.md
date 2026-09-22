@@ -1,6 +1,6 @@
 # Enchiridion delivery board
 
-Updated 13 September 2026. Product owner: this Codex thread. This board records
+Updated 14 September 2026. Product owner: this Codex thread. This board records
 verified capability, current ownership, and the next release gates. It is not a
 claim that planned features are available.
 
@@ -16,6 +16,24 @@ all-day events, calendar-colored timeline, subtle integration markers, and a
 single note-preview dock. Preserve Rosé Pine Dawn and Dark and native glass.
 
 ## Release status
+
+### Native editor review fixes — 14 September
+
+- Native editor remains opt-in preview. Fixed actor-isolation compilation,
+  unsafe list joins/outdents, day/account save races, cancelled
+  acknowledgements, and lost drafts on close or offline reopen. Native drafts
+  persist atomically before network sync; conflicts retain local edits. Failed
+  disk writes prevent closing.
+- Simulator testing additionally found and fixed clipped slash/mention menus and
+  rapid Markdown input corruption. Block prefixes now convert on Return;
+  toolbar/slash commands remain immediate.
+- Verified 86 core tests, iOS Simulator and Mac builds, and five native editor
+  journeys: immediate close/relaunch, exact heading/paragraph/relaunch,
+  checklist, canonical mention, and drawing with Dawn/Dark screenshots. See
+  `apple/docs/NATIVE-EDITOR.md` for limitations and screenshot locations.
+- This is a native-branch fix, not a TestFlight release. Physical-device,
+  accessibility and long-document qualification remain open, along with native
+  task-entity and Supertag mutation parity.
 
 ### Native screen improvements — 13 September, 22:16 BST
 

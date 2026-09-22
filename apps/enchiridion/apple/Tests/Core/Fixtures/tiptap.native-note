@@ -1,0 +1,95 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 1, "textAlign": null },
+      "content": [{ "type": "text", "text": "Shared notes 🧑🏽‍💻 — 日本語" }]
+    },
+    {
+      "type": "paragraph",
+      "attrs": { "textAlign": "center" },
+      "content": [
+        { "type": "text", "text": "All marks", "marks": [
+          { "type": "link", "attrs": { "href": "https://example.com/note?q=a%2Bb&signature=exact", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null, "title": "A useful note" } },
+          { "type": "textStyle", "attrs": { "fontFamily": "Helvetica Neue", "fontSize": "17.5px", "color": "#336699cc", "backgroundColor": "rgba(255, 230, 0, 0.5)" } },
+          { "type": "bold" }, { "type": "italic" }, { "type": "strike" }, { "type": "underline" }, { "type": "code" }
+        ] },
+        { "type": "hardBreak", "marks": [{ "type": "bold" }] },
+        { "type": "text", "text": "Contact", "marks": [{ "type": "link", "attrs": { "href": "mailto:notes@example.com", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null, "title": null } }] },
+        { "type": "text", "text": " é\u2028literal separator" }
+      ]
+    },
+    { "type": "paragraph", "attrs": { "textAlign": null } },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            { "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Bullet item" }] },
+            { "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Second paragraph in the same item" }] },
+            {
+              "type": "orderedList",
+              "attrs": { "start": 3, "type": null },
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    { "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Number three" }] },
+                    {
+                      "type": "taskList",
+                      "content": [
+                        { "type": "taskItem", "attrs": { "checked": true }, "content": [{ "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Nested completed task" }] }] },
+                        { "type": "taskItem", "attrs": { "checked": false }, "content": [{ "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Nested open task" }] }] }
+                      ]
+                    }
+                  ]
+                },
+                { "type": "listItem", "content": [{ "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Number four" }] }] }
+              ]
+            },
+            { "type": "blockquote", "content": [{ "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "A quote within the bullet" }] }] }
+          ]
+        },
+        { "type": "listItem", "content": [{ "type": "paragraph", "attrs": { "textAlign": null }, "content": [{ "type": "text", "text": "Next bullet" }] }] }
+      ]
+    },
+    { "type": "heading", "attrs": { "level": 2, "textAlign": "right" }, "content": [{ "type": "text", "text": "Code and components" }] },
+    { "type": "codeBlock", "attrs": { "language": "swift" }, "content": [{ "type": "text", "text": "let answer = 42\r\nprint(answer)\r\n" }] },
+    { "type": "codeBlock", "attrs": { "language": null } },
+    {
+      "type": "paragraph",
+      "attrs": { "textAlign": null },
+      "content": [
+        { "type": "text", "text": "Before " },
+        { "type": "component", "attrs": { "component": { "id": "10000000-0000-4000-8000-000000000001", "kind": "diagram", "title": "D2", "source": "a -> b: shared\n", "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"40\"><text x=\"5\" y=\"20\">a → b</text></svg>" } }, "marks": [{ "type": "bold" }] },
+        { "type": "component", "attrs": { "component": { "id": "10000000-0000-4000-8000-000000000002", "kind": "mermaid", "title": "Mermaid", "source": "flowchart LR\n  A --> B\n" } } },
+        { "type": "component", "attrs": { "component": {
+          "id": "10000000-0000-4000-8000-000000000003", "kind": "drawing", "title": "Canvas", "source": "", "drawing": { "elements": [
+            { "id": "20000000-0000-4000-8000-000000000001", "kind": "pen", "ink": "graphite", "points": [{ "x": 1.5, "y": 2 }, { "x": 30, "y": 20 }, { "x": 60, "y": 4 }], "text": "", "lineWidth": 2 },
+            { "id": "20000000-0000-4000-8000-000000000002", "kind": "rectangle", "ink": "blue", "points": [{ "x": 10, "y": 40 }, { "x": 80, "y": 80 }], "text": "", "lineWidth": 3 },
+            { "id": "20000000-0000-4000-8000-000000000003", "kind": "ellipse", "ink": "purple", "points": [{ "x": 100, "y": 40 }, { "x": 180, "y": 80 }], "text": "", "lineWidth": 2 },
+            { "id": "20000000-0000-4000-8000-000000000004", "kind": "arrow", "ink": "orange", "points": [{ "x": 80, "y": 60 }, { "x": 100, "y": 60 }], "text": "", "lineWidth": 1.5 },
+            { "id": "20000000-0000-4000-8000-000000000005", "kind": "text", "ink": "green", "points": [{ "x": 10, "y": 100 }], "text": "Sketch 🖊", "lineWidth": 2 }
+          ] }
+        } } },
+        { "type": "component", "attrs": { "component": {
+          "id": "10000000-0000-4000-8000-000000000004", "kind": "link", "title": "A direct video", "source": "https://example.com/watch/one", "metadata": { "title": "A direct video", "summary": "Provider-independent video metadata", "imageURL": "https://example.com/poster.jpg", "playback": { "type": "directVideo", "url": "https://example.com/video.mp4?token=exact%2Bvalue" }, "discoveryNote": "Open Graph video" }
+        } } },
+        { "type": "component", "attrs": { "component": {
+          "id": "10000000-0000-4000-8000-000000000005", "kind": "link", "title": "An embedded player", "source": "https://example.net/watch/two", "metadata": { "title": "An embedded player", "playback": { "type": "embedURL", "url": "https://player.example.net/embed/two" } }
+        } } },
+        { "type": "text", "text": " after." }
+      ]
+    },
+    { "type": "paragraph", "attrs": { "textAlign": "left" }, "content": [
+      { "type": "text", "text": "Explicit link defaults", "marks": [{ "type": "link", "attrs": { "href": "https://example.com/plain", "target": null, "rel": null, "class": null, "title": null } }] },
+      { "type": "text", "text": " e", "marks": [{ "type": "bold" }] },
+      { "type": "text", "text": "́", "marks": [{ "type": "italic" }] }
+    ] },
+    { "type": "codeBlock", "attrs": { "language": "" }, "content": [{ "type": "text", "text": "No language selected" }] },
+    { "type": "heading", "attrs": { "level": 3, "textAlign": null }, "content": [{ "type": "text", "text": "End" }] },
+    { "type": "paragraph", "attrs": { "textAlign": null } }
+  ]
+}

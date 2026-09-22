@@ -127,3 +127,13 @@ bypass production authentication.
 
 See [editor qualification](docs/EDITOR-QUALIFICATION.md) for current
 screenshots, interaction checks, and deployment status.
+
+## Native editor preview
+
+**Settings → Editor → Native editor (preview)** replaces the web view with a
+SwiftUI editor over the same canonical note: blocks, lists, marks, links,
+D2/Mermaid diagrams, drawings, link cards, and `@`/`#` entity references, saved
+through the existing revision-checked document API. The document model lives in
+EnchiridionCore and is covered by `swift test`; the SwiftUI layer is
+unqualified. See [native editor](docs/NATIVE-EDITOR.md) for the design, gaps,
+and status.
