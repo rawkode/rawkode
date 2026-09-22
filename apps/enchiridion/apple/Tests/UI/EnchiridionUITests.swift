@@ -583,6 +583,112 @@ final class EnchiridionUITests: XCTestCase {
         XCTAssertTrue(restored.label.contains("Dark") || (restored.value as? String ?? "").contains("Dark"))
     }
 
+    // MARK: Native editor (Settings → Editor → Native editor, or --native-editor)
+
+    func testNativeEditorRetainsDraftAfterImmediateClose() throws {
+        let editor = try launchNativeEditor()
+        let text = "Keep this thought " + UUID().uuidString
+        editor.typeText(text)
+        activate(app.buttons["closeDailyNote"])
+        XCTAssertFalse(app.buttons["closeDailyNote"].exists)
+        relaunchPreservingData()
+        openDailyNoteIfNeeded()
+        let restored = app.textViews.matching(identifier: "noteText").firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 20))
+        XCTAssertEqual(restored.value as? String, text)
+    }
+
+    func testNativeEditorTypesHeadingAndSavesAcrossRelaunch() throws {
+        let editor = try launchNativeEditor()
+        editor.typeText("# Native heading\nA paragraph written natively.")
+        XCTAssertTrue(app.textViews.matching(identifier: "noteText").count >= 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").element(boundBy: 0).value as? String, "Native heading")
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").element(boundBy: 1).value as? String, "A paragraph written natively.")
+        XCTAssertTrue(waitForNativeSave())
+        captureScreenshot("Native editor Dawn")
+        relaunchPreservingData()
+        openDailyNoteIfNeeded()
+        let restored = app.textViews.matching(identifier: "noteText").firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 20))
+        XCTAssertEqual(restored.value as? String, "Native heading")
+    }
+
+    func testNativeEditorSlashMenuInsertsChecklist() throws {
+        let editor = try launchNativeEditor()
+        editor.typeText("/check")
+        XCTAssertTrue(app.otherElements["Insert a block"].waitForExistence(timeout: 5) || app.buttons["Checklist"].waitForExistence(timeout: 5))
+        captureScreenshot("Native editor slash menu")
+        activate(app.buttons["nativeSlashChecklist"])
+        XCTAssertTrue(app.buttons["Open task"].waitForExistence(timeout: 5))
+        app.textViews.matching(identifier: "noteText").firstMatch.typeText("Buy milk")
+        XCTAssertEqual(app.textViews.matching(identifier: "noteText").firstMatch.value as? String, "Buy milk")
+        activate(app.buttons["Open task"].firstMatch)
+        XCTAssertTrue(app.buttons["Completed task"].waitForExistence(timeout: 5))
+        captureScreenshot("Native editor checklist")
+        XCTAssertTrue(waitForNativeSave())
+    }
+
+    func testNativeEditorMentionInsertsCanonicalEntity() throws {
+        let editor = try launchNativeEditor()
+        let entity = ProcessInfo.processInfo.environment["ENCHIRIDION_EDITOR_TEST_ENTITY"] ?? "Ada Lovelace"
+        editor.typeText("Ping @Ada")
+        let match = app.buttons[entity].firstMatch
+        XCTAssertTrue(match.waitForExistence(timeout: 10), "The fixture entity must appear in @ suggestions")
+        captureScreenshot("Native editor mention suggestions")
+        activate(match)
+        XCTAssertTrue((editor.value as? String ?? "").contains("@" + entity))
+        XCTAssertTrue(waitForNativeSave())
+        captureScreenshot("Native editor mention")
+    }
+
+    func testNativeEditorInsertsDrawingAndRendersDarkPalette() throws {
+        let editor = try launchNativeEditor()
+        editor.typeText("/drawing")
+        activate(app.buttons["nativeSlashDrawing"])
+        let save = app.buttons["Save"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        captureScreenshot("Native drawing editor")
+        activate(save)
+        XCTAssertTrue(app.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Drawing:")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForNativeSave())
+        captureScreenshot("Native editor drawing card")
+        openContext("Account & appearance")
+        let palette = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Palette")).firstMatch
+        XCTAssertTrue(palette.waitForExistence(timeout: 5))
+        activate(palette)
+        chooseMenuItem("Rosé Pine Dark")
+        activate(app.buttons["Done"])
+        openToday()
+        XCTAssertTrue(app.textViews.matching(identifier: "noteText").firstMatch.waitForExistence(timeout: 10))
+        captureScreenshot("Native editor Dark")
+    }
+
+    private var nativeStatus: XCUIElement { app.descendants(matching: .any).matching(identifier: "saveStatus").firstMatch }
+
+    private func waitForNativeSave() -> Bool {
+        let saved = NSPredicate(format: "label CONTAINS %@", "All changes saved")
+        let expectation = XCTNSPredicateExpectation(predicate: saved, object: nativeStatus)
+        return XCTWaiter().wait(for: [expectation], timeout: 15) == .completed
+    }
+
+    @discardableResult
+    private func launchNativeEditor() throws -> XCUIElement {
+        guard let origin = ProcessInfo.processInfo.environment["ENCHIRIDION_EDITOR_TEST_ORIGIN"],
+              !origin.isEmpty, !origin.hasPrefix("$(") else {
+            throw XCTSkip("Set ENCHIRIDION_EDITOR_TEST_ORIGIN to the running website fixture to test the native editor.")
+        }
+        app.terminate()
+        app.launchEnvironment["ENCHIRIDION_EDITOR_TEST_ORIGIN"] = origin
+        app.launchArguments = ["--ui-testing", "--reset-test-data", "--native-editor"]
+        app.launchEnvironment["ENCHIRIDION_NATIVE_TEST_DOCUMENT_ID"] = "native-test:" + UUID().uuidString
+        app.launch()
+        openDailyNoteIfNeeded()
+        let editor = app.textViews.matching(identifier: "noteText").firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        activate(editor)
+        return editor
+    }
+
     private var webEditor: XCUIElement {
         app.webViews.textViews["Note editor"].firstMatch
     }

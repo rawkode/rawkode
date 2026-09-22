@@ -7,6 +7,7 @@ struct TodayView: View {
     let showAgenda: () -> Void
     @StateObject private var editor: WebEditorController
     @AppStorage("enchiridionTheme", store: EnchiridionPreferences.store) private var theme: EnchiridionTheme = .dawn
+    @AppStorage("enchiridionNativeEditor", store: EnchiridionPreferences.store) private var nativeEditor = false
 
     init(store: WorkspaceStore, showAgenda: @escaping () -> Void, editor: WebEditorController? = nil) {
         self.store = store
@@ -15,6 +16,15 @@ struct TodayView: View {
     }
 
     var body: some View {
+        if nativeEditor {
+            // Preview: the native SwiftUI editor over the same canonical document.
+            NativeNoteScreen(store: store)
+        } else {
+            webEditor
+        }
+    }
+
+    private var webEditor: some View {
         ZStack(alignment: .topLeading) {
             theme.canvas.ignoresSafeArea()
             if let error = editor.error {

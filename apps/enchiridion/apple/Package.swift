@@ -7,6 +7,6 @@ let package = Package(
     products: [.library(name: "EnchiridionCore", targets: ["EnchiridionCore"])],
     targets: [
         .target(name: "EnchiridionCore", path: "Sources/Core"),
-        .testTarget(name: "EnchiridionCoreTests", dependencies: ["EnchiridionCore"], path: "Tests/Core")
+        .testTarget(name: "EnchiridionCoreTests", dependencies: ["EnchiridionCore"], path: "Tests/Core", resources: [.copy("Fixtures")])
     ]
 )
