@@ -50,7 +50,9 @@ const articleJsonLd = {
   image: [{ '@type': 'ImageObject', url: postImageUrl, caption: postImageAlt }],
   datePublished: publishedTime,
   dateModified: modifiedTime,
-  author: { '@id': personId },
+  author: post.data.authorName && post.data.authorName !== 'David Flanagan'
+    ? { '@type': 'Person', name: post.data.authorName }
+    : { '@id': personId },
   publisher: { '@id': personId },
   keywords: post.data.tags.join(', '),
   wordCount,
@@ -86,6 +88,12 @@ const articleJsonLd = {
           <h1>{post.data.title}</h1>
           <p class="article__deck">{post.data.description}</p>
           <dl class="article__meta">
+            {post.data.authorName && (
+              <div>
+                <dt>By</dt>
+                <dd>{post.data.authorName}</dd>
+              </div>
+            )}
             <div>
               <dt>Published</dt>
               <dd><time datetime={publishedTime}>{formatDate(post.data.pubDate)}</time></dd>
@@ -435,6 +443,14 @@ const articleJsonLd = {
     margin-block: var(--space-8);
     border-collapse: collapse;
     font-size: 0.95rem;
+  }
+
+  .prose :global(iframe) {
+    width: 100%;
+    max-width: 100%;
+    min-height: 315px;
+    margin-block: var(--space-8);
+    border: 0;
   }
 
   .prose :global(th),
