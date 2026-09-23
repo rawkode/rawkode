@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POSTS = ROOT / "src/content/blog"
 IMAGES = ROOT / "public/images/devto"
 API = "https://dev.to/api/articles"
+EXCLUDED_ARTICLES = {496489, 496481, 164678}  # Video timelines and a clip announcement.
 
 
 def fetch(url: str) -> bytes:
@@ -30,7 +31,11 @@ def articles(data: str | None):
         return json.loads(Path(data).read_text())
     listing = json.loads(fetch(f"{API}?username=rawkode&per_page=100"))
     # Sequential detail requests avoid DEV's API rate limit.
-    return [json.loads(fetch(f"{API}/{article['id']}")) for article in listing if not article.get("organization")]
+    return [
+        json.loads(fetch(f"{API}/{article['id']}"))
+        for article in listing
+        if not article.get("organization") and article["id"] not in EXCLUDED_ARTICLES
+    ]
 
 
 def slug(article):
@@ -109,9 +114,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", help="JSON array of DEV article detail responses")
     args = parser.parse_args()
-    posts = [a for a in articles(args.data) if not a.get("organization")]
-    if len(posts) != 17:
-        raise RuntimeError(f"Expected 17 personal articles from rawkode, got {len(posts)}")
+    posts = [a for a in articles(args.data) if not a.get("organization") and a["id"] not in EXCLUDED_ARTICLES]
+    if len(posts) != 14:
+        raise RuntimeError(f"Expected 14 substantive personal articles from rawkode, got {len(posts)}")
     links = {a["url"]: f"/read/{slug(a)}" for a in posts}
     for article in posts:
         path = POSTS / f"{slug(article)}.md"
