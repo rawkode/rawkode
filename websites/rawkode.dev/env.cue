@@ -9,6 +9,9 @@ schema.#Project & {
 	name: "rawkode.dev"
 }
 
+// Keep both site workflows on the cuenv release already used by this project.
+config: ci: cuenv: version: "0.55.1"
+
 let _t = tasks
 
 env: {
@@ -72,6 +75,8 @@ tasks: {
 			"astro.config.mjs",
 			"deno.json",
 			"deno.lock",
+			"panda.config.ts",
+			"postcss.config.cjs",
 			"public/**/*",
 			"scripts/**/*",
 			"src/**/*",
@@ -90,9 +95,25 @@ tasks: {
 
 	deploy: schema.#Task & {
 		description: "Deploy to Cloudflare Workers"
+		env:         _hostPath
 		command:     "deno"
 		args: ["task", "deploy"]
 		hermetic: false
+		dependsOn: [_t.build]
+		inputs: [
+			"astro.config.mjs",
+			"deno.json",
+			"deno.lock",
+			"env.cue",
+			"package.json",
+			"panda.config.ts",
+			"postcss.config.cjs",
+			"public/**/*",
+			"scripts/**/*",
+			"src/**/*",
+			"styled-system/**/*",
+			"wrangler.jsonc",
+		]
 	}
 
 	// Cloudflare Worker Previews, one per pull request.
@@ -148,7 +169,10 @@ _deno: schema.#Contributor & {
 		script:   "curl -fsSL https://deno.land/install.sh | sh -s -- --yes && echo \"$HOME/.deno/bin\" >> \"$GITHUB_PATH\""
 		provider: github: {
 			uses: "denoland/setup-deno@v2"
-			with: "deno-version": "v2.x"
+			with: {
+				"deno-version": "v2.x"
+				cache: true
+			}
 		}
 	}]
 }
@@ -166,6 +190,15 @@ ci: {
 		"pull-requests": "write"
 	}
 	pipelines: {
+		default: {
+			environment: "production"
+			when: {
+				branch: ["main"]
+				defaultBranch: true
+				manual: true
+			}
+			tasks: [_t.deploy]
+		}
 		pullRequest: {
 			environment: "production"
 			when: pullRequest: true
