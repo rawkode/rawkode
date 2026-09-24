@@ -1649,11 +1649,13 @@
       },
       "locked": {
         "dir": "nix",
+        "ref": "HEAD",
         "type": "git",
         "url": "file:../"
       },
       "original": {
         "dir": "nix",
+        "ref": "HEAD",
         "type": "git",
         "url": "file:../"
       }

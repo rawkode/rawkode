@@ -2,7 +2,7 @@ require_version: ">=2.4.0"
 
 inputs:
   rawkos:
-    url: git+file:../?dir=nix
+    url: "git+file:../?dir=nix&ref=HEAD"
   nixpkgs:
     follows: rawkos/nixpkgs
   nix-darwin:
