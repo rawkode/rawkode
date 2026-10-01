@@ -88,7 +88,6 @@ mkCapability {
     comma.darwin
     cuenv.darwin
     cue.darwin
-    datumctl.darwin
     deno.darwin
     devenv.darwin
     direnv.darwin
@@ -96,8 +95,13 @@ mkCapability {
     just.darwin
     nh.darwin
     nix-dev.darwin
-    orbstack.darwin
     python.darwin
     rust.darwin
+    ({ lib, ... }: {
+      homebrew = {
+        enable = lib.mkDefault true;
+        casks = [ "docker-desktop" ];
+      };
+    })
   ];
 }

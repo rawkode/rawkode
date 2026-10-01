@@ -11,7 +11,6 @@ mkCapability {
   ];
 
   darwin = with inputs.self; [
-    appBundles.craft.darwin
     appBundles.fantastical.darwin
     appBundles.slack.darwin
     appBundles.zoom.darwin

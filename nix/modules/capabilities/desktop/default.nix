@@ -14,7 +14,6 @@ mkCapability {
           appBundles.ghostty.home
           appBundles.google-chrome.home
           appBundles.onepassword.home
-          appBundles.deskflow.home
           appBundles.zed.home
         ]
         ++ lib.optionals (!isDarwin) [
@@ -68,7 +67,6 @@ mkCapability {
     appBundles.ghostty.darwin
     appBundles.google-chrome.darwin
     appBundles.onepassword.darwin
-    appBundles.deskflow.darwin
     appBundles.zed.darwin
 
     darwinModules.apps
