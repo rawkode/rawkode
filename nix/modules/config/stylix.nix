@@ -113,6 +113,10 @@ in
 
       config = lib.mkMerge (
         [
+          (lib.optionalAttrs (osClass != "nixos" || stylixHome) {
+            # Rofi is unused; skip its target and deprecated font definition.
+            stylix.targets.rofi.enable = false;
+          })
           # NixOS can select theming but turn off Stylix's HM auto-import.
           # In that case there is no upstream cursor name/package to enable.
           (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin && (osClass != "nixos" || stylixHome)) {
