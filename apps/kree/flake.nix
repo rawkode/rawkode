@@ -6,8 +6,14 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         appName = "Kree";
@@ -17,12 +23,20 @@
           name = appName;
           src = ./.;
 
-          buildInputs = with pkgs; [
-            swift
-            swiftpm
-          ] ++ (if pkgs.stdenv.isDarwin then [
-            pkgs.apple-sdk_14
-          ] else []);
+          buildInputs =
+            with pkgs;
+            [
+              swift
+              swiftpm
+            ]
+            ++ (
+              if pkgs.stdenv.isDarwin then
+                [
+                  pkgs.apple-sdk_14
+                ]
+              else
+                [ ]
+            );
 
           buildPhase = ''
             # SwiftPM tries to use a sandbox which conflicts with Nix's sandbox
@@ -35,7 +49,7 @@
 
             cp .build/release/${appName} $out/Applications/${appName}.app/Contents/MacOS/
             cp Sources/${appName}/Info.plist $out/Applications/${appName}.app/Contents/
-            
+
             # Copy resources
             if [ -d ".build/release/${appName}_${appName}.bundle" ]; then
                 cp -R .build/release/${appName}_${appName}.bundle/* $out/Applications/${appName}.app/Contents/Resources/
@@ -48,35 +62,41 @@
         apps.default = {
           type = "app";
           program = "${pkgs.writeShellScriptBin "install-and-run" ''
-            APP_NAME="Kree"
-            DEST="$HOME/Applications/$APP_NAME.app"
-            
-            echo "Installing $APP_NAME to $DEST..."
-            mkdir -p "$HOME/Applications"
-            rm -rf "$DEST"
-            
-            # Copy from Nix Store
-            cp -RL "${self.packages.${system}.default}/Applications/$APP_NAME.app" "$HOME/Applications/"
-            chmod -R u+w "$DEST"
-            
-            echo "Launching $APP_NAME..."
-            open "$DEST"
+            set -eu
+            installer=/run/current-system/sw/bin/rawkos-install-app
+            stopper=/run/current-system/sw/bin/rawkos-stop-app
+            if [ ! -x "$installer" ] || [ ! -x "$stopper" ]; then
+              echo "Activate your rawkOS Darwin configuration before launching Kree." >&2
+              exit 1
+            fi
+            "$installer" "${self.packages.${system}.default}/Applications/Kree.app"
+            "$stopper" Kree
+            exec /usr/bin/open "$HOME/Applications/Kree.app"
           ''}/bin/install-and-run";
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            swift
-            swiftpm
-          ] ++ (if pkgs.stdenv.isDarwin then [
-            pkgs.apple-sdk_14
-          ] else []);
+          buildInputs =
+            with pkgs;
+            [
+              swift
+              swiftpm
+            ]
+            ++ (
+              if pkgs.stdenv.isDarwin then
+                [
+                  pkgs.apple-sdk_14
+                ]
+              else
+                [ ]
+            );
 
           shellHook = ''
             echo "Swift environment loaded."
             echo "Build with: swift build"
-            echo "Run with: swift run"
+            echo "Run the signed app with: nix run ."
           '';
         };
-      });
+      }
+    );
 }

@@ -19,6 +19,10 @@
     disabledCapabilities = [ ];
     traits = [ ];
     users.rawkode = { };
-    modules = [ ];
+    modules = [
+      {
+        rawkOS.darwin.codeSigning.identity = "Apple Development: David Flanagan (3NU4DUDS5C)";
+      }
+    ];
   };
 }

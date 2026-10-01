@@ -1,18 +1,17 @@
 # Stable code signing for locally built macOS apps.
 #
-# Nix can only sign app bundles ad-hoc, and macOS ties Accessibility, Input
-# Monitoring, Local Network and keychain-item access to the app's code
-# signature. An ad-hoc signature is just the hash of the binary, so every
-# rebuild silently invalidates every grant while System Settings still shows
-# them enabled.
+# Nix builds use ad-hoc signatures. macOS cannot carry permission grants from
+# those signatures across changed builds. Install and development launchers
+# use the same host signing tools instead.
 #
 # This module keeps one code-signing identity per host and re-signs each
 # registered app with it whenever it is installed, so the signature, and the
-# grants tied to it, survive rebuilds. By default the identity is a self-signed
-# certificate generated once into its own keychain (with a stored random
-# password, so codesign never prompts) and trusted for code signing only. Set
+# Accessibility and Input Monitoring grants, survive rebuilds. By default the
+# identity is a self-signed certificate generated once into its own keychain
+# (with a stored random password) and trusted for code signing only. Set
 # `identity` to use a certificate from the primary user's login keychain
-# instead, for example an Apple Development identity.
+# instead. Local Network permission requires an Apple-issued identity for
+# reliable tracking, for example Apple Development.
 {
   flake.darwinModules.macos-code-signing =
     {
@@ -57,8 +56,11 @@
         if [ -f "$keychain" ] && [ -f "$password" ] && [ -f "$certificate" ]; then
           exit 0
         fi
+        if [ -e "$keychain" ] || [ -e "$password" ] || [ -e "$certificate" ]; then
+          echo "error: local signing identity is incomplete; restore it rather than replacing its certificate" >&2
+          exit 1
+        fi
         echo "Creating this host's local code-signing identity..."
-        rm -rf "$dir"
         mkdir -p "$dir"
         chmod 700 "$dir"
         umask 077
@@ -85,10 +87,11 @@
       # admin trust domain. codesign refuses an untrusted identity, even by
       # hash. Scoped to the code-signing policy; idempotent.
       trustScript = pkgs.writeText "rawkos-code-signing-trust.sh" ''
+        set -eu
         certificate="$1"
         if [ ! -f "$certificate" ]; then
-          echo "warning: local code-signing certificate is missing; apps keep their ad-hoc signatures" >&2
-          exit 0
+          echo "error: local code-signing certificate is missing" >&2
+          exit 1
         fi
         if /usr/bin/security verify-cert -c "$certificate" -p codeSign -L >/dev/null 2>&1; then
           exit 0
@@ -96,14 +99,17 @@
         echo "Trusting this host's local code-signing certificate..."
         /usr/bin/security add-trusted-cert -d -r trustRoot -p codeSign \
           -k /Library/Keychains/System.keychain "$certificate" \
-          || echo "warning: could not trust the local code-signing certificate" >&2
+          || exit 1
       '';
 
-      # Phase 3, as the primary user: install each app into ~/Applications
-      # (Spotlight and Launchpad skip symlinked bundles) and sign it.
-      installScript = pkgs.writeText "rawkos-code-signing-install.sh" ''
-        set -u
-        mkdir -p "$HOME/Applications"
+      signApp = pkgs.writeShellScriptBin "rawkos-sign-app" ''
+        set -euo pipefail
+        if [ "$#" -lt 1 ]; then
+          echo "usage: rawkos-sign-app APP_BUNDLE [HELPER_PATH ...]" >&2
+          exit 2
+        fi
+        bundle="$1"
+        shift
         ${lib.optionalString managed ''
           keychain="${supportDir}/signing.keychain-db"
           password="${supportDir}/keychain-password"
@@ -118,18 +124,107 @@
           /usr/bin/security unlock-keychain -p "$(cat "$password")" "$keychain"
         ''}
         sign() {
-          /usr/bin/codesign --force ${lib.optionalString managed ''--keychain "$keychain"''} --sign "${identityName}" "$1"
+          /usr/bin/codesign --force ${lib.optionalString managed ''--keychain "$keychain"''} --sign ${lib.escapeShellArg identityName} "$1"
         }
+        for executable in "$@"; do
+          sign "$bundle/$executable"
+        done
+        sign "$bundle"
+        /usr/bin/codesign --verify --deep --strict "$bundle"
+      '';
+
+      installAppScript = pkgs.writeShellScript "rawkos-install-app-locked" ''
+        set -euo pipefail
+        if [ "$#" -lt 1 ] || [ ! -d "$1/Contents/MacOS" ]; then
+          echo "usage: rawkos-install-app APP_BUNDLE [HELPER_PATH ...]" >&2
+          exit 2
+        fi
+        source="$1"
+        shift
+        name="$(basename "$source")"
+        case "$name" in
+          *.app) ;;
+          *) echo "error: expected an .app bundle" >&2; exit 2 ;;
+        esac
+        mkdir -p "$HOME/Applications"
+        staging="$(mktemp -d "$HOME/Applications/.rawkos-install.XXXXXX")"
+        target="$HOME/Applications/$name"
+        backup="$staging/previous"
+        installed=false
+        cleanup() {
+          status="$?"
+          if [ "$installed" = false ] && { [ -e "$backup" ] || [ -L "$backup" ]; }; then
+            if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+              if ! mv "$backup" "$target"; then
+                echo "error: restore the previous app from $backup" >&2
+                return 1
+              fi
+            else
+              echo "error: destination changed during installation; previous app retained at $backup" >&2
+              return 1
+            fi
+          fi
+          rm -rf "$staging"
+          return "$status"
+        }
+        trap cleanup EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' HUP TERM
+        cp -RL "$source" "$staging/$name"
+        chmod -R u+w "$staging/$name"
+        ${signApp}/bin/rawkos-sign-app "$staging/$name" "$@"
+        # Signing failure leaves the previous installation untouched.
+        if [ -e "$target" ] || [ -L "$target" ]; then
+          mv "$target" "$backup"
+        fi
+        mv "$staging/$name" "$target"
+        installed=true
+      '';
+
+      installApp = pkgs.writeShellScriptBin "rawkos-install-app" ''
+        set -euo pipefail
+        if [ "$#" -lt 1 ]; then
+          echo "usage: rawkos-install-app APP_BUNDLE [HELPER_PATH ...]" >&2
+          exit 2
+        fi
+        mkdir -p "$HOME/Applications"
+        # Keep the lock inode so concurrent installers cannot lock different files.
+        exec /usr/bin/lockf -k -t 0 "$HOME/Applications/.rawkos-install-$(basename "$1").lock" \
+          ${installAppScript} "$@"
+      '';
+
+      stopApp = pkgs.writeShellScriptBin "rawkos-stop-app" ''
+        set -euo pipefail
+        if [ "$#" -lt 1 ]; then
+          echo "usage: rawkos-stop-app APP_PROCESS [HELPER_PROCESS ...]" >&2
+          exit 2
+        fi
+        user_uid="$(id -u)"
+        /usr/bin/pkill -u "$user_uid" -x "$1" >/dev/null 2>&1 || true
+        for _ in {1..50}; do
+          running=false
+          for process in "$@"; do
+            if /usr/bin/pgrep -u "$user_uid" -x "$process" >/dev/null; then
+              running=true
+              break
+            fi
+          done
+          if [ "$running" = false ]; then
+            exit 0
+          fi
+          sleep 0.1
+        done
+        echo "error: $1 or its helper is still running; close it before relaunching" >&2
+        exit 1
+      '';
+
+      # Phase 3, as the primary user: install verified, signed copies.
+      installScript = pkgs.writeText "rawkos-code-signing-install.sh" ''
+        set -euo pipefail
         ${lib.concatStringsSep "\n" (
           lib.mapAttrsToList (name: app: ''
             echo "Installing ${name} to ~${user}/Applications..."
-            target="$HOME/Applications/${name}"
-            rm -rf "$target"
-            cp -RL "${app.bundle}" "$target"
-            chmod -R u+w "$target"
-            ${lib.concatMapStringsSep "\n" (exe: ''sign "$target/${exe}" &&'') app.executables} \
-              sign "$target" \
-              || echo "warning: could not sign ${name}; it keeps its ad-hoc signature" >&2
+            ${installApp}/bin/rawkos-install-app ${lib.escapeShellArg (toString app.bundle)} ${lib.escapeShellArgs app.executables}
           '') cfg.apps
         )}
       '';
@@ -159,15 +254,26 @@
       };
 
       config = lib.mkIf (cfg.apps != { }) {
+        assertions = [
+          {
+            assertion = cfg.identity != "-";
+            message = "rawkOS.darwin.codeSigning.identity must be a stable certificate, not the ad-hoc '-' identity";
+          }
+        ];
+        environment.systemPackages = [
+          signApp
+          installApp
+          stopApp
+        ];
         # nix-darwin runs activation as root with HOME=~root. Copying and
         # signing run as the primary user inside their GUI session; trusting the
         # certificate needs root and runs directly.
         system.activationScripts.postActivation.text = lib.mkAfter ''
           ${lib.optionalString managed ''
-            ${asUser prepareScript} || echo "warning: could not prepare the local code-signing identity" >&2
+            ${asUser prepareScript}
             ${pkgs.runtimeShell} ${trustScript} ${userHome}/Library/Application\ Support/rawkOS/code-signing/certificate.pem
           ''}
-          ${asUser installScript} || echo "warning: installing signed apps failed" >&2
+          ${asUser installScript}
         '';
       };
     };
