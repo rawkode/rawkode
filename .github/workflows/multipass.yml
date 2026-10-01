@@ -56,6 +56,8 @@ jobs:
           Copy-Item target/release/multipass-engine.exe dist/windows/multipass-engine.exe
       - name: macOS native UI
         if: runner.os == 'macOS'
+        env:
+          MULTIPASS_SIGNING_IDENTITY: "-"
         run: ./script/build_and_run.sh --build
       - name: Linux native UI tests and package
         if: runner.os == 'Linux'

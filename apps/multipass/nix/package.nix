@@ -15,8 +15,22 @@
   gobject-introspection,
   makeWrapper,
   makeDesktopItem,
+  writeShellScript,
 }:
 let
+  darwinLauncher = writeShellScript "multipass-launch" ''
+    set -eu
+    installer=/run/current-system/sw/bin/rawkos-install-app
+    stopper=/run/current-system/sw/bin/rawkos-stop-app
+    if [ ! -x "$installer" ] || [ ! -x "$stopper" ]; then
+      echo "Activate your rawkOS Darwin configuration before launching Multipass." >&2
+      exit 1
+    fi
+    "$installer" "$1" Contents/MacOS/multipass-engine
+    shift
+    "$stopper" Multipass multipass-engine
+    exec /usr/bin/open "$HOME/Applications/Multipass.app" "$@"
+  '';
   source = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -115,7 +129,7 @@ let
           cp .build/release/Multipass "$app/Contents/MacOS/Multipass"
           cp ${engine}/bin/multipass-engine "$app/Contents/MacOS/multipass-engine"
           cp Resources/Info.plist "$app/Contents/Info.plist"
-          makeWrapper /usr/bin/open "$out/bin/multipass" --add-flags "$app"
+          makeWrapper ${darwinLauncher} "$out/bin/multipass" --add-flags "$app"
           runHook postInstall
         ''
       else
