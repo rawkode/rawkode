@@ -3,6 +3,7 @@
 
 # Nix
 .cache/
+.devenv/
 result*
 result
 .direnv/
