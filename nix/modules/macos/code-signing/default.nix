@@ -10,8 +10,8 @@
 # identity is a self-signed certificate generated once into its own keychain
 # (with a stored random password) and trusted for code signing only. Set
 # `identity` to use a certificate from the primary user's login keychain
-# instead. Local Network permission requires an Apple-issued identity for
-# reliable tracking, for example Apple Development.
+# instead. An Apple-issued identity, for example Apple Development, is
+# recommended for reliable Local Network permission tracking.
 {
   flake.darwinModules.macos-code-signing =
     {
@@ -147,6 +147,10 @@
           *) echo "error: expected an .app bundle" >&2; exit 2 ;;
         esac
         mkdir -p "$HOME/Applications"
+        # The worker owns this descriptor through installation and EXIT cleanup.
+        # Keep the inode so competing installers always lock the same file.
+        exec 9> "$HOME/Applications/.rawkos-install-$name.lock"
+        /usr/bin/lockf -t 0 9
         staging="$(mktemp -d "$HOME/Applications/.rawkos-install.XXXXXX")"
         target="$HOME/Applications/$name"
         backup="$staging/previous"
@@ -187,10 +191,7 @@
           echo "usage: rawkos-install-app APP_BUNDLE [HELPER_PATH ...]" >&2
           exit 2
         fi
-        mkdir -p "$HOME/Applications"
-        # Keep the lock inode so concurrent installers cannot lock different files.
-        exec /usr/bin/lockf -k -t 0 "$HOME/Applications/.rawkos-install-$(basename "$1").lock" \
-          ${installAppScript} "$@"
+        exec ${installAppScript} "$@"
       '';
 
       stopApp = pkgs.writeShellScriptBin "rawkos-stop-app" ''
