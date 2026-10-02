@@ -85,7 +85,10 @@ mkApp {
         enable = lib.mkDefault true;
         taps = [ "ampcode/tap" ];
         brews = [
-          "ampcode/tap/ampcode"
+          {
+            name = "ampcode/tap/ampcode";
+            conflicts_with = [ "amp" ];
+          }
           "gemini-cli"
         ];
         casks = [

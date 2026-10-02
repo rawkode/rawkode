@@ -14,8 +14,8 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # Older channels kept only so individual packages can be pinned off
     # unstable: nixpkgs-25-05 -> modules/development/direnv, nixpkgs-stable
-    # (25.11) -> modules/apps/bat and modules/shells/nushell. Drop a pin once
-    # the package works on unstable again.
+    # (25.11) -> modules/apps/bat, modules/shells/nushell, and CoreWeave's
+    # Go 1.25 package. Drop a pin once the package works on unstable again.
     nixpkgs-25-05.url = "github:NixOS/nixpkgs/nixos-25.05";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
 
@@ -35,7 +35,7 @@
     comma.url = "github:nix-community/comma";
     coreweave = {
       url = "github:coreweave/coreweave.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "nixpkgs-stable";
       inputs.home-manager.follows = "home-manager";
       inputs.nix-darwin.follows = "nix-darwin";
       inputs.treefmt-nix.follows = "treefmt-nix";
