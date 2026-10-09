@@ -6,12 +6,7 @@ mkApp {
   name = "atuin";
 
   common.home =
-    {
-      config,
-      lib,
-      pkgs,
-      ...
-    }:
+    { ... }:
     {
       programs.atuin = {
         enable = true;
@@ -37,8 +32,5 @@ mkApp {
         };
       };
 
-      programs.fish.interactiveShellInit = lib.mkIf config.programs.fish.enable ''
-        ${lib.getExe pkgs.atuin} ai init fish | source
-      '';
     };
 }
