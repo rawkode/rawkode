@@ -264,4 +264,5 @@ in
   flake.nixosConfigurations = generated.nixosConfigurations;
   flake.darwinConfigurations = generated.darwinConfigurations;
   flake.packages.aarch64-darwin = generated.darwinPackages;
+  flake.devenvMachines = generated.devenvMachines;
 }

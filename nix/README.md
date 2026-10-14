@@ -93,6 +93,26 @@ cuenv task check-host
 
 `check-host` requires the local hostname to have a machine manifest. It builds the matching NixOS or nix-darwin system closure with `--no-link`; it does not switch or activate the configuration.
 
+### Experimental devenv Machines pilot
+
+The flake exports role modules generated from the machine manifests for use by
+devenv Machines. The initial pilot declares only `p4x-studio`; its nix-darwin
+role retains the integrated Home Manager configuration. This requires devenv
+2.4 or later and reuses the flake's nixpkgs and nix-darwin inputs.
+
+From this directory, inspect and build the machine without contacting it:
+
+```bash
+devenv machines info
+devenv build machines.p4x-studio
+```
+
+To activate it over SSH after reviewing the build, run
+`devenv machines deploy p4x-studio`. The target is `rawkode@p4x-studio` and
+requires passwordless `sudo`; nix-darwin deployments do not have automatic
+rollback. See the [devenv Machines guide](https://devenv.sh/machines/) for the
+experimental interface and deployment behavior.
+
 The `kree` and `multipass` inputs use sibling app flakes (`path:../apps/kree` and `path:../apps/multipass`), so evaluation expects this directory to remain inside the containing `rawkode` monorepo checkout.
 
 Multipass is explicitly selected through the `peripherals-multipass` capability on every declared machine, including the work Mac and OrbStack VM. macOS copies the bundle to `~/Applications/Multipass.app` during activation so Spotlight indexes it and Input Monitoring grants survive rebuilds; Linux provides the `multipass` command and application-menu entry. NixOS also installs the narrowly scoped MX Master 4 Bluetooth HID access rule. Rebuild each host to apply the installation. Automatic startup and pairing are not configured: select that computer's mouse slot and pair through the app. Headless VMs receive the package but need a graphical session and Bluetooth device access to use it. NixOS network access still needs firewall configuration for mDNS and the peer TCP port advertised by Multipass (currently selected dynamically); installation does not open a broad port range.

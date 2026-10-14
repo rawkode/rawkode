@@ -93,6 +93,67 @@ let
       inherit inputs machine;
     };
 
+  modulesForMachine =
+    {
+      machine,
+      manifest,
+      traits,
+      kind,
+    }:
+    traitImportsFor {
+      inherit kind traits;
+      selected = manifest.traits or [ ];
+    }
+    ++ capabilityResolver.resolveMachineCapabilityImports {
+      inherit kind machine;
+    }
+    ++ userImportsFor {
+      inherit kind;
+      users = usersFor manifest;
+    }
+    ++ [
+      (mkNetworkingModule {
+        inherit (manifest) platform;
+        inherit machine;
+      })
+    ]
+    ++ localModulesFor manifest;
+
+  wrapModuleWithSpecialArgs =
+    {
+      machine,
+      module,
+    }:
+    let
+      specialArgs = commonSpecialArgs { inherit machine; } // {
+        inherit (inputs) self;
+      };
+
+      wrap =
+        file: value:
+        if lib.isFunction value then
+          lib.setFunctionArgs (
+            args:
+            let
+              result = value (args // specialArgs);
+            in
+            if lib.isAttrs result then wrap file result else result
+          ) (lib.functionArgs value)
+        else if builtins.isPath value || builtins.isString value then
+          wrap (toString value) (import value)
+        else if lib.isAttrs value then
+          value
+          // (lib.optionalAttrs (value ? imports) {
+            imports = map (wrap null) value.imports;
+          })
+          // (lib.optionalAttrs (file != null && !(value ? _file)) {
+            _file = file;
+          })
+        else
+          value;
+    in
+    wrap null module;
+
   platformImpl = {
     nixos = {
       kind = "nixos";
@@ -116,29 +177,42 @@ let
     in
     impl.mkSystem {
       inherit (manifest) system;
-      modules =
-        traitImportsFor {
-          inherit (impl) kind;
-          inherit traits;
-          selected = manifest.traits or [ ];
-        }
-        ++ capabilityResolver.resolveMachineCapabilityImports {
-          inherit (impl) kind;
-          inherit machine;
-        }
-        ++ userImportsFor {
-          inherit (impl) kind;
-          users = usersFor manifest;
-        }
-        ++ [
-          (mkNetworkingModule {
-            inherit (manifest) platform;
-            inherit machine;
-          })
-        ]
-        ++ localModulesFor manifest;
+      modules = modulesForMachine {
+        inherit machine manifest traits;
+        inherit (impl) kind;
+      };
       specialArgs = commonSpecialArgs { inherit machine; };
     };
+
+  devenvMachineFor =
+    {
+      machine,
+      manifest,
+      traits,
+    }:
+    let
+      impl =
+        platformImpl.${manifest.platform} or (throw "Unknown machine platform '${manifest.platform}'");
+      role = if manifest.platform == "nixos" then "nixos" else "nix-darwin";
+      roleModule = wrapModuleWithSpecialArgs {
+        inherit machine;
+        module = {
+          imports = modulesForMachine {
+            inherit machine manifest traits;
+            inherit (impl) kind;
+          };
+        };
+      };
+    in
+    {
+      inherit (manifest) system;
+    }
+    // builtins.listToAttrs [
+      {
+        name = role;
+        value = roleModule;
+      }
+    ];
 
   configsForPlatform =
     {
@@ -232,12 +306,19 @@ in
         inherit darwinConfigurations;
         manifests = validatedManifests;
       };
+      devenvMachines = lib.mapAttrs (
+        machine: manifest:
+        devenvMachineFor {
+          inherit machine manifest traits;
+        }
+      ) validatedManifests;
     in
     {
       inherit
         nixosConfigurations
         darwinConfigurations
         darwinPackages
+        devenvMachines
         ;
     };
 }

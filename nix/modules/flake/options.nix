@@ -121,6 +121,12 @@ in
     description = "Reusable machine hardware and platform trait modules.";
   };
 
+  options.flake.devenvMachines = lib.mkOption {
+    type = lib.types.lazyAttrsOf lib.types.raw;
+    default = { };
+    description = "devenv Machines role modules generated from the machine manifests.";
+  };
+
   # NOTE: Other flake.* options (homeModules, nixosModules, nixosConfigurations,
   # overlays, packages, etc.) are provided elsewhere (via import-tree/flake-parts)
   # and should not be redeclared here to avoid merge conflicts.
