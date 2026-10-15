@@ -6,8 +6,16 @@ mkCapability {
   name = "desktop";
 
   home =
-    { isDarwin, ... }:
+    { isDarwin, pkgs, ... }:
     {
+      home.packages = lib.optionals (!isDarwin) (
+        with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system};
+        [
+          chatgpt
+          claude-desktop
+        ]
+      );
+
       imports =
         with inputs.self;
         [
