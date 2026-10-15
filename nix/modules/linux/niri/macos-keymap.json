@@ -1,0 +1,67 @@
+{
+	"keymap": [
+		{
+			"name": "Firefox address bar",
+			"application": {
+				"only": ["/^(firefox|firefox-nightly|org\\.mozilla\\.firefox).*$/"]
+			},
+			"exact_match": true,
+			"remap": {
+				"Super-L": "C-L"
+			}
+		},
+		{
+			"name": "Close tabs in desktop applications",
+			"application": {
+				"only": [
+					"/^(firefox|firefox-nightly|org\\.mozilla\\.firefox).*$/",
+					"/^(google-chrome|chromium|com\\.google\\.Chrome).*$/",
+					"/^(dev\\.zed\\.Zed|zed|Zed).*$/",
+					"com.system76.CosmicFiles",
+					"/^(1Password|1password|com\\.1password\\.1Password)$/",
+					"/^(vicinae|Vicinae)$/"
+				]
+			},
+			"exact_match": true,
+			"remap": {
+				"Super-W": "C-W",
+				"Super-Shift-W": "C-Shift-W"
+			}
+		},
+		{
+			"name": "Copy, paste and macOS text selection",
+			"application": {
+				"not": [
+					"/^(com\\.mitchellh\\.ghostty|ghostty|Alacritty|alacritty|kitty|foot|org\\.wezfurlong\\.wezterm|org\\.gnome\\.Terminal|org\\.gnome\\.Console|org\\.remmina\\.Remmina|com\\.moonlight_stream\\.Moonlight).*$/"
+				]
+			},
+			"exact_match": true,
+			"remap": {
+				"Super-C": "C-C",
+				"Super-V": "C-V",
+				"Super-A": "C-A",
+				"Super-Shift-Left": "Shift-Home",
+				"Super-Shift-Right": "Shift-End",
+				"Super-Up": "C-Home",
+				"Super-Shift-Up": "Shift-C-Home",
+				"Super-Down": "C-End",
+				"Super-Shift-Down": "Shift-C-End",
+				"Alt-Left": "C-Left",
+				"Alt-Shift-Left": "Shift-C-Left",
+				"Alt-Right": "C-Right",
+				"Alt-Shift-Right": "Shift-C-Right"
+			}
+		},
+		{
+			"name": "Close other application windows",
+			"application": {
+				"not": ["/^(com\\.mitchellh\\.ghostty|ghostty)$/"]
+			},
+			"exact_match": true,
+			"remap": {
+				"Super-W": "Alt-F4",
+				"Super-Shift-W": "Alt-F4"
+			}
+		}
+	]
+}

@@ -87,6 +87,18 @@ mkApp {
 
         keybind = [
           "global:cmd+semicolon=toggle_quick_terminal"
+        ]
+        ++ lib.optionals (!isDarwin) [
+          "super+t=new_tab"
+          "super+c=copy_to_clipboard"
+          "super+v=paste_from_clipboard"
+          "super+a=select_all"
+          "super+w=close_surface"
+          "super+shift+w=close_window"
+          "super+shift+left=adjust_selection:beginning_of_line"
+          "super+shift+right=adjust_selection:end_of_line"
+          "super+shift+up=adjust_selection:home"
+          "super+shift+down=adjust_selection:end"
         ];
       }
       // lib.optionalAttrs (stylixColors != null) {

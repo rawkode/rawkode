@@ -59,7 +59,7 @@ mkApp {
           ];
         };
       };
-      "Super+e" = {
+      "Super+E" = {
         action = {
           spawn = [
             "vicinae"
@@ -67,7 +67,7 @@ mkApp {
           ];
         };
       };
-      "Super+C" = {
+      "Super+Alt+V" = {
         action = {
           spawn = [
             "vicinae"

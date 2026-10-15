@@ -44,11 +44,13 @@ mkApp {
       };
 
       # 1Password only trusts browsers it recognises by process name; Firefox
-      # Nightly runs as `firefox-nightly`. The mode makes this a root-owned file
+      # Nightly's launcher is `firefox-nightly`, but its executable is
+      # `firefox-nightly-bin`. The mode makes this a root-owned file
       # rather than a store symlink, which 1Password refuses to read.
       environment.etc."1password/custom_allowed_browsers" = {
         text = ''
           firefox-nightly
+          firefox-nightly-bin
         '';
         mode = "0755";
       };

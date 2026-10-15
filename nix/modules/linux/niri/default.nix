@@ -27,6 +27,13 @@ mkApp {
       programs.niri.package = pkgs.niri;
       systemd.user.services.niri-flake-polkit.enable = false;
 
+      # xremap runs as the desktop user and needs keyboard/uinput access.
+      hardware.uinput.enable = true;
+      users.users.rawkode.extraGroups = [
+        "input"
+        "uinput"
+      ];
+
       environment.systemPackages = with pkgs; [
         blueman
         brightnessctl
@@ -35,7 +42,6 @@ mkApp {
         iwgtk
         pavucontrol
         polkit_gnome
-        swaynotificationcenter
         swww
         wl-clipboard
       ];
@@ -51,6 +57,7 @@ mkApp {
     }:
     let
       makeCommand = command: { command = [ command ]; };
+      xremap = pkgs.xremap.override { withVariant = "niri"; };
       niriEnableSupported =
         options ? programs && options.programs ? niri && options.programs.niri ? enable;
     in
@@ -65,13 +72,13 @@ mkApp {
         ++ [
           inputs.self.homeModules.darkman
           inputs.self.homeModules.hypridle
-          inputs.self.homeModules.swaync
           inputs.self.homeModules.swww
         ];
 
       home.packages = with pkgs; [
         cosmic-files
         cosmic-panel
+        xremap
       ];
 
       xdg.portal = {
@@ -105,7 +112,28 @@ mkApp {
 
       services.swayosd.enable = true;
 
+      xdg.configFile."xremap/config.json".source = ./macos-keymap.json;
+
       systemd.user.services = {
+        xremap = {
+          Unit = {
+            Description = "macOS keyboard shortcuts for Niri";
+            # The process reads the keymap once; restart after keymap updates.
+            X-Restart-Triggers = [ "${./macos-keymap.json}" ];
+            ConditionEnvironment = [
+              "XDG_CURRENT_DESKTOP=niri"
+              "NIRI_SOCKET"
+            ];
+            After = [ "graphical-session.target" ];
+            PartOf = [ "graphical-session.target" ];
+          };
+          Service = {
+            ExecStart = "${lib.getExe xremap} --watch=device --no-window-logging %h/.config/xremap/config.json";
+            Restart = "on-failure";
+            RestartSec = 2;
+          };
+          Install.WantedBy = [ "graphical-session.target" ];
+        };
         # Override swayosd to only run in niri
         swayosd = {
           Unit = {
@@ -171,7 +199,6 @@ mkApp {
                 ];
               }
               (makeCommand "blueman-applet")
-              (makeCommand "iwgtk-indicator")
             ];
 
             outputs = {
@@ -225,11 +252,13 @@ mkApp {
             };
 
             input = {
+              mod-key = "Super";
+              mod-key-nested = "Super";
               keyboard = {
                 numlock = true;
               };
               focus-follows-mouse = {
-                enable = true;
+                enable = false;
                 max-scroll-amount = "0%";
               };
               touchpad = {
@@ -382,158 +411,95 @@ mkApp {
               }
             ];
 
+            # Command+Left/Right focuses columns; add Shift for text selection.
+            # Command+Up/Down remains available for document navigation.
+            # Niri's H/J/K/L bindings remain; xremap handles Firefox's Cmd+L.
+            # Native recent-windows defaults provide Command+Tab and grave.
             binds = {
-              "Super+Q" = {
-                action.close-window = { };
-              };
-              "Super+Shift+Q" = {
-                action.quit = { };
-              };
-
-              "Super+T" = {
-                action.toggle-column-tabbed-display = { };
-              };
-
-              "Ctrl+Down" = {
-                action.toggle-overview = { };
-              };
-
+              "Super+Shift+Slash".action.show-hotkey-overlay = { };
+              "Super+Q".action.close-window = { };
+              "Alt+F4".action.close-window = { };
+              "Super+Left".action.focus-column-left = { };
+              "Super+Right".action.focus-column-right = { };
+              "Super+H".action.focus-column-left = { };
+              "Super+J".action.focus-window-down = { };
+              "Super+K".action.focus-window-up = { };
+              "Super+L".action.focus-column-right = { };
+              "Super+Ctrl+H".action.move-column-left = { };
+              "Super+Ctrl+J".action.move-window-down = { };
+              "Super+Ctrl+K".action.move-window-up = { };
+              "Super+Ctrl+L".action.move-column-right = { };
+              "Super+Alt+Left".action.focus-column-left = { };
+              "Super+Alt+Down".action.focus-window-down = { };
+              "Super+Alt+Up".action.focus-window-up = { };
+              "Super+Alt+Right".action.focus-column-right = { };
+              "Super+Ctrl+Left".action.move-column-left = { };
+              "Super+Ctrl+Down".action.move-window-down = { };
+              "Super+Ctrl+Up".action.move-window-up = { };
+              "Super+Ctrl+Right".action.move-column-right = { };
+              "Super+Shift+H".action.focus-monitor-left = { };
+              "Super+Shift+J".action.focus-monitor-down = { };
+              "Super+Shift+K".action.focus-monitor-up = { };
+              "Super+Shift+L".action.focus-monitor-right = { };
+              "Super+Home".action.focus-column-first = { };
+              "Super+End".action.focus-column-last = { };
+              "Super+Page_Up".action.focus-workspace-up = { };
+              "Super+Page_Down".action.focus-workspace-down = { };
+              "Super+I".action.focus-workspace-up = { };
+              "Super+U".action.focus-workspace-down = { };
+              "Super+Ctrl+Page_Up".action.move-column-to-workspace-up = { };
+              "Super+Ctrl+Page_Down".action.move-column-to-workspace-down = { };
+              "Super+Ctrl+I".action.move-column-to-workspace-up = { };
+              "Super+Ctrl+U".action.move-column-to-workspace-down = { };
+              "Super+Shift+Page_Up".action.move-workspace-up = { };
+              "Super+Shift+Page_Down".action.move-workspace-down = { };
+              "Super+O".action.toggle-overview = { };
+              "Super+Comma".action.consume-window-into-column = { };
+              "Super+Period".action.expel-window-from-column = { };
+              "Super+R".action.switch-preset-column-width = { };
+              "Super+Shift+R".action.switch-preset-column-width-back = { };
+              "Super+Ctrl+Shift+R".action.switch-preset-window-height = { };
+              "Super+Ctrl+R".action.reset-window-height = { };
+              "Super+F".action.maximize-column = { };
+              "Super+Shift+F".action.fullscreen-window = { };
+              "Super+Ctrl+C".action.center-column = { };
+              "Super+Shift+V".action.toggle-window-floating = { };
+              "Super+Ctrl+Space".action.switch-focus-between-floating-and-tiling = { };
+              "Super+Shift+T".action.toggle-column-tabbed-display = { };
+              "Super+1".action.focus-workspace = 1;
+              "Super+Ctrl+1".action.move-column-to-workspace = 1;
+              "Super+2".action.focus-workspace = 2;
+              "Super+Ctrl+2".action.move-column-to-workspace = 2;
+              "Super+3".action.focus-workspace = 3;
+              "Super+Ctrl+3".action.move-column-to-workspace = 3;
+              "Super+4".action.focus-workspace = 4;
+              "Super+Ctrl+4".action.move-column-to-workspace = 4;
+              "Super+5".action.focus-workspace = 5;
+              "Super+Ctrl+5".action.move-column-to-workspace = 5;
+              "Super+6".action.focus-workspace = 6;
+              "Super+Ctrl+6".action.move-column-to-workspace = 6;
+              "Super+7".action.focus-workspace = 7;
+              "Super+Ctrl+7".action.move-column-to-workspace = 7;
+              "Super+8".action.focus-workspace = 8;
+              "Super+Ctrl+8".action.move-column-to-workspace = 8;
+              "Super+9".action.focus-workspace = 9;
+              "Super+Ctrl+9".action.move-column-to-workspace = 9;
+              "Super+Return".action.spawn = [ "ghostty" ];
+              "Super+Backslash".action.spawn = [
+                "1password"
+                "--quick-access"
+              ];
               "Super+N" = {
                 action = {
                   spawn = [
-                    "swaync-client"
-                    "-t"
+                    "desktop-shell"
+                    "ipc"
+                    "call"
+                    "panel"
+                    "toggle"
+                    "notifications"
                   ];
                 };
-              };
-
-              "Super+Return" = {
-                action = {
-                  spawn = [ "ghostty" ];
-                };
-              };
-
-              "Super+Backslash" = {
-                action = {
-                  spawn = [
-                    "1password"
-                    "--quick-access"
-                  ];
-                };
-              };
-              "Super+Comma" = {
-                action.consume-window-into-column = { };
-              };
-
-              "Super+Period" = {
-                action.expel-window-from-column = { };
-              };
-
-              "Super+Page_Down" = {
-                action.focus-monitor-next = { };
-              };
-
-              "Super+Page_Up" = {
-                action.focus-monitor-previous = { };
-              };
-
-              "Super+Shift+Page_Down" = {
-                action.move-column-to-monitor-next = { };
-              };
-
-              "Super+Shift+Page_Up" = {
-                action.move-column-to-monitor-previous = { };
-              };
-
-              "Super+Up" = {
-                action.focus-window-up = { };
-              };
-
-              "Super+Down" = {
-                action.focus-window-down = { };
-              };
-
-              "Super+Left" = {
-                action.focus-column-left = { };
-              };
-
-              "Super+Shift+Left" = {
-                action.move-column-left = { };
-              };
-
-              "Super+Right" = {
-                action.focus-column-right = { };
-              };
-
-              "Super+Shift+Right" = {
-                action.move-column-right = { };
-              };
-
-              "Super+1" = {
-                action.focus-workspace = 1;
-              };
-              "Super+2" = {
-                action.focus-workspace = 2;
-              };
-              "Super+3" = {
-                action.focus-workspace = 3;
-              };
-              "Super+4" = {
-                action.focus-workspace = 4;
-              };
-              "Super+5" = {
-                action.focus-workspace = 5;
-              };
-              "Super+6" = {
-                action.focus-workspace = 6;
-              };
-              "Super+7" = {
-                action.focus-workspace = 7;
-              };
-              "Super+8" = {
-                action.focus-workspace = 8;
-              };
-              "Super+9" = {
-                action.focus-workspace = 9;
-              };
-              "Super+Shift+1" = {
-                action.move-column-to-workspace = 1;
-              };
-              "Super+Shift+2" = {
-                action.move-column-to-workspace = 2;
-              };
-              "Super+Shift+3" = {
-                action.move-column-to-workspace = 3;
-              };
-              "Super+Shift+4" = {
-                action.move-column-to-workspace = 4;
-              };
-              "Super+Shift+5" = {
-                action.move-column-to-workspace = 5;
-              };
-              "Super+Shift+6" = {
-                action.move-column-to-workspace = 6;
-              };
-              "Super+Shift+7" = {
-                action.move-column-to-workspace = 7;
-              };
-              "Super+Shift+8" = {
-                action.move-column-to-workspace = 8;
-              };
-              "Super+Shift+9" = {
-                action.move-column-to-workspace = 9;
-              };
-              "Super+F" = {
-                action.fullscreen-window = { };
-              };
-              "Super+R" = {
-                action.switch-preset-column-width = { };
-              };
-              "Super+Shift+R" = {
-                action.switch-preset-window-height = { };
-              };
-              "Ctrl+Shift+Space" = {
-                action.toggle-window-floating = { };
               };
               "Print" = {
                 action.screenshot-window = { };
@@ -553,13 +519,13 @@ mkApp {
                   spawn-sh = "swayosd-client --brightness lower";
                 };
               };
-              "Super+L" = {
+              "Super+Alt+L" = {
                 action = {
                   spawn = [ "hyprlock" ];
                 };
                 allow-when-locked = true;
               };
-              "Super+Shift+L" = {
+              "Super+Shift+P" = {
                 action.power-off-monitors = { };
               };
               "XF86AudioLowerVolume" = {

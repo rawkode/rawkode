@@ -18,13 +18,14 @@ mkCapability {
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
-          inputs.ironbar.homeManagerModules.default
           inputs.vicinae.homeManagerModules.default
+
+          appBundles.firefox-nightly.home
 
           homeModules.dconf-editor
           homeModules.flatpak
           homeModules.gnome
-          homeModules.ironbar
+          homeModules.quickshell
           homeModules.niri
           homeModules.portals
           homeModules.rquickshare

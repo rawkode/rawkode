@@ -5,6 +5,18 @@ in
 mkApp {
   name = "firefox-nightly";
 
+  linux.home = {
+    xdg.mimeApps = {
+      enable = true;
+      defaultApplications = {
+        "text/html" = [ "firefox-nightly.desktop" ];
+        "x-scheme-handler/http" = [ "firefox-nightly.desktop" ];
+        "x-scheme-handler/https" = [ "firefox-nightly.desktop" ];
+        "x-scheme-handler/about" = [ "firefox-nightly.desktop" ];
+      };
+    };
+  };
+
   linux.system =
     { inputs, pkgs, ... }:
     {
