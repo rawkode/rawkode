@@ -11,6 +11,20 @@
 			}
 		},
 		{
+			"name": "Browser tab navigation",
+			"application": {
+				"only": [
+					"/^(firefox|firefox-nightly|org\\.mozilla\\.firefox).*$/",
+					"/^(google-chrome|chromium|com\\.google\\.Chrome).*$/"
+				]
+			},
+			"exact_match": true,
+			"remap": {
+				"Super-Shift-LeftBrace": "C-PageUp",
+				"Super-Shift-RightBrace": "C-PageDown"
+			}
+		},
+		{
 			"name": "Close tabs in desktop applications",
 			"application": {
 				"only": [

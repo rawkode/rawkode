@@ -90,6 +90,8 @@ mkApp {
         ]
         ++ lib.optionals (!isDarwin) [
           "super+t=new_tab"
+          "super+shift+left_bracket=previous_tab"
+          "super+shift+right_bracket=next_tab"
           "super+c=copy_to_clipboard"
           "super+v=paste_from_clipboard"
           "super+a=select_all"
