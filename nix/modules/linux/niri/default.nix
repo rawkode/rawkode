@@ -492,12 +492,11 @@ mkApp {
               "Super+N" = {
                 action = {
                   spawn = [
-                    "desktop-shell"
+                    "dms"
                     "ipc"
                     "call"
-                    "panel"
-                    "toggle"
                     "notifications"
+                    "toggle"
                   ];
                 };
               };

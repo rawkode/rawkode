@@ -58,6 +58,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flatpaks.url = "github:gmodena/nix-flatpak";
+    dms = {
+      url = "github:AvengeMedia/DankMaterialShell/stable";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     ghostty = {
       url = "github:ghostty-org/ghostty";

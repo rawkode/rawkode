@@ -33,7 +33,7 @@ mkCapability {
           homeModules.dconf-editor
           homeModules.flatpak
           homeModules.gnome
-          homeModules.quickshell
+          homeModules.dank-material-shell
           homeModules.niri
           homeModules.portals
           homeModules.rquickshare

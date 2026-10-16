@@ -16,7 +16,7 @@ the existing launcher, compositor, and lock/idle workflow.
 ## Brand Personality
 
 Compact, familiar, restrained. Preserve the existing Monaspace typography and
-Stylix theme, as requested for the Quickshell migration.
+Stylix theme, alongside Dank Material Shell.
 
 ## Anti-references
 
