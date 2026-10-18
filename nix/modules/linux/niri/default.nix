@@ -260,6 +260,10 @@ mkApp {
 
               center-focused-column = "on-overflow";
 
+              default-column-width = {
+                proportion = 1.0;
+              };
+
               preset-column-widths = [
                 { proportion = 0.5; }
                 { proportion = 0.75; }
