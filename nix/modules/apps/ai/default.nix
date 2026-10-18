@@ -19,9 +19,8 @@ mkApp {
     {
       config = lib.mkIf cfg.cliPackages.enable {
         home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
+          claude-code
           codex
-          cursor-agent
-          gemini-cli
         ];
       };
     };

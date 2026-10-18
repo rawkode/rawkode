@@ -35,14 +35,7 @@ mkApp {
       ];
 
       environment.systemPackages = with pkgs; [
-        blueman
-        brightnessctl
-        hypridle
-        hyprlock
         iwgtk
-        pavucontrol
-        polkit_gnome
-        swww
         wl-clipboard
       ];
     };
@@ -56,7 +49,6 @@ mkApp {
       ...
     }:
     let
-      makeCommand = command: { command = [ command ]; };
       xremap = pkgs.xremap.override { withVariant = "niri"; };
       niriEnableSupported =
         options ? programs && options.programs ? niri && options.programs.niri ? enable;
@@ -71,13 +63,15 @@ mkApp {
         ]
         ++ [
           inputs.self.homeModules.darkman
-          inputs.self.homeModules.hypridle
-          inputs.self.homeModules.swww
         ];
+
+      # Chromium/Electron use this legacy hint to select libsecret on desktops
+      # they do not recognize. Keep XDG_CURRENT_DESKTOP=niri for portals and
+      # session services. Set it at login so systemd/D-Bus launches inherit it too.
+      home.sessionVariables.GNOME_DESKTOP_SESSION_ID = "this-is-deprecated";
 
       home.packages = with pkgs; [
         cosmic-files
-        cosmic-panel
         xremap
       ];
 
@@ -110,8 +104,6 @@ mkApp {
         };
       };
 
-      services.swayosd.enable = true;
-
       xdg.configFile."xremap/config.json".source = ./macos-keymap.json;
 
       systemd.user.services = {
@@ -133,34 +125,6 @@ mkApp {
             RestartSec = 2;
           };
           Install.WantedBy = [ "graphical-session.target" ];
-        };
-        # Override swayosd to only run in niri
-        swayosd = {
-          Unit = {
-            ConditionEnvironment = lib.mkForce [
-              "WAYLAND_DISPLAY" # Keep the original condition
-              "XDG_CURRENT_DESKTOP=niri"
-            ];
-          };
-        };
-        polkit-gnome = {
-          Unit = {
-            Description = "PolicyKit Authentication Agent for niri";
-            # Only start when running niri
-            ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
-            After = [ "graphical-session.target" ];
-            PartOf = [ "graphical-session.target" ];
-          };
-          Service = {
-            Type = "simple";
-            ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
-            Restart = "on-failure";
-            RestartSec = 1;
-            TimeoutStopSec = 10;
-          };
-          Install = {
-            WantedBy = [ "graphical-session.target" ];
-          };
         };
 
       };
@@ -198,7 +162,6 @@ mkApp {
                   "xdg-desktop-portal-gtk.service"
                 ];
               }
-              (makeCommand "blueman-applet")
             ];
 
             outputs = {
@@ -389,7 +352,6 @@ mkApp {
                 matches = [
                   { app-id = "1Password"; }
                   { title = "[Gg]mail"; }
-                  { app-id = ".*[Ss]waync.*"; }
                 ];
                 block-out-from = "screen-capture";
               }
@@ -489,78 +451,70 @@ mkApp {
                 "1password"
                 "--quick-access"
               ];
-              "Super+N" = {
+              "Super+Alt+V".action.spawn = [
+                "dms"
+                "ipc"
+                "call"
+                "clipboard"
+                "toggle"
+              ];
+              "Print" = {
+                action.spawn = [
+                  "dms"
+                  "screenshot"
+                ];
+              };
+              "Super+Print" = {
+                action.spawn = [
+                  "dms"
+                  "screenshot"
+                  "full"
+                ];
+              };
+              "Alt+Print" = {
+                action.spawn = [
+                  "dms"
+                  "screenshot"
+                  "window"
+                ];
+              };
+              "Super+Shift+P" = {
+                action.power-off-monitors = { };
+              };
+              "XF86AudioNext" = {
+                allow-when-locked = true;
                 action = {
                   spawn = [
                     "dms"
                     "ipc"
                     "call"
-                    "notifications"
-                    "toggle"
+                    "mpris"
+                    "next"
                   ];
-                };
-              };
-              "Print" = {
-                action.screenshot-window = { };
-              };
-              "Super+Print" = {
-                action.screenshot = { };
-              };
-              "XF86MonBrightnessUp" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --brightness raise";
-                };
-              };
-              "XF86MonBrightnessDown" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --brightness lower";
-                };
-              };
-              "Super+Alt+L" = {
-                action = {
-                  spawn = [ "hyprlock" ];
-                };
-                allow-when-locked = true;
-              };
-              "Super+Shift+P" = {
-                action.power-off-monitors = { };
-              };
-              "XF86AudioLowerVolume" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --output-volume lower";
-                };
-              };
-              "XF86AudioMute" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --output-volume mute-toggle";
-                };
-              };
-              "XF86AudioRaiseVolume" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --output-volume raise";
-                };
-              };
-              "XF86AudioNext" = {
-                allow-when-locked = true;
-                action = {
-                  spawn-sh = "swayosd-client --playerctl next";
                 };
               };
               "XF86AudioPrev" = {
                 allow-when-locked = true;
                 action = {
-                  spawn-sh = "swayosd-client --playerctl prev";
+                  spawn = [
+                    "dms"
+                    "ipc"
+                    "call"
+                    "mpris"
+                    "previous"
+                  ];
                 };
               };
               "XF86AudioPlay" = {
                 allow-when-locked = true;
                 action = {
-                  spawn-sh = "swayosd-client --playerctl play-pause";
+                  spawn = [
+                    "dms"
+                    "ipc"
+                    "call"
+                    "mpris"
+                    "playPause"
+                  ];
                 };
               };
             };

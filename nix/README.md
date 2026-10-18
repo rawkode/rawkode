@@ -204,6 +204,27 @@ rawkOS.desktop = {
 };
 ```
 
+### Niri Desktop Shell
+
+Niri uses Dank Material Shell for its bar, launcher, notifications, clipboard,
+wallpaper, lock screen, idle handling, audio/brightness OSDs, and authentication
+agent. Window navigation, monitor configuration, and macOS-style keyboard
+remapping remain configured in the Niri module. Networking retains the existing
+networkd/iwd setup rather than enabling NetworkManager for DMS.
+
+DMS supplies its standard shell shortcuts: Super+Space opens the launcher,
+Super+N opens notifications, Super+Comma opens settings, Super+V opens clipboard
+history, Super+X opens the power menu, and Super+Alt+L locks the screen.
+Super+Alt+V also opens clipboard history when the macOS-style remapping maps
+Super+V to paste.
+Brightness and volume keys use DMS; Print captures a region, Super+Print captures
+the screen, and Alt+Print captures a window.
+
+Automatic locking remains enabled after ten minutes on AC and battery, with
+monitor power saving after thirty minutes and locking before suspend. Other
+shell settings use DMS defaults, with the Stylix DMS target disabled so it does
+not override the shell's theme, fonts, or wallpaper.
+
 ## Contributing
 
 This is a personal configuration but contributions are welcome for:
