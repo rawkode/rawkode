@@ -222,8 +222,8 @@ the screen, and Alt+Print captures a window.
 
 Automatic locking remains enabled after ten minutes on AC and battery, with
 monitor power saving after thirty minutes and locking before suspend. Other
-shell settings use DMS defaults, with the Stylix DMS target disabled so it does
-not override the shell's theme, fonts, or wallpaper.
+shell settings use DMS defaults, and the Stylix DMS target is enabled so the
+shell follows the system theme.
 
 ## Contributing
 
