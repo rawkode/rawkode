@@ -85,6 +85,10 @@ mkApp {
               "gnome"
               "gtk"
             ];
+            # GNOME delegates unparented permission dialogs to GNOME Shell.
+            "org.freedesktop.impl.portal.Access" = [
+              "gtk"
+            ];
             "org.freedesktop.impl.portal.FileChooser" = [
               "gtk"
             ];
