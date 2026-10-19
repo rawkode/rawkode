@@ -31,18 +31,9 @@
       # AMD-specific packages
       environment.systemPackages = with pkgs; [
         amdctl
-        corectrl
         radeontop
         ryzenadj
         zenmonitor
       ];
-
-      # Enable corectrl for GPU control
-      programs.corectrl = {
-        enable = true;
-      };
-
-      # Enable GPU overclocking
-      hardware.amdgpu.overdrive.enable = true;
     };
 }

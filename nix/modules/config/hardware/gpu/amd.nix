@@ -25,6 +25,15 @@ _: {
         };
       };
 
+      # Enable corectrl for GPU control
+      programs.corectrl = {
+        enable = true;
+      };
+
+      # Enable GPU overclocking. The overdrive ppfeaturemask also disables
+      # GFXOFF and stutter mode, so keep it off integrated/laptop GPUs.
+      hardware.amdgpu.overdrive.enable = true;
+
       systemd.tmpfiles.rules = [
         "L+    /opt/rocm/hip   -    -    -     -    ${pkgs.rocmPackages.clr}"
       ];
