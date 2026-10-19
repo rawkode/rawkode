@@ -40,7 +40,16 @@ in
         { lib, pkgs, ... }:
         {
           services = {
-            thermald.enable = true;
+            # Continuous system recording keeps the CPU waking constantly.
+            below.enable = lib.mkForce false;
+            # Network printer discovery polls in the background; CUPS stays available.
+            printing.browsed.enable = false;
+            udev.extraRules = ''
+              # Runtime power management for all PCI devices (Wi-Fi, NVMe, …).
+              ACTION=="add", SUBSYSTEM=="pci", ATTR{power/control}="auto"
+              # Stop charging at 80% to slow battery wear.
+              ACTION=="add|change", SUBSYSTEM=="power_supply", ATTR{type}=="Battery", ATTR{charge_control_end_threshold}="80"
+            '';
             upower = {
               enable = true;
               percentageLow = 15;

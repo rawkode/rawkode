@@ -32,6 +32,33 @@
         {
           # Idle sleep on battery matches the lid: suspend, then hibernate.
           programs.dank-material-shell.settings.batterySuspendBehavior = 2;
+
+          # Adaptive brightness from the ambient light sensor (amd_sfh ALS).
+          # wluma learns from manual brightness changes per light level.
+          # Screen-content capture is disabled to avoid extra GPU work.
+          services.wluma = {
+            enable = true;
+            settings = {
+              als.iio = {
+                path = "/sys/bus/iio/devices";
+                thresholds = {
+                  "0" = "night";
+                  "20" = "dark";
+                  "80" = "dim";
+                  "250" = "normal";
+                  "500" = "bright";
+                  "800" = "outdoors";
+                };
+              };
+              output.backlight = [
+                {
+                  name = "eDP-1";
+                  path = "/sys/class/backlight/amdgpu_bl1";
+                  capturer = "none";
+                }
+              ];
+            };
+          };
         }
       ];
     };
@@ -66,6 +93,11 @@
         };
         systemd.sleep.settings.Sleep.HibernateDelaySec = "3h";
         services.power-profiles-daemon.enable = lib.mkDefault true;
+        # nixos-hardware disables Panel Self Refresh as an old-kernel freeze
+        # workaround; PSR lets the iGPU stop refreshing a static screen.
+        hardware.amdgpu.dcDebugMask.disablePsr = false;
+        # Full preemption and threaded IRQs trade battery for latency.
+        rawkOS.kernel.lowLatency = false;
       }
     ];
   };

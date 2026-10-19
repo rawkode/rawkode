@@ -10,23 +10,26 @@
       useZenKernel = !pkgs.stdenv.hostPlatform.isAarch64;
     in
     {
-      boot = {
+      options.rawkOS.kernel.lowLatency = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Use latency-oriented kernel parameters (full preemption, threaded IRQs). Costs power; disable on battery-powered machines.";
+      };
+
+      config.boot = {
         consoleLogLevel = 0;
 
         kernelPackages = if useZenKernel then pkgs.linuxKernel.packages.linux_zen else pkgs.linuxPackages;
         # CachyOS-inspired kernel parameters for better desktop responsiveness and gaming
         kernelParams = [
           "nowatchdog"
-          "preempt=full"
-          "threadirqs"
           "tsc=reliable"
           "clocksource=tsc"
-          "preempt=voluntary"
-          "futex.futex2_interface=1" # Better Wine/Proton compatibility
-          "NVreg_UsePageAttributeTable=1" # Improved GPU memory management
-          "io_uring.sqpoll=2" # Modern I/O scheduler polling
           "transparent_hugepage=madvise" # Better memory management
-          "elevator=bfq" # Better I/O scheduling for gaming
+        ]
+        ++ lib.optionals config.rawkOS.kernel.lowLatency [
+          "preempt=full"
+          "threadirqs"
         ];
         kernelModules = [ "v4l2loopback" ];
 
@@ -61,11 +64,11 @@
         tmp.cleanOnBoot = true;
       };
 
-      networking.useNetworkd = true;
-      systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
+      config.networking.useNetworkd = true;
+      config.systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
 
-      nix.channel.enable = false;
+      config.nix.channel.enable = false;
 
-      console.useXkbConfig = true;
+      config.console.useXkbConfig = true;
     };
 }
