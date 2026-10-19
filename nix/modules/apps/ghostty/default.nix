@@ -89,6 +89,7 @@ mkApp {
           "global:cmd+semicolon=toggle_quick_terminal"
         ]
         ++ lib.optionals (!isDarwin) [
+          "ctrl+enter=unbind"
           "super+t=new_tab"
           "super+shift+left_bracket=previous_tab"
           "super+shift+right_bracket=next_tab"
