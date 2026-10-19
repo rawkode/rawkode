@@ -277,17 +277,6 @@ mkApp {
               ];
             };
 
-            switch-events = {
-              lid-close = {
-                action = {
-                  spawn = [
-                    "systemctl"
-                    "poweroff"
-                  ];
-                };
-              };
-            };
-
             window-rules = [
               {
                 matches = [

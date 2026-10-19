@@ -1,4 +1,4 @@
-{ inputs, ... }:
+{ inputs, lib, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix;
 in
@@ -24,6 +24,10 @@ mkApp {
         acMonitorTimeout = 1800;
         batteryMonitorTimeout = 1800;
         lockBeforeSuspend = true;
+        # Sleep when left idle on battery; stay awake on AC.
+        batterySuspendTimeout = 1200;
+        # 0 = Suspend; machines with working hibernation can opt into 2 = SuspendThenHibernate.
+        batterySuspendBehavior = lib.mkDefault 0;
       };
       systemd = {
         enable = true;

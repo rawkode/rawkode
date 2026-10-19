@@ -27,12 +27,22 @@
       "nixos-secureboot"
       "nixos-encrypted-btrfs"
     ];
-    users.rawkode = { };
+    users.rawkode = {
+      modules = [
+        {
+          # Idle sleep on battery matches the lid: suspend, then hibernate.
+          programs.dank-material-shell.settings.batterySuspendBehavior = 2;
+        }
+      ];
+    };
     modules = [
       {
         rawkOS.disko.device = "/dev/nvme0n1";
         services.fprintd.enable = true;
-        boot.kernelParams = [ "amdgpu.sg_display=0" ];
+        boot.kernelParams = [
+          "amdgpu.sg_display=0"
+          "resume_offset=1251092"
+        ];
         boot.kernelModules = [
           "cros_ec"
           "cros_ec_lpcs"
@@ -45,6 +55,16 @@
             size = 96 * 1024;
           }
         ];
+        # Hibernate into the btrfs swapfile. The offset comes from
+        # `btrfs inspect-internal map-swapfile -r /var/lib/swapfile` and must be
+        # refreshed if the swapfile is ever recreated.
+        boot.resumeDevice = "/dev/mapper/encrypted";
+        # Like macOS standby: instant wake for short sleeps, hibernate for long ones.
+        services.logind.settings.Login = {
+          HandleLidSwitch = "suspend-then-hibernate";
+          HandlePowerKey = "suspend-then-hibernate";
+        };
+        systemd.sleep.settings.Sleep.HibernateDelaySec = "3h";
         services.power-profiles-daemon.enable = lib.mkDefault true;
       }
     ];

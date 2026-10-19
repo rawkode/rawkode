@@ -37,7 +37,7 @@ in
 
     nixos-laptop-amd.nixos = [
       (
-        { pkgs, ... }:
+        { lib, pkgs, ... }:
         {
           services = {
             thermald.enable = true;
@@ -49,10 +49,10 @@ in
               criticalPowerAction = "Hibernate";
             };
             logind.settings.Login = {
-              HandleLidSwitch = "suspend-then-hibernate";
+              # Plain suspend by default; hibernation needs a per-machine resume device and offset.
+              HandleLidSwitch = lib.mkDefault "suspend";
               HandleLidSwitchExternalPower = "lock";
-              HandlePowerKey = "suspend-then-hibernate";
-              HibernateDelaySec = 3600;
+              HandlePowerKey = lib.mkDefault "suspend";
             };
             libinput = {
               enable = true;
