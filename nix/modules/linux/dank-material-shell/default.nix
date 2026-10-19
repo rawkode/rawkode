@@ -28,6 +28,44 @@ mkApp {
         batterySuspendTimeout = 1200;
         # 0 = Suspend; machines with working hibernation can opt into 2 = SuspendThenHibernate.
         batterySuspendBehavior = lib.mkDefault 0;
+
+        barElevationEnabled = false;
+        systemTrayIconTintMode = "primary";
+        # DMS fills omitted bar fields with its defaults.
+        barConfigs = [
+          {
+            id = "default";
+            name = "Main Bar";
+            enabled = true;
+            position = 0;
+            screenPreferences = [ "all" ];
+            showOnLastDisplay = true;
+            leftWidgets = [
+              "workspaceSwitcher"
+              "focusedWindow"
+            ];
+            centerWidgets = [
+              "music"
+              "clock"
+              "weather"
+            ];
+            rightWidgets = [
+              {
+                id = "systemTray";
+                enabled = true;
+                trayIconSpacing = 8;
+              }
+              "clipboard"
+              "cpuUsage"
+              "memUsage"
+              "battery"
+              "controlCenterButton"
+              "notificationButton"
+            ];
+            transparency = 0.64;
+            widgetTransparency = 0.64;
+          }
+        ];
       };
       systemd = {
         enable = true;

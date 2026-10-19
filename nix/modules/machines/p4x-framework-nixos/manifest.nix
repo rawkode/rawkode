@@ -32,6 +32,7 @@
         {
           # Idle sleep on battery matches the lid: suspend, then hibernate.
           programs.dank-material-shell.settings.batterySuspendBehavior = 2;
+          programs.dank-material-shell.settings.networkPreference = "wifi";
 
           # Adaptive brightness from the ambient light sensor (amd_sfh ALS).
           # wluma learns from manual brightness changes per light level.
