@@ -16,7 +16,7 @@ mkApp {
     nix.settings = vicinaeCache;
   };
 
-  linux.home = _: {
+  linux.home = { lib, ... }: {
     nix.settings = vicinaeCache;
 
     services.vicinae = {
@@ -43,11 +43,11 @@ mkApp {
     };
 
     programs.niri.settings.binds = {
-      "Super+Space" = {
-        action = {
+      "Mod+Space" = {
+        # Replace DMS's launcher binding while retaining its other shortcuts.
+        action = lib.mkForce {
           spawn = [
             "vicinae"
-            #"toggle"
           ];
         };
       };

@@ -26,6 +26,7 @@ mkCapability {
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
+          inputs.vicinae.homeManagerModules.default
 
           appBundles.firefox-nightly.home
 
@@ -36,6 +37,7 @@ mkCapability {
           homeModules.niri
           homeModules.portals
           homeModules.rquickshare
+          homeModules.vicinae
           homeModules.wayland
         ];
     };

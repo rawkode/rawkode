@@ -448,13 +448,6 @@ mkApp {
                 "1password"
                 "--quick-access"
               ];
-              "Super+Alt+V".action.spawn = [
-                "dms"
-                "ipc"
-                "call"
-                "clipboard"
-                "toggle"
-              ];
               "Print" = {
                 action.spawn = [
                   "dms"
