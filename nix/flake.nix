@@ -101,6 +101,10 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    waddle = {
+      url = "github:waddle-social/waddle";
+      flake = false;
+    };
     # Pinned to the last vicinae revision compatible with our Stylix font
     # setup. Newer revisions type `programs.vicinae.settings.font.normal` as a
     # JSON value, which conflicts with the `{ family; size; }` attrset our

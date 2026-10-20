@@ -1640,7 +1640,8 @@
         "stylix": "stylix",
         "systems": "systems_11",
         "treefmt-nix": "treefmt-nix_3",
-        "vicinae": "vicinae"
+        "vicinae": "vicinae",
+        "waddle": "waddle"
       }
     },
     "rust-analyzer-src": {
@@ -2080,6 +2081,22 @@
         "owner": "vicinaehq",
         "repo": "vicinae",
         "rev": "db4c91c6638d191609e9e7e92d4ecddc8d54b1bb",
+        "type": "github"
+      }
+    },
+    "waddle": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792492707,
+        "narHash": "sha256-77neVSiW/gUxmig9U8UJYWAxRu9Zliy4B3V252td9tM=",
+        "owner": "waddle-social",
+        "repo": "waddle",
+        "rev": "b70a3f8fdd540ed376e3a93ef6c8d43ea1579f0d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "waddle-social",
+        "repo": "waddle",
         "type": "github"
       }
     },

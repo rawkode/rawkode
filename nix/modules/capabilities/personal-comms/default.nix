@@ -7,6 +7,7 @@ mkCapability {
 
   home = with inputs.self.appBundles; [
     discord.home
+    waddle.home
   ];
 
   darwin = with inputs.self.appBundles; [
