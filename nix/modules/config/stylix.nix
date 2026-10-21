@@ -21,8 +21,8 @@ let
         base16Scheme = ./themes/ayu-mirage.yaml;
 
         cursor = {
-          package = pkgs.phinger-cursors;
-          name = "phinger-cursors-dark";
+          package = pkgs.rose-pine-cursor;
+          name = "BreezeX-RosePine-Linux";
           size = 32;
         };
 
