@@ -16,11 +16,26 @@ mkApp {
 
       # Calendar events come from DankCalendar (dcal), which syncs Google,
       # Microsoft, and CalDAV accounts itself; khal is not needed.
-      home.packages = [ pkgs.dankcalendar ];
+      # sshfs lets Phone Connect browse the phone's files over KDE Connect.
+      home.packages = [
+        pkgs.dankcalendar
+        pkgs.sshfs
+      ];
 
       programs.dank-material-shell = {
         enable = true;
         enableCalendarEvents = false;
+        # DMS loads a plugin only when plugin_settings.json marks it enabled.
+        managePluginSettings = true;
+        # Bar widget for the KDE Connect daemon enabled in desktop-common.
+        plugins.dankKDEConnect.src = "${
+          pkgs.fetchFromGitHub {
+            owner = "duxlabs-dev";
+            repo = "dux-plugins";
+            rev = "b827c2296cd45a73bf9318f16a261c9edeec8339";
+            hash = "sha256-OYCjryGkZ9DlMSS0DlaKzA/qRxXI+cAbO3uee+9Y+Kg=";
+          }
+        }/DankKDEConnect";
         niri = {
           enableKeybinds = true;
           includes.enable = false;
@@ -64,6 +79,7 @@ mkApp {
                   enabled = true;
                   trayIconSpacing = 8;
                 }
+                "dankKDEConnect"
                 "clipboard"
                 "cpuUsage"
                 "memUsage"
