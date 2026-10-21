@@ -25,7 +25,15 @@
       "nixos-secureboot"
       "nixos-encrypted-btrfs"
     ];
-    users.rawkode = { };
+    users.rawkode = {
+      modules = [
+        {
+          # The BenQ on DisplayPort drops its link when woken from DPMS and never
+          # reconnects, leaving niri with no output. Lock on idle, never blank.
+          programs.dank-material-shell.settings.acMonitorTimeout = lib.mkForce 0;
+        }
+      ];
+    };
     modules = [
       {
         rawkOS.disko.device = "/dev/nvme0n1";
