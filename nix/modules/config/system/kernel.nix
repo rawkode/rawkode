@@ -58,7 +58,15 @@
           timeout = 10;
         };
 
-        extraModulePackages = with config.boot.kernelPackages; [ v4l2loopback ];
+        # Kernel 7.2's modules_install runs depmod into $out; drop the generated
+        # index files so they don't collide with the kernel's own in buildEnv.
+        extraModulePackages = [
+          (config.boot.kernelPackages.v4l2loopback.overrideAttrs (old: {
+            postInstall = (old.postInstall or "") + ''
+              find $out/lib/modules -maxdepth 2 -type f -name 'modules.*' -delete
+            '';
+          }))
+        ];
 
         plymouth.enable = true;
         tmp.cleanOnBoot = true;
