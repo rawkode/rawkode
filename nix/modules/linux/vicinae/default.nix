@@ -16,65 +16,75 @@ mkApp {
     nix.settings = vicinaeCache;
   };
 
-  linux.home = { lib, ... }: {
-    nix.settings = vicinaeCache;
+  linux.home =
+    {
+      inputs,
+      lib,
+      pkgs,
+      ...
+    }:
+    {
+      nix.settings = vicinaeCache;
 
-    services.vicinae = {
-      enable = true;
-      settings = {
-        faviconService = "google";
-        font = {
-          normal = "Monaspace Argon";
-          size = 12;
+      services.vicinae = {
+        enable = true;
+        # The pinned upstream module defaults this via the deprecated
+        # `pkgs.system`; set it explicitly to avoid the evaluation warning.
+        package = inputs.vicinae.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        settings = {
+          faviconService = "google";
+          font = {
+            normal = "Monaspace Argon";
+            size = 12;
+          };
+          popToRootOnClose = true;
+          rootSearch = {
+            searchFiles = false;
+          };
+          theme = {
+            name = "rosepine-dawn";
+          };
+          window = {
+            csd = true;
+            opacity = 0.95;
+            rounding = 16;
+          };
         };
-        popToRootOnClose = true;
-        rootSearch = {
-          searchFiles = false;
+      };
+
+      programs.niri.settings.binds = {
+        "Mod+Space" = {
+          # Replace DMS's launcher binding while retaining its other shortcuts.
+          action = lib.mkForce {
+            spawn = [
+              "vicinae"
+            ];
+          };
         };
-        theme = {
-          name = "rosepine-dawn";
+        "Super+Shift+Space" = {
+          action = {
+            spawn = [
+              "vicinae"
+              "vicinae://extensions/vicinae/wm/switch-windows"
+            ];
+          };
         };
-        window = {
-          csd = true;
-          opacity = 0.95;
-          rounding = 16;
+        "Super+E" = {
+          action = {
+            spawn = [
+              "vicinae"
+              "vicinae://extensions/vicinae/vicinae/search-emojis"
+            ];
+          };
+        };
+        "Super+Alt+V" = {
+          action = {
+            spawn = [
+              "vicinae"
+              "vicinae://extensions/vicinae/clipboard/history"
+            ];
+          };
         };
       };
     };
-
-    programs.niri.settings.binds = {
-      "Mod+Space" = {
-        # Replace DMS's launcher binding while retaining its other shortcuts.
-        action = lib.mkForce {
-          spawn = [
-            "vicinae"
-          ];
-        };
-      };
-      "Super+Shift+Space" = {
-        action = {
-          spawn = [
-            "vicinae"
-            "vicinae://extensions/vicinae/wm/switch-windows"
-          ];
-        };
-      };
-      "Super+E" = {
-        action = {
-          spawn = [
-            "vicinae"
-            "vicinae://extensions/vicinae/vicinae/search-emojis"
-          ];
-        };
-      };
-      "Super+Alt+V" = {
-        action = {
-          spawn = [
-            "vicinae"
-            "vicinae://extensions/vicinae/clipboard/history"
-          ];
-        };
-      };
-    };
-  };
 }

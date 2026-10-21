@@ -30,7 +30,7 @@
               swiftpm
             ]
             ++ (
-              if pkgs.stdenv.isDarwin then
+              if pkgs.stdenv.hostPlatform.isDarwin then
                 [
                   pkgs.apple-sdk_14
                 ]
@@ -83,7 +83,7 @@
               swiftpm
             ]
             ++ (
-              if pkgs.stdenv.isDarwin then
+              if pkgs.stdenv.hostPlatform.isDarwin then
                 [
                   pkgs.apple-sdk_14
                 ]
