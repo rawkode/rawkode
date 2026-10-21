@@ -32,15 +32,27 @@
           # reconnects, leaving niri with no output. Lock on idle, never blank.
           programs.dank-material-shell.settings.acMonitorTimeout = lib.mkForce 0;
 
-          # BenQ EX3210U: pin its 144Hz mode and enable adaptive sync.
-          programs.niri.settings.outputs."DP-1" = {
-            mode = {
-              width = 3840;
-              height = 2160;
-              refresh = 144.0;
+          # Two BenQ EX3210Us side by side: DP-2 on the left, DP-1 on the right.
+          # Positions override the shared office layout for these connectors.
+          programs.niri.settings.outputs =
+            let
+              benq = x: {
+                mode = {
+                  width = 3840;
+                  height = 2160;
+                  refresh = 144.0;
+                };
+                variable-refresh-rate = true;
+                position = lib.mkForce {
+                  inherit x;
+                  y = 0;
+                };
+              };
+            in
+            {
+              "DP-2" = benq 0;
+              "DP-1" = benq 1920;
             };
-            variable-refresh-rate = true;
-          };
         }
       ];
     };
