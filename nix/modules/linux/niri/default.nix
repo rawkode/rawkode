@@ -346,6 +346,19 @@ mkApp {
                 matches = [
                   { is-window-cast-target = true; }
                 ];
+                # Presenter-only cue: window decorations are not part of the cast.
+                border =
+                  let
+                    gradient = {
+                      from = "#f38ba8ee";
+                      to = "#cc241dee";
+                      angle = 45;
+                    };
+                  in
+                  {
+                    active.gradient = gradient;
+                    inactive.gradient = gradient;
+                  };
                 shadow = {
                   color = "#d75f5e40";
                 };
@@ -473,6 +486,10 @@ mkApp {
                   "window"
                 ];
               };
+              # Retarget the "niri Dynamic Cast Target" stream without re-sharing.
+              "Super+S".action.set-dynamic-cast-window = { };
+              "Super+Shift+S".action.set-dynamic-cast-monitor = { };
+              "Super+Ctrl+S".action.clear-dynamic-cast-target = { };
               "Super+Shift+P" = {
                 action.power-off-monitors = { };
               };
