@@ -264,7 +264,9 @@ mkApp {
             };
 
             layout = {
-              gaps = 16;
+              gaps = 4;
+
+              border.width = 2;
 
               center-focused-column = "on-overflow";
 
@@ -330,9 +332,6 @@ mkApp {
                 open-maximized = true;
               }
               {
-                matches = [
-                  { is-floating = true; }
-                ];
                 geometry-corner-radius = {
                   top-left = 16.0;
                   top-right = 16.0;
@@ -340,6 +339,8 @@ mkApp {
                   bottom-left = 16.0;
                 };
                 clip-to-geometry = true;
+                tiled-state = true;
+                draw-border-with-background = false;
               }
               {
                 matches = [
