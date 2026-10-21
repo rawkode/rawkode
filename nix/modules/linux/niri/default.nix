@@ -110,6 +110,10 @@ mkApp {
 
       xdg.configFile."xremap/config.json".source = ./macos-keymap.json;
 
+      # niri saves portal screenshots (Flameshot, browsers) to its default
+      # screenshot-path and fails if the directory is missing.
+      systemd.user.tmpfiles.rules = [ "d %h/Pictures/Screenshots 0755 - - -" ];
+
       systemd.user.services = {
         xremap = {
           Unit = {
