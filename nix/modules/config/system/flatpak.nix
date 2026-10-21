@@ -14,7 +14,6 @@ mkApp {
         "com.github.tchx84.Flatseal"
         "com.jeffser.Alpaca"
         "io.github.seadve.Kooha"
-        "org.flameshot.Flameshot"
         "org.gnome.Showtime"
         "org.gnome.Snapshot"
         "org.localsend.localsend_app"

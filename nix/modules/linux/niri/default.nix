@@ -110,7 +110,7 @@ mkApp {
 
       xdg.configFile."xremap/config.json".source = ./macos-keymap.json;
 
-      # niri saves portal screenshots (Flameshot, browsers) to its default
+      # niri saves portal screenshots (for example, browsers) to its default
       # screenshot-path and fails if the directory is missing.
       systemd.user.tmpfiles.rules = [ "d %h/Pictures/Screenshots 0755 - - -" ];
 
@@ -466,26 +466,10 @@ mkApp {
                 "1password"
                 "--quick-access"
               ];
-              "Print" = {
-                action.spawn = [
-                  "dms"
-                  "screenshot"
-                ];
-              };
-              "Super+Print" = {
-                action.spawn = [
-                  "dms"
-                  "screenshot"
-                  "full"
-                ];
-              };
-              "Alt+Print" = {
-                action.spawn = [
-                  "dms"
-                  "screenshot"
-                  "window"
-                ];
-              };
+              "Print".action.screenshot = { };
+              "Super+Print".action.screenshot-screen = { };
+              "Ctrl+Print".action.screenshot-screen = { };
+              "Alt+Print".action.screenshot-window = { };
               # Retarget the "niri Dynamic Cast Target" stream without re-sharing.
               "Super+S".action.set-dynamic-cast-window = { };
               "Super+Shift+S".action.set-dynamic-cast-monitor = { };
