@@ -222,5 +222,44 @@ mkApp {
         space-bar
         systemd-manager
       ];
+
+      # GNOME core apps are installed with the desktop manager; make them the
+      # defaults so niri sessions don't fall back to whichever app sorts first.
+      xdg.mimeApps = {
+        enable = true;
+        defaultApplications =
+          let
+            forTypes = app: types: lib.genAttrs types (_: [ app ]);
+          in
+          forTypes "org.gnome.Nautilus.desktop" [ "inode/directory" ]
+          // forTypes "org.gnome.Papers.desktop" [ "application/pdf" ]
+          // forTypes "org.gnome.Loupe.desktop" [
+            "image/avif"
+            "image/bmp"
+            "image/gif"
+            "image/heic"
+            "image/jpeg"
+            "image/png"
+            "image/svg+xml"
+            "image/tiff"
+            "image/webp"
+          ]
+          // forTypes "org.gnome.Showtime.desktop" [
+            "video/mp4"
+            "video/quicktime"
+            "video/webm"
+            "video/x-matroska"
+            "video/x-msvideo"
+          ]
+          // forTypes "org.gnome.Decibels.desktop" [
+            "audio/aac"
+            "audio/flac"
+            "audio/mp4"
+            "audio/mpeg"
+            "audio/ogg"
+            "audio/wav"
+            "audio/x-wav"
+          ];
+      };
     };
 }

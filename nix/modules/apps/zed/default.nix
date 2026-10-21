@@ -39,6 +39,21 @@ mkApp {
             ${lib.escapeShellArg "${cfg.configDir}/settings.json"} \
             ${lib.escapeShellArg "${config.home.homeDirectory}/.config/zed/settings.json"}
         '';
+
+        xdg.mimeApps = lib.mkIf (!isDarwin) {
+          enable = true;
+          defaultApplications = lib.genAttrs [
+            "application/json"
+            "application/toml"
+            "application/x-shellscript"
+            "application/x-yaml"
+            "application/xml"
+            "text/markdown"
+            "text/plain"
+            "text/x-python"
+            "text/x-rust"
+          ] (_: [ "dev.zed.Zed.desktop" ]);
+        };
       };
     };
 
