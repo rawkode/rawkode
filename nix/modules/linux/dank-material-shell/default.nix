@@ -74,11 +74,10 @@ mkApp {
                   id = "systemTray";
                   enabled = true;
                   trayIconSpacing = 8;
+                  trayAutoOverflow = false;
                 }
                 "dankKDEConnect"
                 "clipboard"
-                "cpuUsage"
-                "memUsage"
                 "battery"
                 "controlCenterButton"
                 "notificationButton"

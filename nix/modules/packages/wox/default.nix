@@ -1,6 +1,25 @@
 {
   perSystem =
     { pkgs, lib, ... }:
+    let
+      runtimeLibraries = with pkgs; [
+        gtk3
+        pango
+        at-spi2-core
+        cairo
+        gdk-pixbuf
+        glib
+        libepoxy
+        libx11
+        libxtst
+        libxrandr
+        wayland
+        fontconfig
+        gtk-layer-shell
+        alsa-lib
+        libpulseaudio
+      ];
+    in
     {
       packages = lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         wox = pkgs.stdenv.mkDerivation {
@@ -14,24 +33,14 @@
 
           nativeBuildInputs = with pkgs; [
             dpkg
-            autoPatchelfHook
+            makeWrapper
             wrapGAppsHook3
           ];
-          buildInputs = with pkgs; [
-            gtk3
-            libepoxy
-            libx11
-            libxtst
-            libxrandr
-            wayland
-            fontconfig
-          ];
-          # Wox loads layer-shell and audio backends dynamically.
-          runtimeDependencies = with pkgs; [
-            gtk-layer-shell
-            alsa-lib
-            libpulseaudio
-          ];
+          buildInputs = runtimeLibraries;
+          # patchelf corrupts this Go executable's ELF program headers. Keep it
+          # intact and invoke the Nix loader with explicit library search paths.
+          dontPatchELF = true;
+          dontWrapGApps = true;
 
           unpackPhase = ''
             runHook preUnpack
@@ -40,16 +49,21 @@
           '';
           dontConfigure = true;
           dontBuild = true;
-          # The Go executable embeds application assets.
           dontStrip = true;
 
           installPhase = ''
             runHook preInstall
             mkdir -p "$out"
-            cp -r usr/bin usr/share "$out/"
+            cp -r usr/share "$out/"
+            install -Dm755 usr/bin/wox "$out/libexec/wox"
             substituteInPlace "$out/share/applications/io.github.WoxLauncher.Wox.desktop" \
               --replace-fail 'Exec=wox %U' "Exec=$out/bin/wox %U"
             runHook postInstall
+          '';
+
+          preFixup = ''
+            makeWrapper "${pkgs.stdenv.cc.bintools.dynamicLinker}" "$out/bin/wox" "''${gappsWrapperArgs[@]}" \
+              --add-flags "--library-path ${lib.makeLibraryPath runtimeLibraries} $out/libexec/wox"
           '';
 
           meta = {

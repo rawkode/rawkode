@@ -35,7 +35,6 @@ mkApp {
       ];
 
       environment.systemPackages = with pkgs; [
-        iwgtk
         wl-clipboard
       ];
     };
@@ -70,10 +69,13 @@ mkApp {
       # session services. Set it at login so systemd/D-Bus launches inherit it too.
       home.sessionVariables.GNOME_DESKTOP_SESSION_ID = "this-is-deprecated";
 
-      home.packages = with pkgs; [
-        cosmic-files
+      home.packages = [
+        pkgs.cosmic-files
         xremap
-      ];
+      ]
+      ++ lib.optional (
+        pkgs.stdenv.hostPlatform.system == "x86_64-linux"
+      ) inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.wox;
 
       xdg.portal = {
         extraPortals = with pkgs; [
