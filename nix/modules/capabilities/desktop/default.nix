@@ -21,6 +21,7 @@ mkCapability {
         [
           appBundles.ghostty.home
           appBundles.google-chrome.home
+          appBundles.handy.home
           appBundles.onepassword.home
           appBundles.zed.home
         ]
@@ -75,6 +76,7 @@ mkCapability {
     appBundles.firefox-nightly.darwin
     appBundles.ghostty.darwin
     appBundles.google-chrome.darwin
+    appBundles.handy.darwin
     appBundles.onepassword.darwin
     appBundles.zed.darwin
 
