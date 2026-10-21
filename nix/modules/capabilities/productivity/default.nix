@@ -6,6 +6,7 @@ mkCapability {
   name = "productivity";
 
   home = with inputs.self.appBundles; [
+    rclone.home
     slack.home
     zoom.home
   ];
