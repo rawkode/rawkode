@@ -24,6 +24,7 @@ mkCapability {
     nix-dev.home
     python.home
     rust.home
+    swamp.home
   ];
 
   nixos =
