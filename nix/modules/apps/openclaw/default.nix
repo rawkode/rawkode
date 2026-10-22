@@ -23,8 +23,8 @@ mkApp {
       # machine name is the hostname, and unlike osConfig it is also set for
       # standalone Home Manager, which must not drop these origins.
       netbirdOrigins = lib.optionals (machine != null) [
-        "http://${machine}:${toString port}"
-        "http://${machine}.rka.internal:${toString port}"
+        "https://${machine}:${toString port}"
+        "https://${machine}.rka.internal:${toString port}"
       ];
       # The CLI loads the state directory's .env, so keeping the token there
       # lets local commands such as `openclaw devices approve` authenticate.
@@ -61,10 +61,16 @@ mkApp {
           mode = "local";
           bind = "tailnet";
           inherit port;
+          # Mobile setup codes need wss:// off-LAN. The self-signed certificate
+          # is pinned by its fingerprint in the setup code; browsers warn once.
+          tls = {
+            enabled = true;
+            autoGenerate = true;
+          };
           # Setting origins replaces the loopback defaults, so keep them.
           controlUi.allowedOrigins = [
-            "http://localhost:${toString port}"
-            "http://127.0.0.1:${toString port}"
+            "https://localhost:${toString port}"
+            "https://127.0.0.1:${toString port}"
           ]
           ++ netbirdOrigins;
           auth = {
