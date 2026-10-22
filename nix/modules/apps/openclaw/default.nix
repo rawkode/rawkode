@@ -49,6 +49,23 @@ mkApp {
           fi
         '';
       };
+      # OpenClaw's own certificate generation only runs openssl from fixed
+      # system directories, which NixOS leaves empty, so create the pair it
+      # would generate at the paths it reads.
+      tlsDir = "${cfg.stateDir}/gateway/tls";
+      generateTls = pkgs.writeShellApplication {
+        name = "openclaw-gateway-tls";
+        runtimeInputs = [ pkgs.openssl ];
+        text = ''
+          if [ ! -s ${tlsDir}/gateway-cert.pem ] || [ ! -s ${tlsDir}/gateway-key.pem ]; then
+            umask 077
+            mkdir -p ${tlsDir}
+            openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+              -keyout ${tlsDir}/gateway-key.pem -out ${tlsDir}/gateway-cert.pem \
+              -subj /CN=openclaw-gateway 2>/dev/null
+          fi
+        '';
+      };
     in
     {
       imports = [ inputs.nix-openclaw.homeManagerModules.openclaw ];
@@ -64,16 +81,16 @@ mkApp {
           thinkingDefault = "high";
           fastModeDefault = true;
         };
+        # Enable the default model's provider here; OpenClaw cannot write its
+        # usual auto-enable into the read-only config.
+        config.plugins.entries.openai.enabled = true;
         config.gateway = {
           mode = "local";
           bind = "tailnet";
           inherit port;
           # Mobile setup codes need wss:// off-LAN. The self-signed certificate
           # is pinned by its fingerprint in the setup code; browsers warn once.
-          tls = {
-            enabled = true;
-            autoGenerate = true;
-          };
+          tls.enabled = true;
           # Setting origins replaces the loopback defaults, so keep them.
           controlUi.allowedOrigins = [
             "https://localhost:${toString port}"
@@ -95,7 +112,10 @@ mkApp {
         Service = {
           # systemd reads EnvironmentFile= per command, so ExecStart sees a
           # token generated here on first start.
-          ExecStartPre = lib.getExe generateToken;
+          ExecStartPre = [
+            (lib.getExe generateToken)
+            (lib.getExe generateTls)
+          ];
           EnvironmentFile = [
             "-${tokenFile}"
             # Provider API keys and channel tokens, e.g. ANTHROPIC_API_KEY.
