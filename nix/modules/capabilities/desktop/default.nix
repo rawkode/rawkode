@@ -27,9 +27,9 @@ mkCapability {
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
-          inputs.vicinae.homeManagerModules.default
 
           appBundles.firefox-nightly.home
+          appBundles.rockhopper.home
 
           homeModules.dconf-editor
           homeModules.flatpak
@@ -38,7 +38,6 @@ mkCapability {
           homeModules.niri
           homeModules.portals
           homeModules.rquickshare
-          homeModules.vicinae
           homeModules.wayland
         ];
     };
@@ -60,6 +59,7 @@ mkCapability {
     inputs.self.nixosModules.plymouth
     inputs.self.nixosModules.polkit
     inputs.self.nixosModules.portals
+    inputs.self.nixosModules.rockhopper
     (_: {
       services = {
         pipewire = {

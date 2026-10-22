@@ -32,6 +32,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # korora-tech apps keep their own nixpkgs so builds come from korora-tech.cachix.org.
+    rockhopper.url = "github:korora-tech/rockhopper";
     comma.url = "github:nix-community/comma";
     coreweave = {
       url = "github:coreweave/coreweave.nix";
@@ -105,10 +107,5 @@
       url = "github:waddle-social/waddle";
       flake = false;
     };
-    # Pinned to the last vicinae revision compatible with our Stylix font
-    # setup. Newer revisions type `programs.vicinae.settings.font.normal` as a
-    # JSON value, which conflicts with the `{ family; size; }` attrset our
-    # config supplies. Unpin once the upstream typing or our config is reconciled.
-    vicinae.url = "github:vicinaehq/vicinae/db4c91c6638d191609e9e7e92d4ecddc8d54b1bb";
   };
 }

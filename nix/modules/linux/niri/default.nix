@@ -71,7 +71,6 @@ mkApp {
 
       home.packages = [
         pkgs.cosmic-files
-        pkgs.wox
         xremap
       ];
 
@@ -462,11 +461,6 @@ mkApp {
               "Super+9".action.focus-workspace = 9;
               "Super+Ctrl+9".action.move-column-to-workspace = 9;
               "Super+Return".action.spawn = [ "ghostty" ];
-              # Niri owns this shortcut; Wox's portal registration is unavailable here.
-              "Ctrl+Shift+Space".action.spawn = [
-                "${pkgs.wox}/bin/wox"
-                "wox://toggle"
-              ];
               "Super+Backslash".action.spawn = [
                 "1password"
                 "--quick-access"
