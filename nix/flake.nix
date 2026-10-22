@@ -33,6 +33,8 @@
     };
 
     # korora-tech apps keep their own nixpkgs so builds come from korora-tech.cachix.org.
+    antarctical.url = "github:korora-tech/antarctical";
+    chinstrap.url = "github:korora-tech/chinstrap";
     rockhopper.url = "github:korora-tech/rockhopper";
     comma.url = "github:nix-community/comma";
     coreweave = {

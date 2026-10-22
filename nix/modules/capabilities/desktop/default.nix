@@ -28,6 +28,8 @@ mkCapability {
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
 
+          appBundles.antarctical.home
+          appBundles.chinstrap.home
           appBundles.firefox-nightly.home
           appBundles.rockhopper.home
 
@@ -44,8 +46,10 @@ mkCapability {
 
   nixos = [
     inputs.flatpaks.nixosModules.nix-flatpak
+    inputs.self.nixosModules.antarctical
     inputs.self.nixosModules.audio
     inputs.self.nixosModules.bluetooth
+    inputs.self.nixosModules.chinstrap
     inputs.self.nixosModules.desktop-common
     inputs.self.nixosModules.greetd
     inputs.self.nixosModules.flatpak
