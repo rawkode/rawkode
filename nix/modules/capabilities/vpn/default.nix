@@ -6,10 +6,10 @@ mkCapability {
   name = "vpn";
 
   nixos = [
-    inputs.self.nixosModules.tailscale
+    inputs.self.nixosModules.netbird
   ];
 
   darwin = [
-    inputs.self.darwinModules.tailscale
+    inputs.self.darwinModules.netbird
   ];
 }
