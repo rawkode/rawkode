@@ -12,18 +12,19 @@ mkApp {
     {
       config,
       lib,
-      osConfig ? null,
+      machine ? null,
       pkgs,
       ...
     }:
     let
       cfg = config.programs.openclaw;
       port = 18789;
-      # NetBird's short and fully qualified DNS names for this peer; standalone
-      # Home Manager has no host.
-      netbirdOrigins = lib.optionals (osConfig != null) [
-        "http://${osConfig.networking.hostName}:${toString port}"
-        "http://${osConfig.networking.hostName}.rka.internal:${toString port}"
+      # NetBird's short and fully qualified DNS names for this peer. The
+      # machine name is the hostname, and unlike osConfig it is also set for
+      # standalone Home Manager, which must not drop these origins.
+      netbirdOrigins = lib.optionals (machine != null) [
+        "http://${machine}:${toString port}"
+        "http://${machine}.rka.internal:${toString port}"
       ];
       tokenFile = "${cfg.stateDir}/gateway-token.env";
       generateToken = pkgs.writeShellApplication {
