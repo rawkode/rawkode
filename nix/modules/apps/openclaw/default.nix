@@ -57,6 +57,13 @@ mkApp {
 
       programs.openclaw = {
         enable = true;
+        # The config is a read-only store path, so the Control UI cannot save
+        # these; change them here.
+        config.agents.defaults = {
+          model.primary = "openai/gpt-6-luna";
+          thinkingDefault = "high";
+          fastModeDefault = true;
+        };
         config.gateway = {
           mode = "local";
           bind = "tailnet";
