@@ -6,13 +6,11 @@ mkCapability {
   name = "openclaw";
   inherit (inputs.self.appBundles.openclaw) home;
 
-  # The gateway runs as the primary user and manages Tailscale Serve itself,
-  # which requires that user to be the tailscaled operator.
+  # The gateway listens on the NetBird address; only NetBird peers may reach it.
   nixos =
-    { machine, ... }:
+    { config, ... }:
     {
-      services.tailscale.extraSetFlags = [
-        "--operator=${inputs.self.machineManifests.${machine}.primaryUser}"
-      ];
+      networking.firewall.interfaces.${config.services.netbird.clients.default.interface}.allowedTCPPorts =
+        [ 18789 ];
     };
 }

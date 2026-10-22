@@ -6,17 +6,23 @@ mkApp {
   name = "openclaw";
 
   # Use nix-openclaw's matching module and package as a user service inside
-  # the graphical session. It listens on loopback only; Tailscale Serve
-  # publishes it to the tailnet over HTTPS.
+  # the graphical session. It listens on loopback and the NetBird address
+  # (OpenClaw's "tailnet" bind matches any 100.64.0.0/10 address).
   linux.home =
     {
       config,
       lib,
+      osConfig ? null,
       pkgs,
       ...
     }:
     let
       cfg = config.programs.openclaw;
+      port = 18789;
+      # NetBird's DNS name for this peer; standalone Home Manager has no host.
+      netbirdOrigins = lib.optional (
+        osConfig != null
+      ) "http://${osConfig.networking.hostName}.rka.internal:${toString port}";
       tokenFile = "${cfg.stateDir}/gateway-token.env";
       generateToken = pkgs.writeShellApplication {
         name = "openclaw-gateway-token";
@@ -38,8 +44,14 @@ mkApp {
         enable = true;
         config.gateway = {
           mode = "local";
-          bind = "loopback";
-          tailscale.mode = "serve";
+          bind = "tailnet";
+          inherit port;
+          # Setting origins replaces the loopback defaults, so keep them.
+          controlUi.allowedOrigins = [
+            "http://localhost:${toString port}"
+            "http://127.0.0.1:${toString port}"
+          ]
+          ++ netbirdOrigins;
           auth = {
             mode = "token";
             token = "\${OPENCLAW_GATEWAY_TOKEN}";
