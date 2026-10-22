@@ -97,6 +97,10 @@
       url = "github:danth/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    sonora = {
+      url = "github:sonorahq/sonora";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     systems = {
       url = "github:nix-systems/default";
     };

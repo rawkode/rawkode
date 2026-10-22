@@ -32,6 +32,7 @@ mkCapability {
           appBundles.chinstrap.home
           appBundles.firefox-nightly.home
           appBundles.rockhopper.home
+          appBundles.sonora.home
 
           homeModules.dconf-editor
           homeModules.flatpak
