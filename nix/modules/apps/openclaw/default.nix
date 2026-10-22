@@ -26,14 +26,26 @@ mkApp {
         "http://${machine}:${toString port}"
         "http://${machine}.rka.internal:${toString port}"
       ];
-      tokenFile = "${cfg.stateDir}/gateway-token.env";
+      # The CLI loads the state directory's .env, so keeping the token there
+      # lets local commands such as `openclaw devices approve` authenticate.
+      tokenFile = "${cfg.stateDir}/.env";
+      legacyTokenFile = "${cfg.stateDir}/gateway-token.env";
       generateToken = pkgs.writeShellApplication {
         name = "openclaw-gateway-token";
-        runtimeInputs = [ pkgs.openssl ];
+        runtimeInputs = with pkgs; [
+          gnugrep
+          openssl
+        ];
         text = ''
-          if [ ! -s ${tokenFile} ]; then
+          if ! grep -qs '^OPENCLAW_GATEWAY_TOKEN=' ${tokenFile}; then
             umask 077
-            echo "OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32)" > ${tokenFile}
+            # Keep the token devices already use from the old location.
+            if grep -qs '^OPENCLAW_GATEWAY_TOKEN=' ${legacyTokenFile}; then
+              grep '^OPENCLAW_GATEWAY_TOKEN=' ${legacyTokenFile} >> ${tokenFile}
+            else
+              echo "OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32)" >> ${tokenFile}
+            fi
+            chmod 600 ${tokenFile}
           fi
         '';
       };
