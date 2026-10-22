@@ -1,0 +1,72 @@
+{ inputs, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix;
+in
+mkApp {
+  name = "openclaw";
+
+  # Use nix-openclaw's matching module and package as a user service inside
+  # the graphical session. It listens on loopback only; Tailscale Serve
+  # publishes it to the tailnet over HTTPS.
+  linux.home =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      cfg = config.programs.openclaw;
+      tokenFile = "${cfg.stateDir}/gateway-token.env";
+      generateToken = pkgs.writeShellApplication {
+        name = "openclaw-gateway-token";
+        runtimeInputs = [ pkgs.openssl ];
+        text = ''
+          if [ ! -s ${tokenFile} ]; then
+            umask 077
+            echo "OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32)" > ${tokenFile}
+          fi
+        '';
+      };
+    in
+    {
+      imports = [ inputs.nix-openclaw.homeManagerModules.openclaw ];
+
+      nixpkgs.overlays = [ inputs.nix-openclaw.overlays.default ];
+
+      programs.openclaw = {
+        enable = true;
+        config.gateway = {
+          mode = "local";
+          bind = "loopback";
+          tailscale.mode = "serve";
+          auth = {
+            mode = "token";
+            token = "\${OPENCLAW_GATEWAY_TOKEN}";
+          };
+        };
+      };
+
+      systemd.user.services.${cfg.systemd.unitName} = {
+        Unit = {
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+        };
+        Service = {
+          # systemd reads EnvironmentFile= per command, so ExecStart sees a
+          # token generated here on first start.
+          ExecStartPre = lib.getExe generateToken;
+          EnvironmentFile = [
+            "-${tokenFile}"
+            # Provider API keys and channel tokens, e.g. ANTHROPIC_API_KEY.
+            "-${cfg.stateDir}/secrets.env"
+          ];
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
+
+      # The gateway logs to /tmp/openclaw, which activation creates but a reboot
+      # clears. systemd opens the log before ExecStartPre, so recreate it at login.
+      systemd.user.tmpfiles.rules = [ "d /tmp/openclaw 0700 - - -" ];
+    };
+}

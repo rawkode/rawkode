@@ -89,6 +89,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-ai-tools.url = "github:numtide/llm-agents.nix";
+    # Only its Home Manager module is used; the package comes from nixpkgs.
+    nix-openclaw = {
+      url = "github:openclaw/nix-openclaw";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     nur = {
       url = "github:nix-community/NUR";
       inputs.nixpkgs.follows = "nixpkgs";
