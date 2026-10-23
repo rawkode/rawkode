@@ -55,7 +55,9 @@ let
         manifests = inputs.self.machineManifests;
         inherit username;
       };
-      machines = builtins.attrNames manifests;
+      machines = builtins.filter (
+        machine: manifests.${machine}.users.${username}.standaloneHomeConfiguration or true
+      ) (builtins.attrNames manifests);
     in
     builtins.listToAttrs (
       map (

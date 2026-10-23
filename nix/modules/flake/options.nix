@@ -8,6 +8,12 @@ let
         description = "Editor override for this user on this machine, including standalone Home Manager.";
       };
 
+      standaloneHomeConfiguration = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Whether to export a standalone Home Manager configuration for this user on this machine.";
+      };
+
       modules = lib.mkOption {
         type = lib.types.listOf lib.types.deferredModule;
         default = [ ];

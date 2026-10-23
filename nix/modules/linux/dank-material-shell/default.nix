@@ -14,10 +14,6 @@ mkApp {
 
       stylix.targets.dank-material-shell.enable = true;
 
-      # Calendar events come from DankCalendar (dcal), which syncs Google,
-      # Microsoft, and CalDAV accounts itself; khal is not needed.
-      home.packages = [ pkgs.dankcalendar ];
-
       programs.dank-material-shell = {
         enable = true;
         enableCalendarEvents = false;
@@ -37,8 +33,6 @@ mkApp {
           includes.enable = false;
         };
         settings = {
-          calendarBackend = "dankcal";
-
           acLockTimeout = 600;
           batteryLockTimeout = 600;
           acMonitorTimeout = 1800;
@@ -75,6 +69,7 @@ mkApp {
                   enabled = true;
                   trayIconSpacing = 8;
                   trayAutoOverflow = false;
+                  trayUseInlineExpansion = true;
                 }
                 "dankKDEConnect"
                 "clipboard"
@@ -100,19 +95,5 @@ mkApp {
         "NIRI_SOCKET"
       ];
 
-      systemd.user.services.dcal = {
-        Unit = {
-          Description = "Dank Calendar";
-          After = [ "graphical-session.target" ];
-          PartOf = [ "graphical-session.target" ];
-        };
-        Service = {
-          ExecStart = "${pkgs.dankcalendar}/bin/dcal run --session --hidden";
-          Restart = "on-failure";
-          RestartSec = 2;
-          Slice = "app.slice";
-        };
-        Install.WantedBy = [ "graphical-session.target" ];
-      };
     };
 }

@@ -21,11 +21,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1792675146,
-        "narHash": "sha256-cFhl116Go8PivSUnPVb6l5gOy//xHROmDIeacr93MtI=",
+        "lastModified": 1792766496,
+        "narHash": "sha256-tssudlFsSMko/Y4YRbODCU8VQ+8vKzP3vhCCjLVn1Bo=",
         "owner": "korora-tech",
         "repo": "antarctical",
-        "rev": "dcd45725632e93b94f10483412c162ecca82ffd3",
+        "rev": "6e87d58f63b75d9bf38acb6a2e2a18a9d58eaf70",
         "type": "github"
       },
       "original": {

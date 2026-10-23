@@ -43,7 +43,12 @@
       expectedHomeConfigurations = lib.sort builtins.lessThan (
         lib.flatten (
           lib.mapAttrsToList (
-            machine: manifest: map (username: "${username}@${machine}") (builtins.attrNames manifest.users)
+            machine: manifest:
+            map (username: "${username}@${machine}") (
+              builtins.attrNames (
+                lib.filterAttrs (_: user: user.standaloneHomeConfiguration or true) manifest.users
+              )
+            )
           ) inputs.self.machineManifests
         )
       );

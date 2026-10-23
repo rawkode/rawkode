@@ -26,6 +26,7 @@
       "nixos-encrypted-btrfs"
     ];
     users.rawkode = {
+      standaloneHomeConfiguration = false;
       modules = [
         {
           # The BenQ on DisplayPort drops its link when woken from DPMS and never
