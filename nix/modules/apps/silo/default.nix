@@ -17,6 +17,39 @@ in
     {
       home.packages = [ silo ];
 
+      home.sessionVariables.GITSIGN_URL_OPENER = "silo {{.URL}}";
+
+      # Keep Silo's routing and browser visibility settings declarative.
+      home.file.".config/silo/config.json" = {
+        force = true;
+        text = builtins.toJSON {
+          always_ask = false;
+          fallback_browser = null;
+          previous_default_browser = null;
+          rules = [
+            {
+              pattern = "oauth2.sigstore.dev";
+              browser = {
+                desktop_file = "google-chrome.desktop";
+                args = "--profile-directory='Profile 1'";
+              };
+            }
+          ];
+          rules_suspended = false;
+          custom_browsers = [ ];
+          browser_overrides = [
+            {
+              desktop_file = "org.gnome.Epiphany.desktop";
+              hidden = true;
+            }
+            {
+              desktop_file = "chatgpt.desktop";
+              hidden = true;
+            }
+          ];
+        };
+      };
+
       xdg.mimeApps = {
         enable = true;
         defaultApplications = {
