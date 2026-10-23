@@ -60,7 +60,6 @@ mkApp {
     {
       programs.nushell = {
         enable = true;
-        loadSessionVariables = false;
         # Keep Darwin on the cached stable build; Linux follows the primary channel
         # so its Nushell parser supports the current FZF completions.
         package = if isDarwin then inputs.nixpkgs-stable.legacyPackages.${system}.nushell else pkgs.nushell;
