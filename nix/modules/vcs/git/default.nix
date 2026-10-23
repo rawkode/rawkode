@@ -153,7 +153,7 @@ mkApp {
 
       home.packages = [ pkgs.delta ];
 
-      programs.nushell.abbreviations =
+      programs.nushell.settings.abbreviations =
         lib.mkIf
           (
             config.programs.nushell.enable

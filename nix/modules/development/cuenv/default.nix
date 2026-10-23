@@ -40,7 +40,7 @@ mkApp {
         c = "cuenv";
       };
 
-      programs.nushell.abbreviations =
+      programs.nushell.settings.abbreviations =
         lib.mkIf
           (
             config.programs.nushell.enable
