@@ -19,6 +19,14 @@ in
 
       home.sessionVariables.GITSIGN_URL_OPENER = "silo {{.URL}}";
 
+      # Silo creates a settings-only launcher under this desktop ID on first
+      # run. Keep the user entry aligned with the packaged URL handler so
+      # desktop portals pass clicked URLs through to Silo.
+      xdg.dataFile."applications/com.nofaff.Silo.desktop" = {
+        force = true;
+        source = "${silo}/share/applications/com.nofaff.Silo.desktop";
+      };
+
       # Keep Silo's routing and browser visibility settings declarative.
       home.file.".config/silo/config.json" = {
         force = true;
