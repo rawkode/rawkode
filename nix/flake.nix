@@ -13,9 +13,9 @@
     # Primary channel for the whole system.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # Older channels kept only so individual packages can be pinned off
-    # unstable: nixpkgs-25-05 -> modules/development/direnv, nixpkgs-stable
-    # (25.11) -> modules/apps/bat, modules/shells/nushell, and CoreWeave's
-    # Go 1.25 package. Drop a pin once the package works on unstable again.
+    # unstable: nixpkgs-25-05 -> modules/development/direnv; nixpkgs-stable
+    # (25.11) -> modules/apps/bat, Darwin FZF/Nushell, and CoreWeave's Go 1.25
+    # package. Drop a pin once the package works on unstable again.
     nixpkgs-25-05.url = "github:NixOS/nixpkgs/nixos-25.05";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
 

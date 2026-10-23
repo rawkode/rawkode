@@ -1,6 +1,18 @@
 let
   mkUserOptions =
-    { lib, pkgs }:
+    {
+      inputs,
+      lib,
+      pkgs,
+    }:
+    let
+      system = pkgs.stdenv.hostPlatform.system;
+      shell =
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          inputs.nixpkgs-stable.legacyPackages.${system}.nushell
+        else
+          pkgs.nushell;
+    in
     {
       username = lib.mkOption {
         type = lib.types.str;
@@ -14,9 +26,9 @@ let
 
       shell = lib.mkOption {
         type = lib.types.shellPackage;
-        default = pkgs.fish;
-        defaultText = lib.literalExpression "pkgs.fish";
-        example = lib.literalExpression "pkgs.fish";
+        default = shell;
+        defaultText = "pkgs.nushell (nixpkgs-stable on Darwin)";
+        example = lib.literalExpression "pkgs.nushell";
         description = ''
           The path to the user's shell. Can use shell derivations,
           like `pkgs.bashInteractive`. Don't
@@ -31,6 +43,7 @@ in
   flake.nixosModules.user =
     {
       config,
+      inputs,
       lib,
       pkgs,
       ...
@@ -39,7 +52,7 @@ in
       cfg = config.rawkOS.user;
     in
     {
-      options.rawkOS.user = mkUserOptions { inherit lib pkgs; };
+      options.rawkOS.user = mkUserOptions { inherit inputs lib pkgs; };
 
       config = {
         users.groups.${cfg.username} = {
@@ -73,6 +86,7 @@ in
   flake.darwinModules.user =
     {
       config,
+      inputs,
       lib,
       pkgs,
       ...
@@ -81,7 +95,7 @@ in
       cfg = config.rawkOS.user;
     in
     {
-      options.rawkOS.user = mkUserOptions { inherit lib pkgs; };
+      options.rawkOS.user = mkUserOptions { inherit inputs lib pkgs; };
 
       config = {
         users.users.${cfg.username} = {

@@ -96,7 +96,6 @@ mkApp {
 
   darwin.system =
     {
-      config,
       lib,
       pkgs,
       ...
@@ -104,28 +103,5 @@ mkApp {
     {
       programs.fish.enable = true;
       environment.shells = lib.mkAfter [ pkgs.fish ];
-
-      # Allow using the Home Manager per-user fish as a login shell
-      # e.g. /etc/profiles/per-user/$USER/bin/fish must be present in /etc/shells
-      # Use system.primaryUser (set by users-* module) when available
-      environment.etc."shells".text = lib.mkAfter (
-        lib.optionalString (lib.attrsets.hasAttrByPath [ "system" "primaryUser" ] config) ''
-          /etc/profiles/per-user/${config.system.primaryUser}/bin/fish
-        ''
-      );
-
-      # Ensure fish is set as the login shell via chsh
-      system.activationScripts.postActivation.text = lib.mkAfter (
-        lib.optionalString (lib.attrsets.hasAttrByPath [ "system" "primaryUser" ] config) ''
-          desired_shell="/etc/profiles/per-user/${config.system.primaryUser}/bin/fish"
-          if [ -x "$desired_shell" ]; then
-            current_shell=$(dscl . -read /Users/${config.system.primaryUser} UserShell 2>/dev/null | awk '{print $2}')
-            if [ "$current_shell" != "$desired_shell" ]; then
-              echo "Setting default shell to fish for ${config.system.primaryUser}..."
-              chsh -s "$desired_shell" "${config.system.primaryUser}" 2>/dev/null || true
-            fi
-          fi
-        ''
-      );
     };
 }

@@ -20,6 +20,7 @@ mkCapability {
         inputs.self.nixosModules.below
         inputs.self.nixosModules.common
         inputs.self.nixosModules.fish
+        inputs.self.nixosModules.nushell
         inputs.self.nixosModules.networking
         inputs.self.nixosModules.nix
         inputs.self.nixosModules.sudo
@@ -63,6 +64,7 @@ mkCapability {
     inputs.self.darwinModules.nix
     inputs.self.darwinModules.macos-base
     inputs.self.darwinModules.fish
+    inputs.self.darwinModules.nushell
     inputs.self.darwinModules.user
   ];
 

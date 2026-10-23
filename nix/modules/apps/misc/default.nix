@@ -8,8 +8,11 @@ mkApp {
   common.home =
     {
       config,
+      inputs,
       lib,
       pkgs,
+      system,
+      isDarwin,
       ...
     }:
     let
@@ -35,6 +38,9 @@ mkApp {
 
         programs.fzf = {
           enable = true;
+          # Pair stable Nu with stable FZF on Darwin; Linux uses current Nushell
+          # and FZF from the primary nixpkgs channel.
+          package = if isDarwin then inputs.nixpkgs-stable.legacyPackages.${system}.fzf else pkgs.fzf;
           historyWidget.command = "";
         };
         programs.skim.enable = true;

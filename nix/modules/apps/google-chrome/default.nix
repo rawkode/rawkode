@@ -5,6 +5,21 @@ in
 mkApp {
   name = "google-chrome";
 
+  linux.home =
+    { lib, ... }:
+    {
+      xdg.mimeApps = {
+        enable = true;
+        defaultApplications = lib.genAttrs [
+          "application/xhtml+xml"
+          "text/html"
+          "x-scheme-handler/about"
+          "x-scheme-handler/http"
+          "x-scheme-handler/https"
+        ] (_: lib.mkForce [ "google-chrome.desktop" ]);
+      };
+    };
+
   linux.system =
     {
       lib,

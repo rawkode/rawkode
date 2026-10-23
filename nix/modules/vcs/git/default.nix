@@ -7,6 +7,7 @@ mkApp {
 
   common.home =
     {
+      config,
       identity,
       pkgs,
       ...
@@ -151,6 +152,17 @@ mkApp {
       };
 
       home.packages = [ pkgs.delta ];
+
+      programs.nushell.abbreviations =
+        lib.mkIf
+          (
+            config.programs.nushell.enable
+            && lib.versionAtLeast config.programs.nushell.package.version "0.113.0"
+          )
+          {
+            gr = "cd (git root)";
+            jg = "jj git";
+          };
 
       home.file.".config/git/templates/commit.txt".source = ./git-commit-template.txt;
     };

@@ -65,5 +65,17 @@ mkApp {
           setCursor = true;
         };
       };
+
+      programs.nushell.abbreviations =
+        lib.mkIf
+          (
+            config.programs.nushell.enable
+            && lib.versionAtLeast config.programs.nushell.package.version "0.113.0"
+          )
+          {
+            k = "kubectl";
+            kcx = "kubectx";
+            kns = "kubectl config set-context --current --namespace";
+          };
     };
 }

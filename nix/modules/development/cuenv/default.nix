@@ -39,6 +39,16 @@ mkApp {
       programs.nushell.shellAliases = lib.mkIf config.programs.nushell.enable {
         c = "cuenv";
       };
+
+      programs.nushell.abbreviations =
+        lib.mkIf
+          (
+            config.programs.nushell.enable
+            && lib.versionAtLeast config.programs.nushell.package.version "0.113.0"
+          )
+          {
+            c = "cuenv";
+          };
     };
 
   linux.system = _: {

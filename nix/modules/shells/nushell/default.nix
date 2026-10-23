@@ -5,18 +5,64 @@ in
 mkApp {
   name = "nushell";
 
+  linux.system =
+    { pkgs, ... }:
+    {
+      programs.nushell = {
+        enable = true;
+        package = pkgs.nushell;
+      };
+    };
+
+  darwin.system =
+    {
+      config,
+      inputs,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      nuPackage = inputs.nixpkgs-stable.legacyPackages.${pkgs.stdenv.hostPlatform.system}.nushell;
+    in
+    {
+      environment.shells = lib.mkAfter [ nuPackage ];
+
+      # The Home Manager profile path is the shell used by the account on Darwin.
+      environment.etc."shells".text = lib.mkAfter (
+        lib.optionalString (lib.attrsets.hasAttrByPath [ "system" "primaryUser" ] config) ''
+          /etc/profiles/per-user/${config.system.primaryUser}/bin/nu
+        ''
+      );
+
+      system.activationScripts.postActivation.text = lib.mkAfter (
+        lib.optionalString (lib.attrsets.hasAttrByPath [ "system" "primaryUser" ] config) ''
+          desired_shell="/etc/profiles/per-user/${config.system.primaryUser}/bin/nu"
+          if [ -x "$desired_shell" ]; then
+            current_shell=$(dscl . -read /Users/${config.system.primaryUser} UserShell 2>/dev/null | awk '{print $2}')
+            if [ "$current_shell" != "$desired_shell" ]; then
+              echo "Setting default shell to Nushell for ${config.system.primaryUser}..."
+              chsh -s "$desired_shell" "${config.system.primaryUser}" 2>/dev/null || true
+            fi
+          fi
+        ''
+      );
+    };
+
   common.home =
     {
       inputs,
+      isDarwin,
+      pkgs,
       system,
       ...
     }:
     {
       programs.nushell = {
         enable = true;
-        # Use stable nixpkgs — unstable nushell has no binary cache on aarch64-darwin
-        # (Hydra build was dropped from evaluation, likely a build failure)
-        package = inputs.nixpkgs-stable.legacyPackages.${system}.nushell;
+        # Keep Darwin on the cached stable build; Linux follows the primary channel
+        # so its Nushell parser supports the current FZF completions.
+        package = if isDarwin then inputs.nixpkgs-stable.legacyPackages.${system}.nushell else pkgs.nushell;
 
         configFile.source = ./config.nu;
 
