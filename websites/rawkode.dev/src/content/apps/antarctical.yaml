@@ -1,0 +1,16 @@
+name: Antarctical
+tagline: A native Google Calendar viewer for Linux
+description: >
+  Shows the calendars of one or more Google accounts in month, week, day and
+  agenda views, with today's agenda in the system tray and desktop
+  notifications for reminders. Reads Google Calendar and does not write
+  events back. Credentials stay in the system keyring. Built with GPUI.
+platform:
+  - Linux
+status: in-development
+repoUrl: https://github.com/korora-tech/antarctical
+tags:
+  - Rust
+  - Calendar
+  - Productivity
+  - Open Source

@@ -1,0 +1,18 @@
+name: Chinstrap
+tagline: A native recording studio for Linux
+description: >
+  Records a camera, a microphone and any number of screens and windows at the
+  same time. Each input goes to its own file, and all of them run on one
+  shared clock so they can be lined up in an editor. Recordings can be cut
+  into segments without stopping, and each finished segment's microphone
+  file can be transcribed on the device with Whisper. Built with GPUI and
+  GStreamer.
+platform:
+  - Linux
+status: in-development
+repoUrl: https://github.com/korora-tech/chinstrap
+tags:
+  - Rust
+  - Video
+  - Linux
+  - Open Source
