@@ -1,7 +1,6 @@
 const BOOTSTRAP_ETC_ENTRY = "rawkos-nix-bootstrap.conf"
 const BOOTSTRAP_BEGIN = "# BEGIN rawkOS bootstrap-cache"
 const BOOTSTRAP_END = "# END rawkOS bootstrap-cache"
-const CACHE_REGEX = 'ghostty\.cachix\.org|cuenv\.cachix\.org|devenv\.cachix\.org'
 
 def log-info [message: string] {
 	print $"(ansi green_bold)[INFO](ansi reset) ($message)"
@@ -71,15 +70,37 @@ def show-daemon-config [] {
 		^nix config show
 		| lines
 		| where {|line|
-			$line =~ 'trusted-users|substituters|trusted-public-keys|trusted-substituters|cachix|ghostty|cuenv|devenv'
+			$line =~ 'trusted-users|substituters|trusted-public-keys|trusted-substituters'
 		}
 	)
 
 	$matching_lines | each {|line| print $line }
 }
 
-def daemon-has-project-caches [] {
-	((^nix config show) =~ $CACHE_REGEX)
+def setting-values [settings_text: string, setting_name: string] {
+	let prefix = $"($setting_name) = "
+	let line = (
+		$settings_text
+		| lines
+		| where {|line| $line starts-with $prefix }
+		| first
+		| default ""
+	)
+	let value = ($line | str replace $prefix "")
+
+	$value | split row " " | where {|setting| $setting != "" }
+}
+
+def daemon-has-bootstrap-settings [bootstrap_text: string] {
+	let daemon_config = (^nix config show | str join (char nl))
+	let required_substituters = (setting-values $bootstrap_text "extra-substituters")
+	let required_keys = (setting-values $bootstrap_text "extra-trusted-public-keys")
+	let configured_substituters = (setting-values $daemon_config "substituters")
+	let configured_keys = (setting-values $daemon_config "trusted-public-keys")
+	let substituters_match = $required_substituters | all {|value| $value in $configured_substituters }
+	let keys_match = $required_keys | all {|value| $value in $configured_keys }
+
+	$substituters_match and $keys_match
 }
 
 def evaluate-bootstrap-text [config_namespace: string, host_name: string] {
@@ -173,15 +194,15 @@ def main [host_name?: string] {
 	log-info $"Detected ($platform.platform_name)"
 	log-info $"Using host ($resolved_host)"
 
-	if (daemon-has-project-caches) {
+	log-step "Evaluating bootstrap config from flake"
+	let bootstrap_text = (evaluate-bootstrap-text $platform.config_namespace $resolved_host)
+
+	if (daemon-has-bootstrap-settings $bootstrap_text) {
 		log-info "Daemon cache config is already active."
 		log-step "Current daemon config"
 		show-daemon-config
 		return
 	}
-
-	log-step "Evaluating bootstrap config from flake"
-	let bootstrap_text = (evaluate-bootstrap-text $platform.config_namespace $resolved_host)
 
 	let target_file = (choose-target-file)
 	log-info $"Seeding ($target_file)"
@@ -192,7 +213,7 @@ def main [host_name?: string] {
 	log-step "Daemon config after bootstrap"
 	show-daemon-config
 
-	if not (daemon-has-project-caches) {
+	if not (daemon-has-bootstrap-settings $bootstrap_text) {
 		log-error "Bootstrap completed, but daemon cache settings are still missing."
 		exit 1
 	}

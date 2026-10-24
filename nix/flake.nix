@@ -32,9 +32,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # korora-tech apps keep their own nixpkgs so builds come from korora-tech.cachix.org.
+    # Keep the Korora Tech package pins so their matching builds can come from its cache.
     antarctical.url = "github:korora-tech/antarctical";
     chinstrap.url = "github:korora-tech/chinstrap";
+    flipper.url = "github:korora-tech/flipper";
     rockhopper.url = "github:korora-tech/rockhopper";
     comma.url = "github:nix-community/comma";
     coreweave = {

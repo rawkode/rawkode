@@ -1,13 +1,6 @@
 { inputs, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix;
-
-  kororaCache = {
-    extra-substituters = [ "https://korora-tech.cachix.org" ];
-    extra-trusted-public-keys = [
-      "korora-tech.cachix.org-1:42bs8TVW3uvxvMnuJtkXP5lkHFK7++Sral9uRDautuA="
-    ];
-  };
 in
 mkApp {
   name = "rockhopper";
@@ -15,8 +8,6 @@ mkApp {
   linux.home =
     { lib, pkgs, ... }:
     {
-      nix.settings = kororaCache;
-
       imports = [ inputs.rockhopper.homeManagerModules.default ];
 
       programs.rockhopper = {
@@ -53,7 +44,4 @@ mkApp {
       };
     };
 
-  linux.system = _: {
-    nix.settings = kororaCache;
-  };
 }

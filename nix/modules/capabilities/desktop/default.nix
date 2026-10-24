@@ -31,8 +31,8 @@ mkCapability {
           appBundles.antarctical.home
           appBundles.chinstrap.home
           appBundles.firefox-nightly.home
+          appBundles.flipper.home
           appBundles.rockhopper.home
-          appBundles.silo.home
           appBundles.sonora.home
 
           homeModules.dconf-editor

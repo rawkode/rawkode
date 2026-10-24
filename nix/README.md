@@ -74,7 +74,7 @@ Use [cuenv](https://github.com/cuenv/cuenv) for development workflow:
 nix profile install github:cuenv/cuenv
 
 # One-time bootstrap for system trust + cache settings
-# This seeds the active Nix daemon before your first real switch.
+# This seeds the active Nix daemon, including Korora Tech and Numtide caches.
 cuenv task bootstrap-cache
 
 # Then run your normal switch

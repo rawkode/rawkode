@@ -1,4 +1,15 @@
 let
+  baseCacheSettings = {
+    extra-substituters = [
+      "https://cache.numtide.com"
+      "https://korora-tech.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+      "korora-tech.cachix.org-1:42bs8TVW3uvxvMnuJtkXP5lkHFK7++Sral9uRDautuA="
+    ];
+  };
+
   daemonSettingNames = [
     "trusted-users"
     "extra-substituters"
@@ -18,7 +29,7 @@ let
   renderSettingValue =
     lib: value:
     if builtins.isList value then
-      lib.concatStringsSep " " (map (renderSettingValue lib) value)
+      lib.concatStringsSep " " (map (renderSettingValue lib) (lib.unique value))
     else if builtins.isBool value then
       lib.boolToString value
     else
@@ -64,7 +75,7 @@ in
         optimise.automatic = true;
         gc.automatic = false; # Disabled in favor of programs.nh.clean
 
-        settings = {
+        settings = lib.recursiveUpdate baseCacheSettings {
           trusted-users = [
             "root"
             cfg.username
@@ -77,12 +88,6 @@ in
           warn-dirty = false;
           keep-derivations = true;
           keep-outputs = true;
-
-          # App/module-specific caches are configured in their own modules.
-          extra-substituters = [ "https://cache.nixos.org/" ];
-          extra-trusted-public-keys = [
-            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-          ];
         };
       };
 
@@ -104,16 +109,10 @@ in
       bootstrapConfigText = renderDaemonSettings lib config.nix.settings;
     in
     {
-      nix.settings = {
+      nix.settings = lib.recursiveUpdate baseCacheSettings {
         trusted-users = [
           "root"
           cfg.username
-        ];
-
-        # App/module-specific caches are configured in their own modules.
-        extra-substituters = [ "https://cache.nixos.org/" ];
-        extra-trusted-public-keys = [
-          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
         ];
       };
 
@@ -139,14 +138,10 @@ in
     {
       nix = {
         package = lib.mkDefault pkgs.nix;
-        settings = {
+        settings = lib.recursiveUpdate baseCacheSettings {
           experimental-features = [
             "nix-command"
             "flakes"
-          ];
-          extra-substituters = [ "https://cache.nixos.org/" ];
-          extra-trusted-public-keys = [
-            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
           ];
         };
       };
