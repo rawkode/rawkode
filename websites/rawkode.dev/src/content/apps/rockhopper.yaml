@@ -1,0 +1,17 @@
+name: Rockhopper
+tagline: A native launcher for Wayland
+description: >
+  Press a key and a large search box appears over the focused output. Apps,
+  open windows and system commands are ranked as you type, and Rockhopper
+  learns what you open. It also keeps an encrypted clipboard history and an
+  emoji picker. Needs a compositor with wlr layer-shell, such as niri, Sway,
+  Hyprland or KDE, and does not run on GNOME. Built with GPUI.
+platform:
+  - Linux
+status: in-development
+repoUrl: https://github.com/korora-tech/rockhopper
+tags:
+  - Rust
+  - Wayland
+  - Productivity
+  - Open Source

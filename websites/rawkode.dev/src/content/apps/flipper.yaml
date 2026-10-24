@@ -1,0 +1,17 @@
+name: Flipper
+tagline: A browser and profile picker for Linux
+description: >
+  Can sit between desktop links and browsers. Detects Chromium- and
+  Firefox-family profiles, lets you open a link once or save a domain and
+  path rule, and applies local YAML routing rules. Unwraps nested Microsoft
+  SafeLinks and Google redirect URLs, and keeps no link history or telemetry.
+  Built with GPUI and Wayland layer-shell.
+platform:
+  - Linux
+status: in-development
+repoUrl: https://github.com/korora-tech/flipper
+tags:
+  - Rust
+  - Browsers
+  - Productivity
+  - Open Source

@@ -14,7 +14,7 @@ const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const recentPosts = allPosts
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
   .slice(0, 4);
-const appOrder = ['rawkode-academy', 'cuenv', 'kubectl-ditto', 'kree', 'prescience', 'waddle'];
+const appOrder = ['rawkode-academy', 'cuenv', 'kubectl-ditto', 'kree', 'prescience', 'waddle', 'chinstrap', 'rockhopper', 'flipper', 'antarctical', 'alteran'];
 const apps = (await getCollection('apps')).sort((a, b) => {
   if (a.data.featured !== b.data.featured) return a.data.featured ? -1 : 1;
   const ai = appOrder.indexOf(a.id);
