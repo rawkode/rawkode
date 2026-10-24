@@ -289,7 +289,13 @@ mkApp {
             window-rules = [
               {
                 matches = [
-                  { app-id = "firefox"; }
+                  { app-id = "^firefox(-nightly)?$"; }
+                ];
+                excludes = [
+                  {
+                    app-id = "^firefox(-nightly)?$";
+                    title = "^Picture-in-Picture$";
+                  }
                 ];
                 open-on-workspace = "Web";
                 open-focused = true;
@@ -298,7 +304,7 @@ mkApp {
               {
                 matches = [
                   {
-                    app-id = "firefox$";
+                    app-id = "^firefox(-nightly)?$";
                     title = "^Picture-in-Picture$";
                   }
                 ];
