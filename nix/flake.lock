@@ -832,11 +832,11 @@
         "nixpkgs": "nixpkgs_6"
       },
       "locked": {
-        "lastModified": 1792834426,
-        "narHash": "sha256-E3kLctbzH0c2dbJ4fUbpQavHGv55uwK8TtA+l7FqGrc=",
+        "lastModified": 1793013628,
+        "narHash": "sha256-i+CC5/bVbsHqGN2Guoi/kisltJNLTRHAeN1uNqik+Uo=",
         "owner": "korora-tech",
         "repo": "flipper",
-        "rev": "fd6b8142122741db916d2eada9ab9bfb94c9129f",
+        "rev": "6c37c13ce0761b21741365528d00b01362c48557",
         "type": "github"
       },
       "original": {
