@@ -9,7 +9,7 @@ mkApp {
     programs.zoxide = {
       enable = true;
       enableFishIntegration = true;
-      enableNushellIntegration = false;
+      enableNushellIntegration = true;
       options = [
         "--cmd cd"
       ];
