@@ -41,6 +41,15 @@ mkApp {
             "privacy.userContext.ui.enabled" = true;
             # Nix owns the profile; Mozilla accounts and Sync are not used.
             "identity.fxaccounts.enabled" = false;
+            # Extension versions come from Nix, not addons.mozilla.org.
+            "extensions.update.enabled" = false;
+            "extensions.update.autoUpdateDefault" = false;
+          };
+
+          search = {
+            force = true;
+            default = "google";
+            privateDefault = "google";
           };
 
           extensions.packages =
