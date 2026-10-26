@@ -4,7 +4,6 @@
       plymouth = {
         enable = true;
       };
-      initrd.systemd.enable = true;
       kernelParams = [
         "quiet"
         "splash"
@@ -14,7 +13,6 @@
         "rd.udev.log_level=3"
         "udev.log_priority=3"
       ];
-      initrd.verbose = false;
       consoleLogLevel = 0;
     };
   };

@@ -50,7 +50,6 @@
         kernelModules = [ "v4l2loopback" ];
 
         initrd = {
-          systemd.enable = true;
           supportedFilesystems = [ "btrfs" ];
           availableKernelModules = [
             "nvme"
