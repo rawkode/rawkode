@@ -34,7 +34,7 @@ schema.#Project & {
 		}
 
 		update: schema.#Task & {
-			description: "Update all flake inputs except excluded ones"
+			description: "Update moving GitHub flake inputs to commits at least 72 hours old"
 			script:      _ @embed(file=scripts/update.nu,type=text)
 			scriptShell: "nu"
 			hermetic:    false
