@@ -832,15 +832,16 @@
         "nixpkgs": "nixpkgs_6"
       },
       "locked": {
-        "lastModified": 1792832062,
-        "narHash": "sha256-/v8Fa+8XMZ56Qec8siyVDc7oQTRK9srl49Qb/t5jXiQ=",
+        "lastModified": 1792834426,
+        "narHash": "sha256-E3kLctbzH0c2dbJ4fUbpQavHGv55uwK8TtA+l7FqGrc=",
         "owner": "korora-tech",
         "repo": "flipper",
-        "rev": "29a688edcd60fcedbb8b224ef737ad86e8cfef6c",
+        "rev": "fd6b8142122741db916d2eada9ab9bfb94c9129f",
         "type": "github"
       },
       "original": {
         "owner": "korora-tech",
+        "ref": "fix/firefox-editions-and-containers",
         "repo": "flipper",
         "type": "github"
       }
