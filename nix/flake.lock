@@ -21,11 +21,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1792766496,
-        "narHash": "sha256-tssudlFsSMko/Y4YRbODCU8VQ+8vKzP3vhCCjLVn1Bo=",
+        "lastModified": 1792675146,
+        "narHash": "sha256-cFhl116Go8PivSUnPVb6l5gOy//xHROmDIeacr93MtI=",
         "owner": "korora-tech",
         "repo": "antarctical",
-        "rev": "6e87d58f63b75d9bf38acb6a2e2a18a9d58eaf70",
+        "rev": "dcd45725632e93b94f10483412c162ecca82ffd3",
         "type": "github"
       },
       "original": {
@@ -105,19 +105,19 @@
     "bun2nix": {
       "inputs": {
         "flake-parts": [
-          "nix-ai-tools",
+          "llm-agents",
           "flake-parts"
         ],
         "nixpkgs": [
-          "nix-ai-tools",
+          "llm-agents",
           "nixpkgs"
         ],
         "systems": [
-          "nix-ai-tools",
+          "llm-agents",
           "systems"
         ],
         "treefmt-nix": [
-          "nix-ai-tools",
+          "llm-agents",
           "treefmt-nix"
         ]
       },
@@ -602,7 +602,7 @@
     "flake-parts_4": {
       "inputs": {
         "nixpkgs-lib": [
-          "nix-ai-tools",
+          "llm-agents",
           "nixpkgs"
         ]
       },
@@ -1099,6 +1099,28 @@
         "type": "github"
       }
     },
+    "llm-agents": {
+      "inputs": {
+        "bun2nix": "bun2nix",
+        "flake-parts": "flake-parts_4",
+        "nixpkgs": "nixpkgs_8",
+        "systems": "systems_9",
+        "treefmt-nix": "treefmt-nix_2"
+      },
+      "locked": {
+        "lastModified": 1793009808,
+        "narHash": "sha256-vjJBAbQNHrCwtm1rP3/qpKcgC7bd+LGt+stSmEU+5Ds=",
+        "owner": "numtide",
+        "repo": "llm-agents.nix",
+        "rev": "df1f875ab988b65d1f65894d9bfcf1f340bfca2e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "llm-agents.nix",
+        "type": "github"
+      }
+    },
     "multipass": {
       "inputs": {
         "nixpkgs": [
@@ -1193,28 +1215,6 @@
       "original": {
         "owner": "YaLTeR",
         "repo": "niri",
-        "type": "github"
-      }
-    },
-    "nix-ai-tools": {
-      "inputs": {
-        "bun2nix": "bun2nix",
-        "flake-parts": "flake-parts_4",
-        "nixpkgs": "nixpkgs_8",
-        "systems": "systems_9",
-        "treefmt-nix": "treefmt-nix_2"
-      },
-      "locked": {
-        "lastModified": 1792728351,
-        "narHash": "sha256-91rRFnBm9hpMIAFYi+ZvuLOupMtBMrnMVsd6CmH5ik8=",
-        "owner": "numtide",
-        "repo": "llm-agents.nix",
-        "rev": "4726c319ae0692a84f20819395411d9f8b88335a",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "llm-agents.nix",
         "type": "github"
       }
     },
@@ -1589,11 +1589,11 @@
     },
     "nixpkgs_9": {
       "locked": {
-        "lastModified": 1792502884,
-        "narHash": "sha256-IoNisKcGbUjdd45qCqywGMCYmZ5EnkxezvLII0FWwNA=",
+        "lastModified": 1792750396,
+        "narHash": "sha256-uQ5l6gC16/5iMgq3PKzOBtx+S/Iqw77NCyscFw/WSg4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "02c087f3fe673c9e317f206a627cb6b910336dbe",
+        "rev": "f27d1a5ba16d1611d5d40e205dbb59b3211f1641",
         "type": "github"
       },
       "original": {
@@ -1634,11 +1634,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1792744075,
-        "narHash": "sha256-eEsHUohzx6+F4UflT4qGf4KBWqgOUvmhGIiZbWH5H/A=",
+        "lastModified": 1792749299,
+        "narHash": "sha256-zAK9IMVvSQ+ro9KfoPACbrwFSw5dpA56UppFY/tsklE=",
         "owner": "nix-community",
         "repo": "NUR",
-        "rev": "17d98c91949f06ec125bebebfb60e03452445588",
+        "rev": "88618f903820efae30280cf5c5e758bd5b1721a9",
         "type": "github"
       },
       "original": {
@@ -1732,9 +1732,9 @@
         "ironbar": "ironbar",
         "kree": "kree",
         "lanzaboote": "lanzaboote",
+        "llm-agents": "llm-agents",
         "multipass": "multipass",
         "niri": "niri",
-        "nix-ai-tools": "nix-ai-tools",
         "nix-darwin": "nix-darwin",
         "nix-index-database": "nix-index-database",
         "nixos-hardware": "nixos-hardware",
@@ -1838,11 +1838,11 @@
         "rust-overlay": "rust-overlay_3"
       },
       "locked": {
-        "lastModified": 1792658446,
-        "narHash": "sha256-hTnTma8lpsxKPJK6BrnOdmsqv9HR7sDSxHm0aJtDjhI=",
+        "lastModified": 1792750223,
+        "narHash": "sha256-RvUFq1i5aC55t7QB5TwS/6r6icFfOidbhuy5t8+4PJQ=",
         "owner": "sonorahq",
         "repo": "sonora",
-        "rev": "e2d099c3c714f8f011ea3ac98e260c91932bbb83",
+        "rev": "79b143ce0fdb07668b6199215071cb949013a6ad",
         "type": "github"
       },
       "original": {
@@ -2141,7 +2141,7 @@
     "treefmt-nix_2": {
       "inputs": {
         "nixpkgs": [
-          "nix-ai-tools",
+          "llm-agents",
           "nixpkgs"
         ]
       },
