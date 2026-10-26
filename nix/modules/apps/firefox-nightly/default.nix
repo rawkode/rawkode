@@ -5,6 +5,18 @@ in
 mkApp {
   name = "firefox-nightly";
 
+  # Stylix's Firefox target is absent when Stylix is disabled, so gate it on
+  # `stylixHome` rather than referencing `stylix.*` unconditionally.
+  common.home =
+    {
+      lib,
+      stylixHome ? false,
+      ...
+    }:
+    lib.optionalAttrs stylixHome {
+      stylix.targets.firefox.profileNames = [ "default" ];
+    };
+
   linux.home =
     { pkgs, ... }:
     let
