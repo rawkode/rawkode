@@ -132,7 +132,7 @@ The development capability includes:
 - Modern CLI tools (ripgrep, bat, eza, delta)
 - Version control with Git and GitHub CLI integration
 - Container tools and development frameworks
-- AI-assisted development tools via nix-ai-tools
+- AI-assisted development tools via llm-agents.nix
 - Cloud development tools (Google Cloud SDK, etc.)
 
 ## Security Features
