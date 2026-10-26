@@ -7,11 +7,25 @@ mkApp {
 
   common.home =
     {
+      config,
       inputs,
+      lib,
       pkgs,
       ...
     }:
     let
+      firefoxAddons = pkgs.nur.repos.rycee.firefox-addons;
+
+      # Not packaged in NUR; pinned to the addons.mozilla.org release.
+      glean = firefoxAddons.buildFirefoxXpiAddon {
+        pname = "glean";
+        version = "1.2026.402.5000";
+        addonId = "{315f61e5-f0ce-4d6e-a521-70e8da512405}";
+        url = "https://addons.mozilla.org/firefox/downloads/file/4778840/glean-1.2026.402.5000.xpi";
+        sha256 = "sha256-BY1/PugAT64LGGqZIWI4QMuH2l3C6jtbIvbnBjJa33k=";
+        meta = { };
+      };
+
       # Platform-specific naming for cwctl releases
 
       cwctlget = pkgs.writeShellScriptBin "cwctlget" ''
@@ -67,6 +81,13 @@ mkApp {
         cw-eng-cli
         cwic
         cwctlget
+      ];
+
+      # Okta (work SSO) and Glean (work search) are only needed for work; add
+      # them wherever Home Manager manages the Firefox profile.
+      programs.firefox.profiles.default.extensions.packages = lib.mkIf config.programs.firefox.enable [
+        firefoxAddons.okta-browser-plugin
+        glean
       ];
     };
 }
