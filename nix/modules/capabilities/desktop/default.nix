@@ -9,10 +9,11 @@ mkCapability {
     { isDarwin, pkgs, ... }:
     {
       home.packages = lib.optionals (!isDarwin) (
-        with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system};
+        with inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
         [
           chatgpt
           claude-desktop
+          hermes-desktop
         ]
       );
 

@@ -18,9 +18,10 @@ mkApp {
     in
     {
       config = lib.mkIf cfg.cliPackages.enable {
-        home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
+        home.packages = with inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}; [
           claude-code
           codex
+          hermes-agent
         ];
       };
     };
