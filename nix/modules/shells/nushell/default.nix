@@ -85,10 +85,6 @@ mkApp {
           $env.NIX_LINK = "/nix/var/nix/profiles/default"
           $env.NIX_PROFILES = $"/nix/var/nix/profiles/default ($env.NIX_LINK)"
           $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')
-
-          # Nushell doesn't increment SHLVL for nested shells (nushell/nushell#14384),
-          # so do it manually here to keep the starship shlvl prompt accurate.
-          $env.SHLVL = (($env | get -o SHLVL | default 0 | into int) + 1)
         '';
 
         extraConfig = ''

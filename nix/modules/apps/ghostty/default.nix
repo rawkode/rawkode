@@ -53,6 +53,10 @@ mkApp {
 
         shell-integration = "detect";
 
+        # The desktop session leaks SHLVL=1 into the systemd user environment that
+        # launches Ghostty; reset it so a fresh terminal's shell starts at level 1.
+        env = "SHLVL=0";
+
         background-blur-radius = 32;
         background-opacity = 1;
 
