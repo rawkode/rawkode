@@ -47,6 +47,7 @@ mkCapability {
           appBundles.google-chrome.home
           appBundles.handy.home
           appBundles.onepassword.home
+          appBundles.openbot.home
           appBundles.zed.home
         ]
         ++ lib.optionals (!isDarwin) [

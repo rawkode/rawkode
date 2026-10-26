@@ -89,6 +89,7 @@
       url = "github:sodiboo/niri-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    openbot.url = "github:nightly-labs/openbot";
     llm-agents.url = "github:numtide/llm-agents.nix";
     nur = {
       url = "github:nix-community/NUR";
