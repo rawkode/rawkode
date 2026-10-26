@@ -39,6 +39,43 @@ mkApp {
             "extensions.autoDisableScopes" = 14;
             "privacy.userContext.enabled" = true;
             "privacy.userContext.ui.enabled" = true;
+            # Nix owns the profile; Mozilla accounts and Sync are not used.
+            "identity.fxaccounts.enabled" = false;
+          };
+
+          extensions.packages =
+            (with pkgs.nur.repos.rycee.firefox-addons; [
+              catppuccin-web-file-icons
+              firefox-translations
+              onepassword-password-manager
+              ublock-origin
+            ])
+            ++ [ flipperAddon ];
+
+          # Keep Firefox's built-in container IDs: Flipper rules address
+          # containers by ID.
+          containersForce = true;
+          containers = {
+            Personal = {
+              id = 1;
+              color = "blue";
+              icon = "fingerprint";
+            };
+            Work = {
+              id = 2;
+              color = "orange";
+              icon = "briefcase";
+            };
+            Banking = {
+              id = 3;
+              color = "green";
+              icon = "dollar";
+            };
+            Shopping = {
+              id = 4;
+              color = "pink";
+              icon = "cart";
+            };
           };
         };
       };
@@ -46,10 +83,6 @@ mkApp {
       # Firefox Nightly keeps its existing profile under the XDG config path; let
       # Home Manager manage that exact profile mapping in place.
       home.file.".config/mozilla/firefox/profiles.ini".force = true;
-
-      # Add this XPI without replacing the existing profile extensions directory.
-      home.file.".config/mozilla/firefox/agm4ycei.default/extensions/flipper@korora.tech.xpi".source =
-        "${flipperAddon}/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/flipper@korora.tech.xpi";
 
       xdg.mimeApps = {
         enable = true;
