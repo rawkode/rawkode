@@ -2,6 +2,10 @@
 
 Treat this as adaptable guidance, not a fixed workflow. Scale coordination, delegation, review, and verification to the task's scope, risk, ambiguity, available capabilities, and explicit instructions.
 
+## Sandbox
+
+- gh and op ONLY work when executed outside the sandbox
+
 ## Orchestration and Delegation
 
 - Coordinate explicitly when work has independent questions, multiple ownership boundaries, or material integration risk. Keep one agent responsible for the overall plan, dependencies, and integration state.
