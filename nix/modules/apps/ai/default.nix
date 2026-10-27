@@ -16,35 +16,12 @@ mkApp {
     let
       cfg = config.rawkOS.apps.ai;
       agentPackages = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
-      # Keep Python and its packages aligned with Hermes' own nixpkgs input.
-      hermesPython =
-        inputs.llm-agents.inputs.nixpkgs.legacyPackages.${pkgs.stdenv.hostPlatform.system}.python3;
-      googleDependencies = with hermesPython.pkgs; [
-        google-api-python-client
-        google-auth-oauthlib
-        google-auth-httplib2
-      ];
-      hermesAgent = agentPackages.hermes-agent.overridePythonAttrs (old: {
-        dependencies = (old.dependencies or [ ]) ++ googleDependencies;
-        # Hermes launches skills/workers through HERMES_PYTHON, not just its CLI.
-        makeWrapperArgs = (old.makeWrapperArgs or [ ]) ++ [
-          "--set"
-          "HERMES_PYTHON"
-          "${hermesPython.withPackages (_: (old.dependencies or [ ]) ++ googleDependencies)}/bin/python3"
-        ];
-        pythonImportsCheck = (old.pythonImportsCheck or [ ]) ++ [
-          "googleapiclient.discovery"
-          "google_auth_oauthlib.flow"
-          "google_auth_httplib2"
-        ];
-      });
     in
     {
       config = lib.mkIf cfg.cliPackages.enable {
         home.packages = [
           agentPackages.claude-code
           agentPackages.codex
-          hermesAgent
         ];
       };
     };

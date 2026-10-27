@@ -1,4 +1,4 @@
-{ inputs, lib, ... }:
+{ inputs, ... }:
 let
   mkCapability = import ../../../lib/mkCapability.nix;
 in
@@ -21,23 +21,15 @@ mkCapability {
         [
           chatgpt
           claude-desktop
-          hermes-desktop
         ]
       );
 
-      # Keep Hermes' gateway under systemd so Desktop can attach to the wrapped
-      # Nix CLI. Its unmanaged bootstrap starts bare sys.executable, which lacks
-      # the Python dependencies supplied by the hermes-agent wrapper.
-      systemd.user.services = lib.mkIf (!isDarwin) {
-        hermes-gateway = {
-          Unit.Description = "Hermes Agent gateway";
-          Service = {
-            ExecStart = "${lib.getExe llmAgents.hermes-agent} gateway run --quiet";
-            Restart = "on-failure";
-            RestartSec = 5;
-          };
-          Install.WantedBy = [ "default.target" ];
-        };
+      # The desktop launcher may not inherit NIXOS_OZONE_WL from the session.
+      xdg.dataFile."applications/chatgpt.desktop" = lib.mkIf (!isDarwin) {
+        source = pkgs.runCommand "chatgpt-wayland.desktop" { } ''
+          substitute ${llmAgents.chatgpt}/share/applications/chatgpt.desktop "$out" \
+            --replace-fail 'Exec=chatgpt %U' 'Exec=${lib.getExe llmAgents.chatgpt} --ozone-platform=wayland %U'
+        '';
       };
 
       imports =
@@ -47,7 +39,6 @@ mkCapability {
           appBundles.google-chrome.home
           appBundles.handy.home
           appBundles.onepassword.home
-          appBundles.openbot.home
           appBundles.zed.home
         ]
         ++ lib.optionals (!isDarwin) [
