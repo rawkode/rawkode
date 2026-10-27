@@ -234,6 +234,7 @@ mkApp {
               border.width = 2;
 
               center-focused-column = "on-overflow";
+              always-center-single-column = true;
 
               default-column-width = {
                 proportion = 0.9;
