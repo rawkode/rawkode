@@ -265,7 +265,6 @@ mkApp {
                 ];
                 open-on-workspace = "Web";
                 open-focused = true;
-                open-maximized = true;
               }
               {
                 matches = [
@@ -282,7 +281,6 @@ mkApp {
                 ];
                 open-on-workspace = "Chat";
                 open-focused = true;
-                open-maximized = true;
               }
               {
                 matches = [ { app-id = "Zoom Workplace"; } ];
@@ -300,7 +298,6 @@ mkApp {
                 ];
                 open-on-workspace = "Code";
                 open-focused = true;
-                open-maximized = true;
               }
               {
                 geometry-corner-radius = {
