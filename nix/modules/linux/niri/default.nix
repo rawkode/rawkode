@@ -27,13 +27,6 @@ mkApp {
       programs.niri.package = pkgs.niri;
       systemd.user.services.niri-flake-polkit.enable = false;
 
-      # xremap runs as the desktop user and needs keyboard/uinput access.
-      hardware.uinput.enable = true;
-      users.users.rawkode.extraGroups = [
-        "input"
-        "uinput"
-      ];
-
       environment.systemPackages = with pkgs; [
         wl-clipboard
       ];
@@ -48,7 +41,6 @@ mkApp {
       ...
     }:
     let
-      xremap = pkgs.xremap.override { withVariant = "niri"; };
       niriEnableSupported =
         options ? programs && options.programs ? niri && options.programs.niri ? enable;
     in
@@ -71,7 +63,6 @@ mkApp {
 
       home.packages = [
         pkgs.cosmic-files
-        xremap
       ];
 
       xdg.portal = {
@@ -107,34 +98,9 @@ mkApp {
         };
       };
 
-      xdg.configFile."xremap/config.json".source = ./macos-keymap.json;
-
       # niri saves portal screenshots (for example, browsers) to its default
       # screenshot-path and fails if the directory is missing.
       systemd.user.tmpfiles.rules = [ "d %h/Pictures/Screenshots 0755 - - -" ];
-
-      systemd.user.services = {
-        xremap = {
-          Unit = {
-            Description = "macOS keyboard shortcuts for Niri";
-            # The process reads the keymap once; restart after keymap updates.
-            X-Restart-Triggers = [ "${./macos-keymap.json}" ];
-            ConditionEnvironment = [
-              "XDG_CURRENT_DESKTOP=niri"
-              "NIRI_SOCKET"
-            ];
-            After = [ "graphical-session.target" ];
-            PartOf = [ "graphical-session.target" ];
-          };
-          Service = {
-            ExecStart = "${lib.getExe xremap} --watch=device --no-window-logging %h/.config/xremap/config.json";
-            Restart = "on-failure";
-            RestartSec = 2;
-          };
-          Install.WantedBy = [ "graphical-session.target" ];
-        };
-
-      };
 
       programs.niri =
         lib.optionalAttrs niriEnableSupported {
@@ -393,16 +359,22 @@ mkApp {
               }
             ];
 
-            # Command+Left/Right focuses columns; add Shift for text selection.
-            # Command+Up/Down remains available for document navigation.
-            # Niri's H/J/K/L bindings remain; xremap handles Firefox's Cmd+L.
-            # Native recent-windows defaults provide Command+Tab and grave.
+            # Super+arrows: Left/Right focus columns, Up/Down switch workspaces;
+            # add Shift to move the column instead.
+            # Super+PageUp/PageDown focus monitors; add Shift to move the column.
+            # Native recent-windows defaults provide Super+Tab and grave.
             binds = {
               "Super+Shift+Slash".action.show-hotkey-overlay = { };
               "Super+Q".action.close-window = { };
               "Alt+F4".action.close-window = { };
               "Super+Left".action.focus-column-left = { };
               "Super+Right".action.focus-column-right = { };
+              "Super+Up".action.focus-workspace-up = { };
+              "Super+Down".action.focus-workspace-down = { };
+              "Super+Shift+Left".action.move-column-left = { };
+              "Super+Shift+Right".action.move-column-right = { };
+              "Super+Shift+Up".action.move-column-to-workspace-up = { };
+              "Super+Shift+Down".action.move-column-to-workspace-down = { };
               "Super+H".action.focus-column-left = { };
               "Super+J".action.focus-window-down = { };
               "Super+K".action.focus-window-up = { };
@@ -425,16 +397,16 @@ mkApp {
               "Super+Shift+L".action.focus-monitor-right = { };
               "Super+Home".action.focus-column-first = { };
               "Super+End".action.focus-column-last = { };
-              "Super+Page_Up".action.focus-workspace-up = { };
-              "Super+Page_Down".action.focus-workspace-down = { };
+              "Super+Page_Up".action.focus-monitor-previous = { };
+              "Super+Page_Down".action.focus-monitor-next = { };
               "Super+I".action.focus-workspace-up = { };
               "Super+U".action.focus-workspace-down = { };
               "Super+Ctrl+Page_Up".action.move-column-to-workspace-up = { };
               "Super+Ctrl+Page_Down".action.move-column-to-workspace-down = { };
               "Super+Ctrl+I".action.move-column-to-workspace-up = { };
               "Super+Ctrl+U".action.move-column-to-workspace-down = { };
-              "Super+Shift+Page_Up".action.move-workspace-up = { };
-              "Super+Shift+Page_Down".action.move-workspace-down = { };
+              "Super+Shift+Page_Up".action.move-column-to-monitor-previous = { };
+              "Super+Shift+Page_Down".action.move-column-to-monitor-next = { };
               "Super+O".action.toggle-overview = { };
               "Super+Comma".action.consume-window-into-column = { };
               "Super+Period".action.expel-window-from-column = { };
