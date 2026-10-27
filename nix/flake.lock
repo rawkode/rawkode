@@ -1698,11 +1698,11 @@
         "nixpkgs": "nixpkgs_10"
       },
       "locked": {
-        "lastModified": 1792830642,
-        "narHash": "sha256-8PhjrmmVqwpXsUwPHG7tRpmcvWvUJ2wGxZpYPXM7jIk=",
+        "lastModified": 1793122898,
+        "narHash": "sha256-Il3CULwHoOGmbzAaTI446syEEHNnZnRi3QQY4Lljn7I=",
         "owner": "korora-tech",
         "repo": "rockhopper",
-        "rev": "038e1887a13da4db5e0da2590bb5f053614656be",
+        "rev": "c7e5b58f01bdcfb3a85d7b57f6a137a940e8e2b0",
         "type": "github"
       },
       "original": {

@@ -6,7 +6,19 @@ mkApp {
   name = "flipper";
 
   linux.home =
-    { lib, ... }:
+    { config, lib, ... }:
+    let
+      firefox = config.programs.firefox;
+      # Flipper's Firefox profile ID, derived from the Firefox module so a new
+      # profile path, container ID or Firefox edition cannot strand the rule.
+      # Flipper names the browser after its command, which is mainProgram.
+      firefoxContainer =
+        profileName: containerName:
+        let
+          profile = firefox.profiles.${profileName};
+        in
+        "${firefox.package.meta.mainProgram}:${profile.path}#container-${toString profile.containers.${containerName}.id}";
+    in
     {
       imports = [ inputs.flipper.homeModules.default ];
 
@@ -14,13 +26,12 @@ mkApp {
         enable = true;
         defaultBrowser = true;
         nativeMessaging.firefox = true;
-        settings.rules = [
+        settings.rules = lib.optionals firefox.enable [
           {
             name = "Sigstore sign-in";
             domains = [ "oauth2.sigstore.dev" ];
             action = "open";
-            # Email selectors survive Chrome renumbering its profile directories.
-            profile = "email:david@rawkode.academy";
+            profile = firefoxContainer "default" "RawkodeAcademy";
           }
         ];
       };
