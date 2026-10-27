@@ -65,6 +65,8 @@ mkApp {
               centerWidgets = [
                 "music"
                 "clock"
+                # Next calendar event from Antarctical (programs.antarctical.dux).
+                "antarcticalNextEvent"
                 "weather"
               ];
               rightWidgets = [

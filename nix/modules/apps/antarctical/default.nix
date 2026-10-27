@@ -5,9 +5,18 @@ in
 mkApp {
   name = "antarctical";
 
-  linux.home =
-    { pkgs, ... }:
-    {
-      home.packages = [ inputs.antarctical.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+  linux.home = {
+    imports = [ inputs.antarctical.homeModules.default ];
+
+    programs.antarctical = {
+      enable = true;
+      service.enable = true;
+      # Serves Dux's calendar over the dankcal socket and adds the next-event widget.
+      dux = {
+        enable = true;
+        # modules/linux/dux already makes Dux's settings.json Home Manager-managed.
+        setCalendarBackend = true;
+      };
     };
+  };
 }
