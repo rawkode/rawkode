@@ -1,0 +1,12 @@
+{
+	"id": "focusedAppIcon",
+	"name": "Focused App Icon",
+	"description": "Shows only the icon of the focused window",
+	"version": "1.0.0",
+	"author": "David Flanagan",
+	"type": "widget",
+	"capabilities": ["dankbar-widget"],
+	"component": "./FocusedAppIcon.qml",
+	"icon": "apps",
+	"permissions": ["settings_read"]
+}

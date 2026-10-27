@@ -17,6 +17,8 @@ mkApp {
       programs.dank-material-shell = {
         enable = true;
         enableCalendarEvents = false;
+        # Rockhopper owns clipboard history (Mod+V); stop Dux tracking it too.
+        clipboardSettings.disabled = true;
         # Dux loads a plugin only when plugin_settings.json marks it enabled.
         managePluginSettings = true;
         # Phone Connect bar widget; talks to the Valent daemon enabled in desktop-common.
@@ -28,6 +30,8 @@ mkApp {
             hash = "sha256-OYCjryGkZ9DlMSS0DlaKzA/qRxXI+cAbO3uee+9Y+Kg=";
           }
         }/DankKDEConnect";
+        # Icon-only replacement for the built-in focusedWindow widget.
+        plugins.focusedAppIcon.src = ./focused-app-icon;
         niri = {
           enableKeybinds = true;
           includes.enable = false;
@@ -56,7 +60,7 @@ mkApp {
               showOnLastDisplay = true;
               leftWidgets = [
                 "workspaceSwitcher"
-                "focusedWindow"
+                "focusedAppIcon"
               ];
               centerWidgets = [
                 "music"
@@ -67,16 +71,20 @@ mkApp {
                 {
                   id = "systemTray";
                   enabled = true;
-                  trayIconSpacing = 8;
+                  trayIconSpacing = 6;
                   trayAutoOverflow = false;
                   trayUseInlineExpansion = true;
                 }
                 "dankKDEConnect"
-                "clipboard"
                 "battery"
                 "controlCenterButton"
                 "notificationButton"
               ];
+              # Float the bar off the screen edge with roomier pills.
+              spacing = 6;
+              innerPadding = 6;
+              widgetPadding = 10;
+              iconScale = 1.1;
               transparency = 0.64;
               widgetTransparency = 0.64;
             }
