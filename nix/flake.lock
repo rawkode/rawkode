@@ -141,11 +141,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1792679161,
-        "narHash": "sha256-oZtp/sXxPRxFSeWaFylAcFdOur6tSzjfRTyVOWB3TJg=",
+        "lastModified": 1793122472,
+        "narHash": "sha256-ZkdeXPChxV2SzPPW56ZgXZjzHeNNqChokkDPBMzQlNs=",
         "owner": "korora-tech",
         "repo": "chinstrap",
-        "rev": "5a43dbcedb574501b02a7b7f10aaa1a2e65dabb1",
+        "rev": "83ff60834d5afd335d2b1fa823315b7b578567fc",
         "type": "github"
       },
       "original": {
