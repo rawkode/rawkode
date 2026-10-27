@@ -41,6 +41,8 @@ mkApp {
           # Pair stable Nu with stable FZF on Darwin; Linux uses current Nushell
           # and FZF from the primary nixpkgs channel.
           package = if isDarwin then inputs.nixpkgs-stable.legacyPackages.${system}.fzf else pkgs.fzf;
+          # Stable FZF predates the Nushell integration scripts required by Home Manager.
+          enableNushellIntegration = lib.versionAtLeast config.programs.fzf.package.version "0.73.0";
           historyWidget.command = "";
         };
         programs.skim.enable = true;
