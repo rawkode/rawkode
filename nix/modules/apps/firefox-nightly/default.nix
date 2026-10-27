@@ -349,25 +349,15 @@ mkApp {
           # containers by ID.
           containersForce = true;
           containers = {
-            Personal = {
+            RawkodeAcademy = {
               id = 1;
-              color = "blue";
-              icon = "fingerprint";
+              color = "pink";
+              icon = "circle";
             };
-            Work = {
+            KororaTech = {
               id = 2;
               color = "orange";
-              icon = "briefcase";
-            };
-            Banking = {
-              id = 3;
-              color = "green";
-              icon = "dollar";
-            };
-            Shopping = {
-              id = 4;
-              color = "pink";
-              icon = "cart";
+              icon = "circle";
             };
           };
         };
