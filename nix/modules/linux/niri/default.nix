@@ -229,7 +229,7 @@ mkApp {
             };
 
             layout = {
-              gaps = 4;
+              gaps = 16;
 
               border.width = 2;
 
@@ -237,7 +237,7 @@ mkApp {
               always-center-single-column = true;
 
               default-column-width = {
-                proportion = 0.9;
+                proportion = 1.0;
               };
 
               preset-column-widths = [
@@ -299,6 +299,13 @@ mkApp {
                 ];
                 open-on-workspace = "Code";
                 open-focused = true;
+              }
+              {
+                matches = [
+                  { app-id = "com.mitchellh.ghostty"; }
+                ];
+                # Ghostty ignores the initial configured width but honours maximize.
+                open-maximized = true;
               }
               {
                 geometry-corner-radius = {
