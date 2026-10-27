@@ -22,7 +22,7 @@ mkApp {
     let
       firefoxNightly =
         inputs.firefox-nightly.packages.${pkgs.stdenv.hostPlatform.system}.firefox-nightly-bin;
-      flipperAddon = inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.flipper-firefox-addon;
+      flipperAddon = inputs.flipper.packages.${pkgs.stdenv.hostPlatform.system}.firefox-addon;
       flipperUuid = "d960c516-d2b1-443e-ba53-1b047c263456";
     in
     {
