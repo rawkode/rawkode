@@ -28,7 +28,7 @@ mkApp {
         ];
 
         binds = {
-          # Replace DMS's launcher and clipboard bindings while retaining its other shortcuts.
+          # Replace Dux's launcher and clipboard bindings while retaining its other shortcuts.
           "Mod+Space".action = lib.mkForce { spawn = [ "rockhopper" ]; };
           "Mod+V".action = lib.mkForce {
             spawn = [

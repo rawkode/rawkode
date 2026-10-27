@@ -63,8 +63,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flatpaks.url = "github:gmodena/nix-flatpak";
-    dms = {
-      url = "github:AvengeMedia/DankMaterialShell/stable";
+    dux = {
+      url = "github:duxlabs-dev/dux-shell/stable";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 

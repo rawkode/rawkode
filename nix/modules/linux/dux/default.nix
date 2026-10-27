@@ -3,13 +3,13 @@ let
   mkApp = import ../../../lib/mkApp.nix;
 in
 mkApp {
-  name = "dank-material-shell";
+  name = "dux";
   linux.home =
     { pkgs, ... }:
     {
       imports = [
-        inputs.dms.homeModules.dank-material-shell
-        inputs.dms.homeModules.niri
+        inputs.dux.homeModules.dank-material-shell
+        inputs.dux.homeModules.niri
       ];
 
       stylix.targets.dank-material-shell.enable = true;
@@ -17,7 +17,7 @@ mkApp {
       programs.dank-material-shell = {
         enable = true;
         enableCalendarEvents = false;
-        # DMS loads a plugin only when plugin_settings.json marks it enabled.
+        # Dux loads a plugin only when plugin_settings.json marks it enabled.
         managePluginSettings = true;
         # Phone Connect bar widget; talks to the Valent daemon enabled in desktop-common.
         plugins.dankKDEConnect.src = "${
@@ -45,7 +45,7 @@ mkApp {
 
           barElevationEnabled = false;
           systemTrayIconTintMode = "primary";
-          # DMS fills omitted bar fields with its defaults.
+          # Dux fills omitted bar fields with its defaults.
           barConfigs = [
             {
               id = "default";

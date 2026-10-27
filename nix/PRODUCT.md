@@ -16,7 +16,7 @@ the existing launcher, compositor, and lock/idle workflow.
 ## Brand Personality
 
 Compact, familiar, restrained. Preserve the existing Monaspace typography and
-Stylix theme, alongside Dank Material Shell.
+Stylix theme, alongside Dux Shell.
 
 ## Anti-references
 

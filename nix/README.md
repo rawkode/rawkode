@@ -206,25 +206,25 @@ rawkOS.desktop = {
 
 ### Niri Desktop Shell
 
-Niri uses Dank Material Shell for its bar, notifications, clipboard,
+Niri uses Dux Shell for its bar, notifications, clipboard,
 wallpaper, lock screen, idle handling, audio/brightness OSDs, and authentication
 agent. Window navigation, monitor configuration, and macOS-style keyboard
 remapping remain configured in the Niri module. Networking retains the existing
-networkd/iwd setup rather than enabling NetworkManager for DMS.
+networkd/iwd setup rather than enabling NetworkManager for Dux.
 
 Vicinae provides the application launcher on Super+Space, window switching on
 Super+Shift+Space, emoji search on Super+E, and clipboard history on Super+Alt+V.
-DMS supplies its standard shell shortcuts:
+Dux supplies its standard shell shortcuts:
 Super+N opens notifications, Super+Comma opens settings, Super+V opens clipboard
 history, Super+X opens the power menu, and Super+Alt+L locks the screen.
 Use Super+Alt+V for Vicinae clipboard history when the macOS-style remapping maps
 Super+V to paste.
-Brightness and volume keys use DMS; Print captures a region, Super+Print captures
+Brightness and volume keys use Dux; Print captures a region, Super+Print captures
 the screen, and Alt+Print captures a window.
 
 Automatic locking remains enabled after ten minutes on AC and battery, with
 monitor power saving after thirty minutes and locking before suspend. Other
-shell settings use DMS defaults, and the Stylix DMS target is enabled so the
+shell settings use Dux defaults, and the Stylix Dux target is enabled so the
 shell follows the system theme.
 
 ## Contributing
