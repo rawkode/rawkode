@@ -29,10 +29,10 @@ mkApp {
       programs.firefox = {
         enable = true;
         package = firefoxNightly;
-        configPath = ".config/mozilla/firefox";
+        configPath = ".mozilla/firefox";
         profiles.default = {
           id = 0;
-          path = "agm4ycei.default";
+          path = "3pzugki6.default";
           isDefault = true;
           settings = {
             "xpinstall.signatures.required" = false;
@@ -373,9 +373,9 @@ mkApp {
         };
       };
 
-      # Firefox Nightly keeps its existing profile under the XDG config path; let
-      # Home Manager manage that exact profile mapping in place.
-      home.file.".config/mozilla/firefox/profiles.ini".force = true;
+      # Firefox prefers the legacy ~/.mozilla path whenever it exists (native
+      # messaging hosts guarantee it does), so manage the existing profile there.
+      home.file.".mozilla/firefox/profiles.ini".force = true;
 
       xdg.mimeApps = {
         enable = true;
