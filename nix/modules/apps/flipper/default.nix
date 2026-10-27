@@ -17,7 +17,9 @@ mkApp {
         let
           profile = firefox.profiles.${profileName};
         in
-        "${firefox.package.meta.mainProgram}:${profile.path}#container-${toString profile.containers.${containerName}.id}";
+        "${firefox.package.meta.mainProgram}:${profile.path}#container-${
+          toString profile.containers.${containerName}.id
+        }";
     in
     {
       imports = [ inputs.flipper.homeModules.default ];
