@@ -81,6 +81,9 @@ mkApp {
         cw-eng-cli
         cwic
         cwctlget
+        # coreweave.nix's teleport_16_final links go-m1cpu 0.1.6, which
+        # segfaults on start-up on Apple M5; Teleport 17 runs.
+        inputs.nixpkgs-stable.legacyPackages.${pkgs.stdenv.hostPlatform.system}.teleport_17.client
       ];
 
       # Okta (work SSO) and Glean (work search) are only needed for work; add
