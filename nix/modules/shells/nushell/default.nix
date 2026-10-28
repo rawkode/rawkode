@@ -55,10 +55,15 @@ mkApp {
       isDarwin,
       lib,
       pkgs,
+      stylixHome ? false,
       system,
       ...
     }:
-    {
+    # Ghostty owns the palette; Stylix's hex color_config would override it.
+    lib.optionalAttrs stylixHome {
+      stylix.targets.nushell.enable = false;
+    }
+    // {
       programs.nushell = {
         enable = true;
         # Keep Darwin on the cached stable build; Linux follows the primary channel

@@ -9,9 +9,14 @@ mkApp {
     {
       lib,
       pkgs,
+      stylixHome ? false,
       ...
     }:
-    {
+    # Ghostty owns the palette; Stylix's base16 palette remaps ANSI names to hex.
+    lib.optionalAttrs stylixHome {
+      stylix.targets.starship.enable = false;
+    }
+    // {
       home.packages = [
         pkgs.jj-starship
       ];

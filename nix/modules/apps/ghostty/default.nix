@@ -19,6 +19,7 @@ mkApp {
       lib,
       pkgs,
       isDarwin,
+      stylixHome ? false,
       ...
     }:
     let
@@ -122,7 +123,11 @@ mkApp {
         listsAsDuplicateKeys = true;
       } ghosttySettings;
     in
-    {
+    # Ghostty's own light/dark theme is the source of truth for terminal colors.
+    lib.optionalAttrs stylixHome {
+      stylix.targets.ghostty.enable = false;
+    }
+    // {
       nix.settings = ghosttyCache;
 
       programs.ghostty = {
