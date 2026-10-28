@@ -6,7 +6,6 @@
         enable = lib.mkDefault true;
         taps = [ "Sanyam-G/switch" ];
         casks = [
-          "bartender"
           "finetune"
           "iina"
           "mimestream"
