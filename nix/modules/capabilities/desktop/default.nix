@@ -36,6 +36,7 @@ mkCapability {
         with inputs.self;
         [
           appBundles.ghostty.home
+          appBundles.github-copilot-app.home
           appBundles.google-chrome.home
           appBundles.handy.home
           appBundles.onepassword.home
@@ -97,6 +98,7 @@ mkCapability {
   darwin = with inputs.self; [
     appBundles.firefox-nightly.darwin
     appBundles.ghostty.darwin
+    appBundles.github-copilot-app.darwin
     appBundles.google-chrome.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
