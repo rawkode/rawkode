@@ -53,6 +53,7 @@ mkApp {
     {
       inputs,
       isDarwin,
+      lib,
       pkgs,
       system,
       ...
@@ -85,6 +86,17 @@ mkApp {
           $env.NIX_LINK = "/nix/var/nix/profiles/default"
           $env.NIX_PROFILES = $"/nix/var/nix/profiles/default ($env.NIX_LINK)"
           $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')
+        ''
+        # Nushell skips /etc/zshenv and path_helper, so add the nix-darwin and
+        # Homebrew paths that the fish login shell used to provide.
+        + lib.optionalString isDarwin ''
+          $env.PATH = ($env.PATH | prepend [
+            $'/etc/profiles/per-user/($env.USER)/bin'
+            /run/current-system/sw/bin
+            /opt/homebrew/bin
+            /opt/homebrew/sbin
+            /usr/local/bin
+          ] | uniq)
         '';
 
         extraConfig = ''
