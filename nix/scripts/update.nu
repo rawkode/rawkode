@@ -33,6 +33,12 @@ for input in $inputs {
 	}
 
 	let node = ($lock.nodes | get $node_id)
+	let current_modified = ($node | get -o locked.lastModified)
+	if (($current_modified | describe) != "nothing") and $current_modified > $cutoff_epoch {
+		print $"Skipping ($input): its locked commit is newer than the 72-hour cutoff."
+		continue
+	}
+
 	let original = ($node | get -o original)
 	if (($original | describe) == "nothing") {
 		print $"Skipping ($input): its original flake reference is missing."
