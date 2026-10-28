@@ -412,6 +412,7 @@ mkApp {
               "Super+Ctrl+U".action.move-column-to-workspace-down = { };
               "Super+Shift+Page_Up".action.move-column-to-monitor-previous = { };
               "Super+Shift+Page_Down".action.move-column-to-monitor-next = { };
+              "Ctrl+Up".action.open-overview = { };
               "Super+O".action.toggle-overview = { };
               "Super+Comma".action.consume-window-into-column = { };
               "Super+Period".action.expel-window-from-column = { };
