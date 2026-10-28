@@ -82,6 +82,10 @@ mkApp {
             "org.freedesktop.impl.portal.FileChooser" = [
               "gtk"
             ];
+            # niri handles shortcuts itself; the GNOME portal cannot persist them here.
+            "org.freedesktop.impl.portal.GlobalShortcuts" = [
+              "none"
+            ];
             "org.freedesktop.impl.portal.Notification" = [
               "gtk"
             ];
