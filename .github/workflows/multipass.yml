@@ -71,6 +71,7 @@ jobs:
         with:
           name: multipass-${{ runner.os }}
           path: apps/multipass/dist/
+          retention-days: 3
 
   nix-package:
     strategy:
