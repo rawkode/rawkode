@@ -1,0 +1,24 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'tech.rawkode.today'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'tech.rawkode.today'
+        minSdk 26
+        targetSdk 35
+        versionCode providers.gradleProperty('releaseVersionCode').getOrElse('1').toInteger()
+        versionName providers.gradleProperty('releaseVersion').getOrElse('0.1.0')
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

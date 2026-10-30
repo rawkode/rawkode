@@ -1,0 +1,86 @@
+name: Release Today for Android
+
+on:
+  push:
+    tags:
+      - 'today/*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: today-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/today
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^today/(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+            echo 'Tag must be today/MAJOR.MINOR.PATCH with numeric components.' >&2
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          patch=${BASH_REMATCH[3]}
+          version_code=$((major * 1000000 + minor * 1000 + patch))
+          if (( version_code < 1 || version_code > 2100000000 )); then
+            echo 'The version is outside Android versionCode limits.' >&2
+            exit 1
+          fi
+          echo "name=${RELEASE_TAG#today/}" >> "$GITHUB_OUTPUT"
+          echo "code=$version_code" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Test and build release APK
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease -PreleaseVersion="$RELEASE_VERSION" -PreleaseVersionCode="$RELEASE_VERSION_CODE"
+      - name: Sign and verify APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TODAY_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.TODAY_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TODAY_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TODAY_KEY_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo 'Configure the Today APK signing secrets before releasing.' >&2
+            exit 1
+          fi
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/today-release.jks"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/today-release.jks"
+          build_tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$build_tools/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/today-aligned.apk"
+          "$build_tools/apksigner" sign --ks "$RUNNER_TEMP/today-release.jks" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out "$RUNNER_TEMP/today-$RELEASE_VERSION.apk" "$RUNNER_TEMP/today-aligned.apk"
+          "$build_tools/apksigner" verify --verbose "$RUNNER_TEMP/today-$RELEASE_VERSION.apk"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/today-$RELEASE_VERSION.apk" \
+            --verify-tag --latest=false --title "$RELEASE_TAG" --notes "Today for Android $RELEASE_VERSION."

@@ -1,0 +1,15 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/clock_body" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/clock_widget_background" android:orientation="vertical"
+    android:gravity="center" android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingTop="10dp" android:paddingBottom="10dp">
+    <TextClock android:id="@+id/clock_time" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center" android:textColor="#FFFFFF" android:textSize="72sp" android:textStyle="bold"
+        android:shadowColor="#BB000000" android:shadowDx="0" android:shadowDy="2" android:shadowRadius="4" />
+    <TextView android:id="@+id/clock_date" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center" android:textColor="#FFFFFF" android:textSize="20sp" android:textStyle="bold"
+        android:shadowColor="#BB000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3" />
+    <TextView android:id="@+id/clock_event" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:gravity="center" android:textColor="#FFFFFF" android:textSize="17sp"
+        android:textStyle="bold" android:maxLines="1" android:ellipsize="end" android:text="@string/widget_permission"
+        android:shadowColor="#BB000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3" />
+</LinearLayout>

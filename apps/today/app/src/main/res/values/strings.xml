@@ -1,0 +1,53 @@
+<resources>
+    <string name="app_name">Today</string>
+    <string name="app_intro">Your day, at a glance.</string>
+    <string name="app_description">See what is happening now and what is coming up next, right on your home screen.</string>
+    <string name="permission_heading">Connect your calendars</string>
+    <string name="permission_needed">Allow calendar access to show events from calendars visible on this device. Your events stay on your device.</string>
+    <string name="permission_granted">Calendar access is on. Your widget can show today’s events.</string>
+    <string name="allow_calendar">Allow calendar access</string>
+    <string name="open_settings">Open app settings</string>
+    <string name="enable_precise_updates">Enable precise clock updates</string>
+    <string name="refresh_widget">Refresh widget</string>
+    <string name="refreshed">Widget refresh requested.</string>
+    <string name="add_widget">Add dashboard widget</string>
+    <string name="add_clock_widget">Add clock widget</string>
+    <string name="widget_instructions">Add Today to your home screen, or touch and hold the home screen and choose Widgets.</string>
+    <string name="pin_unavailable">To add the widget, touch and hold your home screen, then choose Widgets.</string>
+    <string name="dashboard_widget_name">Today dashboard</string>
+    <string name="clock_widget_name">Today clock</string>
+    <string name="clock_widget_description">Clock and next calendar event</string>
+    <string name="clock_clear">Nothing else today</string>
+    <string name="clock_event_later">%1$s at %2$s</string>
+    <string name="clock_event_now">%1$s · On now</string>
+    <string name="clock_event_all_day">%1$s · All day</string>
+    <plurals name="clock_event_in_minutes">
+        <item quantity="one">%1$s in %2$d min</item>
+        <item quantity="other">%1$s in %2$d mins</item>
+    </plurals>
+    <string name="widget_description">Today’s upcoming calendar events</string>
+    <string name="widget_title">Today</string>
+    <string name="widget_refresh">Refresh events</string>
+    <string name="clear_morning">A clear day ahead.</string>
+    <string name="clear_later">The rest of today is yours.</string>
+    <string name="clear_caption">Nothing else on your calendar</string>
+    <string name="more_events_compact">+%1$d</string>
+    <plurals name="more_events">
+        <item quantity="one">+ %d more event</item>
+        <item quantity="other">+ %d more events</item>
+    </plurals>
+    <string name="widget_permission">Tap to allow calendar access.</string>
+    <string name="widget_error">Couldn’t load your calendar. Tap refresh to try again.</string>
+    <string name="event_time_range">%1$s – %2$s</string>
+    <string name="join_short">Join</string>
+    <string name="join_meeting">Join meeting</string>
+    <string name="open_map">Open map</string>
+    <string name="open_location">Open %1$s in maps</string>
+    <string name="conflict">Overlaps</string>
+    <string name="next_up">Up Next</string>
+    <string name="on_now">On now</string>
+    <string name="today_label">Today</string>
+    <string name="all_day">All day</string>
+    <string name="happening_now">Now</string>
+    <string name="untitled_event">Untitled event</string>
+</resources>

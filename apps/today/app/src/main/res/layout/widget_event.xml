@@ -1,0 +1,11 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/event_row" style="@style/EventRow" android:gravity="center_vertical">
+    <TextView android:id="@+id/event_color" style="@style/EventColor" />
+    <TextView android:id="@+id/event_time" style="@style/EventTime" />
+    <TextView android:id="@+id/event_title" style="@style/EventTitle" />
+    <TextView android:id="@+id/event_join" style="@style/RowAction" android:text="@string/join_short" android:visibility="gone" />
+    <ImageView android:id="@+id/event_map" android:layout_width="40dp" android:layout_height="40dp" android:padding="10dp" android:src="@drawable/ic_location" android:contentDescription="@string/open_map" android:visibility="gone" />
+    <TextView android:id="@+id/event_conflict" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginStart="8dp" android:text="@string/conflict" android:textColor="#FFB2AA"
+        android:textSize="11sp" android:visibility="gone" />
+</LinearLayout>
