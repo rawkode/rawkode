@@ -1,0 +1,13 @@
+<resources>
+    <!-- Static palette for Android 8–11. Android 12+ uses wallpaper colors from values-v31. -->
+    <color name="today_background">#F8FAFB</color>
+    <color name="today_surface">#EEF3F5</color>
+    <color name="today_on_surface">#14252D</color>
+    <color name="today_on_surface_variant">#435761</color>
+    <color name="today_outline">#C3CED3</color>
+    <color name="today_primary">#17617D</color>
+    <color name="today_primary_container">#CDE6F0</color>
+    <color name="today_on_primary_container">#0B3342</color>
+    <color name="today_tertiary">#A3362E</color>
+    <color name="today_clock_time">#0B3342</color>
+</resources>

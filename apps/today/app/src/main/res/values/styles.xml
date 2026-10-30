@@ -1,10 +1,14 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#17617D</item>
+        <item name="android:colorAccent">@color/today_primary</item>
+        <item name="android:windowBackground">@color/today_background</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#F8FAFB</item>
-        <item name="android:navigationBarColor">#F8FAFB</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">@color/today_background</item>
+        <item name="android:navigationBarColor">@color/today_background</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
+
+    <!-- Hands work-profile events to the copy of Today in that profile, without showing UI. -->
+    <style name="Trampoline" parent="android:style/Theme.Translucent.NoTitleBar" />
 </resources>

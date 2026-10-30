@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'tech.rawkode.today'
+    namespace 'rawkode.dev.today'
     compileSdk 35
 
     defaultConfig {
-        applicationId 'tech.rawkode.today'
+        applicationId 'rawkode.dev.today'
         minSdk 26
         targetSdk 35
         versionCode providers.gradleProperty('releaseVersionCode').getOrElse('1').toInteger()

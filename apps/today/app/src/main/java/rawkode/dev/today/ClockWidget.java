@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -73,7 +73,7 @@ public final class ClockWidget extends AppWidgetProvider {
                 CalendarEvents.Event next = events.get(0);
                 views.setTextViewText(R.id.clock_event, eventSummary(context, next, System.currentTimeMillis(),
                         WidgetRefresh.canScheduleExact(context)));
-                views.setTextColor(R.id.clock_event, TodayWidget.visibleColor(next.color()));
+                EventColors.apply(context, views, R.id.clock_event, next.color());
                 views.setOnClickPendingIntent(R.id.clock_event, TodayWidget.eventIntent(context, next, id, 0));
             }
             manager.updateAppWidget(id, views);

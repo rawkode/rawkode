@@ -1,0 +1,3 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/today_surface" android:alpha="0.72" />
+</selector>

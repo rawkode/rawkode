@@ -1,6 +1,6 @@
 # Today
 
-Two Android home-screen widgets for the events remaining today: a detailed dashboard and a translucent clock with the next event. It shows today’s events from calendars marked visible on the device, using the widget size to determine how many fit, with ongoing and upcoming timed events first and all-day events afterward. Recurring events are expanded by Android's calendar provider. Canceled and past timed events are omitted. When nothing remains, a clear-day illustration takes the place of the agenda. Tap an event to open it in a compatible calendar app.
+Two Android home-screen widgets for the events remaining today: a detailed dashboard and a translucent clock with the next event. It shows today’s events from calendars marked visible on the device, including a work profile when its admin allows it, using the widget size to determine how many fit, with ongoing and upcoming timed events first and all-day events afterward. Recurring events are expanded by Android's calendar provider. Canceled and past timed events are omitted. When nothing remains, a clear-day illustration takes the place of the agenda. Tap an event to open it in a compatible calendar app.
 
 ## Run
 
@@ -25,6 +25,21 @@ Event colors, locations, meeting links, and overlaps use information already on 
 
 The clock widget shows a minute countdown during the hour before the next event when Android’s Alarms & reminders access is granted. Without that access it shows the event time. Updates can still be delayed while the phone is asleep. Tap the time to open the clock app, the date to open Calendar, or the event to open its details.
 
+## Light, dark, and Material You
+
+The widgets and app follow the system light or dark theme. On Android 12 and newer, their colors come from the wallpaper-based Material You palette and the system widget corner radius; older versions use a fixed palette. Calendar colors are kept as they are on the device, but adjusted toward black or white when they would be hard to read on the widget surface. On Android 12 and newer the launcher switches these colors when the theme changes; on older versions, calendar colors catch up on the next widget refresh. The clock keeps a translucent background, now strong enough for its text to stay readable over any wallpaper.
+
+## Work profile calendars
+
+On Android 10 and newer, the widgets also show today's events from a work profile, marked visible there, alongside personal events. Android only allows this when both of these are true:
+
+- The work profile's admin allows Today (`rawkode.dev.today`) to access cross-profile calendars. Android allows no apps by default, and most organizations only allow their own apps.
+- Cross-profile calendar is turned on in the work profile's settings.
+
+Otherwise, the work profile query returns nothing and only personal events are shown. Today's main screen shows whether work calendars are connected. Work event descriptions are not shared across profiles, so meeting links for work events are recognized only when they are in the event location.
+
+Tapping a work event opens it in the work profile's calendar app only when Today is also installed in the work profile, because Android forwards work events only to the same app in the other profile. Without that, Today shows a message instead.
+
 ## Releases
 
 Push a tag such as `today/0.1.0` to run the GitHub Actions release workflow. It runs the unit tests, builds and signs a release APK, and publishes it as `today-0.1.0.apk` on a GitHub release named `today/0.1.0`. Tags must use numeric `MAJOR.MINOR.PATCH` components; minor and patch must be below 1000, and `MAJOR * 1000000 + MINOR * 1000 + PATCH` must be between 1 and 2100000000. This value becomes Android's `versionCode`, so release versions must increase.
@@ -37,5 +52,7 @@ Before the first release, create a persistent Android signing keystore and confi
 - `TODAY_KEY_PASSWORD`: signing key password.
 
 If a tagged run needs to be retried after the workflow is fixed, use the workflow's manual dispatch with the existing tag (for example, `gh workflow run today-release.yml --ref main -f tag=today/0.1.0`). It builds the tagged commit without moving the tag. A release that already exists is not overwritten.
+
+Releases before the switch to the `rawkode.dev.today` application ID were published as `tech.rawkode.today`. Android treats these as different apps, so an older installation is not updated. Remove it and add the widgets again after installing the new release.
 
 Keep the keystore and its passwords safe and use the same signing key for every release, otherwise Android cannot update an existing installation. The locally installed debug build uses a different signing key; installing the release over it requires removing the debug build first.

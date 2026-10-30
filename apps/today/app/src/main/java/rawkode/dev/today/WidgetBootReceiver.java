@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -10,6 +10,6 @@ public final class WidgetBootReceiver extends BroadcastReceiver {
         if (!WidgetRefresh.hasWidgets(context)) return;
         WidgetRefresh.start(context);
         // Give the widget receiver its own managed broadcast lifetime for the query.
-        context.sendBroadcast(new Intent(context, TodayWidget.class).setAction("tech.rawkode.today.REFRESH"));
+        context.sendBroadcast(new Intent(context, TodayWidget.class).setAction("rawkode.dev.today.REFRESH"));
     }
 }

@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import static org.junit.Assert.assertEquals;
 
@@ -9,7 +9,7 @@ import org.junit.Test;
 public class ClockWidgetTest {
     private static CalendarEvents.Event event(long start, boolean allDay) {
         return new CalendarEvents.Event(1, "Event", start, start + 3600000, allDay, null, null, null,
-                CalendarContract.Attendees.ATTENDEE_STATUS_NONE, CalendarContract.Events.AVAILABILITY_BUSY);
+                CalendarContract.Attendees.ATTENDEE_STATUS_NONE, CalendarContract.Events.AVAILABILITY_BUSY, false);
     }
 
     @Test public void summaryChangesAtNextMinuteBoundary() {

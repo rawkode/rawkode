@@ -1,0 +1,12 @@
+<resources>
+    <color name="today_background">#14171C</color>
+    <color name="today_surface">#202329</color>
+    <color name="today_on_surface">#F4F5F7</color>
+    <color name="today_on_surface_variant">#BCC4CE</color>
+    <color name="today_outline">#4B515B</color>
+    <color name="today_primary">#FF938B</color>
+    <color name="today_primary_container">#343A43</color>
+    <color name="today_on_primary_container">#FFFFFF</color>
+    <color name="today_tertiary">#FFB2AA</color>
+    <color name="today_clock_time">#FFFFFF</color>
+</resources>
