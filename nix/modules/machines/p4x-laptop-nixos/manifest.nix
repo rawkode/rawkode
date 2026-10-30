@@ -46,12 +46,6 @@
         # `btrfs inspect-internal map-swapfile -r /var/lib/swapfile` and must be
         # refreshed if the swapfile is ever recreated.
         boot.resumeDevice = "/dev/mapper/encrypted";
-        # Like macOS standby: instant wake for short sleeps, hibernate for long ones.
-        services.logind.settings.Login = {
-          HandleLidSwitch = "suspend-then-hibernate";
-          HandlePowerKey = "suspend-then-hibernate";
-        };
-        systemd.sleep.settings.Sleep.HibernateDelaySec = "3h";
       }
     ];
   };

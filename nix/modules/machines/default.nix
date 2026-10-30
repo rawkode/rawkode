@@ -37,8 +37,21 @@ in
 
     nixos-laptop-amd.nixos = [
       (
-        { lib, pkgs, ... }:
         {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          # Hibernation needs a per-machine resume device and offset.
+          canHibernate = config.boot.resumeDevice != "";
+          sleepAction = if canHibernate then "suspend-then-hibernate" else "suspend";
+        in
+        {
+          # Like macOS standby: instant wake for short sleeps, hibernate for long ones.
+          systemd.sleep.settings.Sleep.HibernateDelaySec = lib.mkIf canHibernate "90min";
+
           services = {
             # Continuous system recording keeps the CPU waking constantly.
             below.enable = lib.mkForce false;
@@ -56,10 +69,9 @@ in
               criticalPowerAction = "Hibernate";
             };
             logind.settings.Login = {
-              # Plain suspend by default; hibernation needs a per-machine resume device and offset.
-              HandleLidSwitch = lib.mkDefault "suspend";
+              HandleLidSwitch = lib.mkDefault sleepAction;
               HandleLidSwitchExternalPower = "lock";
-              HandlePowerKey = lib.mkDefault "suspend";
+              HandlePowerKey = lib.mkDefault sleepAction;
             };
             libinput = {
               enable = true;
