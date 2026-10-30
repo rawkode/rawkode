@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.Manifest;
 import android.app.AlarmManager;
@@ -19,7 +19,7 @@ final class WidgetRefresh {
     private static final String TAG = "TodayWidgetRefresh";
     private static final int CONTENT_JOB_ID = 101;
     private static final long WINDOW_MILLIS = 10 * 60 * 1000L;
-    private static final String REFRESH_ACTION = "tech.rawkode.today.REFRESH";
+    private static final String REFRESH_ACTION = "rawkode.dev.today.REFRESH";
     private static final Object LOCK = new Object();
 
     private WidgetRefresh() {}

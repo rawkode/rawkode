@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;

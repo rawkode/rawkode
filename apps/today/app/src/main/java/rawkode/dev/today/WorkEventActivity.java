@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.annotation.TargetApi;
 import android.app.Activity;

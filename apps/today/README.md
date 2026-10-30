@@ -33,7 +33,7 @@ The widgets and app follow the system light or dark theme. On Android 12 and new
 
 On Android 10 and newer, the widgets also show today's events from a work profile, marked visible there, alongside personal events. Android only allows this when both of these are true:
 
-- The work profile's admin allows Today (`tech.rawkode.today`) to access cross-profile calendars. Android allows no apps by default, and most organizations only allow their own apps.
+- The work profile's admin allows Today (`rawkode.dev.today`) to access cross-profile calendars. Android allows no apps by default, and most organizations only allow their own apps.
 - Cross-profile calendar is turned on in the work profile's settings.
 
 Otherwise, the work profile query returns nothing and only personal events are shown. Today's main screen shows whether work calendars are connected. Work event descriptions are not shared across profiles, so meeting links for work events are recognized only when they are in the event location.
@@ -52,5 +52,7 @@ Before the first release, create a persistent Android signing keystore and confi
 - `TODAY_KEY_PASSWORD`: signing key password.
 
 If a tagged run needs to be retried after the workflow is fixed, use the workflow's manual dispatch with the existing tag (for example, `gh workflow run today-release.yml --ref main -f tag=today/0.1.0`). It builds the tagged commit without moving the tag. A release that already exists is not overwritten.
+
+Releases before the switch to the `rawkode.dev.today` application ID were published as `tech.rawkode.today`. Android treats these as different apps, so an older installation is not updated. Remove it and add the widgets again after installing the new release.
 
 Keep the keystore and its passwords safe and use the same signing key for every release, otherwise Android cannot update an existing installation. The locally installed debug build uses a different signing key; installing the release over it requires removing the debug build first.

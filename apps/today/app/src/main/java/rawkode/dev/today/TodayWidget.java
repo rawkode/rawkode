@@ -1,4 +1,4 @@
-package tech.rawkode.today;
+package rawkode.dev.today;
 
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -24,7 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class TodayWidget extends AppWidgetProvider {
-    private static final String REFRESH = "tech.rawkode.today.REFRESH";
+    private static final String REFRESH = "rawkode.dev.today.REFRESH";
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
     @Override public void onEnabled(Context context) {
