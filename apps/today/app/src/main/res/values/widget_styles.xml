@@ -20,7 +20,7 @@
         <item name="android:paddingEnd">12dp</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/action_background</item>
-        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
         <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -32,13 +32,13 @@
         <item name="android:paddingEnd">8dp</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/action_background</item>
-        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
         <item name="android:textSize">12sp</item>
     </style>
     <style name="EventTime">
         <item name="android:layout_width">70dp</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#B5BDC8</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
         <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:maxLines">1</item>
@@ -47,7 +47,7 @@
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:textColor">#F4F5F7</item>
+        <item name="android:textColor">@color/today_on_surface</item>
         <item name="android:textSize">16sp</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>

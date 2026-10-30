@@ -49,5 +49,11 @@
     <string name="today_label">Today</string>
     <string name="all_day">All day</string>
     <string name="happening_now">Now</string>
+    <string name="work_heading">Work calendars</string>
+    <string name="work_connected">Events from your work profile appear in the widget.</string>
+    <string name="work_unavailable">Work events can’t be shown yet. Your work profile admin must allow Today to access work calendars, and cross-profile calendar must be turned on in your work profile settings.</string>
+    <string name="work_unsupported">Showing work profile events requires Android 10 or newer.</string>
+    <string name="work_event_unavailable">To open work events, install Today in your work profile too.</string>
+    <string name="work_event_no_calendar">No calendar app in your work profile can open this event.</string>
     <string name="untitled_event">Untitled event</string>
 </resources>

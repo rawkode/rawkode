@@ -1,28 +1,35 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="#F8FAFB" android:fillViewport="true">
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="28dp">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/app_name" android:textColor="#17617D" android:textStyle="bold" android:textSize="16sp" />
+            android:text="@string/app_name" android:textColor="@color/today_primary" android:textStyle="bold" android:textSize="16sp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="40dp" android:text="@string/app_intro" android:textColor="#14252D"
+            android:layout_marginTop="40dp" android:text="@string/app_intro" android:textColor="@color/today_on_surface"
             android:textStyle="bold" android:textSize="32sp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" android:text="@string/app_description" android:textColor="#435761"
+            android:layout_marginTop="12dp" android:text="@string/app_description" android:textColor="@color/today_on_surface_variant"
             android:textSize="16sp" android:lineSpacingExtra="4dp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="40dp" android:text="@string/permission_heading" android:textColor="#14252D"
+            android:layout_marginTop="40dp" android:text="@string/permission_heading" android:textColor="@color/today_on_surface"
             android:textStyle="bold" android:textSize="20sp" />
         <TextView android:id="@+id/permission_status" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:text="@string/permission_needed" android:textColor="#435761"
+            android:layout_marginTop="8dp" android:text="@string/permission_needed" android:textColor="@color/today_on_surface_variant"
             android:textSize="16sp" android:lineSpacingExtra="3dp" />
         <Button android:id="@+id/permission_button" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="16dp" android:text="@string/allow_calendar" android:textAllCaps="false" />
         <Button android:id="@+id/precise_updates_button" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp" android:text="@string/enable_precise_updates" android:textAllCaps="false" android:visibility="gone" />
+        <TextView android:id="@+id/work_heading" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="32dp" android:text="@string/work_heading" android:textColor="@color/today_on_surface"
+            android:textStyle="bold" android:textSize="20sp" android:visibility="gone" />
+        <TextView android:id="@+id/work_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:textColor="@color/today_on_surface_variant"
+            android:textSize="16sp" android:lineSpacingExtra="3dp" android:visibility="gone" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="32dp" android:text="@string/widget_instructions" android:textColor="#435761"
+            android:layout_marginTop="32dp" android:text="@string/widget_instructions" android:textColor="@color/today_on_surface_variant"
             android:textSize="16sp" android:lineSpacingExtra="3dp" />
         <Button android:id="@+id/add_widget_button" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="12dp" android:text="@string/add_widget" android:textAllCaps="false" />

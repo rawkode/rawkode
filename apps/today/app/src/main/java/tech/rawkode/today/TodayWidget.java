@@ -7,7 +7,6 @@ import android.content.ComponentName;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.CalendarContract;
@@ -130,7 +129,7 @@ public final class TodayWidget extends AppWidgetProvider {
         views.setViewVisibility(R.id.next_event, View.VISIBLE);
         views.setTextViewText(R.id.next_label, context.getString(next.allDay() ? R.string.all_day
                 : next.start() <= System.currentTimeMillis() ? R.string.on_now : R.string.next_up));
-        views.setTextColor(R.id.next_label, visibleColor(next.color()));
+        EventColors.apply(context, views, R.id.next_label, next.color());
         views.setViewVisibility(R.id.next_conflict, Agenda.overlaps(next, events) ? View.VISIBLE : View.GONE);
         views.setTextViewText(R.id.next_title, next.title());
         views.setTextViewText(R.id.next_time, CalendarEvents.timeRange(context, next));
@@ -176,9 +175,9 @@ public final class TodayWidget extends AppWidgetProvider {
             RemoteViews row = new RemoteViews(context.getPackageName(), R.layout.widget_event);
             row.setTextViewText(R.id.event_time, CalendarEvents.timeLabel(context, event));
             row.setViewVisibility(R.id.event_time, event.allDay() ? View.GONE : View.VISIBLE);
-            row.setTextColor(R.id.event_time, visibleColor(event.color()));
+            EventColors.apply(context, row, R.id.event_time, event.color());
             row.setTextViewText(R.id.event_title, event.title());
-            row.setTextColor(R.id.event_color, visibleColor(event.color()));
+            EventColors.apply(context, row, R.id.event_color, event.color());
             row.setViewVisibility(R.id.event_conflict, Agenda.overlaps(event, events) ? View.VISIBLE : View.GONE);
             if (rowMeeting != null) {
                 row.setViewVisibility(R.id.event_join, View.VISIBLE);
@@ -217,14 +216,6 @@ public final class TodayWidget extends AppWidgetProvider {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    static int visibleColor(Integer color) {
-        if (color == null) return Color.rgb(255, 147, 139);
-        int opaque = color | 0xff000000;
-        if (Color.luminance(opaque) >= 0.32) return opaque;
-        return Color.rgb((Color.red(opaque) + 255) / 2, (Color.green(opaque) + 255) / 2,
-                (Color.blue(opaque) + 255) / 2);
-    }
-
     private static long nextBoundary(List<CalendarEvents.Event> events, boolean hasClock) {
         long now = System.currentTimeMillis();
         long next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
@@ -238,10 +229,12 @@ public final class TodayWidget extends AppWidgetProvider {
     }
 
     static PendingIntent eventIntent(Context context, CalendarEvents.Event event, int widgetId, int row) {
-        Intent intent = new Intent(Intent.ACTION_VIEW)
+        // Work event IDs belong to the work profile's provider; the personal calendar app can't open them.
+        Intent intent = (event.work() ? new Intent(context, WorkEventActivity.class) : new Intent(Intent.ACTION_VIEW))
                 .setData(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, event.id()))
                 .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, event.start())
-                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, event.end());
+                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, event.end())
+                .putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, event.allDay());
         return PendingIntent.getActivity(context, 31 * widgetId + row, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }

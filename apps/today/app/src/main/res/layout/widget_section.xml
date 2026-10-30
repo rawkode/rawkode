@@ -1,3 +1,3 @@
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp"
-    android:text="@string/all_day" android:textColor="#B5BDC8" android:textStyle="bold" android:textSize="12sp" />
+    android:text="@string/all_day" android:textColor="@color/today_on_surface_variant" android:textStyle="bold" android:textSize="12sp" />

@@ -11,7 +11,7 @@ import java.util.List;
 public class AgendaTest {
     private static CalendarEvents.Event event(long start, long end, boolean allDay, int availability) {
         return new CalendarEvents.Event(start, "Event", start, end, allDay, null, null, null,
-                CalendarContract.Attendees.ATTENDEE_STATUS_NONE, availability);
+                CalendarContract.Attendees.ATTENDEE_STATUS_NONE, availability, false);
     }
 
     @Test public void overlappingBusyEventsAreFlaggedButTouchingEventsAreNot() {

@@ -15,8 +15,12 @@ import android.provider.Settings;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public final class MainActivity extends Activity {
     private static final int CALENDAR_REQUEST = 1;
+    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private TextView status;
     private Button permissionButton;
 
@@ -80,5 +84,23 @@ public final class MainActivity extends Activity {
         boolean needsPreciseAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
                 && !getSystemService(AlarmManager.class).canScheduleExactAlarms();
         findViewById(R.id.precise_updates_button).setVisibility(needsPreciseAccess ? View.VISIBLE : View.GONE);
+        updateWorkState(granted);
+    }
+
+    private void updateWorkState(boolean granted) {
+        boolean work = CalendarEvents.hasWorkProfile(this);
+        findViewById(R.id.work_heading).setVisibility(work && granted ? View.VISIBLE : View.GONE);
+        TextView workStatus = findViewById(R.id.work_status);
+        workStatus.setVisibility(work && granted ? View.VISIBLE : View.GONE);
+        if (!work || !granted) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            workStatus.setText(R.string.work_unsupported);
+            return;
+        }
+        // A cross-profile provider query; keep it off the main thread.
+        EXECUTOR.execute(() -> {
+            int calendars = CalendarEvents.workCalendarCount(getApplicationContext());
+            runOnUiThread(() -> workStatus.setText(calendars > 0 ? R.string.work_connected : R.string.work_unavailable));
+        });
     }
 }

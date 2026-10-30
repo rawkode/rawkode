@@ -5,48 +5,48 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:orientation="horizontal" android:gravity="center_vertical">
         <LinearLayout android:id="@+id/calendar_heading" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/widget_title" android:textStyle="bold" android:textSize="19sp" android:textColor="#FFFFFF" />
+                android:text="@string/widget_title" android:textStyle="bold" android:textSize="19sp" android:textColor="@color/today_on_surface" />
             <TextView android:id="@+id/widget_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_marginStart="10dp" android:textSize="13sp" android:textColor="#B5BDC8" android:maxLines="1" />
+                android:layout_marginStart="10dp" android:textSize="13sp" android:textColor="@color/today_on_surface_variant" android:maxLines="1" />
         </LinearLayout>
         <TextView android:id="@+id/more_events" android:layout_width="wrap_content" android:layout_height="40dp"
             android:gravity="center" android:paddingStart="8dp" android:paddingEnd="8dp" android:textSize="13sp"
-            android:textColor="#CBD1D8" android:visibility="gone" />
+            android:textColor="@color/today_on_surface_variant" android:visibility="gone" />
         <TextView android:id="@+id/refresh" android:layout_width="40dp" android:layout_height="40dp"
-            android:gravity="center" android:text="↻" android:textSize="22sp" android:textColor="#B5BDC8"
+            android:gravity="center" android:text="↻" android:textSize="22sp" android:textColor="@color/today_on_surface_variant"
             android:contentDescription="@string/widget_refresh" />
     </LinearLayout>
     <TextView android:id="@+id/widget_message" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="18dp" android:text="@string/widget_permission" android:textColor="#CBD1D8" android:textSize="15sp" />
+        android:layout_marginTop="18dp" android:text="@string/widget_permission" android:textColor="@color/today_on_surface_variant" android:textSize="15sp" />
     <LinearLayout android:id="@+id/clear_state" android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:visibility="gone">
         <ImageView android:layout_width="96dp" android:layout_height="54dp" android:src="@drawable/clear_horizon"
             android:contentDescription="@null" android:importantForAccessibility="no" />
         <TextView android:id="@+id/clear_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="4dp" android:gravity="center" android:textColor="#FFFFFF"
+            android:layout_marginTop="4dp" android:gravity="center" android:textColor="@color/today_on_surface"
             android:textStyle="bold" android:textSize="18sp" android:text="@string/clear_morning" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="3dp" android:gravity="center" android:textColor="#B5BDC8"
+            android:layout_marginTop="3dp" android:gravity="center" android:textColor="@color/today_on_surface_variant"
             android:textSize="13sp" android:text="@string/clear_caption" />
     </LinearLayout>
     <LinearLayout android:id="@+id/next_event" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="18dp" android:orientation="vertical" android:visibility="gone">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
             <TextView android:id="@+id/next_label" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                android:text="@string/next_up" android:textColor="#FF938B" android:textStyle="bold" android:textSize="14sp" />
+                android:text="@string/next_up" android:textColor="@color/today_primary" android:textStyle="bold" android:textSize="14sp" />
             <TextView android:id="@+id/next_conflict" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/conflict" android:textColor="#FFB2AA" android:textSize="12sp" android:visibility="gone" />
+                android:text="@string/conflict" android:textColor="@color/today_tertiary" android:textSize="12sp" android:visibility="gone" />
         </LinearLayout>
         <TextView android:id="@+id/next_title" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="10dp" android:maxLines="2" android:ellipsize="end"
-            android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="22sp" />
+            android:textColor="@color/today_on_surface" android:textStyle="bold" android:textSize="22sp" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="10dp" android:orientation="horizontal" android:gravity="center_vertical">
             <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_clock"
                 android:contentDescription="@null" android:importantForAccessibility="no" />
             <TextView android:id="@+id/next_time" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="10dp" android:maxLines="1" android:ellipsize="end"
-                android:textColor="#CBD1D8" android:textSize="15sp" />
+                android:textColor="@color/today_on_surface_variant" android:textSize="15sp" />
         </LinearLayout>
         <LinearLayout android:id="@+id/next_location" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="40dp" android:layout_marginTop="3dp" android:orientation="horizontal" android:gravity="center_vertical"
@@ -55,7 +55,7 @@
                 android:contentDescription="@null" android:importantForAccessibility="no" />
             <TextView android:id="@+id/next_location_text" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="10dp" android:maxLines="2" android:ellipsize="end"
-                android:textColor="#CBD1D8" android:textSize="15sp" />
+                android:textColor="@color/today_on_surface_variant" android:textSize="15sp" />
         </LinearLayout>
         <LinearLayout android:id="@+id/event_actions" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="10dp" android:orientation="horizontal" android:visibility="gone">
@@ -63,7 +63,7 @@
         </LinearLayout>
     </LinearLayout>
     <TextView android:id="@+id/event_divider" android:layout_width="match_parent" android:layout_height="1dp"
-        android:layout_marginTop="22dp" android:background="#4B515B" android:visibility="gone" />
+        android:layout_marginTop="22dp" android:background="@color/today_outline" android:visibility="gone" />
     <LinearLayout android:id="@+id/later_events" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" />
 </LinearLayout>

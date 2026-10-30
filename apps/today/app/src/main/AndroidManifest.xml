@@ -9,6 +9,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Exported so Android can deliver work-profile events to this app's copy in the work profile. -->
+        <activity android:name=".WorkEventActivity" android:exported="true" android:theme="@style/Trampoline"
+            android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.provider.calendar.action.VIEW_MANAGED_PROFILE_CALENDAR_EVENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service android:name=".CalendarChangeJob" android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="true" />
         <receiver android:name=".WidgetBootReceiver" android:exported="false">
