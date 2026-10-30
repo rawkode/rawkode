@@ -36,6 +36,22 @@ mkCapability {
         wget
       ];
 
+      boot.kernelPackages = pkgs.linuxPackages_latest.extend (
+        _: prev: {
+          # The module aggregator expects a kmodigest `.ko.cer` per external
+          # module, which only `modules_install` produces; upstream copies the
+          # bare `.ko`.
+          framework-laptop-kmod = prev.framework-laptop-kmod.overrideAttrs {
+            installPhase = ''
+              runHook preInstall
+              make $makeFlags INSTALL_MOD_PATH=$out INSTALL_MOD_DIR=extra modules_install
+              find $out/lib/modules -maxdepth 2 -type f -name 'modules.*' -delete
+              runHook postInstall
+            '';
+          };
+        }
+      );
+
       nixpkgs.config = {
         allowUnfree = true;
         joypixels.acceptLicense = true;
