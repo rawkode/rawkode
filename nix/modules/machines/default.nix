@@ -35,7 +35,20 @@ in
       inputs.nixos-hardware.nixosModules.framework-13-7040-amd
     ];
 
+    nixos-tuxedo-infinitybook-pro14-gen9-amd.nixos = [
+      inputs.nixos-hardware.nixosModules.tuxedo-infinitybook-pro14-gen9-amd
+      inputs.nixos-hardware.nixosModules.common-cpu-amd-pstate
+      inputs.nixos-hardware.nixosModules.common-gpu-amd
+      {
+        # tuxedo-drivers 4.20.1 doesn't build against Linux 7.3 (acpi_driver API
+        # removed). It only adds keyboard backlight, Fn keys and charge limits.
+        hardware.tuxedo-drivers.enable = false;
+      }
+    ];
+
     nixos-laptop-amd.nixos = [
+      # PPD over TLP on AMD; without this nixos-hardware's laptop profile turns TLP on.
+      inputs.self.nixosModules.power
       (
         {
           config,
