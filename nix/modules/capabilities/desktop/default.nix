@@ -46,6 +46,7 @@ mkCapability {
 
           appBundles.antarctical.home
           appBundles.chinstrap.home
+          appBundles.eloquawk.home
           appBundles.firefox-nightly.home
           appBundles.flipper.home
           appBundles.rockhopper.home

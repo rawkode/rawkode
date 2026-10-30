@@ -35,6 +35,10 @@
     # Keep the Korora Tech package pins so their matching builds can come from its cache.
     antarctical.url = "github:korora-tech/antarctical";
     chinstrap.url = "github:korora-tech/chinstrap";
+    eloquawk = {
+      url = "github:korora-tech/eloquawk";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flipper.url = "github:korora-tech/flipper";
     rockhopper.url = "github:korora-tech/rockhopper";
     comma.url = "github:nix-community/comma";
