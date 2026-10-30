@@ -61,10 +61,6 @@ mkApp {
       # session services. Set it at login so systemd/D-Bus launches inherit it too.
       home.sessionVariables.GNOME_DESKTOP_SESSION_ID = "this-is-deprecated";
 
-      home.packages = [
-        pkgs.cosmic-files
-      ];
-
       xdg.portal = {
         extraPortals = with pkgs; [
           xdg-desktop-portal-gnome

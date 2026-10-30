@@ -53,7 +53,7 @@ mkCapability {
 
           homeModules.dconf-editor
           homeModules.flatpak
-          homeModules.gnome
+          homeModules.desktop-defaults
           homeModules.dux
           homeModules.niri
           homeModules.portals
@@ -74,7 +74,7 @@ mkCapability {
     inputs.self.nixosModules.firefox-nightly
     inputs.self.nixosModules.google-chrome
     inputs.self.nixosModules.fonts
-    inputs.self.nixosModules.gnome
+    inputs.self.nixosModules.desktop-defaults
     inputs.self.nixosModules.location
     inputs.self.nixosModules.niri
     inputs.self.nixosModules.onepassword
