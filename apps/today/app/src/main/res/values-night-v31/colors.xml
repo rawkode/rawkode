@@ -8,5 +8,4 @@
     <color name="today_primary_container">@android:color/system_accent1_700</color>
     <color name="today_on_primary_container">@android:color/system_accent1_100</color>
     <color name="today_tertiary">@android:color/system_accent3_200</color>
-    <color name="today_clock_time">@android:color/system_accent1_100</color>
 </resources>

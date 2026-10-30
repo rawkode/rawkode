@@ -8,5 +8,4 @@
     <color name="today_primary_container">#343A43</color>
     <color name="today_on_primary_container">#FFFFFF</color>
     <color name="today_tertiary">#FFB2AA</color>
-    <color name="today_clock_time">#FFFFFF</color>
 </resources>

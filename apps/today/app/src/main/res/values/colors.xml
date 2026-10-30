@@ -9,5 +9,9 @@
     <color name="today_primary_container">#CDE6F0</color>
     <color name="today_on_primary_container">#0B3342</color>
     <color name="today_tertiary">#A3362E</color>
-    <color name="today_clock_time">#0B3342</color>
+    <!-- The clock has no panel, so its text follows the wallpaper rather than the theme. -->
+    <color name="today_clock_time_on_dark">#FFFFFF</color>
+    <color name="today_clock_text_on_dark">#F4F5F7</color>
+    <color name="today_clock_time_on_light">#0B3342</color>
+    <color name="today_clock_text_on_light">#14252D</color>
 </resources>

@@ -1,10 +1,14 @@
 package rawkode.dev.today;
 
 import android.app.PendingIntent;
+import android.app.WallpaperColors;
+import android.app.WallpaperManager;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.AlarmClock;
 import android.widget.RemoteViews;
@@ -14,7 +18,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** A compact, translucent clock and next-event widget. */
+/** A compact clock and next-event widget drawn straight on the wallpaper. */
 public final class ClockWidget extends AppWidgetProvider {
     @Override public void onEnabled(Context context) {
         WidgetRefresh.start(context);
@@ -52,12 +56,30 @@ public final class ClockWidget extends AppWidgetProvider {
         return event.start() - (rounded - bucket) + 1;
     }
 
+    // Like the Pixel clock, follow the wallpaper rather than the system theme, since nothing sits behind the text.
+    private static boolean wallpaperSupportsDarkText(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return false;
+        WallpaperColors colors;
+        try {
+            colors = WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (colors == null) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return (colors.getColorHints() & WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0;
+        }
+        return Color.luminance(colors.getPrimaryColor().toArgb()) > 0.5f;
+    }
+
     static void update(Context context, AppWidgetManager manager, int[] ids,
                        List<CalendarEvents.Event> events, int error) {
         String pattern = android.text.format.DateFormat.getBestDateTimePattern(Locale.getDefault(), "EEEE d MMMM");
         String date = new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date());
+        boolean darkText = wallpaperSupportsDarkText(context);
+        int layout = darkText ? R.layout.clock_widget_dark_text : R.layout.clock_widget;
         for (int id : ids) {
-            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.clock_widget);
+            RemoteViews views = new RemoteViews(context.getPackageName(), layout);
             views.setTextViewText(R.id.clock_date, date);
             views.setOnClickPendingIntent(R.id.clock_body, TodayWidget.calendarIntent(context, id));
             views.setOnClickPendingIntent(R.id.clock_time, PendingIntent.getActivity(context, id,
@@ -73,7 +95,10 @@ public final class ClockWidget extends AppWidgetProvider {
                 CalendarEvents.Event next = events.get(0);
                 views.setTextViewText(R.id.clock_event, eventSummary(context, next, System.currentTimeMillis(),
                         WidgetRefresh.canScheduleExact(context)));
-                EventColors.apply(context, views, R.id.clock_event, next.color());
+                if (next.color() != null) {
+                    views.setTextColor(R.id.clock_event,
+                            darkText ? EventColors.forLight(next.color()) : EventColors.forDark(next.color()));
+                }
                 views.setOnClickPendingIntent(R.id.clock_event, TodayWidget.eventIntent(context, next, id, 0));
             }
             manager.updateAppWidget(id, views);

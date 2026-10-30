@@ -1,6 +1,6 @@
 # Today
 
-Two Android home-screen widgets for the events remaining today: a detailed dashboard and a translucent clock with the next event. It shows today’s events from calendars marked visible on the device, including a work profile when its admin allows it, using the widget size to determine how many fit, with ongoing and upcoming timed events first and all-day events afterward. Recurring events are expanded by Android's calendar provider. Canceled and past timed events are omitted. When nothing remains, a clear-day illustration takes the place of the agenda. Tap an event to open it in a compatible calendar app.
+Two Android home-screen widgets for the events remaining today: a detailed dashboard and a clock with the next event drawn directly on the wallpaper. It shows today’s events from calendars marked visible on the device, including a work profile when its admin allows it, using the widget size to determine how many fit, with ongoing and upcoming timed events first and all-day events afterward. Recurring events are expanded by Android's calendar provider. Canceled and past timed events are omitted. When nothing remains, a clear-day illustration takes the place of the agenda. Tap an event to open it in a compatible calendar app.
 
 ## Run
 
@@ -27,7 +27,7 @@ The clock widget shows a minute countdown during the hour before the next event 
 
 ## Light, dark, and Material You
 
-The widgets and app follow the system light or dark theme. On Android 12 and newer, their colors come from the wallpaper-based Material You palette and the system widget corner radius; older versions use a fixed palette. Calendar colors are kept as they are on the device, but adjusted toward black or white when they would be hard to read on the widget surface. On Android 12 and newer the launcher switches these colors when the theme changes; on older versions, calendar colors catch up on the next widget refresh. The clock keeps a translucent background, now strong enough for its text to stay readable over any wallpaper.
+The widgets and app follow the system light or dark theme. On Android 12 and newer, their colors come from the wallpaper-based Material You palette and the system widget corner radius; older versions use a fixed palette. Calendar colors are kept as they are on the device, but adjusted toward black or white when they would be hard to read on the widget surface. On Android 12 and newer the launcher switches these colors when the theme changes; on older versions, calendar colors catch up on the next widget refresh. The clock has no background, like the Pixel clock: it uses light text with a soft shadow on dark wallpapers and dark text on light ones, based on Android's wallpaper color hint rather than the system theme. After a wallpaper change it switches on its next refresh.
 
 ## Work profile calendars
 
