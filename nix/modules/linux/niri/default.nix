@@ -228,6 +228,13 @@ mkApp {
               zoom = 0.32;
             };
 
+            # Keys set the order (Super+1/2/3); names are what window rules target.
+            workspaces = {
+              "1-web".name = "Web";
+              "2-code".name = "Code";
+              "3-chat".name = "Chat";
+            };
+
             layout = {
               gaps = 16;
 
