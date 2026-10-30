@@ -1,7 +1,7 @@
 /**
  * Syncs pi theme with macOS system appearance.
  * Switches between catppuccin-mocha (dark) and rose-pine-dawn (light)
- * to match Ghostty's configured theme pairing.
+ * to match the terminal's configured theme pairing.
  */
 
 import { exec } from "node:child_process";

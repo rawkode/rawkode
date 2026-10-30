@@ -26,7 +26,7 @@ mkApp {
           default = true;
         };
 
-      # Ghostty owns the palette; Stylix's hex fzf colors would override it.
+      # The terminal owns the palette; Stylix's hex fzf colors would override it.
       config =
         lib.optionalAttrs stylixHome {
           stylix.targets.fzf.enable = false;

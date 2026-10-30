@@ -241,7 +241,7 @@ mkApp {
               always-center-single-column = true;
 
               default-column-width = {
-                proportion = 1.0;
+                proportion = 0.9;
               };
 
               preset-column-widths = [
@@ -299,17 +299,15 @@ mkApp {
               {
                 matches = [
                   { app-id = "code"; }
-                  { app-id = "com.mitchellh.ghostty"; }
                 ];
                 open-on-workspace = "Code";
                 open-focused = true;
               }
               {
-                matches = [
-                  { app-id = "com.mitchellh.ghostty"; }
-                ];
-                # Ghostty ignores the initial configured width but honours maximize.
-                open-maximized = true;
+                matches = [ { app-id = "(?i)^rio$"; } ];
+                # Rio needs both initial dimensions and must not be redirected to another workspace.
+                default-column-width.proportion = 0.9;
+                default-window-height.proportion = 1.0;
               }
               {
                 geometry-corner-radius = {
@@ -448,7 +446,7 @@ mkApp {
               "Super+Ctrl+8".action.move-column-to-workspace = 8;
               "Super+9".action.focus-workspace = 9;
               "Super+Ctrl+9".action.move-column-to-workspace = 9;
-              "Super+Return".action.spawn = [ "ghostty" ];
+              "Super+Return".action.spawn = [ "rio" ];
               "Super+Backslash".action.spawn = [
                 "1password"
                 "--quick-access"

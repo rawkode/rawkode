@@ -59,7 +59,7 @@ mkApp {
       system,
       ...
     }:
-    # Ghostty owns the palette; Stylix's hex color_config would override it.
+    # The terminal owns the palette; Stylix's hex color_config would override it.
     lib.optionalAttrs stylixHome {
       stylix.targets.nushell.enable = false;
     }

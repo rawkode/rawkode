@@ -35,7 +35,7 @@ mkCapability {
       imports =
         with inputs.self;
         [
-          appBundles.ghostty.home
+          appBundles.rio.home
           appBundles.google-chrome.home
           appBundles.handy.home
           appBundles.onepassword.home
@@ -96,7 +96,7 @@ mkCapability {
 
   darwin = with inputs.self; [
     appBundles.firefox-nightly.darwin
-    appBundles.ghostty.darwin
+    appBundles.rio.darwin
     appBundles.google-chrome.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
