@@ -27,7 +27,10 @@ mkApp {
     {
       nix.settings = cuenvCache;
 
-      home.packages = [ package ];
+      home.packages = [
+        package
+        inputs.cuetty.packages.${pkgs.stdenv.hostPlatform.system}.cuetty
+      ];
 
       programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
         c = {
