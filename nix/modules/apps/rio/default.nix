@@ -44,6 +44,7 @@ mkApp {
           line-height = 1.15;
           margin = [ 8 ];
           panel.padding = [ 8 ];
+          navigation.hide-if-single = true;
           env-vars = [ "SHLVL=0" ];
           cursor = {
             shape = "block";

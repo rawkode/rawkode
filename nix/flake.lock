@@ -141,11 +141,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1793284263,
-        "narHash": "sha256-f0zO0nizsDxW1bY9H1MbnW/O6H/eMpKT1OKw5/5s8tQ=",
+        "lastModified": 1793286062,
+        "narHash": "sha256-7x7JfgMCD0mL2d07ne8Zdr613V7UOxUUQzqf+nr9B5Y=",
         "owner": "korora-tech",
         "repo": "chinstrap",
-        "rev": "f6b3c7867b616971a8999fea66efab9c06ae480d",
+        "rev": "7147bad7fb138495a7f9d61c79f07f75148af83e",
         "type": "github"
       },
       "original": {
@@ -269,11 +269,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1792948683,
-        "narHash": "sha256-9ZL4OksT2J6pR7YkkjwvtAyn4rB+jrcNSplSVZiU0MY=",
+        "lastModified": 1793300210,
+        "narHash": "sha256-XfgwznjmutjQKOmLD1xfEiwZzywID99XzSHwsPvgH0U=",
         "owner": "cuenv",
         "repo": "cuenv",
-        "rev": "06cec873b9fcc80c79f8c53ded7931aec9bd117d",
+        "rev": "f25c5e778a0b654ada223f40beddd1e268f19038",
         "type": "github"
       },
       "original": {

@@ -22,6 +22,8 @@ mkApp {
         home.packages = [
           agentPackages.claude-code
           agentPackages.codex
+          agentPackages.opencode2
+          agentPackages.opencode2-desktop
         ];
       };
     };
