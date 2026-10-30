@@ -27,7 +27,7 @@ mkApp {
           };
           fonts = {
             family = "Monaspace Neon";
-            size = 16;
+            size = 22;
             features = [
               "calt"
               "liga"
