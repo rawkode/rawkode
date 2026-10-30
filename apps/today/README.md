@@ -36,4 +36,6 @@ Before the first release, create a persistent Android signing keystore and confi
 - `TODAY_KEY_ALIAS`: signing key alias.
 - `TODAY_KEY_PASSWORD`: signing key password.
 
+If a tagged run needs to be retried after the workflow is fixed, use the workflow's manual dispatch with the existing tag (for example, `gh workflow run today-release.yml --ref main -f tag=today/0.1.0`). It builds the tagged commit without moving the tag. A release that already exists is not overwritten.
+
 Keep the keystore and its passwords safe and use the same signing key for every release, otherwise Android cannot update an existing installation. The locally installed debug build uses a different signing key; installing the release over it requires removing the debug build first.
