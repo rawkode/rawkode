@@ -29,8 +29,14 @@ mkApp {
 
       home.packages = [
         package
-        inputs.cuetty.packages.${pkgs.stdenv.hostPlatform.system}.cuetty
+        inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system}.cuetty
       ];
+
+      xdg.configFile."cuetty/config.cue".text = ''
+        package cuetty
+
+        titlebar: *false | bool
+      '';
 
       programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
         c = {
