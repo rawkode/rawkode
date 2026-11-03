@@ -25,10 +25,12 @@ mkApp {
       # niri-flake's own package build asserts a libdisplay-info version that
       # nixpkgs removed (2026-08-04); use nixpkgs' niri until upstream catches up.
       programs.niri.package = pkgs.niri;
+      services.gnome.at-spi2-core.enable = true;
       systemd.user.services.niri-flake-polkit.enable = false;
 
       environment.systemPackages = with pkgs; [
         wl-clipboard
+        xwayland-satellite
       ];
     };
 
@@ -112,7 +114,6 @@ mkApp {
         // {
           settings = {
             environment = {
-              DISPLAY = ":0";
               QT_QPA_PLATFORM = "wayland";
               XDG_CURRENT_DESKTOP = "niri";
               XDG_SESSION_TYPE = "wayland";
