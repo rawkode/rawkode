@@ -20,6 +20,10 @@ mkApp {
     {
       config = lib.mkIf cfg.cliPackages.enable {
         home.packages = [
+          # Computer-use MCP server (`cua-driver mcp`); ImageMagick provides
+          # the `import` command it shells out to for window screenshots.
+          inputs.cua.packages.${pkgs.stdenv.hostPlatform.system}.cua-driver
+          pkgs.imagemagick
           agentPackages.amp
           agentPackages.antigravity-cli
           agentPackages.claude-code

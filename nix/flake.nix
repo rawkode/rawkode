@@ -50,6 +50,7 @@
       inputs.treefmt-nix.follows = "treefmt-nix";
     };
     cuenv.url = "github:cuenv/cuenv";
+    cua.url = "github:trycua/cua";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
