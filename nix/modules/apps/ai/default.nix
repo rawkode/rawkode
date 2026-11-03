@@ -20,6 +20,8 @@ mkApp {
     {
       config = lib.mkIf cfg.cliPackages.enable {
         home.packages = [
+          agentPackages.amp
+          agentPackages.antigravity-cli
           agentPackages.claude-code
           agentPackages.codex
           agentPackages.opencode2
@@ -31,11 +33,14 @@ mkApp {
   common.home =
     {
       config,
+      inputs,
       lib,
+      pkgs,
       ...
     }:
     let
       cfg = config.rawkOS.apps.ai;
+      agentPackages = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
       skillsDir = ./skills;
       localSkills = lib.mapAttrs (name: _type: "${skillsDir}/${name}") (
         lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
@@ -63,6 +68,12 @@ mkApp {
       };
 
       config = {
+        home.packages = lib.optionals cfg.cliPackages.enable [
+          agentPackages.antigravity-hub
+          agentPackages.ccusage
+          agentPackages.paperclip
+        ];
+
         home.file = builtins.listToAttrs skillFiles // {
           "AGENTS.md" = {
             source = ./AGENTS.md;
