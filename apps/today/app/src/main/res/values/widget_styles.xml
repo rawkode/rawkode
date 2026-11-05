@@ -1,55 +1,144 @@
-<resources>
-    <style name="EventRow">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">14dp</item>
-        <item name="android:minHeight">44dp</item>
-        <item name="android:orientation">horizontal</item>
-    </style>
-    <style name="EventColor">
-        <item name="android:layout_width">24dp</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:text">●</item>
-        <item name="android:textSize">18sp</item>
-        <item name="android:importantForAccessibility">no</item>
-    </style>
-    <style name="EventAction">
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- DeviceDefault text uses the device's own font, such as Google Sans Text on Pixel, so the widget
+         matches the launcher around it. Heights used here are mirrored in WidgetLayout. -->
+    <style name="WidgetText">
         <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">36dp</item>
-        <item name="android:paddingStart">12dp</item>
-        <item name="android:paddingEnd">12dp</item>
-        <item name="android:gravity">center</item>
-        <item name="android:background">@drawable/action_background</item>
-        <item name="android:textColor">@color/today_on_primary_container</item>
-        <item name="android:textSize">13sp</item>
-        <item name="android:textStyle">bold</item>
-    </style>
-    <style name="RowAction">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">36dp</item>
-        <item name="android:layout_marginStart">6dp</item>
-        <item name="android:paddingStart">8dp</item>
-        <item name="android:paddingEnd">8dp</item>
-        <item name="android:gravity">center</item>
-        <item name="android:background">@drawable/action_background</item>
-        <item name="android:textColor">@color/today_on_primary_container</item>
-        <item name="android:textSize">12sp</item>
-    </style>
-    <style name="EventTime">
-        <item name="android:layout_width">70dp</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">@color/today_on_surface_variant</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textAppearance">@android:style/TextAppearance.DeviceDefault</item>
+        <item name="android:textColor">@color/today_on_surface</item>
+    </style>
+
+    <style name="WidgetDay" parent="WidgetText">
+        <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:maxLines">1</item>
     </style>
-    <style name="EventTitle">
+    <style name="WidgetDate" parent="WidgetText">
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="WidgetMessage" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+    </style>
+    <style name="ClearTitle" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="ClearCaption" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+    </style>
+
+    <style name="NextLabel" parent="WidgetText">
         <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:textColor">@color/today_on_surface</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_primary</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="NextTitle" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="Detail" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="ConflictBadge" parent="WidgetText">
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:text">@string/conflict</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_tertiary</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:visibility">gone</item>
+    </style>
+    <!-- The one filled button: joining the featured meeting is the widget's most urgent action. -->
+    <style name="JoinButton" parent="WidgetText">
+        <item name="android:minHeight">40dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/join_button_background</item>
+        <item name="android:drawableStart">@drawable/ic_videocam</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_on_primary</item>
+        <item name="android:maxLines">1</item>
+    </style>
+
+    <style name="EventTime" parent="WidgetText">
+        <!-- Android 12+ narrows this to the widest label shown; older versions keep room for 12-hour times. -->
+        <item name="android:layout_width">64sp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="EventColor">
+        <item name="android:layout_width">4dp</item>
+        <item name="android:layout_height">20dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:src">@drawable/event_bar</item>
+        <item name="android:scaleType">fitXY</item>
+    </style>
+    <style name="EventTitle" parent="WidgetText">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_weight">1</item>
         <item name="android:textSize">16sp</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
+    </style>
+    <style name="RowJoin" parent="WidgetText">
+        <item name="android:minHeight">32dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/row_join_background</item>
+        <item name="android:text">@string/join_short</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:visibility">gone</item>
+    </style>
+    <style name="MoreEvents" parent="WidgetText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:minHeight">36dp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:background">@drawable/touch_feedback</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+        <item name="android:textColor">@color/today_primary</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:visibility">gone</item>
     </style>
 </resources>

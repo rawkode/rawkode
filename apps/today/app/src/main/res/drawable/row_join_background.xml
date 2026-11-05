@@ -1,0 +1,8 @@
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/today_ripple">
+    <item>
+        <shape>
+            <solid android:color="@color/today_primary_container" />
+            <corners android:radius="16dp" />
+        </shape>
+    </item>
+</ripple>
