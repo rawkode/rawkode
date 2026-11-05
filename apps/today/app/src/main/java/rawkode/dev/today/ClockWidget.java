@@ -39,21 +39,11 @@ public final class ClockWidget extends AppWidgetProvider {
     private static String eventSummary(Context context, CalendarEvents.Event event, long now, boolean precise) {
         if (event.allDay()) return context.getString(R.string.clock_event_all_day, event.title());
         if (event.start() <= now) return context.getString(R.string.clock_event_now, event.title());
-        long remaining = event.start() - now;
-        if (precise && remaining <= 60 * 60 * 1000L) {
-            int minutes = (int) ((remaining + 60_000L - 1) / 60_000L);
+        if (precise && Agenda.counting(event, now)) {
+            int minutes = Agenda.minutesUntil(event, now);
             return context.getResources().getQuantityString(R.plurals.clock_event_in_minutes, minutes, event.title(), minutes);
         }
         return context.getString(R.string.clock_event_later, event.title(), CalendarEvents.timeLabel(context, event));
-    }
-
-    static long nextSummaryChange(CalendarEvents.Event event, long now) {
-        if (event.allDay() || event.start() <= now) return Long.MAX_VALUE;
-        long remaining = event.start() - now;
-        if (remaining > 60 * 60 * 1000L) return event.start() - 60 * 60 * 1000L;
-        long bucket = 60_000L;
-        long rounded = ((remaining + bucket - 1) / bucket) * bucket;
-        return event.start() - (rounded - bucket) + 1;
     }
 
     // Like the Pixel clock, follow the wallpaper rather than the system theme, since nothing sits behind the text.
@@ -72,10 +62,10 @@ public final class ClockWidget extends AppWidgetProvider {
         return Color.luminance(colors.getPrimaryColor().toArgb()) > 0.5f;
     }
 
-    static void update(Context context, AppWidgetManager manager, int[] ids,
-                       List<CalendarEvents.Event> events, int error) {
+    static void update(Context context, AppWidgetManager manager, int[] ids, List<CalendarEvents.Event> events,
+                       int focus, int error, long now, boolean precise) {
         String pattern = android.text.format.DateFormat.getBestDateTimePattern(Locale.getDefault(), "EEEE d MMMM");
-        String date = new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date());
+        String date = new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date(now));
         boolean darkText = wallpaperSupportsDarkText(context);
         int layout = darkText ? R.layout.clock_widget_dark_text : R.layout.clock_widget;
         for (int id : ids) {
@@ -89,12 +79,11 @@ public final class ClockWidget extends AppWidgetProvider {
                 views.setTextViewText(R.id.clock_event, context.getString(error));
                 views.setOnClickPendingIntent(R.id.clock_event, PendingIntent.getActivity(context, id,
                         new Intent(context, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
-            } else if (events.isEmpty()) {
+            } else if (focus < 0) {
                 views.setTextViewText(R.id.clock_event, context.getString(R.string.clock_clear));
             } else {
-                CalendarEvents.Event next = events.get(0);
-                views.setTextViewText(R.id.clock_event, eventSummary(context, next, System.currentTimeMillis(),
-                        WidgetRefresh.canScheduleExact(context)));
+                CalendarEvents.Event next = events.get(focus);
+                views.setTextViewText(R.id.clock_event, eventSummary(context, next, now, precise));
                 if (next.color() != null) {
                     views.setTextColor(R.id.clock_event,
                             darkText ? EventColors.forLight(next.color()) : EventColors.forDark(next.color()));

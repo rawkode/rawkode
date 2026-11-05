@@ -5,6 +5,7 @@
     <color name="today_on_surface_variant">@android:color/system_neutral2_200</color>
     <color name="today_outline">@android:color/system_neutral2_700</color>
     <color name="today_primary">@android:color/system_accent1_200</color>
+    <color name="today_on_primary">@android:color/system_accent1_800</color>
     <color name="today_primary_container">@android:color/system_accent1_700</color>
     <color name="today_on_primary_container">@android:color/system_accent1_100</color>
     <color name="today_tertiary">@android:color/system_accent3_200</color>

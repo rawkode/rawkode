@@ -12,41 +12,62 @@ final class EventColors {
     private static final double LIGHT_SURFACE = 0.87;
     private static final double DARK_SURFACE = 0.012;
     private static final double MIN_CONTRAST = 4.5;
+    // Non-text marks such as the calendar color bar need 3:1, so pastel calendars stay closer to their own color.
+    private static final double MIN_GRAPHIC_CONTRAST = 3.0;
 
     private EventColors() {}
 
+    /** Text in the calendar's color, or the theme's primary color when the event has none. */
+    static void apply(Context context, RemoteViews views, int viewId, Integer color) {
+        tint(context, views, viewId, "setTextColor", color, MIN_CONTRAST);
+    }
+
+    /** Tints an ImageView, such as the calendar color bar, with the calendar's color. */
+    static void applyIndicator(Context context, RemoteViews views, int viewId, Integer color) {
+        tint(context, views, viewId, "setColorFilter", color, MIN_GRAPHIC_CONTRAST);
+    }
+
     // Android 12+ hosts pick the light or dark variant when they draw, so a theme switch
     // needs no widget update. Older versions use the theme at the time of the update.
-    static void apply(Context context, RemoteViews views, int viewId, Integer color) {
+    private static void tint(Context context, RemoteViews views, int viewId, String method, Integer color,
+                             double minContrast) {
         if (color == null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                views.setColor(viewId, "setTextColor", R.color.today_primary);
+                views.setColor(viewId, method, R.color.today_primary);
             } else {
-                views.setTextColor(viewId, context.getColor(R.color.today_primary));
+                views.setInt(viewId, method, context.getColor(R.color.today_primary));
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            views.setColorInt(viewId, "setTextColor", forLight(color), forDark(color));
+            views.setColorInt(viewId, method, forLight(color, minContrast), forDark(color, minContrast));
         } else {
             boolean night = (context.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-            views.setTextColor(viewId, night ? forDark(color) : forLight(color));
+            views.setInt(viewId, method, night ? forDark(color, minContrast) : forLight(color, minContrast));
         }
     }
 
     static int forLight(int color) {
-        return readable(color, 0xff000000, LIGHT_SURFACE);
+        return forLight(color, MIN_CONTRAST);
     }
 
     static int forDark(int color) {
-        return readable(color, 0xffffffff, DARK_SURFACE);
+        return forDark(color, MIN_CONTRAST);
     }
 
-    // Blend toward black or white in small steps until the color meets text contrast.
-    private static int readable(int color, int toward, double surface) {
+    static int forLight(int color, double minContrast) {
+        return readable(color, 0xff000000, LIGHT_SURFACE, minContrast);
+    }
+
+    static int forDark(int color, double minContrast) {
+        return readable(color, 0xffffffff, DARK_SURFACE, minContrast);
+    }
+
+    // Blend toward black or white in small steps until the color meets the contrast target.
+    private static int readable(int color, int toward, double surface, double minContrast) {
         int opaque = color | 0xff000000;
         for (int step = 0; step < 10; step++) {
             int mixed = mix(opaque, toward, step / 10.0);
-            if (contrast(luminance(mixed), surface) >= MIN_CONTRAST) return mixed;
+            if (contrast(luminance(mixed), surface) >= minContrast) return mixed;
         }
         return toward;
     }

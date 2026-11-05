@@ -5,6 +5,7 @@
     <color name="today_on_surface_variant">#BCC4CE</color>
     <color name="today_outline">#4B515B</color>
     <color name="today_primary">#FF938B</color>
+    <color name="today_on_primary">#561E19</color>
     <color name="today_primary_container">#343A43</color>
     <color name="today_on_primary_container">#FFFFFF</color>
     <color name="today_tertiary">#FFB2AA</color>

@@ -18,8 +18,10 @@ import android.util.Log;
 final class WidgetRefresh {
     private static final String TAG = "TodayWidgetRefresh";
     private static final int CONTENT_JOB_ID = 101;
+    private static final int CHANGE_REQUEST = 1;
+    private static final int TICK_REQUEST = 2;
     private static final long WINDOW_MILLIS = 10 * 60 * 1000L;
-    private static final String REFRESH_ACTION = "rawkode.dev.today.REFRESH";
+    static final String REFRESH_ACTION = "rawkode.dev.today.REFRESH";
     private static final Object LOCK = new Object();
 
     private WidgetRefresh() {}
@@ -37,22 +39,39 @@ final class WidgetRefresh {
         }
     }
 
-    // The next start/end or midnight in epoch milliseconds. Zero cancels the alarm.
-    // RTC (not RTC_WAKEUP) avoids waking the device solely to redraw a widget.
-    static void schedule(Context context, long nextBoundaryMillis, boolean precise) {
+    /**
+     * Arms the two refresh alarms, in epoch milliseconds; a time that has passed cancels its alarm.
+     *
+     * @param changeAt when an event starts, ends, or nears its start, or the day ends. This wakes the
+     *                 device, so the widget is already correct when the screen turns on.
+     * @param tickAt   when a minute countdown next changes. It does not wake the device: nobody sees a
+     *                 countdown while the screen is off, and the change alarm catches up on wake.
+     */
+    static void schedule(Context context, long changeAt, long tickAt) {
         synchronized (LOCK) {
             AlarmManager alarms = context.getSystemService(AlarmManager.class);
-            PendingIntent alarm = alarmIntent(context);
-            if (nextBoundaryMillis <= System.currentTimeMillis() || !hasWidgets(context)) {
-                alarms.cancel(alarm);
-            } else if (precise && canScheduleExact(context)) {
-                alarms.setExact(AlarmManager.RTC, nextBoundaryMillis, alarm);
+            PendingIntent change = alarmIntent(context, CHANGE_REQUEST);
+            PendingIntent tick = alarmIntent(context, TICK_REQUEST);
+            long now = System.currentTimeMillis();
+            boolean widgets = hasWidgets(context);
+            boolean exact = canScheduleExact(context);
+            if (!widgets || changeAt <= now || changeAt == Long.MAX_VALUE) {
+                alarms.cancel(change);
+            } else if (exact) {
+                // Plain exact alarms wait for Doze to end; event boundaries are few enough to be allowed through.
+                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, changeAt, change);
             } else {
-                alarms.setWindow(AlarmManager.RTC, nextBoundaryMillis, WINDOW_MILLIS, alarm);
+                alarms.setWindow(AlarmManager.RTC, changeAt, WINDOW_MILLIS, change);
+            }
+            if (!widgets || !exact || tickAt <= now || tickAt >= changeAt) {
+                alarms.cancel(tick);
+            } else {
+                alarms.setExact(AlarmManager.RTC, tickAt, tick);
             }
         }
     }
 
+    // USE_EXACT_ALARM grants this from Android 13; Android 12 users can revoke SCHEDULE_EXACT_ALARM.
     static boolean canScheduleExact(Context context) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S
                 || context.getSystemService(AlarmManager.class).canScheduleExactAlarms();
@@ -61,7 +80,9 @@ final class WidgetRefresh {
     static void stop(Context context) {
         synchronized (LOCK) {
             context.getSystemService(JobScheduler.class).cancel(CONTENT_JOB_ID);
-            context.getSystemService(AlarmManager.class).cancel(alarmIntent(context));
+            AlarmManager alarms = context.getSystemService(AlarmManager.class);
+            alarms.cancel(alarmIntent(context, CHANGE_REQUEST));
+            alarms.cancel(alarmIntent(context, TICK_REQUEST));
         }
     }
 
@@ -105,9 +126,10 @@ final class WidgetRefresh {
         return false;
     }
 
-    private static PendingIntent alarmIntent(Context context) {
+    // Distinct request codes keep the two alarms independent although they deliver the same broadcast.
+    private static PendingIntent alarmIntent(Context context, int requestCode) {
         Intent intent = new Intent(context, TodayWidget.class).setAction(REFRESH_ACTION);
-        return PendingIntent.getBroadcast(context, 1, intent,
+        return PendingIntent.getBroadcast(context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 }

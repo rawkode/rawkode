@@ -7,7 +7,7 @@
     <string name="permission_granted">Calendar access is on. Your widget can show today’s events.</string>
     <string name="allow_calendar">Allow calendar access</string>
     <string name="open_settings">Open app settings</string>
-    <string name="enable_precise_updates">Enable precise clock updates</string>
+    <string name="enable_precise_updates">Enable precise widget updates</string>
     <string name="refresh_widget">Refresh widget</string>
     <string name="refreshed">Widget refresh requested.</string>
     <string name="add_widget">Add dashboard widget</string>
@@ -26,27 +26,28 @@
         <item quantity="other">%1$s in %2$d mins</item>
     </plurals>
     <string name="widget_description">Today’s upcoming calendar events</string>
-    <string name="widget_title">Today</string>
     <string name="widget_refresh">Refresh events</string>
     <string name="clear_morning">A clear day ahead.</string>
     <string name="clear_later">The rest of today is yours.</string>
     <string name="clear_caption">Nothing else on your calendar</string>
-    <string name="more_events_compact">+%1$d</string>
     <plurals name="more_events">
-        <item quantity="one">+ %d more event</item>
-        <item quantity="other">+ %d more events</item>
+        <item quantity="one">+%d more event</item>
+        <item quantity="other">+%d more events</item>
     </plurals>
     <string name="widget_permission">Tap to allow calendar access.</string>
     <string name="widget_error">Couldn’t load your calendar. Tap refresh to try again.</string>
     <string name="event_time_range">%1$s – %2$s</string>
     <string name="join_short">Join</string>
     <string name="join_meeting">Join meeting</string>
-    <string name="open_map">Open map</string>
+    <string name="join_event">Join %1$s</string>
     <string name="open_location">Open %1$s in maps</string>
     <string name="conflict">Overlaps</string>
-    <string name="next_up">Up Next</string>
+    <string name="next_up">Up next</string>
+    <plurals name="starts_in_minutes">
+        <item quantity="one">In %d min</item>
+        <item quantity="other">In %d min</item>
+    </plurals>
     <string name="on_now">On now</string>
-    <string name="today_label">Today</string>
     <string name="all_day">All day</string>
     <string name="happening_now">Now</string>
     <string name="work_heading">Work calendars</string>
