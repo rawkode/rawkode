@@ -115,6 +115,7 @@ mkApp {
           settings = {
             environment = {
               QT_QPA_PLATFORM = "wayland";
+              TERMINAL = "cuetty";
               XDG_CURRENT_DESKTOP = "niri";
               XDG_SESSION_TYPE = "wayland";
 
@@ -308,8 +309,8 @@ mkApp {
                 open-focused = true;
               }
               {
-                matches = [ { app-id = "(?i)^rio$"; } ];
-                # Rio needs both initial dimensions and must not be redirected to another workspace.
+                matches = [ { app-id = "(?i)^(rio|cuetty)$"; } ];
+                # Terminal windows need both initial dimensions and stay on the current workspace.
                 default-column-width.proportion = 0.9;
                 default-window-height.proportion = 1.0;
               }
@@ -450,7 +451,7 @@ mkApp {
               "Super+Ctrl+8".action.move-column-to-workspace = 8;
               "Super+9".action.focus-workspace = 9;
               "Super+Ctrl+9".action.move-column-to-workspace = 9;
-              "Super+Return".action.spawn = [ "rio" ];
+              "Super+Return".action.spawn = [ "cuetty" ];
               "Super+Backslash".action.spawn = [
                 "1password"
                 "--quick-access"

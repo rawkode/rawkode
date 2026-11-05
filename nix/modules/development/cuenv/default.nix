@@ -20,23 +20,15 @@ mkApp {
       pkgs,
       ...
     }:
-    let
-      packages = inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system};
-      package = packages.default or packages.cuenv;
-    in
     {
       nix.settings = cuenvCache;
 
-      home.packages = [
-        package
-        inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system}.cuetty
+      home.packages = with inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system}; [
+        cuenv
+        cuetty
       ];
 
-      xdg.configFile."cuetty/config.cue".text = ''
-        package cuetty
-
-        titlebar: *false | bool
-      '';
+      xdg.configFile."cuetty/config.cue".source = ./cuetty.cue;
 
       programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
         c = {

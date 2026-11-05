@@ -34,6 +34,8 @@ mkApp {
       };
     in
     {
+      home.sessionVariables.TERMINAL = "cuetty";
+
       gtk = {
         enable = true;
 
