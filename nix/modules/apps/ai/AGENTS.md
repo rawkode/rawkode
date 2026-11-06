@@ -6,6 +6,11 @@ Treat this as adaptable guidance, not a fixed workflow. Scale coordination, dele
 
 - gh and op ONLY work when executed outside the sandbox
 
+## Slop
+
+- DO NOT leak our conversation, prompt, or iteration history into code comments, pull request descriptions, or other maintainer-facing prose. Write for readers who have not seen our conversation.
+- PREFER comments that explain the current behavior and rationale. Avoid past-facing wording like "preserve the existing behavior"; explain the actual backwards-compatibility constraint instead.
+
 ## Orchestration and Delegation
 
 - Coordinate explicitly when work has independent questions, multiple ownership boundaries, or material integration risk. Keep one agent responsible for the overall plan, dependencies, and integration state.

@@ -90,7 +90,11 @@ mkApp {
         };
 
         programs.fish.shellAliases = lib.optionalAttrs cfg.cliPackages.enable {
-          codex = ''codex --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
+          codex = ''codex --approve-for-me --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
+        };
+
+        programs.nushell.shellAliases = lib.optionalAttrs cfg.cliPackages.enable {
+          codex = "codex --approve-for-me";
         };
       };
     };
