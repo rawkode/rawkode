@@ -77,6 +77,11 @@
       url = "github:ghostty-org/ghostty";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    hex = {
+      url = "github:anomalyco/hex";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     ironbar.url = "github:JakeStanger/ironbar";
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
