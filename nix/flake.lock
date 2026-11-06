@@ -305,11 +305,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1793881473,
-        "narHash": "sha256-O90Nc8rYxa3ppeQjqyMtbRhY0CIzUIAsFj5SHxRTk9M=",
+        "lastModified": 1793892224,
+        "narHash": "sha256-b3lSZJOw77qUA6543ZQOgeXAhYAHlkJxaDVOaREo92E=",
         "owner": "cuenv",
         "repo": "cuenv",
-        "rev": "cdb67d25a380d62408b7e51b4cd1283f9b3f80fc",
+        "rev": "9b821928be08458a0720bc6847a65c1c090b6cb1",
         "type": "github"
       },
       "original": {
