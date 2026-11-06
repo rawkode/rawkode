@@ -49,6 +49,7 @@ mkCapability {
           appBundles.eloquawk.home
           appBundles.firefox-nightly.home
           appBundles.flipper.home
+          appBundles.reason-desktop.home
           appBundles.rockhopper.home
           appBundles.sonora.home
 
