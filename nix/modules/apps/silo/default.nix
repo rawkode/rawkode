@@ -34,15 +34,7 @@ in
           always_ask = false;
           fallback_browser = null;
           previous_default_browser = null;
-          rules = [
-            {
-              pattern = "oauth2.sigstore.dev";
-              browser = {
-                desktop_file = "google-chrome.desktop";
-                args = "--profile-directory='Profile 1'";
-              };
-            }
-          ];
+          rules = [ ];
           rules_suspended = false;
           custom_browsers = [ ];
           browser_overrides = [

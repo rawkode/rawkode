@@ -36,7 +36,6 @@ mkCapability {
         with inputs.self;
         [
           appBundles.rio.home
-          appBundles.google-chrome.home
           appBundles.handy.home
           appBundles.onepassword.home
           appBundles.zed.home
@@ -74,7 +73,6 @@ mkCapability {
     inputs.self.nixosModules.greetd
     inputs.self.nixosModules.flatpak
     inputs.self.nixosModules.firefox-nightly
-    inputs.self.nixosModules.google-chrome
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.desktop-defaults
     inputs.self.nixosModules.location
@@ -100,7 +98,6 @@ mkCapability {
   darwin = with inputs.self; [
     appBundles.firefox-nightly.darwin
     appBundles.rio.darwin
-    appBundles.google-chrome.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
     appBundles.zed.darwin
