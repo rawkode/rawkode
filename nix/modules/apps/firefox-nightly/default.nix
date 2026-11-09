@@ -379,6 +379,19 @@ mkApp {
       environment.systemPackages = [
         inputs.firefox-nightly.packages.${pkgs.stdenv.hostPlatform.system}.firefox-nightly-bin
       ];
+
+      # 1Password only trusts browsers it recognises by process name. The
+      # launcher is `firefox-nightly`, but its executable is
+      # `firefox-nightly-bin`. `text` is a lines option, so each browser module
+      # appends its own entries. The mode makes this a root-owned file rather
+      # than a store symlink, which 1Password refuses to read.
+      environment.etc."1password/custom_allowed_browsers" = {
+        text = ''
+          firefox-nightly
+          firefox-nightly-bin
+        '';
+        mode = "0755";
+      };
     };
 
   darwin.system =
