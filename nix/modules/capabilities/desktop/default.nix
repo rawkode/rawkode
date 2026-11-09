@@ -82,7 +82,6 @@ mkCapability {
     inputs.self.nixosModules.polkit
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rockhopper
-    inputs.self.nixosModules.vivaldi-snapshot
     (_: {
       services = {
         pipewire = {
@@ -101,7 +100,6 @@ mkCapability {
     appBundles.handy.darwin
     appBundles.onepassword.darwin
     appBundles.zed.darwin
-    appBundles.vivaldi-snapshot.darwin
 
     darwinModules.apps
     darwinModules.kree
