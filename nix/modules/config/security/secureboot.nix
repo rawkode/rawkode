@@ -22,6 +22,8 @@
         lanzaboote = {
           enable = true;
           pkiBundle = "/var/lib/sbctl";
+          # Each distinct kernel+initrd pair takes ~85M of the 511M ESP.
+          configurationLimit = 3;
         };
       };
     };
