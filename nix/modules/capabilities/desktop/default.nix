@@ -37,7 +37,7 @@ mkCapability {
         [
           appBundles.rio.home
           appBundles.google-chrome.home
-          appBundles.hex.home
+          appBundles.handy.home
           appBundles.onepassword.home
           appBundles.zed.home
         ]
@@ -101,7 +101,7 @@ mkCapability {
     appBundles.firefox-nightly.darwin
     appBundles.rio.darwin
     appBundles.google-chrome.darwin
-    appBundles.hex.darwin
+    appBundles.handy.darwin
     appBundles.onepassword.darwin
     appBundles.zed.darwin
     appBundles.vivaldi-snapshot.darwin
