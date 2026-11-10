@@ -26,7 +26,6 @@
         <item quantity="other">%1$s in %2$d mins</item>
     </plurals>
     <string name="widget_description">Today’s upcoming calendar events</string>
-    <string name="widget_refresh">Refresh events</string>
     <string name="clear_morning">A clear day ahead.</string>
     <string name="clear_later">The rest of today is yours.</string>
     <string name="clear_caption">Nothing else on your calendar</string>
@@ -35,7 +34,7 @@
         <item quantity="other">+%d more events</item>
     </plurals>
     <string name="widget_permission">Tap to allow calendar access.</string>
-    <string name="widget_error">Couldn’t load your calendar. Tap refresh to try again.</string>
+    <string name="widget_error">Couldn’t load your calendar. Tap to try again.</string>
     <string name="event_time_range">%1$s – %2$s</string>
     <string name="join_short">Join</string>
     <string name="join_meeting">Join meeting</string>

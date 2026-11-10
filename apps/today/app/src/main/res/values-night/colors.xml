@@ -8,5 +8,6 @@
     <color name="today_on_primary">#561E19</color>
     <color name="today_primary_container">#343A43</color>
     <color name="today_on_primary_container">#FFFFFF</color>
+    <color name="today_on_container_variant">#C6CDD6</color>
     <color name="today_tertiary">#FFB2AA</color>
 </resources>

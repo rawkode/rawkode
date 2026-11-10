@@ -8,23 +8,45 @@
         <item name="android:textColor">@color/today_on_surface</item>
     </style>
 
+    <!-- The date reads as context for the featured event, so it stays small unless there is room to spare. -->
     <style name="WidgetDay" parent="WidgetText">
-        <item name="android:textSize">20sp</item>
+        <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
         <item name="android:maxLines">1</item>
     </style>
     <style name="WidgetDate" parent="WidgetText">
-        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginStart">6dp</item>
         <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:textColor">@color/today_on_container_variant</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="DateNumber" parent="WidgetText">
+        <item name="android:textSize">44sp</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:maxLines">1</item>
+    </style>
+    <style name="DateWeekday" parent="WidgetText">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="DateMonth" parent="WidgetText">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/today_on_container_variant</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>
     <style name="WidgetMessage" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:layout_marginTop">12dp</item>
         <item name="android:textSize">15sp</item>
-        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:textColor">@color/today_on_container_variant</item>
     </style>
     <style name="ClearTitle" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
@@ -32,13 +54,14 @@
         <item name="android:gravity">center</item>
         <item name="android:textSize">18sp</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
     </style>
     <style name="ClearCaption" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_marginTop">2dp</item>
         <item name="android:gravity">center</item>
         <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:textColor">@color/today_on_container_variant</item>
     </style>
 
     <style name="NextLabel" parent="WidgetText">
@@ -52,9 +75,11 @@
     </style>
     <style name="NextTitle" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <!-- TodayWidget raises this when the panel has room; see WidgetLayout.TITLE_SIZES. -->
         <item name="android:textSize">22sp</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/today_on_primary_container</item>
         <item name="android:maxLines">2</item>
         <item name="android:ellipsize">end</item>
     </style>
@@ -63,7 +88,7 @@
         <item name="android:gravity">center_vertical</item>
         <item name="android:drawablePadding">8dp</item>
         <item name="android:textSize">15sp</item>
-        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:textColor">@color/today_on_container_variant</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>
@@ -101,12 +126,13 @@
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>
+    <!-- The calendar's color, as a dot beside the featured label and each listed event. -->
     <style name="EventColor">
-        <item name="android:layout_width">4dp</item>
-        <item name="android:layout_height">20dp</item>
-        <item name="android:layout_marginStart">8dp</item>
-        <item name="android:layout_marginEnd">12dp</item>
-        <item name="android:src">@drawable/event_bar</item>
+        <item name="android:layout_width">8dp</item>
+        <item name="android:layout_height">8dp</item>
+        <item name="android:layout_marginStart">10dp</item>
+        <item name="android:layout_marginEnd">10dp</item>
+        <item name="android:src">@drawable/event_dot</item>
         <item name="android:scaleType">fitXY</item>
     </style>
     <style name="EventTitle" parent="WidgetText">
@@ -132,6 +158,8 @@
     </style>
     <style name="MoreEvents" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
         <item name="android:minHeight">36dp</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:background">@drawable/touch_feedback</item>

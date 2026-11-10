@@ -75,19 +75,22 @@ public final class ClockWidget extends AppWidgetProvider {
             views.setOnClickPendingIntent(R.id.clock_time, PendingIntent.getActivity(context, id,
                     new Intent(AlarmClock.ACTION_SHOW_ALARMS),
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+            // The launcher reapplies updates onto views it already inflated, so the event line's color
+            // and tap target are set on every path rather than left over from the previous event.
+            Integer color = error == 0 && focus >= 0 ? events.get(focus).color() : null;
+            views.setTextColor(R.id.clock_event, color != null
+                    ? (darkText ? EventColors.forLight(color) : EventColors.forDark(color))
+                    : context.getColor(darkText ? R.color.today_clock_text_on_light : R.color.today_clock_text_on_dark));
             if (error != 0) {
                 views.setTextViewText(R.id.clock_event, context.getString(error));
                 views.setOnClickPendingIntent(R.id.clock_event, PendingIntent.getActivity(context, id,
                         new Intent(context, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             } else if (focus < 0) {
                 views.setTextViewText(R.id.clock_event, context.getString(R.string.clock_clear));
+                views.setOnClickPendingIntent(R.id.clock_event, TodayWidget.calendarIntent(context, id));
             } else {
                 CalendarEvents.Event next = events.get(focus);
                 views.setTextViewText(R.id.clock_event, eventSummary(context, next, now, precise));
-                if (next.color() != null) {
-                    views.setTextColor(R.id.clock_event,
-                            darkText ? EventColors.forLight(next.color()) : EventColors.forDark(next.color()));
-                }
                 views.setOnClickPendingIntent(R.id.clock_event, TodayWidget.eventIntent(context, next, id, 0));
             }
             manager.updateAppWidget(id, views);
