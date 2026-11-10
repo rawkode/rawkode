@@ -1,0 +1,6 @@
+<!-- The panel as the first line of the scrolling dashboard. TodayWidget sets the panel's height so that
+     it and the rows below it fill the widget exactly, and the padding that separates it from those rows. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/panel_item" android:layout_width="match_parent" android:layout_height="wrap_content">
+    <include layout="@layout/widget_panel" />
+</FrameLayout>

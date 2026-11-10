@@ -1,0 +1,9 @@
+<!-- The dashboard on Android 12 and newer: one list, so a swipe anywhere on the widget scrolls from the
+     panel and today's events on into the coming days. The faded edge shows that more follows. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_body" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_background">
+    <ListView android:id="@+id/agenda_list" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:divider="@null" android:dividerHeight="0dp" android:listSelector="@android:color/transparent"
+        android:scrollbars="none" android:requiresFadingEdge="vertical" android:fadingEdgeLength="16dp" />
+</FrameLayout>

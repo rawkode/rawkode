@@ -48,6 +48,7 @@
     </plurals>
     <string name="on_now">On now</string>
     <string name="all_day">All day</string>
+    <string name="tomorrow">Tomorrow</string>
     <string name="happening_now">Now</string>
     <string name="work_heading">Work calendars</string>
     <string name="work_connected">Events from your work profile appear in the widget.</string>

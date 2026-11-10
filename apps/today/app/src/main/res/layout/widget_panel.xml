@@ -1,0 +1,56 @@
+<!-- The tinted panel holding the date and the featured event. Heights here are mirrored in WidgetLayout,
+     which decides what fits. Keep them in sync. TodayWidget sets the visibility of each view on every
+     render instead of relying on the defaults here. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/panel" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:background="@drawable/panel_background"
+    android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="14dp" android:paddingBottom="16dp">
+
+    <LinearLayout android:id="@+id/date_compact" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView android:id="@+id/widget_day" style="@style/WidgetDay" />
+        <TextView android:id="@+id/widget_date" style="@style/WidgetDate" />
+    </LinearLayout>
+
+    <!-- Shown instead of the line above when the panel has height to spare. -->
+    <LinearLayout android:id="@+id/date_large" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+        <TextView android:id="@+id/date_number" style="@style/DateNumber" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="12dp" android:orientation="vertical">
+            <TextView android:id="@+id/date_weekday" style="@style/DateWeekday" />
+            <TextView android:id="@+id/date_month" style="@style/DateMonth" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView android:id="@+id/widget_message" style="@style/WidgetMessage" android:text="@string/widget_permission" />
+
+    <LinearLayout android:id="@+id/clear_state" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:visibility="gone">
+        <ImageView android:layout_width="96dp" android:layout_height="54dp" android:src="@drawable/clear_horizon"
+            android:contentDescription="@null" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/clear_title" style="@style/ClearTitle" android:text="@string/clear_morning" />
+        <TextView style="@style/ClearCaption" android:text="@string/clear_caption" />
+    </LinearLayout>
+
+    <!-- Pushes the featured event to the bottom of the panel, next to the list it leads. -->
+    <FrameLayout android:id="@+id/panel_spacer" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout android:id="@+id/next_event" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:orientation="vertical" android:visibility="gone">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/next_color" style="@style/EventColor" android:layout_marginStart="0dp"
+                android:layout_marginEnd="8dp" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/next_label" style="@style/NextLabel" />
+            <TextView android:id="@+id/next_conflict" style="@style/ConflictBadge" />
+        </LinearLayout>
+        <TextView android:id="@+id/next_title" style="@style/NextTitle" />
+        <TextView android:id="@+id/next_time" style="@style/Detail" android:layout_marginTop="4dp" />
+        <TextView android:id="@+id/next_location" style="@style/Detail" android:layout_marginTop="2dp" android:minHeight="32dp"
+            android:drawableStart="@drawable/ic_location" android:background="@drawable/touch_feedback" android:visibility="gone" />
+        <TextView android:id="@+id/join_meeting" style="@style/JoinButton" android:layout_marginTop="12dp"
+            android:text="@string/join_meeting" android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

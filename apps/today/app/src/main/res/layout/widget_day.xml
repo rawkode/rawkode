@@ -1,0 +1,9 @@
+<!-- A day's heading in the scrolling dashboard. It is as tall as an event row, so WidgetLayout
+     counts both alike, and its text sits low to belong to the events under it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/day_row" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:minHeight="48dp" android:orientation="horizontal" android:gravity="bottom"
+    android:paddingBottom="6dp" android:background="@drawable/touch_feedback">
+    <TextView android:id="@+id/day_name" style="@style/ListDay" />
+    <TextView android:id="@+id/day_date" style="@style/ListDate" />
+</LinearLayout>

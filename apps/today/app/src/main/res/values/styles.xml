@@ -9,6 +9,6 @@
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
 
-    <!-- Hands work-profile events to the copy of Today in that profile, without showing UI. -->
+    <!-- For activities that pass a tap on to another app without showing UI. -->
     <style name="Trampoline" parent="android:style/Theme.Translucent.NoTitleBar" />
 </resources>

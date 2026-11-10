@@ -22,6 +22,8 @@ final class WidgetRefresh {
     private static final int TICK_REQUEST = 2;
     private static final long WINDOW_MILLIS = 10 * 60 * 1000L;
     static final String REFRESH_ACTION = "rawkode.dev.today.REFRESH";
+    // A countdown tick redraws the widget without returning its list to today, unlike every other refresh.
+    static final String TICK_ACTION = "rawkode.dev.today.TICK";
     private static final Object LOCK = new Object();
 
     private WidgetRefresh() {}
@@ -126,9 +128,9 @@ final class WidgetRefresh {
         return false;
     }
 
-    // Distinct request codes keep the two alarms independent although they deliver the same broadcast.
     private static PendingIntent alarmIntent(Context context, int requestCode) {
-        Intent intent = new Intent(context, TodayWidget.class).setAction(REFRESH_ACTION);
+        Intent intent = new Intent(context, TodayWidget.class)
+                .setAction(requestCode == TICK_REQUEST ? TICK_ACTION : REFRESH_ACTION);
         return PendingIntent.getBroadcast(context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }

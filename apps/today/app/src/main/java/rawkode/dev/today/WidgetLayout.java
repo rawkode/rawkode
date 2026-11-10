@@ -16,7 +16,8 @@ final class WidgetLayout {
     private static final float LOCATION = 32;
     private static final float JOIN_TOP = 12;
     private static final float JOIN = 40;
-    private static final float LIST_PADDING = 4 + 8; // above the first row and below the last
+    static final float LIST_TOP = 4; // above the first row
+    private static final float LIST_PADDING = LIST_TOP + 8; // and below the last
     private static final float ROW = 48;
     private static final float MORE = 36;
     // Absorbs differences between device fonts.
@@ -37,10 +38,13 @@ final class WidgetLayout {
 
     /**
      * @param titleLines lines the featured title needs at each of {@link #TITLE_SIZES}
-     * @param others     events other than the featured one, each needing a row
+     * @param others     rows the list would show given the room: events other than the featured one,
+     *                   and in a scrolling list the start of the next day
+     * @param scrolls    whether the widget scrolls. Rows that do not fit are then a swipe away, so no
+     *                   room is kept for the link that would summarize them.
      */
     static Plan plan(float height, float fontScale, int[] titleLines, boolean timeRow,
-                     boolean location, boolean join, int others) {
+                     boolean location, boolean join, int others, boolean scrolls) {
         float s = Math.max(1f, fontScale);
         float available = height - PANEL_PADDING - LABEL_LINE * s - SLACK;
         // At the smallest sizes and largest fonts, shed the title's second line and then the time rather than clip.
@@ -57,16 +61,16 @@ final class WidgetLayout {
         boolean showLocation = location && available >= locationHeight;
         if (showLocation) available -= locationHeight;
 
-        float row = Math.max(ROW, ROW_LINE * s + 16);
+        float row = row(s);
         float more = Math.max(MORE, LABEL_LINE * s + 12);
         int rows = 0;
         if (others > 0 && available >= LIST_PADDING + row) {
             float list = available - LIST_PADDING;
             rows = Math.min(others, (int) (list / row));
-            if (rows < others) rows = Math.max(0, (int) ((list - more) / row));
+            if (rows < others && !scrolls) rows = Math.max(0, (int) ((list - more) / row));
             if (rows > 0) available = list - rows * row;
         }
-        boolean showMore = rows < others && available >= more;
+        boolean showMore = !scrolls && rows < others && available >= more;
         if (showMore) available -= more;
 
         // Whatever height the day leaves over goes to the featured event and the date, not to blank surface.
@@ -86,11 +90,30 @@ final class WidgetLayout {
         return new Plan(TITLE_SIZES[size], lines, showTime, showLocation, showJoin, rows, showMore, largeDate);
     }
 
-    /** Whether the large date fits a widget that shows no events, such as the clear-day state. */
-    static boolean largeDateWithoutEvents(float height, float fontScale) {
+    /** Height in dp of a list of this many rows with the space around it, or 0 without rows. */
+    static float listHeight(int rows, float fontScale) {
+        return rows > 0 ? LIST_PADDING + rows * row(Math.max(1f, fontScale)) : 0;
+    }
+
+    /** How many of the wanted list rows fit below the clear-day state, which shows no events of its own. */
+    static int rowsWithoutEvents(float height, float fontScale, int wanted) {
         float s = Math.max(1f, fontScale);
-        // Leaves room for the illustration and its two lines of text.
-        return largeDate(height - PANEL_PADDING - LABEL_LINE * s - SLACK - 130 * s, s);
+        return Math.max(0, Math.min(wanted, (int) ((clearRoom(height, s) - LIST_PADDING) / row(s))));
+    }
+
+    /** Whether the large date fits the clear-day state once the list below it has taken its rows. */
+    static boolean largeDateWithoutEvents(float height, float fontScale, int rows) {
+        float s = Math.max(1f, fontScale);
+        return largeDate(clearRoom(height, s) - (rows > 0 ? LIST_PADDING + rows * row(s) : 0), s);
+    }
+
+    // Height left once the date line and the illustration with its two lines of text are placed.
+    private static float clearRoom(float height, float s) {
+        return height - PANEL_PADDING - LABEL_LINE * s - SLACK - 130 * s;
+    }
+
+    private static float row(float s) {
+        return Math.max(ROW, ROW_LINE * s + 16);
     }
 
     private static boolean largeDate(float available, float s) {

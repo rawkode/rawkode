@@ -35,42 +35,75 @@ final class CalendarEvents {
     record Event(long id, String title, long start, long end, boolean allDay, String location,
                  String description, Integer color, int selfAttendeeStatus, int availability, boolean work) {}
 
+    /** One day of the agenda. */
+    record Day(LocalDate date, List<Event> events) {}
+
     static List<Event> load(Context context) {
+        return load(context, 1).get(0).events();
+    }
+
+    /**
+     * One entry per day, starting with today. Today holds what remains of it; each later day holds
+     * the timed events that start on it and the all-day events that cover it.
+     */
+    static List<Day> load(Context context, int days) {
         if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException("Calendar access is not granted");
         }
         ZoneId zone = ZoneId.systemDefault();
         LocalDate today = LocalDate.now(zone);
         long now = System.currentTimeMillis();
-        long dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli();
-        long dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
-        // All-day dates are stored at UTC midnight, so widen the query and filter locally.
-        long utcStart = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-        long utcEnd = today.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-        Window window = new Window(now, dayStart, dayEnd, utcStart, utcEnd);
-        List<Event> events = new ArrayList<>();
-        query(context, CalendarContract.Instances.CONTENT_URI, COLUMNS, false, window, events);
+        List<Window> windows = new ArrayList<>();
+        List<Day> agenda = new ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            LocalDate date = today.plusDays(i);
+            windows.add(Window.of(date, zone));
+            agenda.add(new Day(date, new ArrayList<>()));
+        }
+        query(context, CalendarContract.Instances.CONTENT_URI, COLUMNS, false, now, windows, agenda);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasWorkProfile(context)) {
             // Returns nothing unless the work profile's admin allows this app and the user has
             // turned on cross-profile calendar. A failure here must not hide personal events.
             try {
-                query(context, CalendarContract.Instances.ENTERPRISE_CONTENT_URI, WORK_COLUMNS, true, window, events);
+                query(context, CalendarContract.Instances.ENTERPRISE_CONTENT_URI, WORK_COLUMNS, true, now, windows, agenda);
             } catch (RuntimeException e) {
                 Log.w(TAG, "Could not read work profile calendars", e);
             }
         }
         // Timed events take precedence over all-day reminders; active events appear first.
-        events.sort(Comparator.comparing(Event::allDay).thenComparingLong(Event::start));
-        return events;
+        for (Day day : agenda) day.events().sort(Comparator.comparing(Event::allDay).thenComparingLong(Event::start));
+        return agenda;
     }
 
-    private record Window(long now, long dayStart, long dayEnd, long utcStart, long utcEnd) {}
+    /** One local day, with the UTC day that all-day events on the same date are stored against. */
+    record Window(long dayStart, long dayEnd, long utcStart, long utcEnd) {
+        static Window of(LocalDate date, ZoneId zone) {
+            return new Window(date.atStartOfDay(zone).toInstant().toEpochMilli(),
+                    date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+                    date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                    date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli());
+        }
 
-    private static void query(Context context, Uri base, String[] columns, boolean work, Window window,
-                              List<Event> events) {
+        /**
+         * Whether an occurrence is listed under this day. Today lists whatever has not ended yet, including
+         * events that began earlier. A later day lists a timed event only if it starts then, so an event
+         * running past midnight is not repeated under the next day.
+         */
+        boolean lists(long start, long end, boolean allDay, boolean today, long now) {
+            if (allDay) return start < utcEnd && end > utcStart;
+            if (today) return start < dayEnd && end > dayStart && end > now;
+            return start >= dayStart && start < dayEnd;
+        }
+    }
+
+    private static void query(Context context, Uri base, String[] columns, boolean work, long now,
+                              List<Window> windows, List<Day> agenda) {
+        Window first = windows.get(0);
+        Window last = windows.get(windows.size() - 1);
         Uri.Builder uri = base.buildUpon();
-        ContentUris.appendId(uri, Math.min(window.dayStart(), window.utcStart()));
-        ContentUris.appendId(uri, Math.max(window.dayEnd(), window.utcEnd()));
+        // All-day dates are stored at UTC midnight, so widen the query and filter locally.
+        ContentUris.appendId(uri, Math.min(first.dayStart(), first.utcStart()));
+        ContentUris.appendId(uri, Math.max(last.dayEnd(), last.utcEnd()));
         try (Cursor cursor = context.getContentResolver().query(uri.build(), columns,
                 CalendarContract.Instances.VISIBLE + " = 1", null, null)) {
             if (cursor == null) throw new IllegalStateException("Calendar provider unavailable");
@@ -81,13 +114,18 @@ final class CalendarEvents {
                 if (!cursor.isNull(5) && cursor.getInt(5) == CalendarContract.Events.STATUS_CANCELED) continue;
                 int selfStatus = cursor.isNull(8) ? CalendarContract.Attendees.ATTENDEE_STATUS_NONE : cursor.getInt(8);
                 if (selfStatus == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue;
-                if (allDay ? start >= window.utcEnd() || end <= window.utcStart()
-                        : start >= window.dayEnd() || end <= window.dayStart() || end <= window.now()) continue;
-                String title = cursor.getString(1);
-                events.add(new Event(cursor.getLong(0), title == null || title.trim().isEmpty()
-                        ? context.getString(R.string.untitled_event) : title, start, end, allDay,
-                        cursor.getString(6), work ? null : cursor.getString(10), cursor.isNull(7) ? null : cursor.getInt(7),
-                        selfStatus, cursor.isNull(9) ? CalendarContract.Events.AVAILABILITY_BUSY : cursor.getInt(9), work));
+                Event event = null;
+                for (int i = 0; i < windows.size(); i++) {
+                    if (!windows.get(i).lists(start, end, allDay, i == 0, now)) continue;
+                    if (event == null) {
+                        String title = cursor.getString(1);
+                        event = new Event(cursor.getLong(0), title == null || title.trim().isEmpty()
+                                ? context.getString(R.string.untitled_event) : title, start, end, allDay,
+                                cursor.getString(6), work ? null : cursor.getString(10), cursor.isNull(7) ? null : cursor.getInt(7),
+                                selfStatus, cursor.isNull(9) ? CalendarContract.Events.AVAILABILITY_BUSY : cursor.getInt(9), work);
+                    }
+                    agenda.get(i).events().add(event);
+                }
             }
         }
     }

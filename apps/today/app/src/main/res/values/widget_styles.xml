@@ -156,6 +156,19 @@
         <item name="android:maxLines">1</item>
         <item name="android:visibility">gone</item>
     </style>
+    <!-- The heading of a later day in the scrolling list. -->
+    <style name="ListDay" parent="WidgetText">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">1</item>
+    </style>
+    <style name="ListDate" parent="WidgetText">
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/today_on_surface_variant</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
     <style name="MoreEvents" parent="WidgetText">
         <item name="android:layout_width">match_parent</item>
         <item name="android:paddingStart">20dp</item>

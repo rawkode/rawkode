@@ -1,4 +1,5 @@
-<!-- One row of the dashboard list. Its height is mirrored in WidgetLayout. -->
+<!-- One row of the dashboard list. Its height is mirrored in WidgetLayout. The scrolling dashboard
+     reuses rows, so TodayWidget sets each view's state there rather than relying on the defaults here. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/event_row" android:layout_width="match_parent" android:layout_height="wrap_content"
     android:minHeight="48dp" android:orientation="horizontal" android:gravity="center_vertical"
