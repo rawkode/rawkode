@@ -1,4 +1,5 @@
 ---
+
 name: scenario-writer
 description: BDD scenario writer — Gherkin scenarios covering happy paths, edge cases, error flows, and boundary conditions
 tools: read, bash, edit, write, grep, find, ls

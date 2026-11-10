@@ -1,4 +1,5 @@
 ---
+
 name: comma-dns
 description: Run DNS lookups via comma using doggo. Use this when lookups must be executed as `, doggo <name>` instead of calling doggo directly.
 ---
@@ -51,10 +52,12 @@ Examples:
 If lookup fails:
 
 1. Confirm comma exists:
+
    ```bash
    command -v ,
    ```
 2. Try the canonical direct command:
+
    ```bash
    , doggo rawkode.academy
    ```

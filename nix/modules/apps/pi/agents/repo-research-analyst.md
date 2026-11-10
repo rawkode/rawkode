@@ -1,4 +1,5 @@
 ---
+
 name: repo-research-analyst
 description: Researcher — analyzes repository structure, documentation, conventions, and implementation patterns for onboarding and consistency
 tools: read, bash, grep, find, ls

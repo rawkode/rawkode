@@ -1,4 +1,5 @@
 ---
+
 name: performance-oracle
 description: Performance specialist — algorithmic complexity, resource usage, caching, scalability, and bottleneck analysis
 tools: read, bash, grep, find, ls

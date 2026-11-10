@@ -1,4 +1,5 @@
 ---
+
 name: ops-reviewer
 description: Code reviewer — resilience, observability, operational readiness, and deployment safety
 tools: read, grep, find, ls, bash

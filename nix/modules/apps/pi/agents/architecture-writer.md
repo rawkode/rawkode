@@ -1,4 +1,5 @@
 ---
+
 name: architecture-writer
 description: Technical writer — Architecture Decision Records and RFCs with rigorous structure and rationale
 tools: read, bash, edit, write, grep, find, ls

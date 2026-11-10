@@ -1,4 +1,5 @@
 ---
+
 name: learnings-researcher
 description: Researcher — searches docs/ and specs/ for relevant past decisions, ADRs, and institutional knowledge to prevent repeated mistakes
 tools: read, bash, grep, find, ls

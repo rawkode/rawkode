@@ -1,4 +1,5 @@
 ---
+
 name: spec-writer
 description: Spec writer — detailed functional specifications with acceptance criteria, data models, and API contracts
 tools: read, bash, edit, write, grep, find, ls

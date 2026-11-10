@@ -1,4 +1,5 @@
 ---
+
 name: compound-docs
 description: Capture solved problems as ADRs, specs, or knowledge docs in docs/ and specs/ for fast institutional lookup. Use after solving non-trivial problems to compound team knowledge.
 ---
@@ -95,6 +96,7 @@ Accepted
 
 ```markdown
 ---
+
 date: YYYY-MM-DD
 component: [component name]
 problem_type: [performance|security|correctness|config|integration]

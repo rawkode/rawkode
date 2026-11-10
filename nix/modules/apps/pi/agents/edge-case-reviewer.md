@@ -1,4 +1,5 @@
 ---
+
 name: edge-case-reviewer
 description: Tester/QA — validation rigor, edge case discovery, and defect prevention
 tools: read, bash, edit, write, grep, find, ls

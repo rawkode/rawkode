@@ -1,4 +1,5 @@
 ---
+
 name: senior-developer
 description: Senior developer — evaluates engineering feasibility, architecture, and implementation quality
 tools: read, bash, edit, write, grep, find, ls

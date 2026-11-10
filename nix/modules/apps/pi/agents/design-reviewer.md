@@ -1,4 +1,5 @@
 ---
+
 name: design-reviewer
 description: Code reviewer — API design, architecture patterns, performance, and design quality
 tools: read, grep, find, ls, bash

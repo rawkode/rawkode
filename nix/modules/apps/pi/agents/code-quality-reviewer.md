@@ -1,4 +1,5 @@
 ---
+
 name: code-quality-reviewer
 description: Code reviewer — production quality, correctness, security, and maintainability
 tools: read, grep, find, ls, bash

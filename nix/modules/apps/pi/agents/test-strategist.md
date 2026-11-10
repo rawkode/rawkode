@@ -1,4 +1,5 @@
 ---
+
 name: test-strategist
 description: Tester/QA — test strategy, coverage depth, and release confidence
 tools: read, bash, edit, write, grep, find, ls

@@ -1,4 +1,5 @@
 ---
+
 name: requirements-analyst
 description: Requirements analyst — structured discovery interviews, ambiguity detection, and requirements synthesis
 tools: read, bash, edit, write, grep, find, ls

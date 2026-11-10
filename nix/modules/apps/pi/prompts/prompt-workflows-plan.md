@@ -1,4 +1,5 @@
 ---
+
 description: Transform feature descriptions into well-structured project plans following conventions
 argument-hint: "[feature description, bug report, or improvement idea]"
 ---
@@ -124,6 +125,7 @@ Based on signals from Step 0 and findings from Step 1, decide on external resear
 
 ```markdown
 ---
+
 title: [Issue Title]
 type: [feat|fix|refactor]
 status: active

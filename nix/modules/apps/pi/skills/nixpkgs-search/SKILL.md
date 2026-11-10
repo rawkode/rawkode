@@ -1,4 +1,5 @@
 ---
+
 name: nixpkgs-search
 description: Search nixpkgs packages by keyword or regex using nix search. Use this when you need package names, attribute paths, and short descriptions from nixpkgs.
 ---
@@ -57,10 +58,12 @@ Examples:
 If search fails:
 
 1. Confirm Nix is installed:
+
    ```bash
    nix --version
    ```
 2. Try enabling required features explicitly:
+
    ```bash
    nix --extra-experimental-features 'nix-command flakes' search nixpkgs <query>
    ```

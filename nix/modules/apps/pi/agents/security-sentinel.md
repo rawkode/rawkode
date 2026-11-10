@@ -1,4 +1,5 @@
 ---
+
 name: security-sentinel
 description: Security specialist — vulnerability scanning, input validation, auth/authz audit, secrets exposure, and OWASP compliance
 tools: read, bash, grep, find, ls

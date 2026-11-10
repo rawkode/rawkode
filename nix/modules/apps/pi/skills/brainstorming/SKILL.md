@@ -1,4 +1,5 @@
 ---
+
 name: brainstorming
 description: Structured brainstorming process for exploring requirements and approaches before planning. Use when feature ideas are vague, multiple approaches exist, or trade-offs need exploration.
 ---
@@ -95,6 +96,7 @@ Write a brainstorm document to `docs/brainstorms/YYYY-MM-DD-<topic>.md`:
 
 ```markdown
 ---
+
 date: YYYY-MM-DD
 topic: [brief topic description]
 status: complete

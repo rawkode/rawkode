@@ -1,4 +1,5 @@
 ---
+
 name: pattern-recognition-specialist
 description: Pattern analyst — detects design patterns, anti-patterns, naming consistency, code duplication, and architectural boundary violations
 tools: read, bash, grep, find, ls

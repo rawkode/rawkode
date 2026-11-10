@@ -1,4 +1,5 @@
 ---
+
 name: best-practices-researcher
 description: Researcher — discovers and synthesizes external best practices, documentation, and implementation guidance for any technology or framework
 tools: read, bash, grep, find, ls

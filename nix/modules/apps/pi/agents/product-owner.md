@@ -1,4 +1,5 @@
 ---
+
 name: product-owner
 description: Product owner — evaluates requirements fit, scope, delivery risk, and user impact
 tools: read, grep, find, ls, bash
