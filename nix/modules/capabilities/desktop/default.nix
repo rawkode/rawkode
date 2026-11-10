@@ -56,8 +56,10 @@ mkCapability {
           homeModules.desktop-defaults
           homeModules.dux
           homeModules.niri
+          homeModules.noctalia
           homeModules.portals
           homeModules.rquickshare
+          homeModules.umbriel
           homeModules.wayland
         ];
     };
@@ -81,6 +83,7 @@ mkCapability {
     inputs.self.nixosModules.polkit
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rockhopper
+    inputs.self.nixosModules.umbriel
     (_: {
       services = {
         pipewire = {

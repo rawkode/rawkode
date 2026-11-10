@@ -1,16 +1,20 @@
+{ inputs, ... }:
 {
   flake.nixosModules.greetd =
-    { pkgs, ... }:
+    { config, lib, ... }:
     {
-      services.greetd = {
+      imports = [ inputs.noctalia-greeter.nixosModules.default ];
+
+      # Enables greetd and lists every session registered through
+      # services.displayManager.sessionPackages (niri, Umbriel).
+      services.displayManager.noctalia-greeter = {
         enable = true;
-        settings = {
-          default_session = {
-            command = "${pkgs.tuigreet}/bin/tuigreet --time --remember --remember-user-session --asterisks --cmd niri-session";
-            user = "greeter";
-          };
-        };
+        # Lets each login user's shell push its wallpaper and palette to the
+        # login screen without an administrator prompt.
+        passwordless-sync-users = lib.attrNames (lib.filterAttrs (_: u: u.isNormalUser) config.users.users);
       };
+
+      services.greetd.settings.default_session.user = "greeter";
 
       users.users.greeter = {
         isSystemUser = true;
@@ -18,10 +22,5 @@
       };
 
       users.groups.greeter = { };
-
-      environment.etc."greetd/environments".text = ''
-        niri-session
-        fish
-      '';
     };
 }

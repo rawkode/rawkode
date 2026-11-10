@@ -94,6 +94,17 @@
       url = "github:sodiboo/niri-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    noctalia = {
+      url = "github:noctalia-dev/noctalia";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    noctalia-greeter = {
+      url = "github:noctalia-dev/noctalia-greeter";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # The cachix branch tracks the newest commit with prebuilt binaries. Its
+    # nixpkgs stays unpinned from ours so store paths match umbriel.cachix.org.
+    umbriel.url = "github:noctalia-dev/umbriel/cachix";
     llm-agents.url = "github:numtide/llm-agents.nix";
     nur = {
       url = "github:nix-community/NUR";

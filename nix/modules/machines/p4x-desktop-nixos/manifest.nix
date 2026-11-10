@@ -54,6 +54,23 @@
               "DP-2" = benq 0;
               "DP-1" = benq 1920;
             };
+
+          programs.umbriel.settings.output = {
+            "DP-2" = {
+              mode = "3840x2160@144";
+              position = [
+                0
+                0
+              ];
+            };
+            "DP-1" = {
+              mode = "3840x2160@144";
+              position = [
+                1920
+                0
+              ];
+            };
+          };
         }
       ];
     };
