@@ -21,7 +21,7 @@ mkApp {
         clipboardSettings.disabled = true;
         # Dux loads a plugin only when plugin_settings.json marks it enabled.
         managePluginSettings = true;
-        # Phone Connect bar widget; talks to the Valent daemon enabled in desktop-common.
+        # Phone Connect bar widget; talks to the KDE Connect daemon enabled in desktop-common.
         plugins.dankKDEConnect.src = "${
           pkgs.fetchFromGitHub {
             owner = "duxlabs-dev";

@@ -32,6 +32,14 @@ mkApp {
         inherit action;
         allow_when_locked = true;
       };
+      # Adaptive sync stays on wherever the display supports it. By default
+      # HDR switches on only for fullscreen content carrying HDR metadata, so
+      # the desktop stays in SDR. Outputs lacking either keep working and log
+      # a warning.
+      display = {
+        vrr = "always";
+        hdr = "auto";
+      };
       workspaceBinds = lib.listToAttrs (
         lib.concatMap (
           n:
@@ -72,14 +80,26 @@ mkApp {
         settings = {
           general.autostart = [ "noctalia" ];
 
+          # A monitor-identity section replaces a matching connector section
+          # rather than merging with it, so each one carries the display policy.
           output = {
-            "eDP-1".scale = 2.0;
-            "DP-1" = {
+            "eDP-1" = display // {
+              scale = 2.0;
+            };
+            # The DP monitors stay in HDR so windowed HDR content is shown
+            # as such and the panels never black out switching modes.
+            "DP-1" = display // {
+              hdr = "on";
               scale = 2.0;
               focus_at_startup = true;
             };
-            "DP-2".scale = 2.0;
-            "Samsung Electric Company LS32A70 HK2WB00305".scale = 1.75;
+            "DP-2" = display // {
+              hdr = "on";
+              scale = 2.0;
+            };
+            "Samsung Electric Company LS32A70 HK2WB00305" = display // {
+              scale = 1.75;
+            };
           };
 
           input = {
@@ -251,6 +271,11 @@ mkApp {
             "Mod+Shift+V" = once "window-toggle-floating";
             "Mod+Ctrl+Space" = once "window-focus-switch-floating";
             "Mod+Shift+T" = once "column-toggle-tabbed";
+
+            # Mod+{ and Mod+}. The override applies to the focused workspace
+            # and lasts until the next config reload.
+            "Mod+Shift+BracketLeft" = once "workspace-set-layout scrolling";
+            "Mod+Shift+BracketRight" = once "workspace-set-layout master";
 
             # Retarget an active screencast without re-sharing.
             "Mod+S" = once "screencast-set-window";
