@@ -17,7 +17,11 @@ mkApp {
         rustup
         cargo-watch
         cargo-edit
-        cargo-outdated
+        # cargo's libsqlite3-sys dependency links the system libsqlite3, which
+        # nixpkgs' cargo-outdated package does not list as a build input.
+        (cargo-outdated.overrideAttrs (old: {
+          buildInputs = (old.buildInputs or [ ]) ++ [ sqlite ];
+        }))
         cargo-audit
         sccache
       ];
