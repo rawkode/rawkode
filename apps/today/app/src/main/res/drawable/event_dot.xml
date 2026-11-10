@@ -1,5 +1,4 @@
 <!-- White so a color filter can tint it to the event's calendar color. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
     <solid android:color="#ffffffff" />
-    <corners android:radius="2dp" />
 </shape>

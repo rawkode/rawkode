@@ -17,6 +17,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.CalendarContract;
+import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
@@ -47,7 +48,7 @@ public final class TodayWidget extends AppWidgetProvider {
     private static final long RETRY_MILLIS = 15 * 60 * 1000L;
 
     /** Everything one update renders, read once and shared by every widget and size. */
-    private record Snapshot(List<CalendarEvents.Event> events, int focus, int error, long now, boolean precise,
+    record Snapshot(List<CalendarEvents.Event> events, int focus, int error, long now, boolean precise,
                             Typeface font) {}
 
     @Override public void onEnabled(Context context) {
@@ -165,36 +166,71 @@ public final class TodayWidget extends AppWidgetProvider {
         return value > 0 ? value : fallback;
     }
 
-    private static RemoteViews render(Context context, float width, float height, int widgetId, Snapshot snapshot) {
+    /**
+     * One complete picture of the widget. A launcher reapplies each update onto the views it inflated
+     * for the last one, so anything left unset here keeps its previous value: rows pile up and hidden
+     * views stay hidden. Every visibility is therefore set on every render, and the list is emptied first.
+     */
+    static RemoteViews render(Context context, float width, float height, int widgetId, Snapshot snapshot) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.today_widget);
-        Locale locale = Locale.getDefault();
-        Date today = new Date(snapshot.now());
-        views.setTextViewText(R.id.widget_day, format(locale, "EEEE", today));
-        views.setTextViewText(R.id.widget_date, format(locale, "d MMMM", today));
-        Intent refresh = new Intent(context, TodayWidget.class).setAction(WidgetRefresh.REFRESH_ACTION);
-        views.setOnClickPendingIntent(R.id.refresh, PendingIntent.getBroadcast(context, 0, refresh,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        boolean failed = snapshot.error() != 0;
+        boolean clear = !failed && snapshot.events().isEmpty();
+        boolean agenda = !failed && !clear;
+        float fontScale = context.getResources().getConfiguration().fontScale;
 
-        if (snapshot.error() != 0) {
+        views.removeAllViews(R.id.later_events);
+        show(views, R.id.widget_message, failed);
+        show(views, R.id.clear_state, clear);
+        show(views, R.id.panel_spacer, !clear);
+        show(views, R.id.next_event, agenda);
+        if (!agenda) {
+            show(views, R.id.later_events, false);
+            show(views, R.id.more_events, false);
+            show(views, R.id.list_end, false);
+        }
+
+        if (failed) {
+            showDate(views, snapshot.now(), false);
             views.setTextViewText(R.id.widget_message, context.getString(snapshot.error()));
-            views.setOnClickPendingIntent(R.id.widget_body, PendingIntent.getActivity(context, 0,
-                    new Intent(context, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+            // Without calendar access the app's own screen is the way forward; any other failure is retried in place.
+            views.setOnClickPendingIntent(R.id.widget_body, snapshot.error() == R.string.widget_permission
+                    ? PendingIntent.getActivity(context, 0, new Intent(context, MainActivity.class),
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
+                    : PendingIntent.getBroadcast(context, 0,
+                            new Intent(context, TodayWidget.class).setAction(WidgetRefresh.REFRESH_ACTION),
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             return views;
         }
-        views.setViewVisibility(R.id.widget_message, View.GONE);
         views.setOnClickPendingIntent(R.id.widget_body, calendarIntent(context, 0));
-        if (snapshot.events().isEmpty()) {
-            views.setViewVisibility(R.id.clear_state, View.VISIBLE);
+        if (clear) {
+            showDate(views, snapshot.now(), WidgetLayout.largeDateWithoutEvents(height, fontScale));
             views.setTextViewText(R.id.clear_title, context.getString(LocalTime.now().getHour() < 12
                     ? R.string.clear_morning : R.string.clear_later));
         } else {
-            showEvents(context, views, width, height, widgetId, snapshot);
+            showEvents(context, views, width, height, fontScale, widgetId, snapshot);
         }
         return views;
     }
 
-    private static void showEvents(Context context, RemoteViews views, float width, float height, int widgetId,
-                                   Snapshot snapshot) {
+    private static void show(RemoteViews views, int id, boolean visible) {
+        views.setViewVisibility(id, visible ? View.VISIBLE : View.GONE);
+    }
+
+    // One line beside the featured event, or a large day number when the panel has height to spare.
+    private static void showDate(RemoteViews views, long now, boolean large) {
+        Locale locale = Locale.getDefault();
+        Date today = new Date(now);
+        show(views, R.id.date_compact, !large);
+        show(views, R.id.date_large, large);
+        views.setTextViewText(R.id.widget_day, format(locale, "EEEE", today));
+        views.setTextViewText(R.id.widget_date, format(locale, "d MMMM", today));
+        views.setTextViewText(R.id.date_number, format(locale, "d", today));
+        views.setTextViewText(R.id.date_weekday, format(locale, "EEEE", today));
+        views.setTextViewText(R.id.date_month, format(locale, "MMMM", today));
+    }
+
+    private static void showEvents(Context context, RemoteViews views, float width, float height, float fontScale,
+                                   int widgetId, Snapshot snapshot) {
         List<CalendarEvents.Event> events = snapshot.events();
         long now = snapshot.now();
         CalendarEvents.Event next = events.get(snapshot.focus());
@@ -203,27 +239,32 @@ public final class TodayWidget extends AppWidgetProvider {
 
         Uri meeting = EventActions.meetingLink(next);
         Uri map = EventActions.mapLink(next);
-        float titleWidth = textWidth(context, snapshot.font(), next.title(), 22, true);
-        WidgetLayout.Plan plan = WidgetLayout.plan(height, context.getResources().getConfiguration().fontScale,
-                titleWidth <= width - SIDE_PADDING ? 1 : 2, !next.allDay(), map != null, meeting != null, others.size());
+        int[] titleLines = new int[WidgetLayout.TITLE_SIZES.length];
+        for (int i = 0; i < titleLines.length; i++) {
+            titleLines[i] = lineCount(context, snapshot.font(), next.title(), WidgetLayout.TITLE_SIZES[i],
+                    width - SIDE_PADDING);
+        }
+        WidgetLayout.Plan plan = WidgetLayout.plan(height, fontScale, titleLines, !next.allDay(), map != null,
+                meeting != null, others.size());
 
-        views.setViewVisibility(R.id.next_event, View.VISIBLE);
+        showDate(views, now, plan.largeDate());
         views.setTextViewText(R.id.next_label, label(context, next, now, snapshot.precise()));
-        EventColors.apply(context, views, R.id.next_label, next.color());
-        views.setViewVisibility(R.id.next_conflict, Agenda.overlaps(next, events) ? View.VISIBLE : View.GONE);
+        EventColors.applyIndicator(context, views, R.id.next_color, next.color());
+        show(views, R.id.next_conflict, Agenda.overlaps(next, events));
         views.setTextViewText(R.id.next_title, next.title());
-        if (plan.titleLines() == 1) views.setInt(R.id.next_title, "setMaxLines", 1);
-        views.setViewVisibility(R.id.next_time, plan.timeRow() ? View.VISIBLE : View.GONE);
+        views.setTextViewTextSize(R.id.next_title, TypedValue.COMPLEX_UNIT_SP, plan.titleSize());
+        views.setInt(R.id.next_title, "setMaxLines", plan.titleLines());
+        show(views, R.id.next_time, plan.timeRow());
         views.setTextViewText(R.id.next_time, CalendarEvents.timeRange(context, next));
         views.setOnClickPendingIntent(R.id.next_event, eventIntent(context, next, widgetId, 0));
+        show(views, R.id.next_location, plan.location());
         if (plan.location()) {
-            views.setViewVisibility(R.id.next_location, View.VISIBLE);
             views.setTextViewText(R.id.next_location, next.location().trim());
             views.setContentDescription(R.id.next_location, context.getString(R.string.open_location, next.location().trim()));
             views.setOnClickPendingIntent(R.id.next_location, externalIntent(context, map, widgetId * 31 + 21));
         }
+        show(views, R.id.join_meeting, plan.join());
         if (plan.join()) {
-            views.setViewVisibility(R.id.join_meeting, View.VISIBLE);
             views.setContentDescription(R.id.join_meeting, context.getString(R.string.join_event, next.title()));
             views.setOnClickPendingIntent(R.id.join_meeting, externalIntent(context, meeting, widgetId * 31 + 20));
         }
@@ -259,10 +300,12 @@ public final class TodayWidget extends AppWidgetProvider {
             row.setOnClickPendingIntent(R.id.event_row, eventIntent(context, event, widgetId, i + 1));
             views.addView(R.id.later_events, row);
         }
-        views.setViewVisibility(R.id.event_divider, shown > 0 ? View.VISIBLE : View.GONE);
         int hidden = others.size() - shown;
-        if (hidden > 0 && plan.more()) {
-            views.setViewVisibility(R.id.more_events, View.VISIBLE);
+        boolean more = hidden > 0 && plan.more();
+        show(views, R.id.later_events, shown > 0);
+        show(views, R.id.more_events, more);
+        show(views, R.id.list_end, shown > 0 || more);
+        if (more) {
             views.setTextViewText(R.id.more_events, context.getResources().getQuantityString(R.plurals.more_events, hidden, hidden));
             views.setOnClickPendingIntent(R.id.more_events, calendarIntent(context, widgetId));
         }
@@ -292,6 +335,16 @@ public final class TodayWidget extends AppWidgetProvider {
         } finally {
             attributes.recycle();
         }
+    }
+
+    // Lines the bold text needs at this size in a column this many dp wide, as the launcher will wrap it.
+    private static int lineCount(Context context, Typeface font, String text, float sp, float widthDp) {
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTypeface(Typeface.create(font, Typeface.BOLD));
+        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, metrics));
+        int width = Math.max(1, (int) (widthDp * metrics.density));
+        return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width).build().getLineCount();
     }
 
     // Width in dp of text as the launcher will draw it.
