@@ -58,18 +58,9 @@ mkCapability {
         hermes-gateway = {
           Unit.Description = "Hermes Agent gateway";
           Service = {
-            # Listens on all interfaces; the NixOS firewall only admits the port
-            # on the NetBird interface (see the nixos module below).
-            Environment = [
-              "API_SERVER_ENABLED=true"
-              "API_SERVER_HOST=0.0.0.0"
-            ];
             ExecStart = "${lib.getExe llmAgents.hermes-agent} gateway run --quiet";
             Restart = "on-failure";
             RestartSec = 5;
-            # Optional file outside the repo that holds API_SERVER_KEY. The API
-            # server does not start without a key of at least 16 characters.
-            EnvironmentFile = "-%h/.config/hermes/api-server.env";
           };
           Install.WantedBy = [ "default.target" ];
         };
@@ -135,11 +126,6 @@ mkCapability {
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rockhopper
     inputs.self.nixosModules.umbriel
-    (_: {
-      # Hermes API server (default port 8642) is reachable only over the NetBird
-      # interface. Peer-level access is restricted by NetBird policies.
-      networking.firewall.interfaces.wt0.allowedTCPPorts = [ 8642 ];
-    })
     (_: {
       services = {
         pipewire = {
