@@ -55,6 +55,7 @@ mkApp {
           };
         };
 
+        control_center.width = 1080;
         dock.item_spacing = 8;
         notification.offset_x = 16;
         osd.offset_x = 16;
