@@ -31,15 +31,34 @@ mkApp {
           background_opacity = 0.96;
 
           start = [ "workspaces" ];
-          center = [ "clock" ];
-          # Network, audio, notifications and session controls are reached
-          # through the control center, which the clock opens.
-          end = [ "tray" ];
+          center = [ "active_window" ];
+          # Everything else, including session controls, is reached through
+          # the control center, which the clock opens.
+          end = [
+            "clipboard"
+            "tray"
+            "volume"
+            "network"
+            "notifications"
+            "clock"
+          ];
         };
 
-        widget.tray = {
-          capsule_padding = 8;
-          scale = 1.0;
+        widget = {
+          tray = {
+            capsule_padding = 8;
+            scale = 1.0;
+          };
+          clock.actions.left = "panel-toggle control-center";
+          # Icon only; the SSID and volume level show in the control center.
+          network.show_label = false;
+          volume.show_label = false;
+        };
+
+        # The control center opens under the clock at the bar's right end.
+        shell.panel = {
+          control_center_position = "top_right";
+          open_near_click_control_center = true;
         };
 
         shell.launcher = {
