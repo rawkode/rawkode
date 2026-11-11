@@ -115,6 +115,7 @@ mkCapability {
           appBundles.eloquawk.home
           appBundles.firefox-nightly.home
           appBundles.flipper.home
+          appBundles.google-chrome-dev.home
           appBundles.rockhopper.home
           appBundles.sonora.home
 
@@ -162,6 +163,7 @@ mkCapability {
 
   darwin = with inputs.self; [
     appBundles.firefox-nightly.darwin
+    appBundles.google-chrome-dev.darwin
     appBundles.rio.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin

@@ -114,6 +114,10 @@
       url = "github:nix-systems/default";
     };
     firefox-nightly.url = "github:nix-community/flake-firefox-nightly";
+    browser-previews = {
+      url = "github:nix-community/browser-previews";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
