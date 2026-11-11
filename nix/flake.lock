@@ -1713,11 +1713,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1793388177,
-        "narHash": "sha256-1Hcxf8V85ousjSjdKo0ld+Lt4tHMOhl+8CEPmNrZUeM=",
+        "lastModified": 1794394847,
+        "narHash": "sha256-Brhnn277JUXU/JrU5Y5eQ3R/NUXbZsdFgzGI143Tnmc=",
         "owner": "korora-tech",
         "repo": "rockhopper",
-        "rev": "cad30376f52c42db9bc9816b8c9f8e3280e5ec27",
+        "rev": "7c3f073a9516f347ab6658cba44bbaed4d061684",
         "type": "github"
       },
       "original": {
