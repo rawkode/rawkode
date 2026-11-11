@@ -21,7 +21,7 @@ mkApp {
         mkEnableOption "Darkman automatic light/dark theme switching"
         // {
           # Off by default: machines that want it opt in explicitly. The option
-          # is only declared where this module is imported (Niri/Linux).
+          # is only declared where this module is imported.
           default = false;
         };
 

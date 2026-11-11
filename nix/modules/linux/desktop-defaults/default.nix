@@ -78,7 +78,7 @@ mkApp {
         papers
       ];
 
-      # Explicit defaults so niri doesn't fall back to whichever app sorts first.
+      # Explicit defaults so the session doesn't fall back to whichever app sorts first.
       # Showtime is installed from Flathub (see flatpak module).
       xdg.mimeApps = {
         enable = true;

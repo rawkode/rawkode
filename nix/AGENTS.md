@@ -23,7 +23,7 @@
   - `modules/capabilities/*` — `mkCapability` bundles referenced by manifests (foundation, desktop, development, …).
   - `modules/apps/*` and `modules/development/*` — `mkApp` definitions; one file yields home/nixos/darwin modules plus an `appBundles` entry.
   - `modules/config/*` — NixOS system config (hardware under `modules/config/hardware/`, security, networking, system).
-  - `modules/linux/*` — Linux desktop environment (gnome, niri, ironbar, …).
+  - `modules/linux/*` — Linux desktop environment (umbriel, noctalia, gnome, ironbar, …).
   - `modules/users/*`, `modules/shells/*`, `modules/vcs/*` — user definitions via `mkUser` and their programs.
   - `modules/checks/*` — flake checks (treefmt, manifest contract).
   - `modules/coreweave/` — work-machine specifics.

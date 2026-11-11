@@ -203,7 +203,6 @@ mkApp {
           # Defining this table replaces Umbriel's built-in bind set.
           keybinds = workspaceBinds // {
             "Mod+Return" = once "spawn cuetty";
-            "Mod+Space" = "spawn noctalia msg panel-toggle launcher";
             "Mod+Backslash" = once "spawn 1password --quick-access";
             "Mod+Q" = once "window-close";
             "Alt+F4" = once "window-close";

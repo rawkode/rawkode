@@ -36,12 +36,10 @@ mkApp {
         Install.WantedBy = [ "graphical-session.target" ];
       };
 
-      programs.niri.settings.binds."Super+D" = {
-        hotkey-overlay.title = "Toggle voice dictation";
-        action.spawn = [
-          (lib.getExe pkgs.handy)
-          "--toggle-transcription"
-        ];
+      # Umbriel keybind; this app is only bundled with the Umbriel desktop.
+      programs.umbriel.settings.keybinds."Mod+D" = {
+        action = "spawn ${lib.getExe pkgs.handy} --toggle-transcription";
+        repeat = false;
       };
     };
 

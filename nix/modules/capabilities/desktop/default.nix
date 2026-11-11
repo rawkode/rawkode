@@ -35,6 +35,31 @@ mkCapability {
                 postInstall = (old.postInstall or "") + ''
                   ln -s libonnxruntime.so "$out/lib/GitHub Copilot/libonnxruntime.so.1"
                 '';
+                # nixpkgs' patchelf (0.15.x) rewrites one R_X86_64_RELATIVE entry as
+                # R_X86_64_PLT32 when it changes the interpreter or RPATH of this
+                # executable, and ld.so aborts on startup ("Inconsistency detected").
+                # The executable is therefore left unpatched and started through the
+                # glibc loader with an explicit library path. Shared libraries are
+                # still patched so their own dependencies resolve.
+                dontAutoPatchelf = true;
+                # wrapGAppsHook also wraps libexec/, which would turn the executable
+                # into a wrapper that execs it directly and hits the stub loader, so
+                # the GApps environment is applied to the launcher script only.
+                dontWrapGApps = true;
+                postFixup = (old.postFixup or "") + ''
+                  autoPatchelf "$out/lib"
+
+                  mkdir -p "$out/libexec"
+                  mv "$out/bin/github-copilot-app" "$out/libexec/github-copilot-app"
+                  cat > "$out/bin/github-copilot-app" <<EOF
+                  #!${prev.runtimeShell}
+                  exec ${prev.stdenv.cc.libc}/lib/ld-linux-x86-64.so.2 --library-path "${
+                    lib.makeLibraryPath (old.buildInputs ++ [ prev.stdenv.cc.libc ])
+                  }:$out/lib/GitHub Copilot" "$out/libexec/github-copilot-app" "\$@"
+                  EOF
+                  chmod +x "$out/bin/github-copilot-app"
+                  wrapProgram "$out/bin/github-copilot-app" "''${gappsWrapperArgs[@]}"
+                '';
               })
             else
               prev.github-copilot-app;
@@ -96,8 +121,6 @@ mkCapability {
           homeModules.dconf-editor
           homeModules.flatpak
           homeModules.desktop-defaults
-          homeModules.dux
-          homeModules.niri
           homeModules.noctalia
           homeModules.portals
           homeModules.rquickshare
@@ -119,7 +142,6 @@ mkCapability {
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.desktop-defaults
     inputs.self.nixosModules.location
-    inputs.self.nixosModules.niri
     inputs.self.nixosModules.onepassword
     inputs.self.nixosModules.plymouth
     inputs.self.nixosModules.polkit

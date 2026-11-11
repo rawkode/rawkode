@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Rawkode, using Niri across Linux desktop and laptop displays.
+Rawkode, using Umbriel across Linux desktop and laptop displays.
 
 ## Product Purpose
 
@@ -16,7 +16,7 @@ the existing launcher, compositor, and lock/idle workflow.
 ## Brand Personality
 
 Compact, familiar, restrained. Preserve the existing Monaspace typography and
-Stylix theme, alongside Dux Shell.
+Stylix theme, alongside Noctalia.
 
 ## Anti-references
 

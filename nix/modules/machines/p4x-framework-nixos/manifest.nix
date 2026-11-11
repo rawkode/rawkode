@@ -30,10 +30,12 @@
     users.rawkode = {
       modules = [
         {
-          # Idle sleep on battery matches the lid: suspend, then hibernate.
-          programs.dank-material-shell.settings.batterySuspendBehavior = 2;
-          programs.dank-material-shell.settings.networkPreference = "wifi";
-
+          # Suspend then hibernate after the lock has been active for a while.
+          programs.noctalia.settings.idle.behavior.suspend = {
+            timeout = 1200;
+            action = "command";
+            command = "systemctl suspend-then-hibernate";
+          };
           # Adaptive brightness from the ambient light sensor (amd_sfh ALS).
           # wluma learns from manual brightness changes per light level.
           # Screen-content capture is disabled to avoid extra GPU work.

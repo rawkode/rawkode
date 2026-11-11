@@ -9,7 +9,7 @@ This repository contains a modular NixOS configuration that supports:
 - **Multiple machine configurations** (Framework laptops, desktops, macOS hosts)
 - **Manifest-first machine composition** with capabilities and hardware traits
 - **Modern Nix features** (flakes, home-manager, disko, secure boot)
-- **Wayland-first desktop environment** with Niri compositor and GNOME fallback
+- **Wayland-first desktop environment** with the Umbriel compositor and GNOME fallback
 - **Development-oriented tooling** with comprehensive CLI utilities
 
 ## Architecture
@@ -26,7 +26,7 @@ This repository contains a modular NixOS configuration that supports:
 #### Capabilities (`modules/capabilities/`)
 
 - **foundation**: Core system foundation with Nix, users, shells, networking, and Home Manager support
-- **desktop**: Desktop environment with Niri/GNOME, portals, audio, fonts, and desktop apps
+- **desktop**: Desktop environment with Umbriel/GNOME, portals, audio, fonts, and desktop apps
 - **theming**: Shared Stylix configuration for graphical systems and Home Manager
 - **peripherals-multipass**: Multipass packages, Linux device rules, and macOS signing integration
 - **development**: Development tools and environments
@@ -42,7 +42,7 @@ This repository contains a modular NixOS configuration that supports:
 
 - **Boot**: Lanzaboote (secure boot) + systemd-boot
 - **Disk**: Disko with BTRFS + encryption
-- **Desktop**: Niri (Wayland compositor) with GNOME fallback
+- **Desktop**: Umbriel (Wayland compositor) with Noctalia shell and GNOME fallback
 - **Audio**: PipeWire with ALSA/PulseAudio compatibility
 - **Fonts**: Comprehensive font stack with Stylix theming
 - **Security**: TPM2, encrypted storage
@@ -193,39 +193,17 @@ work Mac, is available through `cuenv task evaluate-machines` (or
 sources. Evaluation is distinct from a system build; run `cuenv task check-host`
 on a target host before activation.
 
-### Desktop Environment Toggle
+### Umbriel Desktop
 
-The desktop capability supports switching between Niri and GNOME:
+The desktop capability runs the Umbriel compositor with the Noctalia shell,
+which Umbriel autostarts. Keybinds live in the `keybinds` table of the Umbriel
+module; apps that need a shortcut add their entry there, guarded so headless
+machines without Umbriel still evaluate.
 
-```nix
-rawkOS.desktop = {
-  niri.enable = true;   # Default Wayland compositor
-  gnome.enable = false; # Traditional GNOME desktop
-};
-```
-
-### Niri Desktop Shell
-
-Niri uses Dux Shell for its bar, notifications, clipboard,
-wallpaper, lock screen, idle handling, audio/brightness OSDs, and authentication
-agent. Window navigation, monitor configuration, and macOS-style keyboard
-remapping remain configured in the Niri module. Networking retains the existing
-networkd/iwd setup rather than enabling NetworkManager for Dux.
-
-Vicinae provides the application launcher on Super+Space, window switching on
-Super+Shift+Space, emoji search on Super+E, and clipboard history on Super+Alt+V.
-Dux supplies its standard shell shortcuts:
-Super+N opens notifications, Super+Comma opens settings, Super+V opens clipboard
-history, Super+X opens the power menu, and Super+Alt+L locks the screen.
-Use Super+Alt+V for Vicinae clipboard history when the macOS-style remapping maps
-Super+V to paste.
-Brightness and volume keys use Dux; Print captures a region, Super+Print captures
-the screen, and Alt+Print captures a window.
-
-Automatic locking remains enabled after ten minutes on AC and battery, with
-monitor power saving after thirty minutes and locking before suspend. Other
-shell settings use Dux defaults, and the Stylix Dux target is enabled so the
-shell follows the system theme.
+Rawkode's launcher is Rockhopper on Mod+Space. Noctalia's idle manager locks
+after ten minutes and powers the monitors off after thirty; the laptop and
+framework then suspend-then-hibernate after twenty minutes. The desktop never
+powers its monitors off because the BenQ panels do not reconnect after DPMS.
 
 ## Contributing
 

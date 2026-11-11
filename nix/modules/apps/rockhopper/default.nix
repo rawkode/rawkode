@@ -7,41 +7,46 @@ mkApp {
 
   linux.home =
     { lib, pkgs, ... }:
+    let
+      package = inputs.rockhopper.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    in
     {
       imports = [ inputs.rockhopper.homeManagerModules.default ];
 
       programs.rockhopper = {
         enable = true;
         # The flake's own build, not the overlay, so it is served from the cache.
-        package = inputs.rockhopper.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        inherit package;
       };
 
-      programs.niri.settings = {
-        # Keep the daemon warm so the first open is instant.
-        spawn-at-startup = [
-          {
-            command = [
-              "rockhopper"
-              "daemon"
-            ];
-          }
-        ];
+      # Keep the daemon warm so the first open is instant.
+      systemd.user.services.rockhopper = {
+        Unit = {
+          Description = "Rockhopper daemon";
+          PartOf = [ "graphical-session.target" ];
+          After = [ "graphical-session.target" ];
+        };
+        Service = {
+          ExecStart = "${lib.getExe package} daemon";
+          Restart = "on-failure";
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
 
-        binds = {
-          # Replace Dux's launcher and clipboard bindings while retaining its other shortcuts.
-          "Mod+Space".action = lib.mkForce { spawn = [ "rockhopper" ]; };
-          "Mod+V".action = lib.mkForce {
-            spawn = [
-              "rockhopper"
-              "clipboard"
-            ];
-          };
-          "Super+E".action.spawn = [
-            "rockhopper"
-            "emoji"
-          ];
+      # Umbriel keybinds; this app is only bundled with the Umbriel desktop.
+      programs.umbriel.settings.keybinds = {
+        "Mod+Space" = {
+          action = "spawn rockhopper";
+          repeat = false;
+        };
+        "Mod+V" = {
+          action = "spawn rockhopper clipboard";
+          repeat = false;
+        };
+        "Mod+E" = {
+          action = "spawn rockhopper emoji";
+          repeat = false;
         };
       };
     };
-
 }

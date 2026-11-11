@@ -20,30 +20,13 @@ mkApp {
 
   # Linux: use the standard VS Code package via home-manager
   linux.home =
-    {
-      lib,
-      options,
-      pkgs,
-      ...
-    }:
+    { pkgs, ... }:
     {
       programs = {
         vscode = {
           enable = true;
           package = pkgs.vscode;
         };
-      }
-      # Only when the niri home module is present (headless machines lack it).
-      // lib.optionalAttrs (options ? programs && options.programs ? niri) {
-        niri.settings.window-rules = [
-          {
-            matches = [
-              { app-id = "code"; }
-            ];
-            open-focused = true;
-            opacity = 0.95;
-          }
-        ];
       };
 
       home.file.".vscode/argv.json".text = builtins.toJSON {

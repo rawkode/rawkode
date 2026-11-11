@@ -29,31 +29,10 @@
       standaloneHomeConfiguration = false;
       modules = [
         {
-          # The BenQ on DisplayPort drops its link when woken from DPMS and never
-          # reconnects, leaving niri with no output. Lock on idle, never blank.
-          programs.dank-material-shell.settings.acMonitorTimeout = lib.mkForce 0;
-
-          # Two BenQ EX3210Us side by side: DP-2 on the left, DP-1 on the right.
-          # Positions override the shared office layout for these connectors.
-          programs.niri.settings.outputs =
-            let
-              benq = x: {
-                mode = {
-                  width = 3840;
-                  height = 2160;
-                  refresh = 144.0;
-                };
-                variable-refresh-rate = true;
-                position = lib.mkForce {
-                  inherit x;
-                  y = 0;
-                };
-              };
-            in
-            {
-              "DP-2" = benq 0;
-              "DP-1" = benq 1920;
-            };
+          # The BenQ on DisplayPort drops its link when its monitors wake from DPMS
+          # and never reconnects, so the desktop locks on idle and never powers
+          # the outputs off.
+          programs.noctalia.settings.idle.behavior.screen-off.enabled = false;
 
           programs.umbriel.settings.output = {
             "DP-2" = {

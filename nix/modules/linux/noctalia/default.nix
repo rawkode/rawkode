@@ -13,9 +13,8 @@ mkApp {
       # Lets the Phone Connect plugin mount and browse the phone's files.
       home.packages = [ pkgs.sshfs ];
 
-      # No systemd unit: Umbriel autostarts the shell, so it never runs beside
-      # Dux in a niri session. Stylix's noctalia target supplies the palette,
-      # font and wallpaper.
+      # No systemd unit: Umbriel autostarts the shell. Stylix's noctalia target
+      # supplies the palette, font and wallpaper.
       programs.noctalia = {
         enable = true;
 
@@ -99,6 +98,19 @@ mkApp {
               emoji.prefix = "e";
               session.prefix = "s";
               windows.prefix = "w";
+            };
+          };
+
+          # Idle behaviours run in Noctalia's idle manager. Power-source specific
+          # timeouts are not supported, so AC and battery share these values.
+          idle.behavior = {
+            lock = {
+              timeout = 600;
+              action = "lock";
+            };
+            screen-off = {
+              timeout = 1800;
+              action = "screen_off";
             };
           };
 

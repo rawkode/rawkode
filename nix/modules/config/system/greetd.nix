@@ -6,7 +6,7 @@
       imports = [ inputs.noctalia-greeter.nixosModules.default ];
 
       # Enables greetd and lists every session registered through
-      # services.displayManager.sessionPackages (niri, Umbriel).
+      # services.displayManager.sessionPackages (Umbriel).
       services.displayManager.noctalia-greeter = {
         enable = true;
         # Lets each login user's shell push its wallpaper and palette to the

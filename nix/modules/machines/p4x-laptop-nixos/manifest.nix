@@ -28,17 +28,11 @@
     users.rawkode = {
       modules = [
         {
-          # Idle sleep on battery matches the lid: suspend, then hibernate.
-          programs.dank-material-shell.settings = {
-            batterySuspendBehavior = 2;
-            # Power Saver on battery, Balanced on AC ("0"/"1"/"2" = saver/balanced/performance).
-            batteryProfileName = "0";
-            acProfileName = "1";
-            # Drop the 120Hz panel to 60Hz when unplugged.
-            lowerDisplayRefreshRateOnBattery = true;
-            # The panel is the biggest idle draw; don't leave it lit behind the lock screen.
-            batteryMonitorTimeout = lib.mkForce 300;
-            batteryPostLockMonitorTimeout = 60;
+          # Suspend then hibernate after the lock has been active for a while.
+          programs.noctalia.settings.idle.behavior.suspend = {
+            timeout = 1200;
+            action = "command";
+            command = "systemctl suspend-then-hibernate";
           };
         }
       ];

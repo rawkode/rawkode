@@ -69,7 +69,7 @@ Counter-examples:
 
 Examples:
 
-- Linux DE (gnome, niri, bars, compositors) → `linux/`
+- Linux DE (gnome, umbriel, bars, compositors) → `linux/`
 - macOS system utilities (alt-tab, betterdisplay) → `macos/`
 
 Note: Cross-platform apps that happen to use homebrew on macOS still go in `apps/`.
