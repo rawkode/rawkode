@@ -34,22 +34,47 @@
           # the outputs off.
           programs.noctalia.settings.idle.behavior.screen-off.enabled = false;
 
+          # Positions are logical: each DP monitor is 1920x1080 at scale 2, the
+          # same size as the HDMI monitor. DP-2 sits left of DP-1 and the HDMI
+          # monitor sits directly above DP-1.
           programs.umbriel.settings.output = {
             "DP-2" = {
               mode = "3840x2160@144";
               position = [
                 0
-                0
+                1080
               ];
             };
             "DP-1" = {
               mode = "3840x2160@144";
               position = [
                 1920
+                1080
+              ];
+            };
+            # The field monitor advertises 4K as its preferred mode, so 1080p
+            # has to be pinned.
+            "HDMI-A-2" = {
+              mode = "1920x1080@60";
+              position = [
+                1920
                 0
               ];
             };
           };
+
+          # Umbriel opens a fullscreen window on the output under the pointer
+          # whatever output the client requested, so the mirror window is sent
+          # to the HDMI monitor here. It stays unfocused so the mirror keys
+          # keep acting on the window and output being worked in.
+          programs.umbriel.settings.window_rule = [
+            {
+              match.app_id = "^at\\.yrlf\\.wl_mirror$";
+              default_output = "HDMI-A-2";
+              default_fullscreen = true;
+              default_focused = false;
+            }
+          ];
         }
       ];
     };

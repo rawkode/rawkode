@@ -40,6 +40,85 @@ mkApp {
         vrr = "always";
         hdr = "auto";
       };
+      # Umbriel has no mirrored-output mode, so mirroring is a fullscreen
+      # wl-mirror window on the first HDMI output, showing either the focused
+      # output or the rectangle the focused window occupies. wl-mirror captures
+      # outputs only, so the window mode does not follow the window when it
+      # moves. The HDMI connector is looked up at run time because its name
+      # differs between machines and ports. Umbriel ignores the output a client
+      # asks to go fullscreen on, so a machine that uses this also needs a
+      # window rule sending wl-mirror to its HDMI output.
+      mirror = pkgs.writeShellApplication {
+        name = "umbriel-mirror";
+        runtimeInputs = [
+          pkgs.jq
+          pkgs.libnotify
+          pkgs.procps
+          pkgs.wl-mirror
+        ];
+        text = ''
+          fail() {
+            echo "umbriel-mirror: $1" >&2
+            notify-send "Screen mirror" "$1" || true
+            exit 1
+          }
+
+          if [ "$#" -ne 1 ]; then
+            echo "usage: umbriel-mirror <output|window|stop>" >&2
+            exit 2
+          fi
+
+          if [ "$1" = stop ]; then
+            pkill -x wl-mirror || true
+            exit 0
+          fi
+
+          outputs=$(umbriel outputs --json)
+          target=$(jq -r 'first(.[] | select(.enabled and (.name | startswith("HDMI"))) | .name) // empty' <<<"$outputs")
+          [ -n "$target" ] || fail "No HDMI output is connected."
+
+          region=()
+          case "$1" in
+            output)
+              source=$(jq -r 'first(.[] | select(.focused) | .name) // empty' <<<"$outputs")
+              [ -n "$source" ] || fail "No output is focused."
+              ;;
+            window)
+              window=$(umbriel focused-window --json)
+              source=$(jq -r '.output? // empty' <<<"$window")
+              [ -n "$source" ] || fail "No window is focused."
+              # A scrolling column can extend past its output, and wl-mirror
+              # rejects a region outside the output, so the rectangle is
+              # clipped to the visible part of the window.
+              rect=$(jq -r --argjson w "$window" '
+                .[] | select(.name == $w.output)
+                | .position as $p | .logical_size as $s
+                | ([$w.x, $p.x] | max) as $x0
+                | ([$w.y, $p.y] | max) as $y0
+                | ([$w.x + $w.w, $p.x + $s.width] | min) as $x1
+                | ([$w.y + $w.h, $p.y + $s.height] | min) as $y1
+                | select($x1 > $x0 and $y1 > $y0)
+                | "\($x0),\($y0) \($x1 - $x0)x\($y1 - $y0)"
+              ' <<<"$outputs")
+              [ -n "$rect" ] || fail "The focused window is not visible."
+              region=(--region "$rect")
+              ;;
+            *)
+              fail "Unknown mode: $1"
+              ;;
+          esac
+
+          [ "$source" != "$target" ] || fail "$target is the mirror target and cannot be mirrored."
+
+          # Replaces any running mirror so the keys retarget it.
+          pkill -x wl-mirror || true
+
+          # The DP monitors render in a 10-bit HDR format that wl-mirror cannot
+          # import as a DMA-BUF, so capture goes through shared memory, where
+          # Umbriel supplies an 8-bit SDR view.
+          exec wl-mirror --backend extcopy-shm --fullscreen-output "$target" "''${region[@]}" "$source"
+        '';
+      };
       workspaceBinds = lib.listToAttrs (
         lib.concatMap (
           n:
@@ -281,6 +360,10 @@ mkApp {
             "Mod+Shift+S" = once "screencast-set-output";
             "Mod+Ctrl+S" = once "screencast-clear";
             "Mod+Shift+P" = once "dpms-off";
+            # Mirror the focused window or output to the HDMI monitor.
+            "Mod+Print" = once "spawn ${lib.getExe mirror} window";
+            "Mod+Shift+Print" = once "spawn ${lib.getExe mirror} output";
+            "Mod+Ctrl+Print" = once "spawn ${lib.getExe mirror} stop";
           };
         };
       };
