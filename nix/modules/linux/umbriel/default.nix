@@ -32,13 +32,14 @@ mkApp {
         inherit action;
         allow_when_locked = true;
       };
-      # Adaptive sync stays on wherever the display supports it. By default
-      # HDR switches on only for fullscreen content carrying HDR metadata, so
-      # the desktop stays in SDR. Outputs lacking either keep working and log
-      # a warning.
+      # Adaptive sync stays on wherever the display supports it; outputs
+      # lacking it keep working and log a warning. HDR stays off everywhere
+      # because an HDR output renders in a 10-bit format that wl-mirror cannot
+      # import as a DMA-BUF, which forces mirroring to copy every frame
+      # through shared memory and makes the whole desktop sluggish.
       display = {
         vrr = "always";
-        hdr = "auto";
+        hdr = "off";
       };
       # Umbriel has no mirrored-output mode, so mirroring is a fullscreen
       # wl-mirror window on the first HDMI output, showing either the focused
@@ -113,10 +114,7 @@ mkApp {
           # Replaces any running mirror so the keys retarget it.
           pkill -x wl-mirror || true
 
-          # The DP monitors render in a 10-bit HDR format that wl-mirror cannot
-          # import as a DMA-BUF, so capture goes through shared memory, where
-          # Umbriel supplies an 8-bit SDR view.
-          exec wl-mirror --backend extcopy-shm --fullscreen-output "$target" "''${region[@]}" "$source"
+          exec wl-mirror --fullscreen-output "$target" "''${region[@]}" "$source"
         '';
       };
       workspaceBinds = lib.listToAttrs (
@@ -165,15 +163,11 @@ mkApp {
             "eDP-1" = display // {
               scale = 2.0;
             };
-            # The DP monitors stay in HDR so windowed HDR content is shown
-            # as such and the panels never black out switching modes.
             "DP-1" = display // {
-              hdr = "on";
               scale = 2.0;
               focus_at_startup = true;
             };
             "DP-2" = display // {
-              hdr = "on";
               scale = 2.0;
             };
             "Samsung Electric Company LS32A70 HK2WB00305" = display // {
