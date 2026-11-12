@@ -71,25 +71,9 @@ mkCapability {
         [
           chatgpt
           claude-desktop
-          hermes-desktop
           pkgs.github-copilot-app
         ]
       );
-
-      # Keep Hermes' gateway under systemd so Desktop can attach to the wrapped
-      # Nix CLI. Its unmanaged bootstrap starts bare sys.executable, which lacks
-      # the Python dependencies supplied by the hermes-agent wrapper.
-      systemd.user.services = lib.mkIf (!isDarwin) {
-        hermes-gateway = {
-          Unit.Description = "Hermes Agent gateway";
-          Service = {
-            ExecStart = "${lib.getExe llmAgents.hermes-agent} gateway run --quiet";
-            Restart = "on-failure";
-            RestartSec = 5;
-          };
-          Install.WantedBy = [ "default.target" ];
-        };
-      };
 
       # The desktop launcher may not inherit NIXOS_OZONE_WL from the session.
       xdg.dataFile."applications/chatgpt.desktop" = lib.mkIf (!isDarwin) {
