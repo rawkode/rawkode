@@ -45,6 +45,27 @@ let
       renderSetting = name: value: "${name} = ${renderSettingValue lib value}";
     in
     lib.concatStringsSep "\n" (lib.mapAttrsToList renderSetting daemonSettings);
+
+  # Caches declared by Home Manager modules only reach the user's nix.conf,
+  # which does not exist before the first activation. Fold them into the
+  # daemon-level settings so the bootstrap covers every cache the host uses.
+  withHomeCaches =
+    lib: config:
+    let
+      homeSettings = map (user: user.nix.settings) (
+        builtins.attrValues (config.home-manager.users or { })
+      );
+      collect =
+        name:
+        lib.unique (
+          lib.concatMap (settings: settings.${name} or [ ]) ([ config.nix.settings ] ++ homeSettings)
+        );
+    in
+    config.nix.settings
+    // {
+      extra-substituters = collect "extra-substituters";
+      extra-trusted-public-keys = collect "extra-trusted-public-keys";
+    };
 in
 {
   flake.nixosModules.nix =
@@ -56,7 +77,7 @@ in
     }:
     let
       cfg = config.rawkOS.user;
-      bootstrapConfigText = renderDaemonSettings lib config.nix.settings;
+      bootstrapConfigText = renderDaemonSettings lib (withHomeCaches lib config);
     in
     {
       environment.systemPackages = with pkgs; [
@@ -106,7 +127,7 @@ in
     }:
     let
       cfg = config.rawkOS.user;
-      bootstrapConfigText = renderDaemonSettings lib config.nix.settings;
+      bootstrapConfigText = renderDaemonSettings lib (withHomeCaches lib config);
     in
     {
       nix.settings = lib.recursiveUpdate baseCacheSettings {

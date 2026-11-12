@@ -143,6 +143,7 @@ mkCapability {
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.desktop-defaults
     inputs.self.nixosModules.location
+    inputs.self.nixosModules.noctalia
     inputs.self.nixosModules.onepassword
     inputs.self.nixosModules.plymouth
     inputs.self.nixosModules.polkit

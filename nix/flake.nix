@@ -86,16 +86,10 @@
       url = "github:NixOS/nixos-hardware/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    noctalia = {
-      url = "github:noctalia-dev/noctalia";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    noctalia-greeter = {
-      url = "github:noctalia-dev/noctalia-greeter";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    # The cachix branch tracks the newest commit with prebuilt binaries. Its
-    # nixpkgs stays unpinned from ours so store paths match umbriel.cachix.org.
+    # The cachix branches track the newest commit with prebuilt binaries. These
+    # inputs keep their own nixpkgs so store paths match the upstream caches.
+    noctalia.url = "github:noctalia-dev/noctalia/cachix";
+    noctalia-greeter.url = "github:noctalia-dev/noctalia-greeter";
     umbriel.url = "github:noctalia-dev/umbriel/cachix";
     llm-agents.url = "github:numtide/llm-agents.nix";
     nur = {
