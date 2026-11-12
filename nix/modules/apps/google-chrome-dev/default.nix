@@ -6,12 +6,14 @@ mkApp {
   name = "google-chrome-dev";
 
   # nixpkgs only packages the stable channel; browser-previews tracks dev.
+  # Google publishes no Linux arm64 build, so aarch64 hosts go without.
   linux.home =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
+    let
+      chromePackages = inputs.browser-previews.packages.${pkgs.stdenv.hostPlatform.system} or { };
+    in
     {
-      home.packages = [
-        inputs.browser-previews.packages.${pkgs.stdenv.hostPlatform.system}.google-chrome-dev
-      ];
+      home.packages = lib.optional (chromePackages ? google-chrome-dev) chromePackages.google-chrome-dev;
     };
 
   darwin.system =
