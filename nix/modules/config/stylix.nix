@@ -30,6 +30,9 @@ let
         opacity.popups = 0.9;
 
         targets.fish.enable = false;
+        # This target overlays gtksourceview, which takes it and everything
+        # built on it (libspelling, papers) off cache.nixos.org.
+        targets.gtksourceview.enable = false;
         targets.qt.platform = lib.mkForce "qtct";
 
         fonts = {
@@ -116,6 +119,9 @@ in
           (lib.optionalAttrs (osClass != "nixos" || stylixHome) {
             # Rofi is unused; skip its target and deprecated font definition.
             stylix.targets.rofi.enable = false;
+            # Home Manager evaluates its own package set, so the gtksourceview
+            # overlay has to be turned off here as well as in the system config.
+            stylix.targets.gtksourceview.enable = false;
           })
           # NixOS can select theming but turn off Stylix's HM auto-import.
           # In that case there is no upstream cursor name/package to enable.
