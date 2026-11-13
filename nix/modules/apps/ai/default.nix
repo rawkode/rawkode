@@ -70,9 +70,37 @@ mkApp {
             agentPackages.antigravity-cli
             agentPackages.claude-code
             agentPackages.codex
-            agentPackages.opencode2
-            agentPackages.opencode2-desktop
           ];
+        })
+        (lib.mkIf cfg.bb.enable {
+          home.packages = [ agentPackages.bb-app ];
+
+          # bb-app supervises its server and host daemon and restarts either
+          # child itself; systemd only keeps the launcher alive. In-app updates
+          # are off so the Nix package stays the version that runs.
+          systemd.user.services.bb = {
+            Unit.Description = "bb agentic IDE server and host daemon";
+            Service = {
+              ExecStart = "${lib.getExe' agentPackages.bb-app "bb-app"} --no-in-app-updates";
+              # bb spawns agent CLIs (claude, codex, …), so it needs the user's
+              # profile on PATH rather than systemd's minimal default.
+              Environment = [
+                "PATH=${
+                  lib.concatStringsSep ":" [
+                    "${config.home.profileDirectory}/bin"
+                    "/etc/profiles/per-user/${config.home.username}/bin"
+                    "/run/wrappers/bin"
+                    "/run/current-system/sw/bin"
+                  ]
+                }"
+              ];
+              # The launcher documents Ctrl+C as its clean shutdown path.
+              KillSignal = "SIGINT";
+              Restart = "on-failure";
+              RestartSec = 5;
+            };
+            Install.WantedBy = [ "default.target" ];
+          };
         })
       ];
     };
@@ -116,6 +144,9 @@ mkApp {
 
       options.rawkOS.apps.ai.hermes.enable =
         lib.mkEnableOption "the Hermes agent, its desktop app, and its gateway service";
+
+      options.rawkOS.apps.ai.bb.enable =
+        lib.mkEnableOption "the bb agentic IDE and its background user service";
 
       config = {
         home.packages = lib.optionals cfg.cliPackages.enable [

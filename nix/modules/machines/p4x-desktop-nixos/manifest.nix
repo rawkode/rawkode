@@ -30,6 +30,7 @@
       modules = [
         {
           rawkOS.apps.ai.hermes.enable = true;
+          rawkOS.apps.ai.bb.enable = true;
 
           # The BenQ on DisplayPort drops its link when its monitors wake from DPMS
           # and never reconnects, so the desktop locks on idle and never powers
