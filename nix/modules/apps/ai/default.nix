@@ -81,7 +81,16 @@ mkApp {
           systemd.user.services.bb = {
             Unit.Description = "bb agentic IDE server and host daemon";
             Service = {
-              ExecStart = "${lib.getExe' agentPackages.bb-app "bb-app"} --no-in-app-updates";
+              ExecStart = lib.concatStringsSep " " (
+                [
+                  (lib.getExe' agentPackages.bb-app "bb-app")
+                  "--no-in-app-updates"
+                ]
+                ++ lib.optionals (cfg.bb.serverBindHost != null) [
+                  "--server-bind-host"
+                  cfg.bb.serverBindHost
+                ]
+              );
               # bb spawns agent CLIs (claude, codex, …), so it needs the user's
               # profile on PATH rather than systemd's minimal default.
               Environment = [
@@ -147,6 +156,17 @@ mkApp {
 
       options.rawkOS.apps.ai.bb.enable =
         lib.mkEnableOption "the bb agentic IDE and its background user service";
+
+      options.rawkOS.apps.ai.bb.serverBindHost = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "0.0.0.0";
+        description = ''
+          Address the bb server listens on. Null keeps bb's loopback-only
+          default. bb documents non-loopback listeners as security-sensitive,
+          so pair this with a firewall rule scoped to a trusted interface.
+        '';
+      };
 
       config = {
         home.packages = lib.optionals cfg.cliPackages.enable [

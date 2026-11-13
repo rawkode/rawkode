@@ -31,6 +31,10 @@
         {
           rawkOS.apps.ai.hermes.enable = true;
           rawkOS.apps.ai.bb.enable = true;
+          # Listen on every interface so bb does not depend on the NetBird
+          # interface existing at startup; the firewall below admits it on
+          # NetBird only.
+          rawkOS.apps.ai.bb.serverBindHost = "0.0.0.0";
 
           # The BenQ on DisplayPort drops its link when its monitors wake from DPMS
           # and never reconnects, so the desktop locks on idle and never powers
@@ -88,6 +92,10 @@
         hardware.enableRedistributableFirmware = lib.mkDefault true;
         services.nordvpn.enable = true;
         users.users.rawkode.extraGroups = [ "nordvpn" ];
+
+        # bb's web UI and API, reachable from NetBird peers only. NetBird access
+        # policies decide which peers may connect.
+        networking.firewall.interfaces.wt0.allowedTCPPorts = [ 38886 ];
       }
     ];
   };
