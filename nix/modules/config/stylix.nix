@@ -85,9 +85,17 @@ in
         default = true;
       };
 
-      config = lib.mkIf config.rawkOS.stylix.enable (mkStylixConfig {
-        inherit lib pkgs;
-      });
+      config = lib.mkIf config.rawkOS.stylix.enable (
+        lib.mkMerge [
+          (mkStylixConfig { inherit lib pkgs; })
+          {
+            # The Chromium target is NixOS-only. It writes a managed
+            # BrowserThemeColor policy that Chrome also reads, which locks the
+            # browser's theme to the base16 background.
+            stylix.targets.chromium.enable = false;
+          }
+        ]
+      );
     };
 
   # Home Manager module for Darwin/standalone use
