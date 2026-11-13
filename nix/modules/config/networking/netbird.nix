@@ -9,6 +9,12 @@
     {
       services.netbird.enable = true;
 
+      # Let NetBird register its nameserver and peer domain with
+      # systemd-resolved so peer names resolve. The client keeps DisableDNS in
+      # its mutable state file (`netbird up --disable-dns` or the tray toggle
+      # write it), and the module merges this over that file on every start.
+      services.netbird.clients.default.config.DisableDNS = false;
+
       environment.systemPackages = with pkgs; [
         netbird
       ];
