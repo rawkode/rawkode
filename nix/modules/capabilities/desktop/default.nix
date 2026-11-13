@@ -16,62 +16,11 @@ mkCapability {
       llmAgents = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
     in
     {
-      # nixpkgs pins github-copilot-app 1.1.29; take the upstream v1.1.35 .deb
-      # for x86_64-linux until nixpkgs catches up. The aarch64-linux .deb keeps
-      # the nixpkgs version because its hash is not pinned here.
-      nixpkgs.overlays = lib.optionals (!isDarwin) [
-        (_final: prev: {
-          github-copilot-app =
-            if prev.stdenv.hostPlatform.system == "x86_64-linux" then
-              prev.github-copilot-app.overrideAttrs (old: {
-                version = "1.1.35";
-                src = prev.fetchurl {
-                  url = "https://github.com/github/app/releases/download/v1.1.35/GitHub-Copilot-linux-x64.deb";
-                  hash = "sha256-wsxvA4l0ezQsZL5WE7P/w/VuPb4dEdyC9JbmZaYTQE8=";
-                };
-                # libfoundry_local.so needs libonnxruntime.so.1, but the bundle ships
-                # only libonnxruntime.so (whose SONAME is .so.1), so autoPatchelf
-                # cannot resolve it without this alias.
-                postInstall = (old.postInstall or "") + ''
-                  ln -s libonnxruntime.so "$out/lib/GitHub Copilot/libonnxruntime.so.1"
-                '';
-                # nixpkgs' patchelf (0.15.x) rewrites one R_X86_64_RELATIVE entry as
-                # R_X86_64_PLT32 when it changes the interpreter or RPATH of this
-                # executable, and ld.so aborts on startup ("Inconsistency detected").
-                # The executable is therefore left unpatched and started through the
-                # glibc loader with an explicit library path. Shared libraries are
-                # still patched so their own dependencies resolve.
-                dontAutoPatchelf = true;
-                # wrapGAppsHook also wraps libexec/, which would turn the executable
-                # into a wrapper that execs it directly and hits the stub loader, so
-                # the GApps environment is applied to the launcher script only.
-                dontWrapGApps = true;
-                postFixup = (old.postFixup or "") + ''
-                  autoPatchelf "$out/lib"
-
-                  mkdir -p "$out/libexec"
-                  mv "$out/bin/github-copilot-app" "$out/libexec/github-copilot-app"
-                  cat > "$out/bin/github-copilot-app" <<EOF
-                  #!${prev.runtimeShell}
-                  exec ${prev.stdenv.cc.libc}/lib/ld-linux-x86-64.so.2 --library-path "${
-                    lib.makeLibraryPath (old.buildInputs ++ [ prev.stdenv.cc.libc ])
-                  }:$out/lib/GitHub Copilot" "$out/libexec/github-copilot-app" "\$@"
-                  EOF
-                  chmod +x "$out/bin/github-copilot-app"
-                  wrapProgram "$out/bin/github-copilot-app" "''${gappsWrapperArgs[@]}"
-                '';
-              })
-            else
-              prev.github-copilot-app;
-        })
-      ];
-
       home.packages = lib.optionals (!isDarwin) (
         with llmAgents;
         [
           chatgpt
           claude-desktop
-          pkgs.github-copilot-app
         ]
       );
 
@@ -99,6 +48,7 @@ mkCapability {
           appBundles.eloquawk.home
           appBundles.firefox-nightly.home
           appBundles.flipper.home
+          appBundles.github-copilot-app.home
           appBundles.google-chrome-dev.home
           appBundles.rockhopper.home
           appBundles.sonora.home
