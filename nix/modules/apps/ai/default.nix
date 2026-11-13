@@ -102,7 +102,11 @@ mkApp {
                     "/run/current-system/sw/bin"
                   ]
                 }"
-              ];
+              ]
+              # bb only answers requests for localhost, IP addresses, and the
+              # hostname in BB_APP_URL. A BB_APP_URL in ~/.bb/config.json (set
+              # with `bb-app config set`) takes precedence over this.
+              ++ lib.optional (cfg.bb.appUrl != null) "BB_APP_URL=${cfg.bb.appUrl}";
               # The launcher documents Ctrl+C as its clean shutdown path.
               KillSignal = "SIGINT";
               Restart = "on-failure";
@@ -165,6 +169,17 @@ mkApp {
           Address the bb server listens on. Null keeps bb's loopback-only
           default. bb documents non-loopback listeners as security-sensitive,
           so pair this with a firewall rule scoped to a trusted interface.
+        '';
+      };
+
+      options.rawkOS.apps.ai.bb.appUrl = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "http://bb.example.internal:38886";
+        description = ''
+          URL people use to open bb. bb uses it for generated links and
+          allowed browser origins, and accepts requests for its hostname in
+          addition to localhost and IP addresses.
         '';
       };
 

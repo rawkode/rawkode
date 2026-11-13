@@ -35,6 +35,7 @@
           # interface existing at startup; the firewall below admits it on
           # NetBird only.
           rawkOS.apps.ai.bb.serverBindHost = "0.0.0.0";
+          rawkOS.apps.ai.bb.appUrl = "http://p4x-desktop-nixos.rka.internal:38886";
 
           # The BenQ on DisplayPort drops its link when its monitors wake from DPMS
           # and never reconnects, so the desktop locks on idle and never powers
