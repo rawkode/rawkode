@@ -14,6 +14,7 @@
       "development"
       "platform"
       "vpn"
+      "openclaw"
     ];
     disabledCapabilities = [ ];
     traits = [
