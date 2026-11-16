@@ -16,50 +16,9 @@ mkApp {
     let
       cfg = config.rawkOS.apps.ai;
       agentPackages = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
-      # Keep Python and its packages aligned with Hermes' own nixpkgs input.
-      hermesPython =
-        inputs.llm-agents.inputs.nixpkgs.legacyPackages.${pkgs.stdenv.hostPlatform.system}.python3;
-      googleDependencies = with hermesPython.pkgs; [
-        google-api-python-client
-        google-auth-oauthlib
-        google-auth-httplib2
-      ];
-      hermesAgent = agentPackages.hermes-agent.overridePythonAttrs (old: {
-        dependencies = (old.dependencies or [ ]) ++ googleDependencies;
-        # Hermes launches skills/workers through HERMES_PYTHON, not just its CLI.
-        makeWrapperArgs = (old.makeWrapperArgs or [ ]) ++ [
-          "--set"
-          "HERMES_PYTHON"
-          "${hermesPython.withPackages (_: (old.dependencies or [ ]) ++ googleDependencies)}/bin/python3"
-        ];
-        pythonImportsCheck = (old.pythonImportsCheck or [ ]) ++ [
-          "googleapiclient.discovery"
-          "google_auth_oauthlib.flow"
-          "google_auth_httplib2"
-        ];
-      });
     in
     {
       config = lib.mkMerge [
-        (lib.mkIf cfg.hermes.enable {
-          home.packages = [
-            hermesAgent
-            agentPackages.hermes-desktop
-          ];
-
-          # Keep Hermes' gateway under systemd so Desktop can attach to the wrapped
-          # Nix CLI. Its unmanaged bootstrap starts bare sys.executable, which lacks
-          # the Python dependencies supplied by the hermes-agent wrapper.
-          systemd.user.services.hermes-gateway = {
-            Unit.Description = "Hermes Agent gateway";
-            Service = {
-              ExecStart = "${lib.getExe agentPackages.hermes-agent} gateway run --quiet";
-              Restart = "on-failure";
-              RestartSec = 5;
-            };
-            Install.WantedBy = [ "default.target" ];
-          };
-        })
         (lib.mkIf cfg.cliPackages.enable {
           home.packages = [
             # Computer-use MCP server (`cua-driver mcp`); ImageMagick provides
@@ -154,9 +113,6 @@ mkApp {
       options.rawkOS.apps.ai.cliPackages.enable = lib.mkEnableOption "AI CLI packages" // {
         default = true;
       };
-
-      options.rawkOS.apps.ai.hermes.enable =
-        lib.mkEnableOption "the Hermes agent, its desktop app, and its gateway service";
 
       options.rawkOS.apps.ai.bb.enable =
         lib.mkEnableOption "the bb agentic IDE and its background user service";

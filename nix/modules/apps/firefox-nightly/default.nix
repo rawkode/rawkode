@@ -234,7 +234,6 @@ mkApp {
               ];
               claude.action = 4;
               vscode.action = 4;
-              hermes.action = 4;
               slack.action = 4;
               "ext+flipper" = {
                 action = 2;

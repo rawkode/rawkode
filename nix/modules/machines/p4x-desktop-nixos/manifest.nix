@@ -29,7 +29,6 @@
       standaloneHomeConfiguration = false;
       modules = [
         {
-          rawkOS.apps.ai.hermes.enable = true;
           rawkOS.apps.ai.bb.enable = true;
           # Listen on every interface so bb does not depend on the NetBird
           # interface existing at startup; the firewall below admits it on
