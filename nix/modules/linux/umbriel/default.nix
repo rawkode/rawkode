@@ -135,6 +135,9 @@ mkApp {
 
       nix.settings = umbrielCache;
 
+      # Run `umbriel-mirror <window|output|stop>` to mirror to the HDMI monitor.
+      home.packages = [ mirror ];
+
       # Home Manager's portal directory replaces the system one, so the Umbriel
       # backend has to be present in the user profile as well.
       xdg.portal = {
@@ -354,10 +357,12 @@ mkApp {
             "Mod+Shift+S" = once "screencast-set-output";
             "Mod+Ctrl+S" = once "screencast-clear";
             "Mod+Shift+P" = once "dpms-off";
-            # Mirror the focused window or output to the HDMI monitor.
-            "Mod+Print" = once "spawn ${lib.getExe mirror} window";
-            "Mod+Shift+Print" = once "spawn ${lib.getExe mirror} output";
-            "Mod+Ctrl+Print" = once "spawn ${lib.getExe mirror} stop";
+            # Print captures a region, Mod+Print or Ctrl+Print the focused
+            # output, and Alt+Print the focused window.
+            "Print" = once "spawn noctalia msg screenshot-region";
+            "Mod+Print" = once "spawn noctalia msg screenshot-fullscreen";
+            "Ctrl+Print" = once "spawn noctalia msg screenshot-fullscreen";
+            "Alt+Print" = once "spawn noctalia msg screenshot-window";
           };
         };
       };
