@@ -15,9 +15,12 @@
     # Older channels kept only so individual packages can be pinned off
     # unstable: nixpkgs-25-05 -> modules/development/direnv; nixpkgs-stable
     # (25.11) -> modules/apps/bat, Darwin FZF/Nushell, and CoreWeave's Go 1.25
-    # package. Drop a pin once the package works on unstable again.
+    # package; nixpkgs-teleport -> modules/apps/teleport (unstable's teleport_18
+    # fails to link its RDP client). Drop a pin once the package works on
+    # unstable again.
     nixpkgs-25-05.url = "github:NixOS/nixpkgs/nixos-25.05";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs-teleport.url = "github:NixOS/nixpkgs/e39ece893d8549175630848b279b29c9d75947aa";
 
     flake-parts.url = "github:hercules-ci/flake-parts";
     import-tree.url = "github:vic/import-tree";
@@ -81,6 +84,11 @@
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-openclaw = {
+      url = "github:openclaw/nix-openclaw";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
     };
     nixos-hardware = {
       url = "github:NixOS/nixos-hardware/master";
