@@ -8,6 +8,6 @@ mkApp {
   linux.home =
     { pkgs, ... }:
     {
-      home.packages = [ inputs.sonora.packages.${pkgs.stdenv.hostPlatform.system}.sonora-bin ];
+      home.packages = [ inputs.sonora.packages.${pkgs.stdenv.hostPlatform.system}.sonora ];
     };
 }
