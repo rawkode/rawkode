@@ -86,9 +86,32 @@ mkApp {
           fi
         '';
       };
+      # nix-openclaw only materializes bootstrap files into the main workspace,
+      # so link them into the other agents' workspaces here. They share the
+      # main workspace's conventions, environment, and user model, and have
+      # their own identity and soul.
+      agentWorkspaces = {
+        social = "${cfg.stateDir}/workspace-social";
+        content = "${cfg.stateDir}/workspace-content";
+      };
+      agentWorkspaceFiles = lib.concatMapAttrs (
+        agent: dir:
+        let
+          relative = lib.removePrefix "${config.home.homeDirectory}/" dir;
+        in
+        {
+          "${relative}/AGENTS.md".source = ./workspace/AGENTS.md;
+          "${relative}/TOOLS.md".source = ./workspace/TOOLS.md;
+          "${relative}/USER.md".source = ./workspace/USER.md;
+          "${relative}/IDENTITY.md".source = ./agents/${agent}/IDENTITY.md;
+          "${relative}/SOUL.md".source = ./agents/${agent}/SOUL.md;
+        }
+      ) agentWorkspaces;
     in
     {
       imports = [ inputs.nix-openclaw.homeManagerModules.openclaw ];
+
+      home.file = agentWorkspaceFiles;
 
       nixpkgs.overlays = [ inputs.nix-openclaw.overlays.default ];
 
@@ -106,9 +129,63 @@ mkApp {
         # The config is a read-only store path, so the Control UI cannot save
         # these; change them here.
         config.agents.defaults = {
-          model.primary = "openai/gpt-6-luna";
-          thinkingDefault = "high";
-          fastModeDefault = true;
+          model = {
+            primary = "openai/gpt-6.1-sol";
+            fallbacks = [ "openai/gpt-6.1-terra" ];
+          };
+          # Short internal tasks (titles, progress narration) and typed
+          # choices/scores use the cheaper model.
+          utilityModel = "openai/gpt-6-luna";
+          decisionModel = "openai/gpt-6-luna";
+          # Rocko, the personal assistant, owns ambient system work and
+          # heartbeats; the multi-agent roster has no implicit owner.
+          systemAgent.agentId = "rocko";
+          heartbeat.agentId = "rocko";
+          # thinkingDefault and fastModeDefault are left unset to use
+          # OpenClaw's defaults.
+        };
+        # Rocko, the personal assistant, uses the main workspace above. The
+        # other agents get their own workspaces; see agentWorkspaces.
+        # Realtime voice (Talk) uses OpenAI's live model; Talk sessions without
+        # an agent go to Rocko.
+        config.talk = {
+          agentId = "rocko";
+          realtime = {
+            provider = "openai";
+            model = "gpt-live-1";
+          };
+        };
+        # Multi-agent rosters need explicit ownership: each channel, cron job,
+        # and heartbeat names the agent that owns it.
+        config.agents.ownership = "explicit";
+        config.agents.entries = {
+          rocko = {
+            name = "Rocko";
+            # Without this, a multi-agent roster nests it under the default.
+            workspace = "${cfg.stateDir}/workspace";
+            identity = {
+              name = "Rocko";
+              emoji = "🪨";
+            };
+          };
+          social = {
+            name = "Social Media Manager";
+            description = "Drafts and schedules posts, watches mentions, and reports engagement.";
+            workspace = agentWorkspaces.social;
+            identity = {
+              name = "Social Media Manager";
+              emoji = "📣";
+            };
+          };
+          content = {
+            name = "Content Lead";
+            description = "Plans the content calendar and researches, drafts, and edits articles, scripts, and episodes.";
+            workspace = agentWorkspaces.content;
+            identity = {
+              name = "Content Lead";
+              emoji = "🎬";
+            };
+          };
         };
         # Enable the default model's provider here; OpenClaw cannot write its
         # usual auto-enable into the read-only config.
@@ -144,6 +221,8 @@ mkApp {
           PartOf = [ "graphical-session.target" ];
         };
         Service = {
+          # Exec prepends POSIX syntax; leave the interactive login shell unchanged.
+          Environment = [ "SHELL=${pkgs.runtimeShell}" ];
           # systemd reads EnvironmentFile= per command, so ExecStart sees a
           # token generated here on first start.
           ExecStartPre = [
