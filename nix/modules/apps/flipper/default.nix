@@ -6,20 +6,10 @@ mkApp {
   name = "flipper";
 
   linux.home =
-    { config, lib, ... }:
+    { lib, ... }:
     let
-      firefox = config.programs.firefox;
-      # Flipper's Firefox profile ID, derived from the Firefox module so a new
-      # profile path, container ID or Firefox edition cannot strand the rule.
-      # Flipper names the browser after its command, which is mainProgram.
-      firefoxContainer =
-        profileName: containerName:
-        let
-          profile = firefox.profiles.${profileName};
-        in
-        "${firefox.package.meta.mainProgram}:${profile.path}#container-${
-          toString profile.containers.${containerName}.id
-        }";
+      # Chrome Dev's Default profile is the rawkode.academy account.
+      chromeAcademy = "chrome-dev:Default";
     in
     {
       imports = [ inputs.flipper.homeModules.default ];
@@ -28,14 +18,22 @@ mkApp {
         enable = true;
         defaultBrowser = true;
         nativeMessaging.firefox = true;
-        settings.rules = lib.optionals firefox.enable [
-          {
-            name = "Sigstore sign-in";
-            domains = [ "oauth2.sigstore.dev" ];
-            action = "open";
-            profile = firefoxContainer "default" "RawkodeAcademy";
-          }
-        ];
+        settings = {
+          # Chrome is the default browser: open unmatched links without a picker.
+          routing = {
+            mode = "always";
+            defaultProfile = chromeAcademy;
+          };
+          rules = [
+            {
+              # gitsign's OIDC sign-in must use the rawkode.academy identity.
+              name = "Sigstore sign-in";
+              domains = [ "oauth2.sigstore.dev" ];
+              action = "open";
+              profile = chromeAcademy;
+            }
+          ];
+        };
       };
 
       # google-chrome forces text/html; keep Flipper ahead of it.
