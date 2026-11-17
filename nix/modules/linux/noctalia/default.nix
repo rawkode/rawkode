@@ -58,6 +58,8 @@ mkApp {
               "tray"
               "volume"
               "network"
+              # Shows only where UPower reports a battery, so desktops are unaffected.
+              "battery"
               "notifications"
               "clock"
             ];
