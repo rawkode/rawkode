@@ -22,7 +22,12 @@ mkApp {
   };
 
   linux.home =
-    { lib, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       once = action: {
         inherit action;
@@ -159,6 +164,50 @@ mkApp {
         package = null;
         settings = {
           general.autostart = [ "noctalia" ];
+
+          colors = lib.mkIf (config.stylix.enable or false) (
+            with config.lib.stylix.colors.withHashtag;
+            {
+              background = base00;
+              text_primary = base05;
+              text_muted = base04;
+              accent_primary = base0D;
+              accent_secondary = base0E;
+              warning = base0A;
+              error = base08;
+              insert_hint = "${base0D}66";
+              backdrop = base00;
+              shadow = "${base00}7F";
+              border = {
+                focused = base0D;
+                unfocused = base02;
+                outer = base01;
+              };
+              overview = {
+                background_tint = "${base00}30";
+                workspace_background = "${base00}44";
+                badge = base0D;
+              };
+              tab_bar = {
+                background = base01;
+                text = base04;
+                active = base0D;
+                active_text = base00;
+                active_unfocused = base02;
+                active_unfocused_text = base05;
+                urgent = base08;
+                urgent_text = base00;
+              };
+              title_bar = {
+                background = base02;
+                background_unfocused = base01;
+                text = base05;
+                text_unfocused = base04;
+                close = base08;
+                close_glyph = base00;
+              };
+            }
+          );
 
           # A monitor-identity section replaces a matching connector section
           # rather than merging with it, so each one carries the display policy.

@@ -18,7 +18,7 @@ let
         image = wallpaper;
         # Vendored so Stylix doesn't read base16-schemes from the store at
         # evaluation time (import-from-derivation). See modules/config/themes.
-        base16Scheme = ./themes/ayu-mirage.yaml;
+        base16Scheme = ./themes/rose-pine.yaml;
 
         cursor = {
           package = pkgs.rose-pine-cursor;

@@ -196,13 +196,8 @@ mkApp {
             "font.size.variable.x-western" = 15;
             "font.size.monospace.x-western" = 20;
 
-            # Reader mode colours.
-            "reader.color_scheme" = "custom";
-            "reader.custom_colors.background" = "#1f2430";
-            "reader.custom_colors.foreground" = "#cccac2";
-            "reader.custom_colors.selection-highlight" = "#707a8c";
-            "reader.custom_colors.unvisited-links" = "#73d0ff";
-            "reader.custom_colors.visited-links" = "#d4bfff";
+            # Reader mode colours come from the Stylix Firefox target, so they
+            # follow the active base16 scheme.
           };
 
           handlers = {
