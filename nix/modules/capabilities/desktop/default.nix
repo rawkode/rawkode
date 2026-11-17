@@ -47,11 +47,11 @@ mkCapability {
           appBundles.chinstrap.home
           appBundles.eloquawk.home
           appBundles.firefox-nightly.home
+          appBundles.flipper.home
           appBundles.github-copilot-app.home
           appBundles.google-chrome-dev.home
           appBundles.rockhopper.home
           appBundles.sonora.home
-          appBundles.vivaldi.home
 
           homeModules.dconf-editor
           homeModules.flatpak
@@ -84,7 +84,6 @@ mkCapability {
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rockhopper
     inputs.self.nixosModules.umbriel
-    inputs.self.nixosModules.vivaldi
     (_: {
       services = {
         pipewire = {
@@ -103,7 +102,6 @@ mkCapability {
     appBundles.rio.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
-    appBundles.vivaldi.darwin
     appBundles.zed.darwin
 
     darwinModules.apps
