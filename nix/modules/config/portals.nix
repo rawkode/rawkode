@@ -8,6 +8,12 @@ mkApp {
   linux.system =
     { pkgs, ... }:
     {
+      # The Secret portal is only a front end for org.freedesktop.secrets. The
+      # keyring's D-Bus activation file execs /run/wrappers/bin/gnome-keyring-daemon,
+      # which exists only when the service is enabled. Enabling it also registers
+      # the portal backend and unlocks the login keyring through PAM.
+      services.gnome.gnome-keyring.enable = true;
+
       xdg.portal = {
         enable = true;
         config.common = {
@@ -19,7 +25,6 @@ mkApp {
           ];
         };
         extraPortals = with pkgs; [
-          gnome-keyring
           xdg-desktop-portal-gtk
         ];
       };
