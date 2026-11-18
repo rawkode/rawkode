@@ -14,7 +14,6 @@
       "development"
       "platform"
       "vpn"
-      "openclaw"
     ];
     disabledCapabilities = [ ];
     traits = [
@@ -87,6 +86,41 @@
       ];
     };
     modules = [
+      (
+        { pkgs, ... }:
+        {
+          environment.systemPackages = [
+            (pkgs.callPackage (
+              {
+                appimageTools,
+                fetchurl,
+                makeDesktopItem,
+              }:
+              let
+                pname = "openmausbot";
+                version = "0.1.169";
+                desktopItem = makeDesktopItem {
+                  name = pname;
+                  desktopName = "OpenMausBot";
+                  exec = pname;
+                  categories = [ "Utility" ];
+                };
+              in
+              appimageTools.wrapType2 {
+                inherit pname version;
+                src = fetchurl {
+                  url = "https://github.com/milind-soni/OpenMausBot/releases/download/v${version}/OpenMausBot-${version}-x86_64.AppImage";
+                  sha256 = "a2293511e54560239b0117106502b6e8edbe615a893c67de279bb19ecf38f9aa";
+                };
+                extraInstallCommands = ''
+                  mkdir -p "$out/share/applications"
+                  cp ${desktopItem}/share/applications/*.desktop "$out/share/applications/"
+                '';
+              }
+            ) { })
+          ];
+        }
+      )
       {
         rawkOS.disko.device = "/dev/nvme0n1";
         zramSwap.enable = true;
