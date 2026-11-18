@@ -14,6 +14,9 @@ mkCapability {
     comma.home
     cuenv.home
     cue.home
+    ({ pkgs, ... }: {
+      home.packages = [ inputs.dagger.packages.${pkgs.stdenv.hostPlatform.system}.dagger ];
+    })
     datumctl.home
     deno.home
     devenv.home

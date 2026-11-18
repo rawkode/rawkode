@@ -54,6 +54,7 @@
     };
     cuenv.url = "github:cuenv/cuenv";
     cua.url = "github:trycua/cua";
+    dagger.url = "github:dagger/nix";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
