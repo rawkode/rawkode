@@ -19,11 +19,7 @@ mkApp {
         defaultBrowser = true;
         nativeMessaging.firefox = true;
         settings = {
-          # Chrome is the default browser: open unmatched links without a picker.
-          routing = {
-            mode = "always";
-            defaultProfile = chromeAcademy;
-          };
+          routing.mode = "picker";
           rules = [
             {
               # gitsign's OIDC sign-in must use the rawkode.academy identity.
