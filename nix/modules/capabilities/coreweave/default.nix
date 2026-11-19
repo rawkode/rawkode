@@ -14,10 +14,6 @@ mkCapability {
   darwin =
     { lib, ... }:
     {
-      imports = with inputs.self.appBundles; [
-        coreweave.darwin
-      ];
-
       rawkOS.darwin.firewall.enable = lib.mkForce false;
     };
 }

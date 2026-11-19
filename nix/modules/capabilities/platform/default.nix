@@ -15,14 +15,6 @@ mkCapability {
 
   darwin = with inputs.self.appBundles; [
     google-cloud.darwin
-    kubernetes.darwin
-    podman.darwin
     teleport.darwin
-  ];
-
-  nixos = with inputs.self.appBundles; [
-    google-cloud.nixos
-    kubernetes.nixos
-    podman.nixos
   ];
 }

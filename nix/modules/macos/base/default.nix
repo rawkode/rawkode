@@ -23,10 +23,14 @@
 
       launchd.daemons.maxfiles.serviceConfig = {
         Label = "com.rawkode.maxfiles";
-        ProgramArguments = [ "/usr/bin/true" ];
+        ProgramArguments = [
+          "/bin/launchctl"
+          "limit"
+          "maxfiles"
+          "1048576"
+          "1048576"
+        ];
         RunAtLoad = true;
-        SoftResourceLimits.NumberOfFiles = 1048576;
-        HardResourceLimits.NumberOfFiles = 1048576;
       };
 
       rawkOS.darwin = {
@@ -63,11 +67,6 @@
             suggestFileNames = true;
             avoidNetworkDSStore = true;
             avoidUSBDSStore = true;
-          };
-          mail = {
-            # See modules/macos/system-defaults/mail.nix: disabled because writing
-            # com.apple.mail's sandboxed preferences domain breaks activation.
-            personalizedSmartReplies = false;
           };
           menuBar.clock = {
             analog = false;

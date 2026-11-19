@@ -95,7 +95,6 @@ let
       username,
       name ? null,
       email ? null,
-      signingKey ? null,
       stateVersion ? "25.11",
       homeDirectory ? {
         darwin = "/Users/${username}";
@@ -134,13 +133,13 @@ let
         inherit username;
         name = if name != null then name else username;
         email = if email != null then email else throw "mkUser '${username}' requires an email";
-        inherit signingKey;
       };
 
       homeModule =
         {
           lib,
           isDarwin,
+          osClass ? "standalone",
           machine ? null,
           ...
         }:
@@ -158,7 +157,10 @@ let
 
           platformExtraImports = if isDarwin then darwinExtraImports else linuxExtraImports;
         in
-        {
+        lib.optionalAttrs (osClass != "nixos") {
+          nixpkgs.config.allowUnfree = true;
+        }
+        // {
           home = {
             inherit username;
             homeDirectory = if isDarwin then homeDirectory.darwin else homeDirectory.linux;
@@ -173,8 +175,6 @@ let
           };
 
           programs.home-manager.enable = true;
-
-          nixpkgs.config.allowUnfree = true;
 
           manual.manpages.enable = false;
 
@@ -201,6 +201,7 @@ let
           ...
         }:
         {
+          home-manager.useGlobalPkgs = true;
           home-manager.backupFileExtension = nixosBackupExtension;
           home-manager.extraSpecialArgs = {
             inherit

@@ -33,6 +33,26 @@ in
 
     nixos-framework-13-7040-amd.nixos = [
       inputs.nixos-hardware.nixosModules.framework-13-7040-amd
+      (
+        { pkgs, ... }:
+        {
+          boot.kernelPackages = pkgs.linuxPackages_latest.extend (
+            _: prev: {
+              # The module aggregator expects a kmodigest `.ko.cer` per external
+              # module, which only `modules_install` produces; upstream copies the
+              # bare `.ko`.
+              framework-laptop-kmod = prev.framework-laptop-kmod.overrideAttrs {
+                installPhase = ''
+                  runHook preInstall
+                  make $makeFlags INSTALL_MOD_PATH=$out INSTALL_MOD_DIR=extra modules_install
+                  find $out/lib/modules -maxdepth 2 -type f -name 'modules.*' -delete
+                  runHook postInstall
+                '';
+              };
+            }
+          );
+        }
+      )
     ];
 
     nixos-tuxedo-infinitybook-pro14-gen9-amd.nixos = [
@@ -79,21 +99,12 @@ in
               percentageLow = 15;
               percentageCritical = 7;
               percentageAction = 5;
-              criticalPowerAction = "Hibernate";
+              criticalPowerAction = lib.mkIf canHibernate "Hibernate";
             };
             logind.settings.Login = {
               HandleLidSwitch = lib.mkDefault sleepAction;
               HandleLidSwitchExternalPower = "lock";
               HandlePowerKey = lib.mkDefault sleepAction;
-            };
-            libinput = {
-              enable = true;
-              touchpad = {
-                naturalScrolling = true;
-                tapping = true;
-                clickMethod = "clickfinger";
-                disableWhileTyping = true;
-              };
             };
           };
 
@@ -117,65 +128,8 @@ in
       inputs.self.nixosModules.lanzaboote
     ];
 
-    nixos-vm-simple-disko.nixos = [
-      inputs.self.nixosModules.disko-vm-simple
-    ];
-
     nixos-zen-kernel.nixos = [
       inputs.self.nixosModules.kernel
-    ];
-
-    parallels-vm.nixos = [
-      (
-        { lib, ... }:
-        {
-          imports = [
-            inputs.self.nixosModules.disko-vm-simple
-          ];
-
-          services.qemuGuest.enable = true;
-
-          boot = {
-            loader = {
-              efi.canTouchEfiVariables = true;
-              grub.enable = lib.mkForce false;
-              systemd-boot = {
-                enable = true;
-                memtest86.enable = lib.mkForce false;
-              };
-              timeout = lib.mkForce 3;
-            };
-            initrd.availableKernelModules = [
-              "ahci"
-              "xhci_pci"
-              "virtio_pci"
-              "virtio_blk"
-              "virtio_scsi"
-              "sr_mod"
-              "sd_mod"
-            ];
-            kernelModules = [ ];
-          };
-
-          nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
-
-          hardware = {
-            parallels.enable = true;
-            graphics.enable = true;
-            enableRedistributableFirmware = true;
-          };
-
-          services.xserver.videoDrivers = [ "modesetting" ];
-
-          services.thermald.enable = false;
-          services.power-profiles-daemon.enable = false;
-
-          networking = {
-            useDHCP = lib.mkDefault true;
-            firewall.enable = true;
-          };
-        }
-      )
     ];
 
     orbstack-vm.nixos = [
@@ -194,8 +148,9 @@ in
           nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
 
           # OrbStack (boot.isContainer) mounts the btrfs root subvolume itself,
-          # so NixOS must not manage any filesystems.
+          # so NixOS must not manage any filesystems or zram swap.
           fileSystems = lib.mkForce { };
+          zramSwap.enable = false;
 
           # OrbStack guest integration (paths provided by the OrbStack agent,
           # stable across rebuilds, mounted at /opt/orbstack-guest).

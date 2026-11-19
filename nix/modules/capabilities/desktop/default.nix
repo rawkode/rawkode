@@ -35,7 +35,6 @@ mkCapability {
       imports =
         with inputs.self;
         [
-          appBundles.rio.home
           appBundles.handy.home
           appBundles.onepassword.home
           appBundles.zed.home
@@ -57,7 +56,6 @@ mkCapability {
           homeModules.flatpak
           homeModules.desktop-defaults
           homeModules.noctalia
-          homeModules.portals
           homeModules.rquickshare
           homeModules.umbriel
           homeModules.wayland
@@ -66,10 +64,8 @@ mkCapability {
 
   nixos = [
     inputs.flatpaks.nixosModules.nix-flatpak
-    inputs.self.nixosModules.antarctical
     inputs.self.nixosModules.audio
     inputs.self.nixosModules.bluetooth
-    inputs.self.nixosModules.chinstrap
     inputs.self.nixosModules.desktop-common
     inputs.self.nixosModules.greetd
     inputs.self.nixosModules.flatpak
@@ -82,24 +78,17 @@ mkCapability {
     inputs.self.nixosModules.plymouth
     inputs.self.nixosModules.polkit
     inputs.self.nixosModules.portals
-    inputs.self.nixosModules.rockhopper
+    inputs.self.nixosModules.rquickshare
     inputs.self.nixosModules.umbriel
+    inputs.self.nixosModules.wayland
     (_: {
-      services = {
-        pipewire = {
-          enable = true;
-          alsa.enable = true;
-          pulse.enable = true;
-        };
-        printing.enable = true;
-      };
+      services.printing.enable = true;
     })
   ];
 
   darwin = with inputs.self; [
     appBundles.firefox-nightly.darwin
     appBundles.google-chrome-dev.darwin
-    appBundles.rio.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
     appBundles.zed.darwin

@@ -13,7 +13,6 @@
       "personal"
       "development"
       "platform"
-      "extras"
       "vpn"
     ];
     disabledCapabilities = [ ];

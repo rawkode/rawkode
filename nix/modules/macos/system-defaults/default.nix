@@ -8,7 +8,6 @@
         inputs.self.darwinModules.macos-system-defaults-finder
         inputs.self.darwinModules.macos-system-defaults-global
         inputs.self.darwinModules.macos-system-defaults-keyboard
-        inputs.self.darwinModules.macos-system-defaults-mail
         inputs.self.darwinModules.macos-system-defaults-menu-bar
         inputs.self.darwinModules.macos-system-defaults-screencapture
         inputs.self.darwinModules.macos-system-defaults-window-manager

@@ -7,7 +7,6 @@ mkCapability {
 
   home = with inputs.self.appBundles; [
     ai.home
-    pi.home
     visual-studio-code.home
 
     bun.home
@@ -46,7 +45,8 @@ mkCapability {
       };
 
       imports = [
-        inputs.self.nixosModules.ai
+        inputs.self.appBundles.cuenv.nixos
+        inputs.self.appBundles.devenv.nixos
         inputs.self.nixosModules.android
         inputs.self.nixosModules.containers
         inputs.self.nixosModules.documentation
@@ -60,7 +60,6 @@ mkCapability {
             gcc
             gdb
             gh
-            git
             gnumake
             ltrace
             neovim
@@ -70,7 +69,6 @@ mkCapability {
             podman-compose
             strace
             tcpdump
-            vim
           ]
           ++ lib.optionals cfg.guiTools.enable [
             pkgs.wireshark
@@ -85,22 +83,12 @@ mkCapability {
 
   darwin = with inputs.self.appBundles; [
     ai.darwin
-    pi.darwin
     visual-studio-code.darwin
 
     bun.darwin
-    comma.darwin
     cuenv.darwin
-    cue.darwin
-    deno.darwin
+    datumctl.darwin
     devenv.darwin
-    direnv.darwin
-    go.darwin
-    just.darwin
-    nh.darwin
-    nix-dev.darwin
-    python.darwin
-    rust.darwin
     ({ lib, ... }: {
       homebrew = {
         enable = lib.mkDefault true;

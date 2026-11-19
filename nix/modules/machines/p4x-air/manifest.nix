@@ -16,15 +16,6 @@
     disabledCapabilities = [ ];
     traits = [ ];
     users.rawkode = { };
-    modules = [
-      {
-        rawkOS.darwin.firewall = {
-          enable = true;
-          stealthMode = true;
-          allowSigned = true;
-          allowSignedApp = true;
-        };
-      }
-    ];
+    modules = [ ];
   };
 }

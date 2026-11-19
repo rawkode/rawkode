@@ -164,8 +164,7 @@ The development capability includes:
 Graphical machines explicitly select both `desktop` and `theming`. Hardware
 services use `nixos-hardware-maintenance`, `nixos-tpm2`, and `nixos-wireless`
 traits. Disk and Secure Boot modules import their own upstream dependencies.
-Parallels explicitly retains its existing hardware-service selections; OrbStack
-selects none of those traits and only keeps its container-specific integration.
+OrbStack selects none of those traits and only keeps its container-specific integration.
 
 Machine capabilities provide system integration and are inherited by users.
 User-only capabilities provide Home Manager imports; they do not enable system

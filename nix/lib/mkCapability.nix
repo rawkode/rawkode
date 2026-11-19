@@ -25,10 +25,6 @@ let
   darwinModule = toModule darwin;
 in
 {
-  flake.homeModules.${name} = homeModule;
-  flake.nixosModules.${name} = nixosModule;
-  flake.darwinModules.${name} = darwinModule;
-
   flake.capabilityBundles.${name} = {
     home = homeModule;
     nixos = nixosModule;
