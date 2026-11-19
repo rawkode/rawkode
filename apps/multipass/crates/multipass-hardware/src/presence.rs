@@ -1,6 +1,4 @@
-use crate::{
-    DeviceSnapshot, HardwareError, KeyboardId, KeyboardInfo, MOUSE_PRODUCT, MOUSE_VENDOR,
-};
+use crate::{DeviceSnapshot, HardwareError, KeyboardId, KeyboardInfo, MOUSE_PRODUCT, MOUSE_VENDOR};
 
 fn result_from_ids(
     ids: impl IntoIterator<Item = (u16, u16)>,
@@ -25,7 +23,7 @@ pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareE
 pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
     macos::keyboards()
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
     Ok(Vec::new())
 }
@@ -230,6 +228,61 @@ mod macos {
         result.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(result)
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+    use std::fs;
+
+    let devices = fs::read_dir("/sys/class/input")
+        .map_err(|error| HardwareError::Enumeration(error.to_string()))?;
+    let mut keyboards: Vec<KeyboardInfo> = Vec::new();
+    for entry in devices.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("event") {
+            continue;
+        }
+        let path = entry.path().join("device");
+        let read_hex = |file| {
+            let text = fs::read_to_string(path.join(file)).ok()?;
+            u16::from_str_radix(text.trim(), 16).ok()
+        };
+        if read_hex("id/bustype") != Some(5) {
+            continue;
+        }
+        let Ok(keys) = fs::read_to_string(path.join("capabilities/key")) else {
+            continue;
+        };
+        // The low word contains KEY_Q through KEY_P (codes 16 through 25).
+        // Require the letter row to exclude mice and media-only interfaces.
+        let letter_row = 0x03ff_0000;
+        let low_word = keys
+            .split_whitespace()
+            .last()
+            .and_then(|word| u64::from_str_radix(word, 16).ok())
+            .unwrap_or_default();
+        if low_word & letter_row != letter_row {
+            continue;
+        }
+        let (Some(vendor), Some(product)) = (read_hex("id/vendor"), read_hex("id/product")) else {
+            continue;
+        };
+        let id = KeyboardId { vendor, product };
+        if keyboards.iter().any(|keyboard| keyboard.id == id) {
+            continue;
+        }
+        let name = fs::read_to_string(path.join("name"))
+            .map(|name| name.trim().to_owned())
+            .unwrap_or_else(|_| format!("{vendor:04X}:{product:04X}"));
+        keyboards.push(KeyboardInfo { id, name });
+    }
+    keyboards.sort_by_key(|keyboard| {
+        (
+            keyboard.name.clone(),
+            keyboard.id.vendor,
+            keyboard.id.product,
+        )
+    });
+    Ok(keyboards)
 }
 
 #[cfg(target_os = "linux")]

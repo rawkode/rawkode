@@ -28,6 +28,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
         self.available = False
         self.closing = False
         self.nearby = []
+        self.keyboards = []
         self.pairing = None
         self.pairing_dialog = None
         self.pair_buttons = []
@@ -57,6 +58,12 @@ class MultipassWindow(Gtk.ApplicationWindow):
         self.enabled = Gtk.Switch(valign=Gtk.Align.CENTER)
         enabled_row.append(self.enabled)
         box.append(enabled_row)
+        keyboard_row = Gtk.Box(spacing=12)
+        keyboard_row.append(Gtk.Label(label="Keyboard", xalign=0, hexpand=True))
+        self.keyboard = Gtk.DropDown()
+        self.keyboard.update_property([Gtk.AccessibleProperty.LABEL], ["Keyboard"])
+        keyboard_row.append(self.keyboard)
+        box.append(keyboard_row)
         self.devices = label("Waiting for device status…")
         self.network = label("Starting engine…")
         paired_row = Gtk.Box(spacing=12)
@@ -77,6 +84,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
         self.result = label("")
         self.result.add_css_class("dim-label")
         label("Keep this window open for automatic switching. Closing it quits Multipass.")
+        self.keyboard.connect("notify::selected", self.change_keyboard)
         self.slot.connect("notify::selected", self.change_slot)
         self.enabled.connect("notify::active", self.change_enabled)
         self.forget.connect("clicked", lambda _: self.engine.send("unpair"))
@@ -87,12 +95,32 @@ class MultipassWindow(Gtk.ApplicationWindow):
             self.engine.send("status")
 
     def set_actions(self, available):
+        self.keyboard.set_sensitive(available and len(self.keyboards) > 1)
         for widget in (self.slot, self.enabled, self.forget, *self.pair_buttons):
             widget.set_sensitive(available)
 
     def change_slot(self, *_):
         if not self.rendering and self.available:
             self.engine.send("set_slot", slot=self.slot.get_selected() + 1)
+
+    def change_keyboard(self, *_):
+        selected = self.keyboard.get_selected()
+        if not self.rendering and self.available and selected < len(self.keyboards):
+            choice = self.keyboards[selected]
+            self.engine.send("set_keyboard", vendor=choice["vendor"], product=choice["product"])
+
+    def render_keyboards(self, current, choices):
+        current_id = (current["vendor"], current["product"])
+        keyboards = {(choice["vendor"], choice["product"]): choice for choice in choices}
+        keyboards.setdefault(current_id, current)
+        entries = list(keyboards.values())
+        if entries != self.keyboards:
+            self.keyboards = entries
+            self.keyboard.set_model(Gtk.StringList.new([
+                f"{entry['name']} ({entry['vendor']:04X}:{entry['product']:04X})"
+                for entry in entries
+            ]))
+        self.keyboard.set_selected(list(keyboards).index(current_id))
 
     def change_enabled(self, *_):
         if not self.rendering and self.available:
@@ -186,6 +214,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
                 pairing = self.validate_pairing(state["pairing"])
                 self.rendering = True
                 try:
+                    self.render_keyboards(state["keyboard"], state["keyboards"])
                     self.slot.set_selected(slot - 1)
                     self.enabled.set_active(state["enabled"])
                     self.devices.set_text(f"Keyboard: {self.device(state['keyboard_present'])}    Mouse: {self.device(state['mouse_present'])}")
