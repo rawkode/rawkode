@@ -13,16 +13,17 @@
     # Primary channel for the whole system.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # Older channels kept only so individual packages can be pinned off
-    # unstable: nixpkgs-25-05 -> modules/development/direnv; nixpkgs-stable
-    # (25.11) -> modules/apps/bat, Darwin FZF/Nushell, and CoreWeave's Go 1.25
-    # package; nixpkgs-teleport -> modules/apps/teleport (unstable's teleport_18
-    # fails to link its RDP client). Drop a pin once the package works on
-    # unstable again.
-    nixpkgs-25-05.url = "github:NixOS/nixpkgs/nixos-25.05";
+    # unstable: nixpkgs-stable (25.11) -> Darwin bat-extras/FZF/Nushell and
+    # CoreWeave's teleport_17 client; nixpkgs-teleport -> modules/apps/teleport
+    # (unstable's teleport_18 fails to link its RDP client). Drop a pin once the
+    # package works on unstable again.
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
     nixpkgs-teleport.url = "github:NixOS/nixpkgs/e39ece893d8549175630848b279b29c9d75947aa";
 
-    flake-parts.url = "github:hercules-ci/flake-parts";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
     import-tree.url = "github:vic/import-tree";
 
     home-manager = {
@@ -38,13 +39,9 @@
     # Keep the Korora Tech package pins so their matching builds can come from its cache.
     antarctical.url = "github:korora-tech/antarctical";
     chinstrap.url = "github:korora-tech/chinstrap";
-    eloquawk = {
-      url = "github:korora-tech/eloquawk";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    eloquawk.url = "github:korora-tech/eloquawk";
     flipper.url = "github:korora-tech/flipper";
     rockhopper.url = "github:korora-tech/rockhopper";
-    comma.url = "github:nix-community/comma";
     coreweave = {
       url = "github:coreweave/coreweave.nix";
       inputs.nixpkgs.follows = "nixpkgs-stable";
@@ -72,11 +69,6 @@
     };
     flatpaks.url = "github:gmodena/nix-flatpak";
 
-    ghostty = {
-      url = "github:ghostty-org/ghostty";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    ironbar.url = "github:JakeStanger/ironbar";
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -84,11 +76,6 @@
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    nix-openclaw = {
-      url = "github:openclaw/nix-openclaw";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
     };
     nixos-hardware = {
       url = "github:NixOS/nixos-hardware/master";
@@ -103,15 +90,17 @@
     nur = {
       url = "github:nix-community/NUR";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
     };
     stylix = {
       url = "github:danth/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.nur.follows = "nur";
+      inputs.systems.follows = "systems";
     };
-    sonora = {
-      url = "github:sonorahq/sonora";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Keep Sonora's nixpkgs pin so builds match sonora.cachix.org.
+    sonora.url = "github:sonorahq/sonora";
     systems = {
       url = "github:nix-systems/default";
     };

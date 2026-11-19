@@ -7,14 +7,20 @@ mkApp {
 
   common.home =
     {
+      inputs,
+      isDarwin,
       lib,
       pkgs,
-      inputs,
-      system,
       ...
     }:
     let
-      stable = inputs.nixpkgs-stable.legacyPackages.${system};
+      # On aarch64-darwin, bat-extras pulls nushell as a build input and
+      # unstable nushell lacks a binary cache; Linux stays on primary nixpkgs.
+      batExtras =
+        if isDarwin then
+          inputs.nixpkgs-stable.legacyPackages.${pkgs.stdenv.hostPlatform.system}.bat-extras
+        else
+          pkgs.bat-extras;
     in
     {
       programs.bat = {
@@ -24,9 +30,7 @@ mkApp {
           style = "auto,header-filesize";
         };
 
-        # Use stable nixpkgs — bat-extras uses nushell as a build input,
-        # and unstable nushell has no binary cache on aarch64-darwin
-        extraPackages = with stable.bat-extras; [
+        extraPackages = with batExtras; [
           batdiff
           batgrep
           batman
