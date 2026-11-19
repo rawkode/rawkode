@@ -30,15 +30,12 @@ mkApp {
       config = lib.mkIf cfg.enable {
         home.packages = lib.optionals (!isDarwin) [ pkgs.zed-editor ];
 
-        home.activation.zedConfigSymlinks = config.lib.dag.entryAfter [ "linkGeneration" ] ''
-          mkdir -p ${lib.escapeShellArg "${config.home.homeDirectory}/.config/zed"}
-          ln -sfn \
-            ${lib.escapeShellArg "${cfg.configDir}/${keymapFile}"} \
-            ${lib.escapeShellArg "${config.home.homeDirectory}/.config/zed/keymap.json"}
-          ln -sfn \
-            ${lib.escapeShellArg "${cfg.configDir}/settings.json"} \
-            ${lib.escapeShellArg "${config.home.homeDirectory}/.config/zed/settings.json"}
-        '';
+        home.file = {
+          ".config/zed/keymap.json".source =
+            config.lib.file.mkOutOfStoreSymlink "${cfg.configDir}/${keymapFile}";
+          ".config/zed/settings.json".source =
+            config.lib.file.mkOutOfStoreSymlink "${cfg.configDir}/settings.json";
+        };
 
         xdg.mimeApps = lib.mkIf (!isDarwin) {
           enable = true;

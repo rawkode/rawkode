@@ -17,11 +17,8 @@
           statix
         ];
 
-        env = {
-          FLAKE_ROOT = "$PWD";
-        };
-
         shellHook = ''
+          export FLAKE_ROOT="$PWD"
           echo "Welcome to rawkOS development shell!"
           echo "Run 'nix flake show' to see available outputs"
         '';

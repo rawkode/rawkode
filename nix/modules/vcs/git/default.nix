@@ -23,7 +23,6 @@ mkApp {
         lfs.enable = true;
 
         ignores = [
-          "*logs*"
           "*.log"
           "*~"
           ".DS_Store"

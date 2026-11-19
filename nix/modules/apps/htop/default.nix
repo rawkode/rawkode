@@ -5,7 +5,7 @@ in
 mkApp {
   name = "htop";
 
-  common.home =
+  darwin.home =
     { pkgs, lib, ... }:
     {
       programs.htop = {

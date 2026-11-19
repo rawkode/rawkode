@@ -96,11 +96,16 @@ def main [
 	# The live ISO root is RAM-backed, so give from-source builds real swap.
 	let swapfile = "/mnt/installer-swapfile"
 	if not ($swapfile | path exists) {
-		^fallocate -l 32G $swapfile
-		^chmod 600 $swapfile
-		^mkswap $swapfile
+		let fstype = (^findmnt -n -o FSTYPE /mnt | str trim)
+		if $fstype == "btrfs" {
+			^btrfs filesystem mkswapfile --size 32g $swapfile
+		} else {
+			^fallocate -l 32G $swapfile
+			^chmod 600 $swapfile
+			^mkswap $swapfile
+		}
 	}
-	do -i { ^swapon $swapfile }
+	^swapon $swapfile
 
 	# ulimit is a shell builtin, so raise it in the same process as nixos-install.
 	^bash -c $"ulimit -n 1048576; exec nixos-install --flake '($flake)#($machine)' --no-root-passwd"

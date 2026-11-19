@@ -29,6 +29,7 @@ mkApp {
       home.sessionVariables = {
         CARGO_HOME = "${config.home.homeDirectory}/.cargo";
         RUSTUP_HOME = "${config.home.homeDirectory}/.rustup";
+        RUSTC_WRAPPER = lib.getExe pkgs.sccache;
       };
 
       home.sessionPath = [

@@ -83,7 +83,7 @@ def setting-values [settings_text: string, setting_name: string] {
 		$settings_text
 		| lines
 		| where {|line| $line starts-with $prefix }
-		| first
+		| get -o 0
 		| default ""
 	)
 	let value = ($line | str replace $prefix "")
@@ -93,14 +93,17 @@ def setting-values [settings_text: string, setting_name: string] {
 
 def daemon-has-bootstrap-settings [bootstrap_text: string] {
 	let daemon_config = (^nix config show | str join (char nl))
+	let required_trusted = (setting-values $bootstrap_text "trusted-users")
 	let required_substituters = (setting-values $bootstrap_text "extra-substituters")
 	let required_keys = (setting-values $bootstrap_text "extra-trusted-public-keys")
+	let configured_trusted = (setting-values $daemon_config "trusted-users")
 	let configured_substituters = (setting-values $daemon_config "substituters")
 	let configured_keys = (setting-values $daemon_config "trusted-public-keys")
+	let trusted_match = $required_trusted | all {|value| $value in $configured_trusted }
 	let substituters_match = $required_substituters | all {|value| $value in $configured_substituters }
 	let keys_match = $required_keys | all {|value| $value in $configured_keys }
 
-	$substituters_match and $keys_match
+	$trusted_match and $substituters_match and $keys_match
 }
 
 def evaluate-bootstrap-text [config_namespace: string, host_name: string] {

@@ -20,36 +20,45 @@ mkApp {
       pkgs,
       ...
     }:
+    let
+      cfg = config.rawkOS.development.cuenv;
+      cuenvPkgs = inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system};
+    in
     {
-      nix.settings = cuenvCache;
+      options.rawkOS.development.cuenv.cuetty.enable = lib.mkEnableOption "cuetty terminal" // {
+        default = true;
+      };
 
-      home.packages = with inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system}; [
-        cuenv
-        cuetty
-      ];
+      config = {
+        nix.settings = cuenvCache;
 
-      xdg.configFile."cuetty/config.cue".source = ./cuetty.cue;
+        home.packages = [ cuenvPkgs.cuenv ] ++ lib.optionals cfg.cuetty.enable [ cuenvPkgs.cuetty ];
 
-      programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
-        c = {
-          expansion = "cuenv ";
-          position = "command";
+        xdg.configFile."cuetty/config.cue" = lib.mkIf cfg.cuetty.enable {
+          source = ./cuetty.cue;
         };
-      };
 
-      programs.nushell.shellAliases = lib.mkIf config.programs.nushell.enable {
-        c = "cuenv";
-      };
-
-      programs.nushell.settings.abbreviations =
-        lib.mkIf
-          (
-            config.programs.nushell.enable
-            && lib.versionAtLeast config.programs.nushell.package.version "0.113.0"
-          )
-          {
-            c = "cuenv";
+        programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
+          c = {
+            expansion = "cuenv ";
+            position = "command";
           };
+        };
+
+        programs.nushell.shellAliases = lib.mkIf config.programs.nushell.enable {
+          c = "cuenv";
+        };
+
+        programs.nushell.settings.abbreviations =
+          lib.mkIf
+            (
+              config.programs.nushell.enable
+              && lib.versionAtLeast config.programs.nushell.package.version "0.113.0"
+            )
+            {
+              c = "cuenv";
+            };
+      };
     };
 
   linux.system = _: {

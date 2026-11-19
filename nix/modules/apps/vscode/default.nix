@@ -20,22 +20,36 @@ mkApp {
 
   # Linux: use the standard VS Code package via home-manager
   linux.home =
-    { pkgs, ... }:
     {
-      programs = {
-        vscode = {
-          enable = true;
-          package = pkgs.vscode;
-        };
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      cfg = config.rawkOS.apps.vscode;
+    in
+    {
+      options.rawkOS.apps.vscode.enable = lib.mkEnableOption "Visual Studio Code" // {
+        default = true;
       };
 
-      home.file.".vscode/argv.json".text = builtins.toJSON {
-        password-store = "gnome-libsecret";
-        ozone-platform-hint = "auto";
-        ozone-platform = "wayland";
-        gtk-version = 4;
-        enable-wayland-ime = true;
-        enable-crash-reporter = false;
+      config = lib.mkIf cfg.enable {
+        programs = {
+          vscode = {
+            enable = true;
+            package = pkgs.vscode;
+          };
+        };
+
+        home.file.".vscode/argv.json".text = builtins.toJSON {
+          password-store = "gnome-libsecret";
+          ozone-platform-hint = "auto";
+          ozone-platform = "wayland";
+          gtk-version = 4;
+          enable-wayland-ime = true;
+          enable-crash-reporter = false;
+        };
       };
     };
 

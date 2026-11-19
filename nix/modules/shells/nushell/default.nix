@@ -66,6 +66,7 @@ mkApp {
     // {
       programs.nushell = {
         enable = true;
+        loadSessionVariables = true;
         # Keep Darwin on the cached stable build; Linux follows the primary channel
         # so its Nushell parser supports the current FZF completions.
         package = if isDarwin then inputs.nixpkgs-stable.legacyPackages.${system}.nushell else pkgs.nushell;
@@ -73,7 +74,6 @@ mkApp {
         configFile.source = ./config.nu;
 
         shellAliases = {
-          ai = ''GEMINI_API_KEY="op://Private/Google Gemini/password" op run --account my.1password.eu -- aichat'';
           ghb = "cd ~/Code/src/github.com";
           tmp = "cd (mktemp -d)";
         };
@@ -89,7 +89,7 @@ mkApp {
         # verbatim instead of run. NIX_LINK must precede its users below.
         extraEnv = ''
           $env.NIX_LINK = "/nix/var/nix/profiles/default"
-          $env.NIX_PROFILES = $"/nix/var/nix/profiles/default ($env.NIX_LINK)"
+          $env.NIX_PROFILES = $"($env.NIX_LINK) ($env.HOME)/.nix-profile"
           $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')
         ''
         # Nushell skips /etc/zshenv and path_helper, so add the nix-darwin and

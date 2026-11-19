@@ -5,29 +5,23 @@ in
 mkApp {
   name = "eza";
 
-  common.home =
-    { pkgs, ... }:
-    {
-      home.packages = with pkgs; [
-        eza
-      ];
+  common.home = _: {
+    programs = {
+      eza = {
+        enable = true;
+        enableFishIntegration = true;
 
-      programs = {
-        eza = {
-          enable = true;
-          enableFishIntegration = true;
+        colors = "always";
+        git = true;
+        icons = "always";
 
-          colors = "always";
-          git = true;
-          icons = "always";
-
-          extraOptions = [
-            "--time-style"
-            "relative"
-            "--group-directories-first"
-            "--no-quotes"
-          ];
-        };
+        extraOptions = [
+          "--time-style"
+          "relative"
+          "--group-directories-first"
+          "--no-quotes"
+        ];
       };
     };
+  };
 }

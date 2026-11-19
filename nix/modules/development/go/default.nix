@@ -20,14 +20,12 @@ mkApp {
         go-tools
         gomodifytags
         gotests
-        gocode-gomod
         delve
         impl
       ];
 
       home.sessionVariables = {
         GOPATH = "${config.home.homeDirectory}/Code";
-        GO111MODULE = "on";
       };
 
       home.sessionPath = [

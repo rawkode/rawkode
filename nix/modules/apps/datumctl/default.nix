@@ -18,6 +18,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
+        taps = [ "datum-cloud/tap" ];
         casks = [ "datum-cloud/tap/desktop" ];
       };
     };

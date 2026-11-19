@@ -27,16 +27,10 @@ mkApp {
           (with pkgs; [
             python3
             uv
-            python3Packages.pip
-            python3Packages.virtualenv
           ])
           ++ lib.optionals cfg.extraTools.enable (
             with pkgs;
             [
-              python3Packages.black
-              python3Packages.isort
-              python3Packages.flake8
-              python3Packages.mypy
               python3Packages.pytest
               python3Packages.ipython
               ruff

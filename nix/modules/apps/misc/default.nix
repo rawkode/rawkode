@@ -34,11 +34,10 @@ mkApp {
         // {
           home.packages =
             lib.optionals cfg.ffmpeg.enable [ pkgs.ffmpeg ]
+            ++ lib.optionals isDarwin [ pkgs.vim ]
             ++ (with pkgs; [
               prettier
-              tldr
-              unzip
-              vim
+              tealdeer
               watch
             ]);
 
@@ -51,7 +50,6 @@ mkApp {
             enableNushellIntegration = lib.versionAtLeast config.programs.fzf.package.version "0.73.0";
             historyWidget.command = "";
           };
-          programs.skim.enable = true;
         };
     };
 }
