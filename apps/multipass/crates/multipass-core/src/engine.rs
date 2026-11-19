@@ -1,6 +1,6 @@
 use crate::{
     config::{self, ConfigStore, Settings},
-    ipc::{Event, PairingStatus, Request, State},
+    ipc::{Event, KeyboardSummary, PairingStatus, Request, State},
     policy::{self, AttachmentPolicy, ClaimBlocker},
 };
 use anyhow::Result;
@@ -34,6 +34,7 @@ pub struct Engine {
     pending_claim: Option<(u8, Lease)>,
     generation: u64,
     last_poll: SystemTime,
+    last_keyboard_scan: Option<Instant>,
     done_tx: mpsc::UnboundedSender<(u64, String)>,
     done_rx: mpsc::UnboundedReceiver<(u64, String)>,
 }
@@ -54,6 +55,8 @@ impl Engine {
             local_slot: settings.local_slot,
             enabled: false,
             paired: secret.is_some(),
+            keyboard: KeyboardSummary::from_settings(&settings),
+            keyboards: Vec::new(),
             keyboard_present: None,
             mouse_present: None,
             network_status: "Starting discovery".into(),
@@ -78,6 +81,7 @@ impl Engine {
             pending_claim: None,
             generation: 0,
             last_poll: SystemTime::now(),
+            last_keyboard_scan: None,
             done_tx,
             done_rx,
         };
@@ -251,7 +255,10 @@ impl Engine {
         if self.suspended {
             return;
         }
-        let snapshot = tokio::task::spawn_blocking(multipass_hardware::snapshot).await;
+        self.refresh_keyboards().await;
+        let keyboard = self.settings.keyboard_id();
+        let snapshot =
+            tokio::task::spawn_blocking(move || multipass_hardware::snapshot(keyboard)).await;
         match snapshot {
             Ok(Ok(snapshot)) => {
                 self.state.keyboard_present = Some(snapshot.keyboard_present);
@@ -292,6 +299,39 @@ impl Engine {
                     Ok(Err(error)) => format!("Device detection unavailable: {error}"),
                     _ => "Device detection worker stopped".into(),
                 };
+            }
+        }
+    }
+
+    /// Re-list visible Bluetooth keyboards a couple of times a second at most; the picker does
+    /// not need the 100 ms presence cadence.
+    async fn refresh_keyboards(&mut self) {
+        let due = self
+            .last_keyboard_scan
+            .is_none_or(|at| at.elapsed() >= Duration::from_secs(2));
+        if !due {
+            return;
+        }
+        self.last_keyboard_scan = Some(Instant::now());
+        if let Ok(Ok(found)) = tokio::task::spawn_blocking(multipass_hardware::keyboards).await {
+            let mut list: Vec<KeyboardSummary> = found
+                .into_iter()
+                .map(|info| KeyboardSummary {
+                    vendor: info.id.vendor,
+                    product: info.id.product,
+                    name: info.name,
+                })
+                .collect();
+            // The chosen keyboard stays selectable while it is away, e.g. on another computer.
+            let chosen = &self.state.keyboard;
+            if !list
+                .iter()
+                .any(|k| (k.vendor, k.product) == (chosen.vendor, chosen.product))
+            {
+                list.push(chosen.clone());
+            }
+            if list != self.state.keyboards {
+                self.state.keyboards = list;
             }
         }
     }
@@ -347,8 +387,9 @@ impl Engine {
         let observed = self.last_good_observation.clone();
         let generation = self.generation;
         let done = self.done_tx.clone();
+        let keyboard = self.settings.keyboard_id();
         tokio::task::spawn_blocking(move || {
-            let result = multipass_hardware::switch_to(slot, || {
+            let result = multipass_hardware::switch_to(keyboard, slot, || {
                 permission.load(Ordering::SeqCst)
                     && lease.is_valid()
                     && observed
@@ -392,5 +433,16 @@ async fn next_network(
     match receiver {
         Some(receiver) => receiver.recv().await,
         None => std::future::pending().await,
+    }
+}
+
+impl KeyboardSummary {
+    pub(crate) fn from_settings(settings: &Settings) -> Self {
+        let id = settings.keyboard_id();
+        Self {
+            vendor: id.vendor,
+            product: id.product,
+            name: settings.keyboard_name(),
+        }
     }
 }

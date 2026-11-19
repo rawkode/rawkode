@@ -10,6 +10,32 @@ pub struct Settings {
     pub node_id: Uuid,
     pub local_slot: u8,
     pub enabled: bool,
+    /// The keyboard that leads the mouse. Absent in settings written before it was selectable,
+    /// which means the EVO80.
+    #[serde(default)]
+    pub keyboard: Option<KeyboardChoice>,
+}
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct KeyboardChoice {
+    pub vendor: u16,
+    pub product: u16,
+    pub name: String,
+}
+impl Settings {
+    pub fn keyboard_id(&self) -> multipass_hardware::KeyboardId {
+        self.keyboard.as_ref().map_or(
+            multipass_hardware::DEFAULT_KEYBOARD,
+            |choice| multipass_hardware::KeyboardId {
+                vendor: choice.vendor,
+                product: choice.product,
+            },
+        )
+    }
+    pub fn keyboard_name(&self) -> String {
+        self.keyboard
+            .as_ref()
+            .map_or_else(|| "EVO80".into(), |choice| choice.name.clone())
+    }
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -18,6 +44,7 @@ impl Default for Settings {
             node_id: Uuid::new_v4(),
             local_slot: 1,
             enabled: false,
+            keyboard: None,
         }
     }
 }

@@ -38,6 +38,33 @@ impl Engine {
                     "Slot changed; waiting for a fresh keyboard connection".into();
                 Ok(self.state.last_event.clone())
             }
+            Command::SetKeyboard { vendor, product } => {
+                let Some(choice) = self
+                    .state
+                    .keyboards
+                    .iter()
+                    .find(|k| (k.vendor, k.product) == (vendor, product))
+                    .cloned()
+                else {
+                    bail!("That keyboard is not available; connect it over Bluetooth first");
+                };
+                let mut settings = self.settings.clone();
+                settings.keyboard = Some(config::KeyboardChoice {
+                    vendor,
+                    product,
+                    name: choice.name.clone(),
+                });
+                self.config.save(&settings)?;
+                self.settings = settings;
+                self.state.keyboard = choice;
+                self.state.keyboard_present = None;
+                self.reset();
+                self.state.last_event = format!(
+                    "Following {}; waiting for a fresh keyboard connection",
+                    self.state.keyboard.name
+                );
+                Ok(self.state.last_event.clone())
+            }
             Command::SetEnabled { enabled } => {
                 if !enabled {
                     self.state.enabled = false;

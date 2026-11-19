@@ -1,4 +1,4 @@
-//! Bluetooth EVO80 presence and MX Master 4 HID++ host switching.
+//! Bluetooth keyboard presence and MX Master 4 HID++ host switching.
 //!
 //! Keyboard devices are enumerated only: no keyboard input handle or report reader is opened.
 //! The caller serializes blocking `switch_to` operations and supplies a short-lived cancellation
@@ -15,8 +15,23 @@ use std::{
 };
 use thiserror::Error;
 
-pub const KEYBOARD_VENDOR: u16 = 0x36b0;
-pub const KEYBOARD_PRODUCT: u16 = 0x3004;
+/// USB/Bluetooth vendor and product IDs identifying the keyboard that leads the mouse.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct KeyboardId {
+    pub vendor: u16,
+    pub product: u16,
+}
+/// The EVO80, used until a keyboard is chosen.
+pub const DEFAULT_KEYBOARD: KeyboardId = KeyboardId {
+    vendor: 0x36b0,
+    product: 0x3004,
+};
+/// A Bluetooth keyboard currently known to this computer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyboardInfo {
+    pub id: KeyboardId,
+    pub name: String,
+}
 pub const MOUSE_VENDOR: u16 = 0x046d;
 pub const MOUSE_PRODUCT: u16 = 0xb042;
 const LEASE: Duration = Duration::from_secs(1);
@@ -65,8 +80,15 @@ pub enum HardwareError {
     Uncertain(String),
 }
 
-pub fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
-    presence::snapshot()
+pub fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
+    presence::snapshot(keyboard)
+}
+
+/// Bluetooth keyboards this computer can currently see, one per vendor/product pair, sorted by
+/// name. Only registry metadata is read. Platforms that cannot list keyboards return none, and
+/// the configured keyboard keeps working.
+pub fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+    presence::keyboards()
 }
 
 /// Queries ChangeHost and current host without switching the mouse. This sends HID++ query
@@ -79,6 +101,7 @@ pub fn probe() -> Result<MouseInfo, HardwareError> {
 }
 
 pub fn switch_to(
+    keyboard: KeyboardId,
     slot: u8,
     should_proceed: impl Fn() -> bool,
 ) -> Result<SwitchOutcome, HardwareError> {
@@ -87,7 +110,7 @@ pub fn switch_to(
     }
     let deadline = Instant::now() + LEASE;
     check_live(deadline, &should_proceed)?;
-    let initial = snapshot()?;
+    let initial = snapshot(keyboard)?;
     if initial.keyboard_present {
         return Err(HardwareError::KeyboardPresent);
     }
@@ -95,7 +118,9 @@ pub fn switch_to(
         return Err(HardwareError::MouseUnavailable);
     }
     let device = open_mouse()?;
-    perform_switch(&device, slot, deadline, &should_proceed, snapshot)
+    perform_switch(&device, slot, deadline, &should_proceed, || {
+        snapshot(keyboard)
+    })
 }
 
 fn open_mouse() -> Result<HidDevice, HardwareError> {

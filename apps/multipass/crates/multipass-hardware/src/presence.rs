@@ -1,22 +1,33 @@
 use crate::{
-    DeviceSnapshot, HardwareError, KEYBOARD_PRODUCT, KEYBOARD_VENDOR, MOUSE_PRODUCT, MOUSE_VENDOR,
+    DeviceSnapshot, HardwareError, KeyboardId, KeyboardInfo, MOUSE_PRODUCT, MOUSE_VENDOR,
 };
 
-fn result_from_ids(ids: impl IntoIterator<Item = (u16, u16)>) -> DeviceSnapshot {
+fn result_from_ids(
+    ids: impl IntoIterator<Item = (u16, u16)>,
+    keyboard: KeyboardId,
+) -> DeviceSnapshot {
     let mut result = DeviceSnapshot {
         keyboard_present: false,
         mouse_present: false,
     };
     for (vendor, product) in ids {
-        result.keyboard_present |= (vendor, product) == (KEYBOARD_VENDOR, KEYBOARD_PRODUCT);
+        result.keyboard_present |= (vendor, product) == (keyboard.vendor, keyboard.product);
         result.mouse_present |= (vendor, product) == (MOUSE_VENDOR, MOUSE_PRODUCT);
     }
     result
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
-    macos::snapshot()
+pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
+    macos::snapshot(keyboard)
+}
+#[cfg(target_os = "macos")]
+pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+    macos::keyboards()
+}
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+    Ok(Vec::new())
 }
 
 #[cfg(target_os = "macos")]
@@ -123,7 +134,26 @@ mod macos {
             Ok(text.starts_with(b"Bluetooth\0") || text.starts_with(b"Bluetooth Low Energy\0"))
         }
     }
-    pub(super) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
+    struct Entry {
+        vendor: u16,
+        product: u16,
+        name: Option<String>,
+        keyboard: bool,
+    }
+    fn text(entry: u32, name: &[u8]) -> Option<String> {
+        let value = property(entry, name)?;
+        let mut buffer = [0u8; 128];
+        unsafe {
+            if CFGetTypeID(value.0) != CFStringGetTypeID()
+                || !CFStringGetCString(value.0, buffer.as_mut_ptr().cast(), 128, 0x08000100)
+            {
+                return None;
+            }
+        }
+        let end = buffer.iter().position(|b| *b == 0)?;
+        Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    }
+    fn entries() -> Result<Vec<Entry>, HardwareError> {
         // Registry enumeration needs no HID open, Input Monitoring grant, or input callback.
         unsafe {
             let matching = IOServiceMatching(c"IOHIDDevice".as_ptr());
@@ -140,7 +170,7 @@ mod macos {
                 )));
             }
             let iterator = Object(iterator);
-            let mut ids = Vec::new();
+            let mut found = Vec::new();
             loop {
                 let entry = IOIteratorNext(iterator.0);
                 if entry == 0 {
@@ -157,20 +187,53 @@ mod macos {
                         "Bluetooth HID metadata became unavailable".into(),
                     ));
                 };
-                ids.push((vendor, product));
+                // Generic Desktop page (1), Keyboard usage (6).
+                let keyboard = number(entry.0, b"PrimaryUsagePage\0") == Some(1)
+                    && number(entry.0, b"PrimaryUsage\0") == Some(6);
+                found.push(Entry {
+                    vendor,
+                    product,
+                    name: text(entry.0, b"Product\0"),
+                    keyboard,
+                });
             }
             if IOIteratorIsValid(iterator.0) == 0 {
                 return Err(HardwareError::Enumeration(
                     "HID registry changed during enumeration".into(),
                 ));
             }
-            Ok(result_from_ids(ids))
+            Ok(found)
         }
+    }
+    pub(super) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
+        Ok(result_from_ids(
+            entries()?.into_iter().map(|e| (e.vendor, e.product)),
+            keyboard,
+        ))
+    }
+    pub(super) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+        let mut result: Vec<KeyboardInfo> = Vec::new();
+        for entry in entries()?.into_iter().filter(|e| e.keyboard) {
+            let id = KeyboardId {
+                vendor: entry.vendor,
+                product: entry.product,
+            };
+            if result.iter().all(|known| known.id != id) {
+                result.push(KeyboardInfo {
+                    id,
+                    name: entry
+                        .name
+                        .unwrap_or_else(|| format!("{:04X}:{:04X}", id.vendor, id.product)),
+                });
+            }
+        }
+        result.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(result)
     }
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
+pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
     // sysfs metadata is readable without opening /dev/hidraw or an evdev keyboard device.
     // Unlike hidapi's udev enumerator, filesystem errors propagate rather than becoming absence.
     let entries = std::fs::read_dir("/sys/bus/hid/devices")
@@ -197,12 +260,12 @@ pub(crate) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
             ids.push((vendor as u16, product as u16));
         }
     }
-    Ok(result_from_ids(ids))
+    Ok(result_from_ids(ids, keyboard))
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
-    windows::snapshot()
+pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
+    windows::snapshot(keyboard)
 }
 #[cfg(target_os = "windows")]
 mod windows {
@@ -234,7 +297,7 @@ mod windows {
             flags: u32,
         ) -> u32;
     }
-    pub(super) fn snapshot() -> Result<DeviceSnapshot, HardwareError> {
+    pub(super) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
         // Enumerate present HID interface names without opening devices. Configuration Manager
         // status failures and size races are unknown state, never an empty/absent keyboard.
         unsafe {
@@ -271,7 +334,7 @@ mod windows {
                     .map_err(|e| HardwareError::Enumeration(e.to_string()))?
                     .to_ascii_lowercase();
                 for (v, p) in [
-                    (KEYBOARD_VENDOR, KEYBOARD_PRODUCT),
+                    (keyboard.vendor, keyboard.product),
                     (MOUSE_VENDOR, MOUSE_PRODUCT),
                 ] {
                     if name.contains(&format!("vid_{v:04x}&pid_{p:04x}"))
@@ -281,7 +344,7 @@ mod windows {
                     }
                 }
             }
-            Ok(result_from_ids(ids))
+            Ok(result_from_ids(ids, keyboard))
         }
     }
 }

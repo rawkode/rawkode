@@ -10,6 +10,8 @@ enum InputMonitoringStatus { case granted, denied, notDetermined }
 @MainActor
 final class MultipassStore: ObservableObject {
     @Published private(set) var keyboardPresent: Bool?
+    @Published private(set) var keyboard = KeyboardSummary(vendor: 0x36b0, product: 0x3004, name: "EVO80")
+    @Published private(set) var keyboards: [KeyboardSummary] = []
     @Published private(set) var mousePresent: Bool?
     @Published private(set) var networkStatus = "Starting Multipass engine…"
     @Published private(set) var peerCount = 0
@@ -61,6 +63,11 @@ final class MultipassStore: ObservableObject {
     func pair(_ peer: PeerSummary) { message = ""; engine.send("pair", values: ["peer": peer.id.uuidString.lowercased()]) }
     func confirmPairing(_ accept: Bool) { engine.send("confirm_pairing", values: ["accept": accept]) }
     func unpair() { engine.send("unpair") }
+    func setKeyboard(_ id: String) {
+        guard let choice = keyboards.first(where: { $0.id == id }) else { return }
+        message = ""
+        engine.send("set_keyboard", values: ["vendor": choice.vendor, "product": choice.product])
+    }
     func setLocalSlot(_ slot: Int) { engine.send("set_slot", values: ["slot": slot]) }
     func setEnabled(_ value: Bool) {
         if value { requestInputMonitoring() }
@@ -97,6 +104,8 @@ final class MultipassStore: ObservableObject {
     private func apply(_ state: EngineState) {
         available = true
         keyboardPresent = state.keyboardPresent
+        if keyboard != state.keyboard { keyboard = state.keyboard }
+        if keyboards != state.keyboards { keyboards = state.keyboards }
         mousePresent = state.mousePresent
         networkStatus = state.networkStatus
         peerCount = state.peers
