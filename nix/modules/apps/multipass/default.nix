@@ -1,6 +1,7 @@
 { inputs, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix;
+  packageFor = pkgs: inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 mkApp {
   name = "multipass";
@@ -8,12 +9,13 @@ mkApp {
   linux.home =
     { pkgs, ... }:
     {
-      home.packages = [ inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+      home.packages = [ (packageFor pkgs) ];
     };
 
   linux.system =
     { pkgs, ... }:
     {
+      networking.firewall.allowedTCPPorts = [ (packageFor pkgs).listenPort ];
       # Run before 73-seat-late.rules so logind grants the active session access.
       # The keyboard is detected through metadata and needs no device ACL.
       services.udev.packages = [
@@ -31,9 +33,7 @@ mkApp {
       # Local Network and keychain grants survive rebuilds. The engine is a
       # separate Mach-O inside the bundle and is signed first.
       rawkOS.darwin.codeSigning.apps."Multipass.app" = {
-        bundle = "${
-          inputs.multipass.packages.${pkgs.stdenv.hostPlatform.system}.default
-        }/Applications/Multipass.app";
+        bundle = "${packageFor pkgs}/Applications/Multipass.app";
         executables = [ "Contents/MacOS/multipass-engine" ];
       };
     };

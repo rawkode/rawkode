@@ -18,6 +18,7 @@
   writeShellScript,
 }:
 let
+  listenPort = 25180;
   darwinLauncher = writeShellScript "multipass-launch" ''
     set -eu
     installer=/run/current-system/sw/bin/rawkos-install-app
@@ -87,6 +88,7 @@ let
     terminal = false;
   };
   multipass = stdenv.mkDerivation {
+    passthru = { inherit listenPort; };
     pname = "multipass";
     version = "0.2.0";
     src = source;
@@ -139,6 +141,7 @@ let
           cp platforms/linux/{multipass.py,engine_client.py,pairing_dialogs.py} "$out/share/multipass/"
           makeWrapper ${python}/bin/python3 "$out/bin/multipass" \
             --add-flags "$out/share/multipass/multipass.py" \
+            --set-default MULTIPASS_LISTEN_PORT ${toString listenPort} \
             --add-flags "--engine ${engine}/bin/multipass-engine"
           mkdir -p "$out/share/applications"
           cp ${desktopItem}/share/applications/* "$out/share/applications/"

@@ -177,7 +177,12 @@ impl Network {
         secret: Option<[u8; 32]>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<NetworkEvent>)> {
         let name = sanitize_name(&name);
-        let listener = bind_dual_stack()?;
+        let listen_port = match std::env::var("MULTIPASS_LISTEN_PORT") {
+            Ok(value) => value.parse().context("Invalid MULTIPASS_LISTEN_PORT")?,
+            Err(std::env::VarError::NotPresent) => 0,
+            Err(error) => return Err(error).context("Invalid MULTIPASS_LISTEN_PORT"),
+        };
+        let listener = bind_dual_stack(listen_port).context("Cannot bind Multipass listener")?;
         let port = listener.local_addr()?.port();
         let daemon = ServiceDaemon::new()?;
         // Shut down the daemon on any fallible setup path too.
@@ -375,24 +380,33 @@ fn summarize(peers: &HashMap<String, Peer>) -> Vec<PeerSummary> {
 /// Listen on every interface for both IPv4 and IPv6. IPv6 is bound as a
 /// dual-stack socket so a single advertised port serves both; when IPv6 is
 /// unavailable on the host, an IPv4-only socket keeps discovery working.
-fn bind_dual_stack() -> Result<TcpListener> {
+fn bind_dual_stack(port: u16) -> Result<TcpListener> {
     use socket2::{Domain, Protocol, Socket, Type};
-    let dual = (|| -> std::io::Result<TcpListener> {
-        let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
-        socket.set_only_v6(false)?;
+
+    let bind = |domain, address: SocketAddr| -> std::io::Result<TcpListener> {
+        let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+        if domain == Domain::IPV6 {
+            socket.set_only_v6(false)?;
+        }
+        #[cfg(unix)]
+        if port != 0 {
+            socket.set_reuse_address(true)?;
+        }
         socket.set_nonblocking(true)?;
-        socket.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)).into())?;
+        socket.bind(&address.into())?;
         socket.listen(SESSION_LIMIT as i32)?;
         TcpListener::from_std(socket.into())
-    })();
-    match dual {
-        Ok(listener) => Ok(listener),
-        Err(_) => {
-            let std_listener = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0))?;
-            std_listener.set_nonblocking(true)?;
-            TcpListener::from_std(std_listener).map_err(Into::into)
-        }
-    }
+    };
+
+    bind(Domain::IPV6, (Ipv6Addr::UNSPECIFIED, port).into())
+        .or_else(|error| {
+            // A port conflict on the dual-stack socket is also a conflict on IPv4.
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                return Err(error);
+            }
+            bind(Domain::IPV4, (Ipv4Addr::UNSPECIFIED, port).into())
+        })
+        .map_err(Into::into)
 }
 
 /// Endpoints to try for a discovered peer, IPv4 first. IPv6 link-local
@@ -1051,7 +1065,7 @@ mod tests {
     }
     #[tokio::test]
     async fn dual_stack_listener_accepts_ipv4_and_ipv6() {
-        let listener = bind_dual_stack().unwrap();
+        let listener = bind_dual_stack(0).unwrap();
         let port = listener.local_addr().unwrap().port();
         let accept = tokio::spawn(async move {
             let mut count = 0;
