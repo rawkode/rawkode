@@ -62,21 +62,12 @@ in
         users.users.${cfg.username} = {
           isNormalUser = true;
           uid = 1000;
+          group = cfg.username;
           description = cfg.name;
           inherit (cfg) shell;
           extraGroups = [
-            "${cfg.username}"
-            "adbusers"
-            "audio"
             "dialout"
-            "input"
             "kvm"
-            "lxd"
-            "osboxes"
-            "plugdev"
-            "sound"
-            "tty"
-            "video"
             "wheel"
           ];
         };

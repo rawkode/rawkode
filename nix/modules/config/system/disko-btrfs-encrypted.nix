@@ -16,6 +16,12 @@
       };
 
       config = {
+        services.btrfs.autoScrub = {
+          enable = true;
+          interval = "monthly";
+          fileSystems = [ "/" ];
+        };
+
         disko.devices = {
           disk = {
             root = {
@@ -33,7 +39,10 @@
                       type = "filesystem";
                       format = "vfat";
                       mountpoint = "/boot";
-                      mountOptions = [ "defaults" ];
+                      mountOptions = [
+                        "defaults"
+                        "umask=0077"
+                      ];
                     };
                   };
 

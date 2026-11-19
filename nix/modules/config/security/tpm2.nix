@@ -19,7 +19,6 @@
 
       config = lib.mkIf cfg.enable {
         environment.systemPackages = with pkgs; [
-          tpm2-pkcs11
           tpm2-tools
           tpm2-tss
         ];
@@ -35,11 +34,11 @@
               package = pkgs.tpm2-pkcs11.override { fapiSupport = false; };
             };
 
-            abrmd.enable = true;
+            abrmd.enable = false;
 
             tctiEnvironment = {
               enable = true;
-              interface = "tabrmd";
+              interface = "device";
             };
           };
         };

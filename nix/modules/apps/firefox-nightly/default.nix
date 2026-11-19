@@ -384,7 +384,7 @@ mkApp {
           firefox-nightly
           firefox-nightly-bin
         '';
-        mode = "0755";
+        mode = "0644";
       };
     };
 

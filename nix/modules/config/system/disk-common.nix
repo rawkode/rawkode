@@ -8,7 +8,6 @@
       };
       fileSystems."/".options = [
         "noatime"
-        "nodiratime"
       ];
     };
 }
