@@ -14,3 +14,6 @@ hidapi = { version = "2.6.7", default-features = false, features = ["linux-nativ
 
 [target.'cfg(target_os = "windows")'.dependencies]
 hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
+windows = { version = "0.62", features = ["Devices_Bluetooth", "Devices_Enumeration", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties", "Win32_System_WinRT"] }
+windows-collections = "0.3"
+windows-future = "0.3"

@@ -6,13 +6,6 @@ struct PeerSummary: Decodable, Identifiable, Equatable {
     let name: String
 }
 
-struct KeyboardSummary: Decodable, Identifiable, Hashable {
-    let vendor: Int
-    let product: Int
-    let name: String
-    var id: String { "\(vendor):\(product)" }
-}
-
 struct PairingStatus: Decodable, Equatable {
     let peerName: String
     let code: String?
@@ -24,8 +17,6 @@ struct EngineState: Decodable {
     let localSlot: Int
     let enabled: Bool
     let paired: Bool
-    let keyboard: KeyboardSummary
-    let keyboards: [KeyboardSummary]
     let keyboardPresent: Bool?
     let mousePresent: Bool?
     let networkStatus: String

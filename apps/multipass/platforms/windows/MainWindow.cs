@@ -7,7 +7,7 @@ internal sealed class MainWindow : Form
 {
     private readonly EngineClient engine = new();
     private readonly ComboBox slot = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
-    private readonly CheckBox enabled = new() { Text = "Let the mouse follow my keyboard", AutoSize = true };
+    private readonly CheckBox enabled = new() { Text = "Let the mouse follow the keyboard", AutoSize = true };
     private readonly Label devices = new() { AutoSize = true, Text = "Waiting for device status…" };
     private readonly Label network = new() { AutoSize = true, Text = "Starting engine…" };
     private readonly Label pairing = new() { AutoSize = true, MaximumSize = new Size(480, 0), Text = "Not paired" };

@@ -1,5 +1,4 @@
-//! Cross-platform LAN transport. Protocol v3 replaces the copied pairing code
-//! with an in-band pairing handshake: discovery is unauthenticated, pairing is
+//! Cross-platform LAN transport. Discovery is unauthenticated. Pairing is
 //! an X25519 agreement confirmed by a short code compared on both screens, and
 //! switch claims are HMAC-authenticated with the resulting secret. Claims and
 //! discovery metadata are unencrypted; pairing keys never leave the process.
@@ -32,7 +31,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "_multipass._tcp.local.";
-const VERSION: u8 = 3;
+const VERSION: u8 = 4;
 const FRAME_MAX: usize = 4096;
 const SESSION_LIMIT: usize = 64;
 const FANOUT_LIMIT: usize = 32;
@@ -118,12 +117,15 @@ pub enum NetworkEvent {
     Claim {
         sender: Uuid,
         slot: u8,
+        key: [u8; 32],
+        nonce: [u8; 32],
         lease: Lease,
     },
     Pairing(PairingEvent),
 }
 struct Announcement {
     slot: u8,
+    keyboard: [u8; 6],
     current: Arc<AtomicBool>,
 }
 enum WorkerCommand {
@@ -244,7 +246,7 @@ impl Network {
                                 for peer in peers.values().take(FANOUT_LIMIT) {
                                     if sessions.len() >= SESSION_LIMIT { break; }
                                     let peer = peer.clone(); let context = context.clone(); let current = request.current.clone();
-                                    sessions.spawn(async move { let events = context.events.clone(); match timeout(CLAIM_WINDOW + Duration::from_secs(2), send_claim(peer, request.slot, current, context)).await { Ok(Ok(())) => {}, Ok(Err(error)) => { let _ = events.send(NetworkEvent::Status(format!("Peer request failed: {error}"))); }, Err(_) => { let _ = events.send(NetworkEvent::Status("Peer request timed out.".into())); } } });
+                                    sessions.spawn(async move { let events = context.events.clone(); match timeout(CLAIM_WINDOW + Duration::from_secs(2), send_claim(peer, request.slot, request.keyboard, current, context)).await { Ok(Ok(())) => {}, Ok(Err(error)) => { let _ = events.send(NetworkEvent::Status(format!("Peer request failed: {error}"))); }, Err(_) => { let _ = events.send(NetworkEvent::Status("Peer request timed out.".into())); } } });
                                 }
                             }
                         },
@@ -294,7 +296,7 @@ impl Network {
             receiver,
         ))
     }
-    pub async fn announce(&self, slot: u8, current: Arc<AtomicBool>) {
+    pub async fn announce(&self, slot: u8, keyboard: [u8; 6], current: Arc<AtomicBool>) {
         if (1..=3).contains(&slot)
             && !self.stopped.load(Ordering::Acquire)
             && current.load(Ordering::Acquire)
@@ -303,7 +305,11 @@ impl Network {
             // A full queue drops the new request; stale attachment events must never wait offline.
             let _ = self
                 .commands
-                .try_send(WorkerCommand::Announce(Announcement { slot, current }));
+                .try_send(WorkerCommand::Announce(Announcement {
+                    slot,
+                    keyboard,
+                    current,
+                }));
         }
     }
     /// Replace the pairing key used for claims without restarting discovery.
@@ -479,6 +485,7 @@ struct Claim {
     sender: Uuid,
     receiver: Uuid,
     slot: u8,
+    key: [u8; 32],
     nonce: [u8; 32],
     signature: [u8; 32],
 }
@@ -550,16 +557,32 @@ fn mac(claim: &Claim, secret: &[u8; 32]) -> Hmac<Sha256> {
     mac.update(claim.sender.as_bytes());
     mac.update(claim.receiver.as_bytes());
     mac.update(&[claim.slot]);
+    mac.update(&claim.key);
     mac.update(&claim.nonce);
     mac
 }
-fn sign(sender: Uuid, slot: u8, challenge: &Challenge, secret: &[u8; 32]) -> Claim {
+pub fn keyboard_key(address: [u8; 6], nonce: &[u8; 32], secret: &[u8; 32]) -> [u8; 32] {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts 32 byte keys");
+    mac.update(b"multipass-keyboard-address");
+    mac.update(nonce);
+    mac.update(&address);
+    mac.finalize().into_bytes().into()
+}
+
+fn sign(
+    sender: Uuid,
+    slot: u8,
+    keyboard: [u8; 6],
+    challenge: &Challenge,
+    secret: &[u8; 32],
+) -> Claim {
     let mut claim = Claim {
         kind: "claim".into(),
         version: VERSION,
         sender,
         receiver: challenge.receiver,
         slot,
+        key: keyboard_key(keyboard, &challenge.nonce, secret),
         nonce: challenge.nonce,
         signature: [0; 32],
     };
@@ -672,6 +695,8 @@ async fn receive_claim(
     context.emit(NetworkEvent::Claim {
         sender: claim.sender,
         slot: claim.slot,
+        key: claim.key,
+        nonce: claim.nonce,
         lease,
     });
     let mut extra = [0; 1];
@@ -682,6 +707,7 @@ async fn receive_claim(
 async fn send_claim(
     peer: Peer,
     slot: u8,
+    keyboard: [u8; 6],
     current: Arc<AtomicBool>,
     context: Context,
 ) -> Result<()> {
@@ -704,7 +730,7 @@ async fn send_claim(
             let Some(secret) = guard.as_ref() else {
                 bail!("Not paired");
             };
-            sign(context.id, slot, &challenge, secret)
+            sign(context.id, slot, keyboard, &challenge, secret)
         };
         write_json(&mut stream, &claim).await?;
         let mut extra = [0; 1];
@@ -1088,7 +1114,7 @@ mod tests {
             receiver: Uuid::new_v4(),
             nonce: [17; 32],
         };
-        let claim = sign(Uuid::new_v4(), 2, &challenge, &[42; 32]);
+        let claim = sign(Uuid::new_v4(), 2, [1; 6], &challenge, &[42; 32]);
         (
             Verifier {
                 challenge,
@@ -1114,7 +1140,7 @@ mod tests {
     }
     #[test]
     fn tampering_wrong_key_replay_and_self_claim_fail() {
-        for variant in 0..8 {
+        for variant in 0..9 {
             let (mut verifier, mut claim) = fixture();
             match variant {
                 0 => claim.slot = 3,
@@ -1124,6 +1150,7 @@ mod tests {
                 4 => claim.version = 2,
                 5 => claim.sender = claim.receiver,
                 7 => claim.kind = "pair_offer".into(),
+                8 => claim.key[0] ^= 1,
                 _ => {}
             }
             let key = if variant == 6 { [13; 32] } else { [42; 32] };
@@ -1191,7 +1218,9 @@ mod tests {
         let current = Arc::new(AtomicBool::new(true));
         let current_copy = current.clone();
         let sending = tokio::spawn(async move {
-            send_claim(peer, 2, current_copy, sender).await.unwrap();
+            send_claim(peer, 2, [1; 6], current_copy, sender)
+                .await
+                .unwrap();
         });
         let lease = match timeout(Duration::from_secs(2), events.recv())
             .await
@@ -1225,7 +1254,7 @@ mod tests {
         let mut stream = TcpStream::connect(address).await.unwrap();
         let challenge: Challenge =
             serde_json::from_slice(&read_frame(&mut stream).await.unwrap()).unwrap();
-        let claim = sign(Uuid::new_v4(), 1, &challenge, &[42; 32]);
+        let claim = sign(Uuid::new_v4(), 1, [1; 6], &challenge, &[42; 32]);
         write_json(&mut stream, &claim).await.unwrap();
         assert!(task.await.unwrap().is_err());
         assert!(events.try_recv().is_err());
@@ -1242,7 +1271,7 @@ mod tests {
         let mut stream = TcpStream::connect(address).await.unwrap();
         let challenge: Challenge =
             serde_json::from_slice(&read_frame(&mut stream).await.unwrap()).unwrap();
-        let claim = sign(Uuid::new_v4(), 1, &challenge, &[42; 32]);
+        let claim = sign(Uuid::new_v4(), 1, [1; 6], &challenge, &[42; 32]);
         write_json(&mut stream, &claim).await.unwrap();
         let lease = match events.recv().await.unwrap() {
             NetworkEvent::Claim { lease, .. } => lease,
@@ -1282,7 +1311,7 @@ mod tests {
         let mut stream = TcpStream::connect(address).await.unwrap();
         let challenge: Challenge =
             serde_json::from_slice(&read_frame(&mut stream).await.unwrap()).unwrap();
-        let claim = sign(Uuid::new_v4(), 3, &challenge, &[42; 32]);
+        let claim = sign(Uuid::new_v4(), 3, [1; 6], &challenge, &[42; 32]);
         write_json(&mut stream, &claim).await.unwrap();
         let lease = match events.recv().await.unwrap() {
             NetworkEvent::Claim { lease, .. } => lease,
@@ -1523,7 +1552,7 @@ mod tests {
         .await
         .expect("mDNS discovery did not resolve peer");
         let current = Arc::new(AtomicBool::new(true));
-        second.announce(2, current).await;
+        second.announce(2, [1; 6], current).await;
         let lease = timeout(Duration::from_secs(4), async {
             loop {
                 if let Some(NetworkEvent::Claim { slot: 2, lease, .. }) = first_events.recv().await

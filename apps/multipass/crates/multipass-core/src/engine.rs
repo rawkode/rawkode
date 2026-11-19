@@ -1,10 +1,11 @@
 use crate::{
     config::{self, ConfigStore, Settings},
-    ipc::{Event, KeyboardSummary, PairingStatus, Request, State},
-    policy::{self, AttachmentPolicy, ClaimBlocker},
+    ipc::{Event, PairingStatus, Request, State},
+    keyboards::{Address, Keyboards},
+    policy::SETTLE,
 };
 use anyhow::Result;
-use multipass_network::{Lease, Network, NetworkEvent, PairingEvent};
+use multipass_network::{keyboard_key, Lease, Network, NetworkEvent, PairingEvent};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -17,6 +18,14 @@ use tokio::sync::mpsc;
 /// Device presence is re-read this often; it bounds how quickly a keyboard arrival is noticed.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+struct ArrivalClaim {
+    slot: u8,
+    key: [u8; 32],
+    nonce: [u8; 32],
+    lease: Lease,
+    ready: Instant,
+}
+
 pub struct Engine {
     pub(crate) config: ConfigStore,
     pub(crate) settings: Settings,
@@ -24,17 +33,14 @@ pub struct Engine {
     pub(crate) state: State,
     pub(crate) network: Option<Network>,
     pub(crate) network_events: Option<mpsc::UnboundedReceiver<NetworkEvent>>,
-    policy: AttachmentPolicy,
+    keyboards: Keyboards,
     permission: Arc<AtomicBool>,
     last_good_observation: Arc<Mutex<SystemTime>>,
     suspended: bool,
-    switching: bool,
-    /// A verified request whose only obstacle is that the keyboard is still
-    /// visible here; retried on every poll until it runs or its lease ends.
-    pending_claim: Option<(u8, Lease)>,
+    switching: Option<Address>,
+    pending_claims: Vec<ArrivalClaim>,
     generation: u64,
     last_poll: SystemTime,
-    last_keyboard_scan: Option<Instant>,
     done_tx: mpsc::UnboundedSender<(u64, String)>,
     done_rx: mpsc::UnboundedReceiver<(u64, String)>,
 }
@@ -55,8 +61,6 @@ impl Engine {
             local_slot: settings.local_slot,
             enabled: false,
             paired: secret.is_some(),
-            keyboard: KeyboardSummary::from_settings(&settings),
-            keyboards: Vec::new(),
             keyboard_present: None,
             mouse_present: None,
             network_status: "Starting discovery".into(),
@@ -73,15 +77,14 @@ impl Engine {
             state,
             network: None,
             network_events: None,
-            policy: AttachmentPolicy::new(Instant::now()),
+            keyboards: Keyboards::new(Instant::now()),
             permission: Arc::new(AtomicBool::new(false)),
             last_good_observation: Arc::new(Mutex::new(SystemTime::UNIX_EPOCH)),
             suspended: false,
-            switching: false,
-            pending_claim: None,
+            switching: None,
+            pending_claims: Vec::new(),
             generation: 0,
             last_poll: SystemTime::now(),
-            last_keyboard_scan: None,
             done_tx,
             done_rx,
         };
@@ -119,13 +122,15 @@ impl Engine {
                     match event {
                         Some(NetworkEvent::Status(message)) => self.state.network_status = message,
                         Some(NetworkEvent::Peers(nearby)) => { self.state.peers = nearby.len(); self.state.nearby = nearby; }
-                        Some(NetworkEvent::Claim { sender: _, slot, lease }) => self.receive_claim(slot,lease),
+                        Some(NetworkEvent::Claim { sender: _, slot, key, nonce, lease }) => {
+                            self.receive_claim(ArrivalClaim { slot, key, nonce, lease, ready: Instant::now() + SETTLE });
+                        }
                         Some(NetworkEvent::Pairing(event)) => self.pairing_event(event),
                         None => { self.network_events = None; self.state.network_status = "Networking stopped".into(); }
                     }
                 }
                 Some((generation, message)) = self.done_rx.recv() => {
-                    self.switching = false;
+                    self.switching = None;
                     if generation == self.generation { self.state.last_event = message; }
                 }
             }
@@ -156,10 +161,10 @@ impl Engine {
     }
 
     pub(crate) fn reset(&mut self) {
-        self.pending_claim = None;
+        self.pending_claims.clear();
         self.permission.store(false, Ordering::SeqCst);
         self.permission = Arc::new(AtomicBool::new(false));
-        self.policy.reset(Instant::now());
+        self.keyboards.reset(Instant::now());
         self.generation = self.generation.wrapping_add(1);
     }
 
@@ -255,41 +260,38 @@ impl Engine {
         if self.suspended {
             return;
         }
-        self.refresh_keyboards().await;
-        let keyboard = self.settings.keyboard_id();
-        let snapshot =
-            tokio::task::spawn_blocking(move || multipass_hardware::snapshot(keyboard)).await;
+        let snapshot = tokio::task::spawn_blocking(|| {
+            let keyboards = multipass_hardware::connected_keyboard_addresses()?;
+            let mouse_present = multipass_hardware::mouse_present()?;
+            Ok::<_, multipass_hardware::HardwareError>((keyboards, mouse_present))
+        })
+        .await;
         match snapshot {
-            Ok(Ok(snapshot)) => {
-                self.state.keyboard_present = Some(snapshot.keyboard_present);
-                self.state.mouse_present = Some(snapshot.mouse_present);
+            Ok(Ok((connected, mouse_present))) => {
+                self.state.keyboard_present = Some(!connected.is_empty());
+                self.state.mouse_present = Some(mouse_present);
                 *self.last_good_observation.lock().unwrap() = SystemTime::now();
-                if snapshot.keyboard_present {
+                if self
+                    .switching
+                    .is_some_and(|keyboard| connected.contains(&keyboard))
+                {
                     self.permission.store(false, Ordering::SeqCst);
                 }
-                if let Some((slot, lease)) = self.pending_claim.take() {
-                    self.receive_claim(slot, lease);
-                }
-                if let Some(current) = self
-                    .policy
-                    .observe(Some(snapshot.keyboard_present), Instant::now())
-                {
-                    if self.state.enabled {
-                        if let Some(network) = &self.network {
-                            if self.state.peers > 0 {
-                                network.announce(self.settings.local_slot, current).await;
-                                self.state.last_event = format!(
-                                    "Keyboard connected; requesting mouse slot {}",
-                                    self.settings.local_slot
-                                );
-                            } else {
-                                self.state.last_event =
-                                    "Keyboard connected; no peer discovered, mouse unchanged"
-                                        .into();
-                            }
+                let arrivals = self.keyboards.observe(connected, Instant::now());
+                if self.state.enabled && self.state.peers > 0 {
+                    if let Some(network) = &self.network {
+                        for (keyboard, current) in arrivals {
+                            network
+                                .announce(self.settings.local_slot, keyboard, current)
+                                .await;
+                            self.state.last_event = format!(
+                                "Keyboard arrived; requesting mouse slot {}",
+                                self.settings.local_slot
+                            );
                         }
                     }
                 }
+                self.match_departure();
             }
             failure => {
                 self.state.keyboard_present = None;
@@ -303,93 +305,68 @@ impl Engine {
         }
     }
 
-    /// Re-list visible Bluetooth keyboards a couple of times a second at most; the picker does
-    /// not need the 100 ms presence cadence.
-    async fn refresh_keyboards(&mut self) {
-        let due = self
-            .last_keyboard_scan
-            .is_none_or(|at| at.elapsed() >= Duration::from_secs(2));
-        if !due {
+    fn receive_claim(&mut self, claim: ArrivalClaim) {
+        if !self.state.enabled
+            || self.suspended
+            || self.switching.is_some()
+            || claim.slot == self.settings.local_slot
+            || !claim.lease.is_valid()
+        {
             return;
         }
-        self.last_keyboard_scan = Some(Instant::now());
-        if let Ok(Ok(found)) = tokio::task::spawn_blocking(multipass_hardware::keyboards).await {
-            let mut list: Vec<KeyboardSummary> = found
-                .into_iter()
-                .map(|info| KeyboardSummary {
-                    vendor: info.id.vendor,
-                    product: info.id.product,
-                    name: info.name,
-                })
-                .collect();
-            // The chosen keyboard stays selectable while it is away, e.g. on another computer.
-            let chosen = &self.state.keyboard;
-            if !list
-                .iter()
-                .any(|k| (k.vendor, k.product) == (chosen.vendor, chosen.product))
-            {
-                list.push(chosen.clone());
+        if self.pending_claims.len() >= 32 {
+            self.reset();
+            return;
+        }
+        self.pending_claims.push(claim);
+    }
+
+    fn match_departure(&mut self) {
+        self.pending_claims.retain(|claim| claim.lease.is_valid());
+        let Some(secret) = self.secret.as_ref() else {
+            return;
+        };
+        if self.switching.is_some() || self.state.mouse_present != Some(true) {
+            return;
+        }
+        let matches: Vec<_> = self
+            .pending_claims
+            .iter()
+            .enumerate()
+            .filter_map(|(index, claim)| {
+                self.keyboards
+                    .recent_departures()
+                    .find(|address| keyboard_key(*address, &claim.nonce, secret) == claim.key)
+                    .map(|address| (index, address))
+            })
+            .collect();
+        match matches.as_slice() {
+            &[(index, address)] if self.pending_claims[index].ready <= Instant::now() => {
+                let claim = self.pending_claims.swap_remove(index);
+                self.keyboards.consume_departure(address);
+                self.start_switch(address, claim.slot, claim.lease);
             }
-            if list != self.state.keyboards {
-                self.state.keyboards = list;
+            [_, _, ..] => {
+                for (_, address) in matches {
+                    self.keyboards.consume_departure(address);
+                }
+                self.pending_claims.clear();
+                self.state.last_event = "Multiple keyboard moves matched; mouse unchanged".into();
             }
+            _ => {}
         }
     }
 
-    fn receive_claim(&mut self, slot: u8, lease: Lease) {
-        if self.switching {
-            return;
-        }
-        if !lease.is_valid() {
-            self.state.last_event =
-                format!("Request for mouse slot {slot} expired before the keyboard left here");
-            return;
-        }
-        let blocker = policy::claim_blocker(
-            self.state.enabled,
-            self.suspended,
-            self.settings.local_slot,
-            slot,
-            self.state.keyboard_present,
-            self.state.mouse_present,
-        );
-        match blocker {
-            None => {}
-            Some(ClaimBlocker::KeyboardPresent) => {
-                if self.pending_claim.is_none() {
-                    self.state.last_event = format!(
-                        "Mouse slot {slot} requested; waiting for the keyboard to leave this computer"
-                    );
-                }
-                self.pending_claim = Some((slot, lease));
-                return;
-            }
-            Some(reason) => {
-                self.state.last_event = format!(
-                    "Ignored request for mouse slot {slot}: {}",
-                    match reason {
-                        ClaimBlocker::Disabled => "automatic switching is off here",
-                        ClaimBlocker::Suspended => "this computer is asleep",
-                        ClaimBlocker::InvalidSlot => "that slot is this computer's own or invalid",
-                        ClaimBlocker::KeyboardUnknown => "keyboard state is unknown here",
-                        ClaimBlocker::MouseAbsent => "the mouse is not connected here",
-                        ClaimBlocker::MouseUnknown => "mouse state is unknown here",
-                        ClaimBlocker::KeyboardPresent => unreachable!(),
-                    }
-                );
-                return;
-            }
-        }
+    fn start_switch(&mut self, keyboard: Address, slot: u8, lease: Lease) {
         self.permission.store(false, Ordering::SeqCst);
         self.permission = Arc::new(AtomicBool::new(true));
-        self.switching = true;
+        self.switching = Some(keyboard);
         let permission = self.permission.clone();
         let observed = self.last_good_observation.clone();
         let generation = self.generation;
         let done = self.done_tx.clone();
-        let keyboard = self.settings.keyboard_id();
         tokio::task::spawn_blocking(move || {
-            let result = multipass_hardware::switch_to(keyboard, slot, || {
+            let result = multipass_hardware::switch_to_following(keyboard, slot, || {
                 permission.load(Ordering::SeqCst)
                     && lease.is_valid()
                     && observed
@@ -433,16 +410,5 @@ async fn next_network(
     match receiver {
         Some(receiver) => receiver.recv().await,
         None => std::future::pending().await,
-    }
-}
-
-impl KeyboardSummary {
-    pub(crate) fn from_settings(settings: &Settings) -> Self {
-        let id = settings.keyboard_id();
-        Self {
-            vendor: id.vendor,
-            product: id.product,
-            name: settings.keyboard_name(),
-        }
     }
 }

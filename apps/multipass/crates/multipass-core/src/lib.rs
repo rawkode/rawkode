@@ -4,3 +4,4 @@ pub mod ipc;
 pub mod policy;
 
 mod commands;
+mod keyboards;

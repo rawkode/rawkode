@@ -1,7 +1,7 @@
 //! Bluetooth keyboard presence and MX Master 4 HID++ host switching.
 //!
 //! Keyboard devices are enumerated only: no keyboard input handle or report reader is opened.
-//! The caller serializes blocking `switch_to` operations and supplies a short-lived cancellation
+//! The caller serializes blocking handoff operations and supplies a short-lived cancellation
 //! predicate. Successful writes are never retried, even when the response is lost during handoff.
 mod presence;
 mod protocol;
@@ -15,31 +15,15 @@ use std::{
 };
 use thiserror::Error;
 
-/// USB/Bluetooth vendor and product IDs identifying the keyboard that leads the mouse.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct KeyboardId {
-    pub vendor: u16,
-    pub product: u16,
-}
-/// The EVO80, used until a keyboard is chosen.
-pub const DEFAULT_KEYBOARD: KeyboardId = KeyboardId {
-    vendor: 0x36b0,
-    product: 0x3004,
-};
-/// A Bluetooth keyboard currently known to this computer.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KeyboardInfo {
-    pub id: KeyboardId,
-    pub name: String,
-}
 pub const MOUSE_VENDOR: u16 = 0x046d;
 pub const MOUSE_PRODUCT: u16 = 0xb042;
-const LEASE: Duration = Duration::from_secs(1);
+const PROBE_DEADLINE: Duration = Duration::from_secs(1);
+const HANDOFF_DEADLINE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DeviceSnapshot {
-    pub keyboard_present: bool,
-    pub mouse_present: bool,
+struct DeviceSnapshot {
+    keyboard_present: bool,
+    mouse_present: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,37 +64,54 @@ pub enum HardwareError {
     Uncertain(String),
 }
 
-pub fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
-    presence::snapshot(keyboard)
+pub fn mouse_present() -> Result<bool, HardwareError> {
+    presence::mouse_present()
 }
 
-/// Bluetooth keyboards this computer can currently see, one per vendor/product pair, sorted by
-/// name. Only registry metadata is read. Platforms that cannot list keyboards return none, and
-/// the configured keyboard keeps working.
-pub fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
-    presence::keyboards()
+/// Bluetooth transport identities for keyboard collections that are currently connected.
+/// An observation fails if a Bluetooth keyboard does not expose a comparable address.
+pub fn connected_keyboard_addresses() -> Result<Vec<[u8; 6]>, HardwareError> {
+    let mut addresses = presence::connected_keyboard_addresses()?;
+    addresses.sort_unstable();
+    addresses.dedup();
+    Ok(addresses)
+}
+
+/// Recheck the departing keyboard's exact local identity before writing to the mouse.
+pub fn switch_to_following(
+    keyboard: [u8; 6],
+    slot: u8,
+    should_proceed: impl Fn() -> bool,
+) -> Result<SwitchOutcome, HardwareError> {
+    switch_with_snapshot(slot, should_proceed, || {
+        let mouse_present = mouse_present()?;
+        Ok(DeviceSnapshot {
+            keyboard_present: connected_keyboard_addresses()?.contains(&keyboard),
+            mouse_present,
+        })
+    })
 }
 
 /// Queries ChangeHost and current host without switching the mouse. This sends HID++ query
 /// reports to the mouse only, so it may require Input Monitoring / hidraw access permissions.
 pub fn probe() -> Result<MouseInfo, HardwareError> {
-    let deadline = Instant::now() + LEASE;
+    let deadline = Instant::now() + PROBE_DEADLINE;
     let device = open_mouse()?;
     let (_, info) = discover(&device, deadline, &|| true)?;
     Ok(info)
 }
 
-pub fn switch_to(
-    keyboard: KeyboardId,
+fn switch_with_snapshot(
     slot: u8,
     should_proceed: impl Fn() -> bool,
+    snapshot: impl Fn() -> Result<DeviceSnapshot, HardwareError>,
 ) -> Result<SwitchOutcome, HardwareError> {
     if !(1..=3).contains(&slot) {
         return Err(HardwareError::InvalidSlot);
     }
-    let deadline = Instant::now() + LEASE;
+    let deadline = Instant::now() + HANDOFF_DEADLINE;
     check_live(deadline, &should_proceed)?;
-    let initial = snapshot(keyboard)?;
+    let initial = snapshot()?;
     if initial.keyboard_present {
         return Err(HardwareError::KeyboardPresent);
     }
@@ -118,9 +119,7 @@ pub fn switch_to(
         return Err(HardwareError::MouseUnavailable);
     }
     let device = open_mouse()?;
-    perform_switch(&device, slot, deadline, &should_proceed, || {
-        snapshot(keyboard)
-    })
+    perform_switch(&device, slot, deadline, &should_proceed, snapshot)
 }
 
 fn open_mouse() -> Result<HidDevice, HardwareError> {
@@ -336,7 +335,7 @@ mod tests {
     fn cancelled_request_has_no_writes() {
         let io = Fake::new();
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| false, absent),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| false, absent),
             Err(HardwareError::Cancelled)
         ));
         assert!(io.writes.borrow().is_empty());
@@ -344,7 +343,7 @@ mod tests {
     #[test]
     fn reconnect_prevents_switch_write() {
         let io = Fake::new();
-        let result = perform_switch(&io, 2, Instant::now() + LEASE, &|| true, || {
+        let result = perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, || {
             Ok(DeviceSnapshot {
                 keyboard_present: true,
                 mouse_present: true,
@@ -357,7 +356,7 @@ mod tests {
     fn unknown_presence_prevents_switch_write() {
         let io = Fake::new();
         assert!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, || Err(
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, || Err(
                 HardwareError::Enumeration("denied".into())
             ))
             .is_err()
@@ -373,7 +372,7 @@ mod tests {
             calls.get() < 3
         };
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &live, absent),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &live, absent),
             Err(HardwareError::Cancelled)
         ));
         assert_eq!(io.writes.borrow().len(), 2);
@@ -382,7 +381,7 @@ mod tests {
     fn uncertain_switch_is_written_once() {
         let io = Fake::new();
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, absent),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, absent),
             Err(HardwareError::Uncertain(_))
         ));
         assert_eq!(
@@ -402,7 +401,7 @@ mod tests {
             })
         };
         assert_eq!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, state).unwrap(),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, state).unwrap(),
             SwitchOutcome::Departed
         );
     }
@@ -410,7 +409,7 @@ mod tests {
     fn already_on_target_does_not_write_switch() {
         let io = Fake::new();
         assert_eq!(
-            perform_switch(&io, 1, Instant::now() + LEASE, &|| true, absent).unwrap(),
+            perform_switch(&io, 1, Instant::now() + HANDOFF_DEADLINE, &|| true, absent).unwrap(),
             SwitchOutcome::AlreadyOnTarget
         );
         assert_eq!(io.writes.borrow().len(), 2);
@@ -419,7 +418,7 @@ mod tests {
     fn expired_request_has_no_writes() {
         let io = Fake::new();
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() - LEASE, &|| true, absent),
+            perform_switch(&io, 2, Instant::now() - HANDOFF_DEADLINE, &|| true, absent),
             Err(HardwareError::Cancelled)
         ));
         assert!(io.writes.borrow().is_empty());
@@ -431,7 +430,7 @@ mod tests {
             .borrow_mut()
             .push_back(vec![0x10, 0xff, 9, 0x1d, 0, 0, 0]);
         assert_eq!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, absent).unwrap(),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, absent).unwrap(),
             SwitchOutcome::Acknowledged
         );
         assert_eq!(io.writes.borrow().len(), 3);
@@ -444,7 +443,7 @@ mod tests {
             .borrow_mut()
             .push_back(vec![0x10, 0xff, 0xff, 9, 0x1d, 7, 0]);
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, absent),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, absent),
             Err(HardwareError::Rejected(7))
         ));
         assert_eq!(io.writes.borrow().len(), 3);
@@ -454,7 +453,7 @@ mod tests {
         let io = Fake::new();
         io.replies.borrow_mut()[1] = vec![0x10, 0xff, 9, 0x0d, 3, 3, 0];
         assert!(matches!(
-            perform_switch(&io, 2, Instant::now() + LEASE, &|| true, absent),
+            perform_switch(&io, 2, Instant::now() + HANDOFF_DEADLINE, &|| true, absent),
             Err(HardwareError::Query(_))
         ));
         assert_eq!(io.writes.borrow().len(), 2);

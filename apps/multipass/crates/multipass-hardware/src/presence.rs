@@ -1,33 +1,43 @@
-use crate::{DeviceSnapshot, HardwareError, KeyboardId, KeyboardInfo, MOUSE_PRODUCT, MOUSE_VENDOR};
+use crate::{HardwareError, MOUSE_PRODUCT, MOUSE_VENDOR};
 
-fn result_from_ids(
-    ids: impl IntoIterator<Item = (u16, u16)>,
-    keyboard: KeyboardId,
-) -> DeviceSnapshot {
-    let mut result = DeviceSnapshot {
-        keyboard_present: false,
-        mouse_present: false,
-    };
-    for (vendor, product) in ids {
-        result.keyboard_present |= (vendor, product) == (keyboard.vendor, keyboard.product);
-        result.mouse_present |= (vendor, product) == (MOUSE_VENDOR, MOUSE_PRODUCT);
+fn bluetooth_address(text: &str) -> Option<[u8; 6]> {
+    let text = text.trim();
+    let separated = text.len() == 17;
+    if text.len() != 12 && !separated {
+        return None;
     }
-    result
+    let bytes = text.as_bytes();
+    let separator = separated.then(|| bytes[2]);
+    if separator.is_some_and(|value| !matches!(value, b':' | b'-')) {
+        return None;
+    }
+
+    let mut address = [0; 6];
+    for (index, byte) in address.iter_mut().enumerate() {
+        let offset = index * if separated { 3 } else { 2 };
+        if separated && index > 0 && Some(bytes[offset - 1]) != separator {
+            return None;
+        }
+        let digits = std::str::from_utf8(&bytes[offset..offset + 2]).ok()?;
+        if !digits.bytes().all(|digit| digit.is_ascii_hexdigit()) {
+            return None;
+        }
+        *byte = u8::from_str_radix(digits, 16).ok()?;
+    }
+    (address != [0; 6] && address != [255; 6]).then_some(address)
+}
+
+fn missing_keyboard_address() -> HardwareError {
+    HardwareError::Enumeration("A connected Bluetooth keyboard has no usable address".into())
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
-    macos::snapshot(keyboard)
-}
-#[cfg(target_os = "macos")]
-pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
-    macos::keyboards()
-}
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
-    Ok(Vec::new())
-}
+pub(crate) use macos::mouse_present;
 
+#[cfg(target_os = "macos")]
+pub(crate) fn connected_keyboard_addresses() -> Result<Vec<[u8; 6]>, HardwareError> {
+    macos::connected_keyboard_addresses()
+}
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
@@ -66,6 +76,14 @@ mod macos {
         fn CFNumberGetTypeID() -> usize;
         fn CFNumberGetValue(number: CFRef, number_type: isize, value: *mut c_void) -> bool;
         fn CFStringGetTypeID() -> usize;
+        fn CFDataGetTypeID() -> usize;
+        fn CFDataGetLength(data: CFRef) -> isize;
+        fn CFDataGetBytePtr(data: CFRef) -> *const u8;
+        fn CFArrayGetTypeID() -> usize;
+        fn CFArrayGetCount(array: CFRef) -> isize;
+        fn CFArrayGetValueAtIndex(array: CFRef, index: isize) -> CFRef;
+        fn CFDictionaryGetTypeID() -> usize;
+        fn CFDictionaryGetValue(dictionary: CFRef, key: CFRef) -> CFRef;
         fn CFStringGetCString(
             string: CFRef,
             buffer: *mut c_char,
@@ -89,35 +107,36 @@ mod macos {
             }
         }
     }
-    fn property(entry: u32, name: &[u8]) -> Option<Value> {
-        unsafe {
-            let key = CFStringCreateWithCString(ptr::null(), name.as_ptr().cast(), 0x08000100);
-            if key.is_null() {
-                return None;
-            }
-            let key = Value(key);
-            let value = IORegistryEntryCreateCFProperty(entry, key.0, ptr::null(), 0);
-            if value.is_null() {
-                None
-            } else {
-                Some(Value(value))
-            }
-        }
+    fn key(name: &'static std::ffi::CStr) -> Option<Value> {
+        let key = unsafe { CFStringCreateWithCString(ptr::null(), name.as_ptr(), 0x08000100) };
+        (!key.is_null()).then(|| Value(key))
     }
-    fn number(entry: u32, name: &[u8]) -> Option<u16> {
-        let value = property(entry, name)?;
+
+    fn property(entry: u32, name: &'static std::ffi::CStr) -> Option<Value> {
+        let key = key(name)?;
+        let value = unsafe { IORegistryEntryCreateCFProperty(entry, key.0, ptr::null(), 0) };
+        (!value.is_null()).then(|| Value(value))
+    }
+
+    fn as_number(value: CFRef) -> Option<u16> {
         let mut number: i32 = 0;
         unsafe {
-            if CFGetTypeID(value.0) != CFNumberGetTypeID()
-                || !CFNumberGetValue(value.0, 3, (&mut number as *mut i32).cast())
+            if value.is_null()
+                || CFGetTypeID(value) != CFNumberGetTypeID()
+                || !CFNumberGetValue(value, 3, (&mut number as *mut i32).cast())
             {
                 return None;
             }
         }
         u16::try_from(number).ok()
     }
+
+    fn number(entry: u32, name: &'static std::ffi::CStr) -> Option<u16> {
+        as_number(property(entry, name)?.0)
+    }
+
     fn bluetooth(entry: u32) -> Result<bool, HardwareError> {
-        let value = property(entry, b"Transport\0").ok_or_else(|| {
+        let value = property(entry, c"Transport").ok_or_else(|| {
             HardwareError::Enumeration("HID transport metadata became unavailable".into())
         })?;
         let mut text = [0u8; 64];
@@ -129,16 +148,18 @@ mod macos {
                     "Invalid HID transport metadata".into(),
                 ));
             }
-            Ok(text.starts_with(b"Bluetooth\0") || text.starts_with(b"Bluetooth Low Energy\0"))
+            Ok(text.starts_with(b"Bluetooth\0")
+                || text.starts_with(b"BluetoothLowEnergy\0")
+                || text.starts_with(b"Bluetooth Low Energy\0"))
         }
     }
     struct Entry {
+        keyboard: bool,
+        address: Option<[u8; 6]>,
         vendor: u16,
         product: u16,
-        name: Option<String>,
-        keyboard: bool,
     }
-    fn text(entry: u32, name: &[u8]) -> Option<String> {
+    fn text(entry: u32, name: &'static std::ffi::CStr) -> Option<String> {
         let value = property(entry, name)?;
         let mut buffer = [0u8; 128];
         unsafe {
@@ -151,6 +172,58 @@ mod macos {
         let end = buffer.iter().position(|b| *b == 0)?;
         Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
     }
+    fn keyboard(entry: u32) -> bool {
+        // Generic Desktop page (1), Keyboard usage (6).
+        if number(entry, c"PrimaryUsagePage") == Some(1)
+            && number(entry, c"PrimaryUsage") == Some(6)
+        {
+            return true;
+        }
+        // Composite devices can report another collection as their primary usage.
+        let (Some(usages), Some(page), Some(usage)) = (
+            property(entry, c"DeviceUsagePairs"),
+            key(c"DeviceUsagePage"),
+            key(c"DeviceUsage"),
+        ) else {
+            return false;
+        };
+        unsafe {
+            CFGetTypeID(usages.0) == CFArrayGetTypeID()
+                && (0..CFArrayGetCount(usages.0)).any(|index| {
+                    let pair = CFArrayGetValueAtIndex(usages.0, index);
+                    !pair.is_null()
+                        && CFGetTypeID(pair) == CFDictionaryGetTypeID()
+                        && as_number(CFDictionaryGetValue(pair, page.0)) == Some(1)
+                        && as_number(CFDictionaryGetValue(pair, usage.0)) == Some(6)
+                })
+        }
+    }
+
+    fn address(entry: u32) -> Option<[u8; 6]> {
+        if let Some(address) =
+            text(entry, c"DeviceAddress").and_then(|text| bluetooth_address(&text))
+        {
+            return Some(address);
+        }
+        if let Some(data) = property(entry, c"BD_ADDR") {
+            unsafe {
+                if CFGetTypeID(data.0) == CFDataGetTypeID() && CFDataGetLength(data.0) == 6 {
+                    let bytes = CFDataGetBytePtr(data.0);
+                    if !bytes.is_null() {
+                        let mut address = [0; 6];
+                        std::ptr::copy_nonoverlapping(bytes, address.as_mut_ptr(), address.len());
+                        if address != [0; 6] && address != [255; 6] {
+                            return Some(address);
+                        }
+                    }
+                }
+            }
+        }
+        text(entry, c"SerialNumber")
+            .filter(|serial| serial.len() == 17)
+            .and_then(|serial| bluetooth_address(&serial))
+    }
+
     fn entries() -> Result<Vec<Entry>, HardwareError> {
         // Registry enumeration needs no HID open, Input Monitoring grant, or input callback.
         unsafe {
@@ -178,21 +251,19 @@ mod macos {
                 if !bluetooth(entry.0)? {
                     continue;
                 }
-                let vendor = number(entry.0, b"VendorID\0");
-                let product = number(entry.0, b"ProductID\0");
+                let vendor = number(entry.0, c"VendorID");
+                let product = number(entry.0, c"ProductID");
                 let (Some(vendor), Some(product)) = (vendor, product) else {
                     return Err(HardwareError::Enumeration(
                         "Bluetooth HID metadata became unavailable".into(),
                     ));
                 };
-                // Generic Desktop page (1), Keyboard usage (6).
-                let keyboard = number(entry.0, b"PrimaryUsagePage\0") == Some(1)
-                    && number(entry.0, b"PrimaryUsage\0") == Some(6);
+                let keyboard = keyboard(entry.0);
                 found.push(Entry {
+                    keyboard,
+                    address: if keyboard { address(entry.0) } else { None },
                     vendor,
                     product,
-                    name: text(entry.0, b"Product\0"),
-                    keyboard,
                 });
             }
             if IOIteratorIsValid(iterator.0) == 0 {
@@ -203,123 +274,102 @@ mod macos {
             Ok(found)
         }
     }
-    pub(super) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
-        Ok(result_from_ids(
-            entries()?.into_iter().map(|e| (e.vendor, e.product)),
-            keyboard,
-        ))
+    pub(super) fn connected_keyboard_addresses() -> Result<Vec<[u8; 6]>, HardwareError> {
+        entries()?
+            .into_iter()
+            .filter(|entry| entry.keyboard)
+            .map(|entry| entry.address.ok_or_else(missing_keyboard_address))
+            .collect()
     }
-    pub(super) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
-        let mut result: Vec<KeyboardInfo> = Vec::new();
-        for entry in entries()?.into_iter().filter(|e| e.keyboard) {
-            let id = KeyboardId {
-                vendor: entry.vendor,
-                product: entry.product,
-            };
-            if result.iter().all(|known| known.id != id) {
-                result.push(KeyboardInfo {
-                    id,
-                    name: entry
-                        .name
-                        .unwrap_or_else(|| format!("{:04X}:{:04X}", id.vendor, id.product)),
-                });
+
+    pub(crate) fn mouse_present() -> Result<bool, HardwareError> {
+        Ok(entries()?
+            .into_iter()
+            .any(|entry| (entry.vendor, entry.product) == (MOUSE_VENDOR, MOUSE_PRODUCT)))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_keyboard_paths() -> Result<Vec<std::path::PathBuf>, HardwareError> {
+    use std::{fs, io};
+
+    let scan = || -> io::Result<Vec<_>> {
+        let mut keyboards = Vec::new();
+        for entry in fs::read_dir("/sys/class/input")? {
+            let entry = entry?;
+            if !entry.file_name().to_string_lossy().starts_with("event") {
+                continue;
+            }
+            let path = entry.path().join("device");
+            if fs::read_to_string(path.join("id/bustype"))?.trim() != "0005" {
+                continue;
+            }
+            let keys = fs::read_to_string(path.join("capabilities/key"))?;
+            // The low word contains KEY_Q through KEY_P (codes 16 through 25).
+            // Require the letter row to exclude mice and media-only interfaces.
+            let letter_row = 0x03ff_0000;
+            let low_word = keys
+                .split_whitespace()
+                .last()
+                .and_then(|word| u64::from_str_radix(word, 16).ok())
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid input capabilities")
+                })?;
+            if low_word & letter_row == letter_row {
+                keyboards.push(path);
             }
         }
-        result.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(result)
-    }
+        Ok(keyboards)
+    };
+    scan()
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                scan()
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| HardwareError::Enumeration(error.to_string()))
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn keyboards() -> Result<Vec<KeyboardInfo>, HardwareError> {
+pub(crate) fn connected_keyboard_addresses() -> Result<Vec<[u8; 6]>, HardwareError> {
     use std::fs;
 
-    let devices = fs::read_dir("/sys/class/input")
-        .map_err(|error| HardwareError::Enumeration(error.to_string()))?;
-    let mut keyboards: Vec<KeyboardInfo> = Vec::new();
-    for entry in devices.flatten() {
-        if !entry.file_name().to_string_lossy().starts_with("event") {
-            continue;
-        }
-        let path = entry.path().join("device");
-        let read_hex = |file| {
-            let text = fs::read_to_string(path.join(file)).ok()?;
-            u16::from_str_radix(text.trim(), 16).ok()
-        };
-        if read_hex("id/bustype") != Some(5) {
-            continue;
-        }
-        let Ok(keys) = fs::read_to_string(path.join("capabilities/key")) else {
-            continue;
-        };
-        // The low word contains KEY_Q through KEY_P (codes 16 through 25).
-        // Require the letter row to exclude mice and media-only interfaces.
-        let letter_row = 0x03ff_0000;
-        let low_word = keys
-            .split_whitespace()
-            .last()
-            .and_then(|word| u64::from_str_radix(word, 16).ok())
-            .unwrap_or_default();
-        if low_word & letter_row != letter_row {
-            continue;
-        }
-        let (Some(vendor), Some(product)) = (read_hex("id/vendor"), read_hex("id/product")) else {
-            continue;
-        };
-        let id = KeyboardId { vendor, product };
-        if keyboards.iter().any(|keyboard| keyboard.id == id) {
-            continue;
-        }
-        let name = fs::read_to_string(path.join("name"))
-            .map(|name| name.trim().to_owned())
-            .unwrap_or_else(|_| format!("{vendor:04X}:{product:04X}"));
-        keyboards.push(KeyboardInfo { id, name });
-    }
-    keyboards.sort_by_key(|keyboard| {
-        (
-            keyboard.name.clone(),
-            keyboard.id.vendor,
-            keyboard.id.product,
-        )
-    });
-    Ok(keyboards)
+    linux_keyboard_paths()?
+        .into_iter()
+        .map(|path| {
+            let identity = fs::read_to_string(path.join("uniq"))
+                .map_err(|error| HardwareError::Enumeration(error.to_string()))?;
+            bluetooth_address(&identity).ok_or_else(missing_keyboard_address)
+        })
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
-    // sysfs metadata is readable without opening /dev/hidraw or an evdev keyboard device.
-    // Unlike hidapi's udev enumerator, filesystem errors propagate rather than becoming absence.
-    let entries = std::fs::read_dir("/sys/bus/hid/devices")
-        .map_err(|e| HardwareError::Enumeration(e.to_string()))?;
-    let mut ids = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| HardwareError::Enumeration(e.to_string()))?;
-        let text = std::fs::read_to_string(entry.path().join("uevent"))
-            .map_err(|e| HardwareError::Enumeration(e.to_string()))?;
-        let id = text
-            .lines()
-            .find_map(|line| line.strip_prefix("HID_ID="))
-            .ok_or_else(|| HardwareError::Enumeration("HID_ID missing in sysfs".into()))?;
-        let parts: Vec<_> = id.split(':').collect();
-        if parts.len() != 3 {
-            return Err(HardwareError::Enumeration("Malformed sysfs HID_ID".into()));
-        }
-        let parse = |text| {
-            u32::from_str_radix(text, 16)
-                .map_err(|_| HardwareError::Enumeration("Malformed sysfs HID_ID".into()))
-        };
-        let (bus, vendor, product) = (parse(parts[0])?, parse(parts[1])?, parse(parts[2])?);
-        if bus == 5 {
-            ids.push((vendor as u16, product as u16));
+pub(crate) fn mouse_present() -> Result<bool, HardwareError> {
+    // Kernel names for HID devices contain bus, vendor and product, followed
+    // by a per-device instance number. No device handles are opened.
+    let mouse = format!("0005:{MOUSE_VENDOR:04X}:{MOUSE_PRODUCT:04X}.");
+    for entry in std::fs::read_dir("/sys/bus/hid/devices")
+        .map_err(|error| HardwareError::Enumeration(error.to_string()))?
+    {
+        let entry = entry.map_err(|error| HardwareError::Enumeration(error.to_string()))?;
+        if entry.file_name().to_string_lossy().starts_with(&mouse) {
+            return Ok(true);
         }
     }
-    Ok(result_from_ids(ids, keyboard))
+    Ok(false)
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
-    windows::snapshot(keyboard)
-}
+#[path = "windows_keyboards.rs"]
+mod windows_keyboards;
+#[cfg(target_os = "windows")]
+pub(crate) use windows_keyboards::connected_keyboard_addresses;
+
+#[cfg(target_os = "windows")]
+pub(crate) use windows::mouse_present;
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
@@ -350,9 +400,9 @@ mod windows {
             flags: u32,
         ) -> u32;
     }
-    pub(super) fn snapshot(keyboard: KeyboardId) -> Result<DeviceSnapshot, HardwareError> {
+    pub(crate) fn mouse_present() -> Result<bool, HardwareError> {
         // Enumerate present HID interface names without opening devices. Configuration Manager
-        // status failures and size races are unknown state, never an empty/absent keyboard.
+        // status failures and size races are unknown state.
         unsafe {
             let mut guid = Guid {
                 data1: 0,
@@ -381,23 +431,46 @@ mod windows {
                     "Configuration Manager status {status:#x}"
                 )));
             }
-            let mut ids = Vec::new();
+            let usb_form = format!("vid_{MOUSE_VENDOR:04x}&pid_{MOUSE_PRODUCT:04x}");
+            let bluetooth_form = format!("vid&0002{MOUSE_VENDOR:04x}_pid&{MOUSE_PRODUCT:04x}");
             for name in names.split(|c| *c == 0).filter(|name| !name.is_empty()) {
                 let name = String::from_utf16(name)
                     .map_err(|e| HardwareError::Enumeration(e.to_string()))?
                     .to_ascii_lowercase();
-                for (v, p) in [
-                    (keyboard.vendor, keyboard.product),
-                    (MOUSE_VENDOR, MOUSE_PRODUCT),
-                ] {
-                    if name.contains(&format!("vid_{v:04x}&pid_{p:04x}"))
-                        || name.contains(&format!("vid&0002{v:04x}_pid&{p:04x}"))
-                    {
-                        ids.push((v, p));
-                    }
+                if name.contains(&usb_form) || name.contains(&bluetooth_form) {
+                    return Ok(true);
                 }
             }
-            Ok(result_from_ids(ids, keyboard))
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bluetooth_address;
+
+    #[test]
+    fn accepts_common_bluetooth_address_formats() {
+        let expected = Some([0xaa, 0x01, 0xff, 0x02, 0xcc, 0x03]);
+        assert_eq!(bluetooth_address("AA:01:ff:02:CC:03\n"), expected);
+        assert_eq!(bluetooth_address("AA-01-ff-02-CC-03"), expected);
+        assert_eq!(bluetooth_address("AA01ff02CC03"), expected);
+    }
+
+    #[test]
+    fn rejects_missing_or_malformed_bluetooth_addresses() {
+        for identity in [
+            "",
+            "000000000000",
+            "ff:ff:ff:ff:ff:ff",
+            "aa:01-ff:02:cc:03",
+            "aa:01:fg:02:cc:03",
+            "+1:02:03:04:05:06",
+            "aa:01:ff:02:cc:é",
+            "SN1234567890",
+        ] {
+            assert_eq!(bluetooth_address(identity), None, "{identity}");
         }
     }
 }

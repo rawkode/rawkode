@@ -21,11 +21,6 @@ pub enum Command {
     SetEnabled {
         enabled: bool,
     },
-    /// Choose the keyboard that leads the mouse, from `State::keyboards`.
-    SetKeyboard {
-        vendor: u16,
-        product: u16,
-    },
     /// Start pairing with a computer from `State::nearby`.
     Pair {
         peer: Uuid,
@@ -50,20 +45,11 @@ pub struct PairingStatus {
 }
 
 #[derive(Clone, Serialize, PartialEq)]
-pub struct KeyboardSummary {
-    pub vendor: u16,
-    pub product: u16,
-    pub name: String,
-}
-
-#[derive(Clone, Serialize, PartialEq)]
 pub struct State {
     pub node_name: String,
     pub local_slot: u8,
     pub enabled: bool,
     pub paired: bool,
-    pub keyboard: KeyboardSummary,
-    pub keyboards: Vec<KeyboardSummary>,
     pub keyboard_present: Option<bool>,
     pub mouse_present: Option<bool>,
     pub network_status: String,

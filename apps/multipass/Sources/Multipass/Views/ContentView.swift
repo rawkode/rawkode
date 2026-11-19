@@ -25,14 +25,9 @@ struct ContentView: View {
                             ForEach(1...3, id: \.self) { Text("\($0)").tag($0) }
                         }.frame(width: 165)
                     }
-                    HStack {
-                        Picker("Keyboard", selection: Binding(get: { store.keyboard.id }, set: store.setKeyboard)) {
-                            ForEach(store.keyboards) { Text($0.name).tag($0.id) }
-                        }
-                    }
-                    deviceRow(store.keyboard.name, icon: "keyboard", present: store.keyboardPresent)
+                    deviceRow("Bluetooth keyboard", icon: "keyboard", present: store.keyboardPresent)
                     deviceRow("MX Master 4", icon: "computermouse", present: store.mousePresent)
-                    Text("Choose the mouse’s Bluetooth slot paired with this Mac, and the Bluetooth keyboard it follows. Connect a keyboard here to make it appear in the list.")
+                    Text("Choose the mouse’s Bluetooth slot paired with this Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(8)
             }

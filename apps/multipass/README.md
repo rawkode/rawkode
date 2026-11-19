@@ -1,6 +1,6 @@
 # Multipass
 
-Let an EVO80 keyboard lead an MX Master 4 between macOS, Windows, and Linux computers. Change the keyboard's Bluetooth slot; the computer receiving the keyboard asks its paired peer to send the mouse to the corresponding slot.
+Move a Bluetooth keyboard between paired macOS, Windows, or Linux computers and let the MX Master 4 follow it automatically.
 
 The shared Rust engine owns device detection, Bonjour discovery, in-band pairing, authenticated switch requests, credentials, connection policy, and HID++ switching. Native UIs display its state and send commands through private stdin/stdout pipes:
 
@@ -65,20 +65,20 @@ Installing the package does not enable automatic switching or create pairing cre
 2. Set **Mouse slot** to the mouse's existing Bluetooth slot on each computer—for example, desktop **1**, laptop **2**. Multipass does not create Bluetooth pairings.
 3. Each app lists the other computers running Multipass that it can see. Click **Pair…** next to the other computer on either one. Both screens show the same six-digit code; check they match, then **Accept** on the computer that was asked and **Confirm** on the one that asked. Either side can decline, and the prompt times out after two minutes.
 4. Enable automatic switching on both computers. Wait for discovery and three seconds of device-state settling.
-5. Switch the keyboard away and back. Each fresh connection should request the matching mouse slot. Confirm the mouse actually works on the destination.
+5. Switch a connected Bluetooth keyboard from the computer that has the mouse to the other computer. Confirm the mouse works on the destination.
 
 Discovery is only how the computers find each other; it proves nothing about who they are. Pairing runs an X25519 key agreement over the LAN connection, and the code you compare is a short authentication string derived from both sides' keys. The initiator commits to its key before the responder reveals its own, so an attacker in the middle cannot search for a key that makes both screens agree. The resulting 32-byte secret is stored in the platform credential store and authorizes every later mouse-switch request; it never crosses the network. Only one pairing prompt is shown at a time, and nothing is stored until both people confirm. **Forget pairing** removes the key.
 
 The Mac UI can open Input Monitoring settings and register itself as a login item. Windows offers a tray menu. Linux has an explicit close-to-quit window lifetime; no cross-desktop tray or autostart installation is included.
 
-The Rust protocol is **version 3**, and intentionally rejects the earlier copied-code versions. Upgrade both computers together and pair again. Settings live in an OS application config directory: reselect this computer's slot and enable switching after upgrading.
+The Rust protocol is **version 4**. Upgrade both computers together. Existing pairing keys and mouse slots are retained.
 
 ## Switching safeguards
 
-- Detection targets the MX Master 4 `046D:B042` and a Bluetooth keyboard. The keyboard defaults to the EVO80 `36B0:3004`; on macOS and Linux, pick any connected Bluetooth keyboard in the window and the choice is saved in `settings.json`. Windows and Linux keep the EVO80 for now. Other mouse models are not configurable yet. Read-only device metadata is inspected; keyboard input reports are never captured.
-- Device presence is polled every 100 ms, and only a fresh absent-to-present keyboard edge that stays present for 300 ms produces a claim. Unknown device state invalidates pending work. Startup, settings changes, enable, and resume establish a baseline for three seconds.
-- The source requires its keyboard absent, mouse present, and a different valid target slot. Immediately before one ChangeHost write, it repeats the keyboard-presence check and verifies the authorization lease.
-- Each session uses a fresh random challenge and HMAC-SHA256 bound to sender, receiver, slot, and protocol version. A verified claim expires after three seconds; connection loss, keyboard departure, pause, or process shutdown revokes it. If the source still sees the keyboard when the claim arrives, it holds the claim and re-checks on every poll until the keyboard departs or the claim expires. Frames, sessions, peer fan-out, and connection counts are bounded.
+- Multipass uses Bluetooth device metadata to match the keyboard across computers. A keyboard must expose the same Bluetooth identity on both hosts to be matched. Keyboards that use a different address per slot cannot be matched. Missing keyboard metadata can pause handoff until the OS reports a complete device state. The mouse must be an MX Master 4 (`046D:B042`). Keyboard input reports are never captured.
+- A keyboard must leave the computer that has the mouse and settle on a paired computer before the mouse moves. Startup, settings changes, enabling switching, and resume establish a fresh baseline. Unknown device state or conflicting observations cancel pending handoffs.
+- The source requires a recent departure of the matching keyboard, the mouse still connected, and a different valid target slot. Before sending ChangeHost once, it verifies the keyboard is still absent and the claim is still authorized.
+- Each session uses a fresh random challenge and HMAC-SHA256 to authenticate the sender, receiver, slot, protocol version, and keyboard identifier. Claims expire after three seconds. Connection loss, keyboard departure from the destination, pause, or process shutdown revokes the claim. Frames, sessions, peer fan-out, and connection counts are bounded.
 - Observation and network propagation introduce a small unavoidable race; this is not an atomic transaction across hardware. Requests are never queued for offline peers, and uncertain switch writes are never retried.
 - HID++ feature indices are discovered dynamically. Source acknowledgement and source departure are reported separately; neither proves destination connectivity. HID response waits are bounded, but the underlying OS write cannot be forcibly interrupted.
 - Switch claims are authenticated; discovery metadata is untrusted. Neither is encrypted. Pairing secrets are derived on both computers and never sent over the network. Recent activity is held in memory; the app does not log keyboard input or credentials.
