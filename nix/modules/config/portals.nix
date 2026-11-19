@@ -13,9 +13,11 @@ mkApp {
       # which exists only when the service is enabled. Enabling it also registers
       # the portal backend and unlocks the login keyring through PAM.
       services.gnome.gnome-keyring.enable = true;
+      security.pam.services.greetd.enableGnomeKeyring = true;
 
       xdg.portal = {
         enable = true;
+        xdgOpenUsePortal = true;
         config.common = {
           default = [
             "gtk"
@@ -25,27 +27,6 @@ mkApp {
           ];
         };
         extraPortals = with pkgs; [
-          xdg-desktop-portal-gtk
-        ];
-      };
-    };
-
-  linux.home =
-    { pkgs, lib, ... }:
-    {
-      xdg.portal = {
-        enable = true;
-        xdgOpenUsePortal = true;
-        config.common = {
-          default = lib.mkDefault [
-            "gtk"
-          ];
-          "org.freedesktop.impl.portal.Secret" = [
-            "gnome-keyring"
-          ];
-        };
-        extraPortals = with pkgs; [
-          xdg-desktop-portal
           xdg-desktop-portal-gtk
         ];
       };

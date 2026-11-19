@@ -13,8 +13,6 @@
       };
 
       config.boot = {
-        consoleLogLevel = 0;
-
         # CachyOS-inspired kernel parameters for better desktop responsiveness and gaming
         kernelParams = [
           "nowatchdog"
@@ -36,7 +34,6 @@
             "thunderbolt"
             "usb_storage"
             "sd_mod"
-            "mt7921e" # WiFi support for Framework
           ];
         };
 
@@ -61,16 +58,6 @@
             '';
           }))
         ];
-
-        plymouth.enable = true;
-        tmp.cleanOnBoot = true;
       };
-
-      config.networking.useNetworkd = true;
-      config.systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
-
-      config.nix.channel.enable = false;
-
-      config.console.useXkbConfig = true;
     };
 }

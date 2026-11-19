@@ -11,15 +11,21 @@
       };
 
       networking.resolvconf.enable = lib.mkForce false;
+      systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
+
       services.resolved = {
         enable = true;
-        settings.Resolve.FallbackDNS = [
-          # Quad9
-          "9.9.9.9"
-          "149.112.112.112"
-          "2620:fe::fe"
-          "2620:fe::9"
-        ];
+        settings.Resolve = {
+          # Let Avahi own UDP 5353 without contending with systemd-resolved.
+          MulticastDNS = "no";
+          FallbackDNS = [
+            # Quad9
+            "9.9.9.9"
+            "149.112.112.112"
+            "2620:fe::fe"
+            "2620:fe::9"
+          ];
+        };
       };
     };
 }

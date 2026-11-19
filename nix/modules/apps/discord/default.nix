@@ -5,6 +5,12 @@ in
 mkApp {
   name = "discord";
 
+  linux.home =
+    { pkgs, ... }:
+    {
+      home.packages = [ pkgs.vesktop ];
+    };
+
   darwin.system =
     { lib, ... }:
     {

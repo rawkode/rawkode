@@ -1,17 +1,21 @@
 {
   flake.nixosModules.common =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
     {
       i18n = {
         defaultLocale = "en_GB.UTF-8";
       };
+
+      boot.tmp.cleanOnBoot = true;
+      console.useXkbConfig = true;
+      zramSwap.enable = lib.mkDefault true;
 
       services = {
         chrony = {
           enable = true;
           servers = [
             "time.cloudflare.com"
-            "time.google.com"
+            "nts.netnod.se"
           ];
           enableNTS = true;
         };
@@ -22,11 +26,6 @@
         git.enable = true;
       };
 
-      environment = {
-        systemPackages = with pkgs; [
-          coreutils-full
-          git
-        ];
-      };
+      environment.systemPackages = [ pkgs.coreutils-full ];
     };
 }

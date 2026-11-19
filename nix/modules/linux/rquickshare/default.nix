@@ -5,6 +5,13 @@ in
 mkApp {
   name = "rquickshare";
 
+  linux.system = _: {
+    networking.firewall = {
+      allowedTCPPorts = [ 39706 ];
+      allowedUDPPorts = [ 39706 ];
+    };
+  };
+
   linux.home =
     { pkgs, ... }:
     {

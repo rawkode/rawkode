@@ -19,6 +19,14 @@ mkApp {
 
     # Registers the display-manager session and the screen-sharing portal.
     programs.umbriel.enable = true;
+
+    xdg.portal.config.umbriel = {
+      default = [
+        "umbriel"
+        "gtk"
+      ];
+      "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
+    };
   };
 
   linux.home =
@@ -122,6 +130,10 @@ mkApp {
           exec wl-mirror --fullscreen-output "$target" "''${region[@]}" "$source"
         '';
       };
+      captureRegion = once (
+        "spawn noctalia msg screenshot-region --no-annotate --no-copy-to-clipboard --no-save-to-file"
+        + " --pipe-to-command --format png --pipe-command '${lib.getExe pkgs.satty} --filename - --copy-command ${lib.getExe' pkgs.wl-clipboard "wl-copy"}'"
+      );
       workspaceBinds = lib.listToAttrs (
         lib.concatMap (
           n:
@@ -141,22 +153,10 @@ mkApp {
       nix.settings = umbrielCache;
 
       # Run `umbriel-mirror <window|output|stop>` to mirror to the HDMI monitor.
-      home.packages = [ mirror ];
-
-      # Home Manager's portal directory replaces the system one, so the Umbriel
-      # backend has to be present in the user profile as well.
-      xdg.portal = {
-        extraPortals = [
-          inputs.umbriel.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-umbriel
-        ];
-        config.umbriel = {
-          default = [
-            "umbriel"
-            "gtk"
-          ];
-          "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
-        };
-      };
+      home.packages = [
+        mirror
+        pkgs.satty
+      ];
 
       programs.umbriel = {
         enable = true;
@@ -331,6 +331,7 @@ mkApp {
             "Mod+Backslash" = once "spawn 1password --quick-access";
             "Mod+Q" = once "window-close";
             "Alt+F4" = once "window-close";
+            "Mod+Alt+L" = once "spawn ${lib.getExe' pkgs.systemd "loginctl"} lock-session";
             "Mod+Escape" = "session-quit";
             "Mod+Shift+Escape" = {
               action = "shortcuts-inhibit-toggle";
@@ -343,6 +344,8 @@ mkApp {
             "XF86AudioRaiseVolume" = locked "spawn noctalia msg volume-up";
             "XF86AudioLowerVolume" = locked "spawn noctalia msg volume-down";
             "XF86AudioMute" = locked "spawn noctalia msg volume-mute";
+            "XF86AudioMicMute" =
+              locked "spawn ${lib.getExe' pkgs.wireplumber "wpctl"} set-mute @DEFAULT_AUDIO_SOURCE@ toggle";
             "XF86AudioPlay" = locked "spawn noctalia msg media toggle";
             "XF86AudioNext" = locked "spawn noctalia msg media next";
             "XF86AudioPrev" = locked "spawn noctalia msg media previous";
@@ -406,9 +409,10 @@ mkApp {
             "Mod+Shift+S" = once "screencast-set-output";
             "Mod+Ctrl+S" = once "screencast-clear";
             "Mod+Shift+P" = once "dpms-off";
-            # Print captures a region, Mod+Print or Ctrl+Print the focused
-            # output, and Alt+Print the focused window.
-            "Print" = once "spawn noctalia msg screenshot-region";
+            # Open Satty after region capture. The second binding also works
+            # on keyboards that lack a dedicated Print key.
+            "Print" = captureRegion;
+            "Mod+Ctrl+P" = captureRegion;
             "Mod+Print" = once "spawn noctalia msg screenshot-fullscreen";
             "Ctrl+Print" = once "spawn noctalia msg screenshot-fullscreen";
             "Alt+Print" = once "spawn noctalia msg screenshot-window";

@@ -4,29 +4,14 @@
     {
       environment.systemPackages = with pkgs; [
         android-tools
+        scrcpy
       ];
 
-      # 39705 for adb
-      # 39706 for rquickshare
+      # 39705 for wireless ADB.
       networking.firewall = {
         enable = true;
-
-        trustedInterfaces = [
-          "lo"
-        ];
-
-        allowedTCPPortRanges = [
-          {
-            from = 39705;
-            to = 39706;
-          }
-        ];
-        allowedUDPPortRanges = [
-          {
-            from = 39705;
-            to = 39706;
-          }
-        ];
+        allowedTCPPorts = [ 39705 ];
+        allowedUDPPorts = [ 39705 ];
       };
     };
 }

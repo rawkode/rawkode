@@ -17,7 +17,7 @@ mkApp {
   };
 
   linux.home =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
     {
       imports = [ inputs.noctalia.homeModules.default ];
 
@@ -122,7 +122,7 @@ mkApp {
               action = "lock";
             };
             screen-off = {
-              timeout = 1800;
+              timeout = lib.mkDefault 1800;
               action = "screen_off";
             };
           };

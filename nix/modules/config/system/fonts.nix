@@ -1,6 +1,6 @@
 {
   flake.nixosModules.fonts =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
     {
       fonts = {
         enableDefaultPackages = false;
@@ -17,12 +17,12 @@
           useEmbeddedBitmaps = true;
 
           defaultFonts = {
-            sansSerif = [ "Nato Sans" ];
-            serif = [ "Nato" ];
-            monospace = [ "Monaspace Argon" ];
-            emoji = [
-              "JoyPixels"
+            sansSerif = lib.mkAfter [ "Noto Sans" ];
+            serif = lib.mkAfter [ "Noto Serif" ];
+            monospace = lib.mkAfter [ "Monaspace Argon" ];
+            emoji = lib.mkAfter [
               "Noto Color Emoji"
+              "JoyPixels"
               "Noto Emoji"
             ];
           };

@@ -1,4 +1,3 @@
-{ lib, ... }:
 {
   flake.machineManifests.p4x-framework-nixos = {
     platform = "nixos";
@@ -30,6 +29,8 @@
     users.rawkode = {
       modules = [
         {
+          # Turn the display off before suspending so it doesn't stay lit while locked.
+          programs.noctalia.settings.idle.behavior.screen-off.timeout = 900;
           # Suspend then hibernate after the lock has been active for a while.
           programs.noctalia.settings.idle.behavior.suspend = {
             timeout = 1200;
@@ -89,7 +90,6 @@
         # `btrfs inspect-internal map-swapfile -r /var/lib/swapfile` and must be
         # refreshed if the swapfile is ever recreated.
         boot.resumeDevice = "/dev/mapper/encrypted";
-        services.power-profiles-daemon.enable = lib.mkDefault true;
         # nixos-hardware disables Panel Self Refresh as an old-kernel freeze
         # workaround; PSR lets the iGPU stop refreshing a static screen.
         hardware.amdgpu.dcDebugMask.disablePsr = false;

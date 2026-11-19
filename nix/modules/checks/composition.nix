@@ -81,7 +81,6 @@ let
     !(
       c.services.greetd.enable
       || c.services.printing.enable
-      || c.services.libinput.enable
       || c.services.fwupd.enable
       || c.services.hardware.bolt.enable
       || c.services.pcscd.enable
@@ -115,7 +114,6 @@ let
     c:
     c.services.greetd.enable
     && c.services.printing.enable
-    && c.services.libinput.enable
     && c.services.flatpak.enable
     && c.services.pipewire.enable
     && c.programs.kdeconnect.enable

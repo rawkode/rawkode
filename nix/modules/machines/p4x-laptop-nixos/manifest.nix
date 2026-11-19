@@ -1,4 +1,3 @@
-{ lib, ... }:
 {
   flake.machineManifests.p4x-laptop-nixos = {
     platform = "nixos";
@@ -28,6 +27,8 @@
     users.rawkode = {
       modules = [
         {
+          # Turn the display off before suspending so it doesn't stay lit while locked.
+          programs.noctalia.settings.idle.behavior.screen-off.timeout = 900;
           # Suspend then hibernate after the lock has been active for a while.
           programs.noctalia.settings.idle.behavior.suspend = {
             timeout = 1200;
@@ -56,18 +57,6 @@
         boot.extraModprobeConfig = ''
           options iwlwifi power_save=1
         '';
-
-        # The shared 32-sample quantum keeps the CPU waking ~1500 times a second
-        # whenever audio is open. Default to 1024 here, but still let apps that
-        # ask for low latency drop to 32.
-        services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
-          context.properties = {
-            default.clock.rate = 48000;
-            default.clock.quantum = 1024;
-            default.clock.min-quantum = 32;
-            default.clock.max-quantum = 2048;
-          };
-        };
       }
     ];
   };

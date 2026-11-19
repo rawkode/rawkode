@@ -15,7 +15,6 @@
         kernelModules = [
           "kvm-amd"
           "amd-pstate"
-          "zenpower"
           "msr"
         ];
         kernelParams = [ "amd_pstate=active" ];
@@ -33,7 +32,6 @@
         amdctl
         radeontop
         ryzenadj
-        zenmonitor
       ];
     };
 }

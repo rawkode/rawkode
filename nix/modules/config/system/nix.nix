@@ -88,11 +88,13 @@ in
 
       programs.nh = {
         enable = true;
+        flake = lib.mkDefault "/home/${cfg.username}/Code/src/github.com/rawkode/rawkode/nix";
         clean.enable = true;
         clean.extraArgs = "--keep-since 7d --keep 3";
       };
 
       nix = {
+        channel.enable = false;
         optimise.automatic = true;
         gc.automatic = false; # Disabled in favor of programs.nh.clean
 
@@ -101,14 +103,13 @@ in
             "root"
             cfg.username
           ];
-          auto-optimise-store = true;
           experimental-features = [
             "nix-command"
             "flakes"
           ];
+          min-free = 5 * 1024 * 1024 * 1024;
+          max-free = 20 * 1024 * 1024 * 1024;
           warn-dirty = false;
-          keep-derivations = true;
-          keep-outputs = true;
         };
       };
 
@@ -179,7 +180,8 @@ in
             "revision"
           ];
           body = ''
-            nix-shell -p nix-prefetch-git jq --run "nix hash convert sha256:\$(nix-prefetch-git --url $repoUrl --quiet --rev $revision | jq -r '.sha256')"
+            set -l hash (nix run nixpkgs#nix-prefetch-git -- --url "$repoUrl" --quiet --rev "$revision" | jq -r '.sha256')
+            nix hash convert "sha256:$hash"
           '';
         };
       };

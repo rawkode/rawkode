@@ -90,6 +90,7 @@
         { pkgs, ... }:
         {
           environment.systemPackages = [
+            pkgs.losslesscut
             (pkgs.callPackage (
               {
                 appimageTools,
@@ -122,8 +123,9 @@
         }
       )
       {
+        services.flatpak.packages = [ "com.core447.StreamController" ];
+
         rawkOS.disko.device = "/dev/nvme0n1";
-        zramSwap.enable = true;
         hardware.enableRedistributableFirmware = lib.mkDefault true;
         services.nordvpn.enable = true;
         users.users.rawkode.extraGroups = [ "nordvpn" ];

@@ -9,15 +9,16 @@ mkApp {
     services.flatpak = {
       enable = true;
       packages = [
-        "com.core447.StreamController"
-        "com.discordapp.Discord"
         "com.github.tchx84.Flatseal"
-        "com.jeffser.Alpaca"
-        "io.github.seadve.Kooha"
         "org.gnome.Showtime"
-        "org.gnome.Snapshot"
         "org.localsend.localsend_app"
       ];
+    };
+
+    # LocalSend discovery and transfer port.
+    networking.firewall = {
+      allowedTCPPorts = [ 53317 ];
+      allowedUDPPorts = [ 53317 ];
     };
   };
 

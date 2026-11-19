@@ -17,6 +17,8 @@
       modules = [
         {
           rawkOS.apps.ai.cliPackages.enable = false;
+          rawkOS.apps.vscode.enable = false;
+          rawkOS.development.cuenv.cuetty.enable = false;
           rawkOS.development.python.extraTools.enable = false;
           rawkOS.apps.misc.ffmpeg.enable = false;
         }
