@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 /// Device presence is re-read this often; it bounds how quickly a keyboard arrival is noticed.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
-
+const SCAN_RECOVERY: Duration = Duration::from_millis(500);
 struct ArrivalClaim {
     sender: Uuid,
     matched: oneshot::Sender<()>,
@@ -352,7 +352,21 @@ impl Engine {
                 self.state.keyboard_present = None;
                 self.state.mouse_present = None;
                 self.state.suggested_slot = None;
-                self.reset();
+                self.permission.store(false, Ordering::SeqCst);
+                self.keyboards.invalidate_arrivals();
+                // A composite Bluetooth device can disappear while its HID interfaces
+                // are being enumerated. Compare the next complete scan with the last
+                // complete scan so an error during teardown cannot erase the departure.
+                let recovering = matches!(&failure, Ok(Err(HardwareError::Enumeration(_))))
+                    && self
+                        .last_good_observation
+                        .lock()
+                        .unwrap()
+                        .elapsed()
+                        .is_ok_and(|age| age < SCAN_RECOVERY);
+                if !recovering {
+                    self.reset();
+                }
                 self.state.last_event = match failure {
                     Ok(Err(error)) => format!("Device detection unavailable: {error}"),
                     _ => "Device detection worker stopped".into(),
@@ -381,42 +395,41 @@ impl Engine {
     }
 
     fn match_departure(&mut self) {
+        let expired = self
+            .pending_claims
+            .iter()
+            .rfind(|claim| !claim.lease.is_valid())
+            .map(|claim| (claim.sender, claim.slot));
         self.pending_claims.retain(|claim| claim.lease.is_valid());
+        if let Some((sender, slot)) = expired {
+            if self.state.mouse_present == Some(true) && self.switching.is_none() {
+                let peer = self.peer_name(sender);
+                self.record_handoff(format!(
+                    "Mouse request from {peer} (slot {slot}) ended without a matching Bluetooth keyboard departure."
+                ));
+            }
+        }
         let Some(secret) = self.secret.as_ref() else {
             return;
         };
         if self.switching.is_some() {
             return;
         }
-        let matches: Vec<_> = self
-            .pending_claims
-            .iter()
-            .enumerate()
-            .filter_map(|(index, claim)| {
-                self.keyboards
-                    .recent_departures()
-                    .find(|address| keyboard_key(*address, &claim.nonce, secret) == claim.key)
-                    .map(|address| (index, address))
-            })
-            .collect();
-        match matches.as_slice() {
-            &[(index, address)] if self.pending_claims[index].ready <= Instant::now() => {
-                let claim = self.pending_claims.swap_remove(index);
-                self.keyboards.consume_departure(address);
-                let destination = self.peer_name(claim.sender);
-                let message = format!(
-                    "Bluetooth keyboard moved to {destination} (slot {}).",
-                    claim.slot
-                );
-                let _ = claim.matched.send(());
-                if self.state.mouse_present == Some(true) {
-                    self.record_handoff(message.clone());
-                    self.start_switch(address, claim.slot, claim.lease, message);
-                } else {
-                    self.record_handoff(format!(
-                        "{message} The MX Master 4 was not connected here."
-                    ));
+        let mut matches = Vec::new();
+        for (index, claim) in self.pending_claims.iter().enumerate() {
+            for address in self.keyboards.recent_departures() {
+                if self
+                    .settings
+                    .keyboard_matches(address, &claim.nonce, secret, &claim.key)
+                {
+                    matches.push((index, address));
                 }
+            }
+        }
+        let now = Instant::now();
+        match matches.as_slice() {
+            &[(index, address)] if self.pending_claims[index].ready <= now => {
+                self.finish_match(index, address);
             }
             [_, _, ..] => {
                 for (_, address) in matches {
@@ -429,6 +442,38 @@ impl Engine {
                 );
             }
             _ => {}
+        }
+    }
+
+    fn finish_match(&mut self, index: usize, address: Address) {
+        let claim = self.pending_claims.swap_remove(index);
+        if !claim.lease.is_valid() {
+            return;
+        }
+        if std::env::var_os("MULTIPASS_TRACE_KEYBOARDS").is_some_and(|value| value == "1") {
+            if let Some(secret) = self.secret.as_ref() {
+                let expected = keyboard_key(address, &claim.nonce, secret);
+                let mut reversed = address;
+                reversed.reverse();
+                let matches_reversed = keyboard_key(reversed, &claim.nonce, secret) == claim.key;
+                eprintln!(
+                    "Keyboard claim for slot {}: received={:02x?} local_address={address:02x?} expected={expected:02x?} reversed_match={matches_reversed}",
+                    claim.slot, claim.key
+                );
+            }
+        }
+        self.keyboards.consume_departure(address);
+        let destination = self.peer_name(claim.sender);
+        let message = format!(
+            "Bluetooth keyboard moved to {destination} (slot {}).",
+            claim.slot
+        );
+        let _ = claim.matched.send(());
+        if self.state.mouse_present == Some(true) {
+            self.record_handoff(message.clone());
+            self.start_switch(address, claim.slot, claim.lease, message);
+        } else {
+            self.record_handoff(format!("{message} The MX Master 4 was not connected here."));
         }
     }
 

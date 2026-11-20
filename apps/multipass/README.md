@@ -75,9 +75,9 @@ The Rust protocol is **version 5**. Upgrade both computers together. Existing pa
 
 ## Switching safeguards
 
-- Multipass uses Bluetooth device metadata to match the keyboard across computers. A keyboard must expose the same Bluetooth identity on both hosts to be matched. Keyboards that use a different address per slot cannot be matched. Missing keyboard metadata can pause handoff until the OS reports a complete device state. The mouse must be an MX Master 4 (`046D:B042`). Keyboard input reports are never captured.
+- Multipass uses Bluetooth device metadata to match the keyboard across computers. For keyboards that expose different Bluetooth addresses across slots, link the addresses explicitly on each computer that hands off the mouse. Missing keyboard metadata can pause handoff until the OS reports a complete device state. The mouse must be an MX Master 4 (`046D:B042`). Keyboard input reports are never captured.
 - A keyboard must leave the computer that has the mouse and settle on a paired computer before the mouse moves. Startup, settings changes, enabling switching, and resume establish a fresh baseline. Unknown device state or conflicting observations cancel pending handoffs.
-- The source requires a recent departure of the matching keyboard, the mouse still connected, and a different valid target slot. Before sending ChangeHost once, it verifies the keyboard is still absent and the claim is still authorized.
+- The source requires a recent keyboard departure, the mouse still connected, and a different valid target slot. Before sending ChangeHost once, it verifies the keyboard is still absent and the claim is still authorized.
 - Each session uses a fresh random challenge and HMAC-SHA256 to authenticate the sender, receiver, slot, protocol version, and keyboard identifier. Claims expire after eight seconds. When a source matches a departure to an arrival, it sends an authenticated confirmation so both computers can display the keyboard move. Connection loss, keyboard departure from the destination, pause, or process shutdown revokes the claim. Frames, sessions, peer fan-out, and connection counts are bounded.
 - Observation and network propagation introduce a small unavoidable race; this is not an atomic transaction across hardware. Requests are never queued for offline peers, and uncertain switch writes are never retried.
 - HID++ feature indices are discovered dynamically. Source acknowledgement and source departure are reported separately; neither proves destination connectivity. HID response waits are bounded, but the underlying OS write cannot be forcibly interrupted.
@@ -94,6 +94,13 @@ The Rust protocol is **version 5**. Upgrade both computers together. Existing pa
 Run `cargo test --locked --workspace` and `cargo clippy --locked --workspace --all-targets -- -D warnings`. The repository workflow builds all three native packages. GUI transport tests are under the platform directories.
 
 `multipass-engine --probe` performs read-only mouse capability queries. `--stdio` runs the frontend protocol (bounded JSON lines); it stops when stdin closes or a shutdown command arrives. Discovery runs for the life of the engine so unpaired computers can find each other; switching stays off until paired and enabled. `MULTIPASS_CONFIG_DIR` optionally selects a configuration directory for diagnostics/tests; it never redirects OS credentials. Pairing keys are never accepted from the frontend or the command line.
+
+To link two or three addresses for the same physical keyboard, quit the app and run
+`multipass-engine --link-keyboard ADDRESS ADDRESS [ADDRESS]`, then reopen the app.
+Run the command on both computers for two-way handoff. On macOS the engine is
+inside `Multipass.app/Contents/MacOS/`.
+
+`multipass-engine --keyboard-identities` prints the Bluetooth addresses the engine uses for connected keyboards. For a direct engine run, `MULTIPASS_TRACE_KEYBOARDS=1` prints sent claim identifiers and source-side comparisons to stderr. Enable it only while debugging because the trace includes local Bluetooth addresses.
 
 ## Qualification
 

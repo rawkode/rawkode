@@ -42,10 +42,15 @@ impl Keyboards {
     }
 
     pub(crate) fn reset(&mut self, now: Instant) {
-        for arrival in self.present.values() {
-            arrival.current.store(false, Ordering::Release);
-        }
+        self.invalidate_arrivals();
         *self = Self::new(now);
+    }
+
+    pub(crate) fn invalidate_arrivals(&mut self) {
+        for arrival in self.present.values_mut() {
+            arrival.current.store(false, Ordering::Release);
+            arrival.announced = true;
+        }
     }
 
     pub(crate) fn observe(&mut self, connected: Vec<Address>, now: Instant) -> KeyboardChanges {
@@ -142,6 +147,29 @@ mod tests {
         assert_eq!(arrivals[0].0, keyboard);
         observed.observe(vec![stationary], settled + SETTLE);
         assert!(!arrivals[0].1.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_transient_scan_failure_revokes_arrivals_but_preserves_the_departure_baseline() {
+        let start = Instant::now();
+        let mut observed = Keyboards::new(start);
+        let stationary = [1; 6];
+        let moving = [2; 6];
+        observed.observe(vec![stationary], start);
+        let attached = start + BASELINE;
+        observed.observe(vec![stationary, moving], attached);
+        let settled = attached + SETTLE;
+        let arrivals = observed.observe(vec![stationary, moving], settled).arrivals;
+        assert_eq!(arrivals.len(), 1);
+
+        observed.invalidate_arrivals();
+        assert!(!arrivals[0].1.load(Ordering::Acquire));
+        let recovered = observed.observe(
+            vec![stationary],
+            settled + std::time::Duration::from_millis(200),
+        );
+        assert_eq!(recovered.departures, 1);
+        assert_eq!(observed.recent_departures().next(), Some(moving));
     }
 
     #[test]

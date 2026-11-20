@@ -64,6 +64,10 @@ pub enum HardwareError {
     Uncertain(String),
 }
 
+pub fn parse_bluetooth_address(text: &str) -> Option<[u8; 6]> {
+    presence::bluetooth_address(text)
+}
+
 pub fn mouse_present() -> Result<bool, HardwareError> {
     presence::mouse_present()
 }

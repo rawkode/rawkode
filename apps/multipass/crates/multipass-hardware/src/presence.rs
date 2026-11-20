@@ -1,6 +1,6 @@
 use crate::{HardwareError, MOUSE_PRODUCT, MOUSE_VENDOR};
 
-fn bluetooth_address(text: &str) -> Option<[u8; 6]> {
+pub(crate) fn bluetooth_address(text: &str) -> Option<[u8; 6]> {
     let text = text.trim();
     let separated = text.len() == 17;
     if text.len() != 12 && !separated {

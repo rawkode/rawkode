@@ -15,7 +15,54 @@ pub struct Settings {
     #[serde(default)]
     pub paired_peer: Option<PeerSummary>,
     pub enabled: bool,
+    #[serde(default)]
+    pub keyboard_links: Vec<Vec<[u8; 6]>>,
 }
+impl Settings {
+    pub fn link_keyboard(&mut self, addresses: &[String]) -> Result<()> {
+        let mut link = addresses
+            .iter()
+            .map(|text| {
+                multipass_hardware::parse_bluetooth_address(text)
+                    .with_context(|| format!("Invalid Bluetooth address: {text}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        link.sort_unstable();
+        link.dedup();
+        if !(2..=3).contains(&link.len()) {
+            bail!("Provide two or three distinct Bluetooth addresses for one keyboard");
+        }
+        let mut existing = self
+            .keyboard_links
+            .iter_mut()
+            .filter(|group| group.iter().any(|address| link.contains(address)));
+        if let Some(group) = existing.next() {
+            if existing.next().is_some() || group.iter().any(|address| !link.contains(address)) {
+                bail!("Provide all addresses from the existing keyboard link");
+            }
+            *group = link;
+        } else {
+            self.keyboard_links.push(link);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn keyboard_matches(
+        &self,
+        local: [u8; 6],
+        nonce: &[u8; 32],
+        secret: &[u8; 32],
+        key: &[u8; 32],
+    ) -> bool {
+        let matches = |address| multipass_network::keyboard_key(address, nonce, secret) == *key;
+        matches(local)
+            || self
+                .keyboard_links
+                .iter()
+                .any(|group| group.contains(&local) && group.iter().copied().any(matches))
+    }
+}
+
 // Existing installations already use their saved slot for switching.
 fn legacy_slot_confirmed() -> bool {
     true
@@ -30,6 +77,7 @@ impl Default for Settings {
             slot_confirmed: false,
             paired_peer: None,
             enabled: false,
+            keyboard_links: Vec::new(),
         }
     }
 }
@@ -123,6 +171,28 @@ pub fn delete_secret() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linked_addresses_match_in_both_directions_only_for_the_configured_keyboard() {
+        let mut settings = Settings::default();
+        let first = [1, 2, 3, 4, 5, 6];
+        let second = [1, 2, 3, 4, 5, 7];
+        let unrelated = [1, 2, 3, 4, 5, 8];
+        let nonce = [3; 32];
+        let secret = [4; 32];
+        let first_key = multipass_network::keyboard_key(first, &nonce, &secret);
+        let second_key = multipass_network::keyboard_key(second, &nonce, &secret);
+        assert!(settings.keyboard_matches(first, &nonce, &secret, &first_key));
+        assert!(!settings.keyboard_matches(first, &nonce, &secret, &second_key));
+
+        let addresses = ["01:02:03:04:05:06".into(), "01-02-03-04-05-07".into()];
+        settings.link_keyboard(&addresses).unwrap();
+        settings.link_keyboard(&addresses).unwrap();
+        assert_eq!(settings.keyboard_links.len(), 1);
+        assert!(settings.keyboard_matches(first, &nonce, &secret, &second_key));
+        assert!(settings.keyboard_matches(second, &nonce, &secret, &first_key));
+        assert!(!settings.keyboard_matches(unrelated, &nonce, &secret, &first_key));
+    }
+
     #[test]
     fn existing_settings_keep_their_mouse_slot_without_requiring_setup() {
         let old = serde_json::json!({"version": 1, "node_id": Uuid::new_v4(), "local_slot": 2, "enabled": true});

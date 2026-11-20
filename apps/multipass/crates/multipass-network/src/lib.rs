@@ -763,6 +763,12 @@ async fn send_claim(
             (claim, receipt)
         };
         write_json(&mut stream, &claim).await?;
+        if std::env::var_os("MULTIPASS_TRACE_KEYBOARDS").is_some_and(|value| value == "1") {
+            eprintln!(
+                "Sent keyboard claim for slot {slot}: address={keyboard:02x?} key={:02x?}",
+                claim.key
+            );
+        }
         let mut signature = [0; 32];
         match stream.read_exact(&mut signature).await {
             Ok(_) => receipt

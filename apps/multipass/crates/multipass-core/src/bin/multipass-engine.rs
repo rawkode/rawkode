@@ -1,4 +1,5 @@
 use multipass_core::{
+    config::ConfigStore,
     engine::Engine,
     ipc::{self, Event, Request},
 };
@@ -21,8 +22,37 @@ async fn main() {
         }
         return;
     }
+    if mode.as_deref() == Some("--keyboard-identities") {
+        match multipass_hardware::connected_keyboard_addresses() {
+            Ok(addresses) => {
+                for address in addresses {
+                    let octets = address.map(|octet| format!("{octet:02x}"));
+                    println!("{}", octets.join(":"));
+                }
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if mode.as_deref() == Some("--link-keyboard") {
+        let result = (|| -> anyhow::Result<()> {
+            let config = ConfigStore::system()?;
+            let mut settings = config.load()?;
+            settings.link_keyboard(&std::env::args().skip(2).collect::<Vec<_>>())?;
+            config.save(&settings)
+        })();
+        if let Err(error) = result {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        println!("Linked keyboard addresses");
+        return;
+    }
     if mode.as_deref() != Some("--stdio") {
-        eprintln!("Usage: multipass-engine --stdio | --probe (read-only)");
+        eprintln!("Usage: multipass-engine --stdio | --probe | --keyboard-identities | --link-keyboard ADDRESS ADDRESS [ADDRESS]");
         std::process::exit(2);
     }
     let (sender, receiver) = mpsc::channel::<Request>(32);
