@@ -123,7 +123,10 @@ let
     dontStrip = stdenv.hostPlatform.isDarwin;
     buildPhase = lib.optionalString stdenv.hostPlatform.isDarwin ''
       runHook preBuild
-      swift build --configuration release --disable-sandbox --cache-path "$TMPDIR/swift-cache" \
+      # Use the native builder so the declared SDK is honored instead of the
+      # newer Swift Build SDK, whose SwiftUI macros are absent from Nix Swift.
+      swift build --build-system native --sdk ${apple-sdk_14}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
+        --configuration release --disable-sandbox --cache-path "$TMPDIR/swift-cache" \
         --config-path "$TMPDIR/swift-config" --security-path "$TMPDIR/swift-security"
       runHook postBuild
     '';
