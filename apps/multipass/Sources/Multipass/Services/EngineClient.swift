@@ -10,20 +10,30 @@ struct PairingStatus: Decodable, Equatable {
     let peerName: String
     let code: String?
     let incoming: Bool
+    let locallyConfirmed: Bool
+}
+
+struct HandoffActivity: Decodable, Equatable {
+    let message: String
+    let occurredAt: TimeInterval
 }
 
 struct EngineState: Decodable {
     let nodeName: String
     let localSlot: Int
+    let slotConfirmed: Bool
+    let suggestedSlot: Int?
     let enabled: Bool
     let paired: Bool
+    let pairedPeer: PeerSummary?
+    let credentialError: String?
     let keyboardPresent: Bool?
     let mousePresent: Bool?
     let networkStatus: String
-    let peers: Int
     let nearby: [PeerSummary]
     let pairing: PairingStatus?
     let lastEvent: String
+    let handoff: HandoffActivity?
 }
 
 private struct EngineEvent: Decodable {

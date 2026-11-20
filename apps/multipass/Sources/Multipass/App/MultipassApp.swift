@@ -11,7 +11,7 @@ struct MultipassApp: App {
             ContentView(store: store)
         }
         .defaultSize(width: 580, height: 710)
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
 
         MenuBarExtra("Multipass", systemImage: store.enabled ? "keyboard.badge.ellipsis" : "keyboard") {
             MenuContent(store: store)
@@ -50,7 +50,7 @@ private struct MenuContent: View {
         }
         Button(store.enabled ? "Pause switching" : "Resume switching") {
             store.setEnabled(!store.enabled)
-        }.disabled(!store.paired || !store.available)
+        }.disabled(!store.available || (!store.enabled && !store.canEnableSwitching))
         Divider()
         Button("Quit Multipass") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }

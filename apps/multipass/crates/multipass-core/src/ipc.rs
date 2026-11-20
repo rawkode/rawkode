@@ -24,6 +24,8 @@ pub enum Command {
     /// Start pairing with a computer from `State::nearby`.
     Pair {
         peer: Uuid,
+        #[serde(default)]
+        replace: bool,
     },
     /// Answer the code prompt for the pairing in progress.
     ConfirmPairing {
@@ -42,14 +44,25 @@ pub struct PairingStatus {
     pub peer_name: String,
     pub code: Option<String>,
     pub incoming: bool,
+    pub locally_confirmed: bool,
+}
+
+#[derive(Clone, Serialize, PartialEq)]
+pub struct Handoff {
+    pub message: String,
+    pub occurred_at: u64,
 }
 
 #[derive(Clone, Serialize, PartialEq)]
 pub struct State {
     pub node_name: String,
     pub local_slot: u8,
+    pub slot_confirmed: bool,
+    pub suggested_slot: Option<u8>,
     pub enabled: bool,
     pub paired: bool,
+    pub paired_peer: Option<PeerSummary>,
+    pub credential_error: Option<String>,
     pub keyboard_present: Option<bool>,
     pub mouse_present: Option<bool>,
     pub network_status: String,
@@ -57,12 +70,13 @@ pub struct State {
     pub nearby: Vec<PeerSummary>,
     pub pairing: Option<PairingStatus>,
     pub last_event: String,
+    pub handoff: Option<Handoff>,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    State { state: State },
+    State { state: Box<State> },
     Result { id: u64, ok: bool, message: String },
 }
 

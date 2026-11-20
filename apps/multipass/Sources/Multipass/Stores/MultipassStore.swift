@@ -12,16 +12,21 @@ final class MultipassStore: ObservableObject {
     @Published private(set) var keyboardPresent: Bool?
     @Published private(set) var mousePresent: Bool?
     @Published private(set) var networkStatus = "Starting Multipass engine…"
-    @Published private(set) var peerCount = 0
     @Published private(set) var paired = false
+    @Published private(set) var pairedPeer: PeerSummary?
+    @Published private(set) var credentialError: String?
     @Published private(set) var nearby: [PeerSummary] = []
     @Published private(set) var pairing: PairingStatus?
     @Published private(set) var message = ""
     @Published private(set) var events: [String] = []
+    @Published private(set) var latestActivity = ""
+    @Published private(set) var handoff: HandoffActivity?
     @Published private(set) var enabled = false
     @Published private(set) var available = false
     @Published private(set) var launchAtLogin = false
     @Published private(set) var localSlot = 1
+    @Published private(set) var slotConfirmed = false
+    @Published private(set) var suggestedSlot: Int?
     @Published private(set) var computerName = "This Mac"
     @Published private(set) var inputMonitoring: InputMonitoringStatus = .notDetermined
     /// Set by the main window so an incoming pairing request can bring it forward.
@@ -36,6 +41,7 @@ final class MultipassStore: ObservableObject {
         engine.onFailure = { [weak self] message in
             self?.available = false
             self?.enabled = false
+            self?.pairing = nil
             self?.networkStatus = "Engine unavailable"
             self?.message = message
         }
@@ -58,11 +64,18 @@ final class MultipassStore: ObservableObject {
         })
     }
 
-    func pair(_ peer: PeerSummary) { message = ""; engine.send("pair", values: ["peer": peer.id.uuidString.lowercased()]) }
+    var canEnableSwitching: Bool { available && paired && slotConfirmed }
+
+    func pair(_ peer: PeerSummary, replacing: Bool) {
+        guard available, credentialError == nil else { return }
+        message = ""
+        engine.send("pair", values: ["peer": peer.id.uuidString.lowercased(), "replace": replacing])
+    }
     func confirmPairing(_ accept: Bool) { engine.send("confirm_pairing", values: ["accept": accept]) }
     func unpair() { engine.send("unpair") }
     func setLocalSlot(_ slot: Int) { engine.send("set_slot", values: ["slot": slot]) }
     func setEnabled(_ value: Bool) {
+        guard available, !value || canEnableSwitching else { return }
         if value { requestInputMonitoring() }
         engine.send("set_enabled", values: ["enabled": value])
     }
@@ -99,10 +112,12 @@ final class MultipassStore: ObservableObject {
         keyboardPresent = state.keyboardPresent
         mousePresent = state.mousePresent
         networkStatus = state.networkStatus
-        peerCount = state.peers
         paired = state.paired
+        pairedPeer = state.pairedPeer
+        credentialError = state.credentialError
         nearby = state.nearby
         if state.pairing != pairing {
+            if pairing?.locallyConfirmed == true && state.pairing == nil { message = "" }
             // A request from another computer needs this person's eyes on the code.
             if let request = state.pairing, request.incoming, pairing?.incoming != true { presentWindow?() }
             pairing = state.pairing
@@ -110,9 +125,14 @@ final class MultipassStore: ObservableObject {
         enabled = state.enabled
         if enabled { requestInputMonitoring() }
         localSlot = state.localSlot
+        slotConfirmed = state.slotConfirmed
+        suggestedSlot = state.suggestedSlot
+        handoff = state.handoff
         computerName = state.nodeName
-        if !state.lastEvent.isEmpty, events.first != state.lastEvent {
-            events.insert(state.lastEvent, at: 0)
+        latestActivity = state.lastEvent == handoff?.message || state.lastEvent == credentialError
+            ? "" : state.lastEvent
+        if !latestActivity.isEmpty, events.first != latestActivity {
+            events.insert(latestActivity, at: 0)
             events = Array(events.prefix(12))
         }
     }

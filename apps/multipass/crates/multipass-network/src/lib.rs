@@ -73,7 +73,7 @@ impl Drop for Revoke {
 }
 
 /// A computer discovered on the local network. Names are self-reported and untrusted.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerSummary {
     pub id: Uuid,
     pub name: String,
@@ -92,7 +92,7 @@ pub enum PairingEvent {
     },
     /// Both people confirmed; install `secret` as the pairing key.
     Completed {
-        peer_name: String,
+        peer: PeerSummary,
         secret: Zeroizing<[u8; 32]>,
     },
     Failed {
@@ -104,7 +104,7 @@ impl fmt::Debug for PairingEvent {
         match self {
             Self::Started { peer_name } => write!(f, "Started({peer_name})"),
             Self::Code { peer_name, .. } => write!(f, "Code({peer_name})"),
-            Self::Completed { peer_name, .. } => write!(f, "Completed({peer_name})"),
+            Self::Completed { peer, .. } => write!(f, "Completed({})", peer.name),
             Self::Failed { message } => write!(f, "Failed({message})"),
         }
     }
@@ -914,7 +914,10 @@ async fn initiate_pairing(peer: Peer, context: Context) {
                 keys,
                 Role::Initiator,
                 decision,
-                &peer_name,
+                PeerSummary {
+                    id: peer.id,
+                    name: peer_name.clone(),
+                },
                 &context,
             ),
         )
@@ -981,7 +984,10 @@ async fn respond_pairing(mut stream: TcpStream, frame: Vec<u8>, context: Context
                 keys,
                 Role::Responder,
                 decision,
-                &peer_name,
+                PeerSummary {
+                    id: offer.sender,
+                    name: peer_name.clone(),
+                },
                 &context,
             ),
         )
@@ -1002,7 +1008,7 @@ async fn finish_pairing(
     keys: PairingKeys,
     role: Role,
     mut decision: watch::Receiver<Option<bool>>,
-    peer_name: &str,
+    peer: PeerSummary,
     context: &Context,
 ) -> Result<()> {
     let peer_role = match role {
@@ -1022,7 +1028,7 @@ async fn finish_pairing(
                 Ok(())
             }
             "pair_confirm" => bail!("Pairing verification failed"),
-            "pair_reject" => bail!("{peer_name} declined the pairing"),
+            "pair_reject" => bail!("{} declined the pairing", peer.name),
             _ => bail!("Unexpected pairing frame"),
         }
     };
@@ -1052,7 +1058,7 @@ async fn finish_pairing(
         )?;
     }
     context.emit(NetworkEvent::Pairing(PairingEvent::Completed {
-        peer_name: peer_name.to_owned(),
+        peer,
         secret: keys.secret,
     }));
     Ok(())
@@ -1401,6 +1407,12 @@ mod tests {
             PairingEvent::Completed { secret, .. } => Some(**secret),
             _ => None,
         };
+        if let PairingEvent::Completed { peer, .. } = &initiator_final {
+            assert_eq!((peer.id, &peer.name), (responder.id, &responder.name));
+        }
+        if let PairingEvent::Completed { peer, .. } = &responder_final {
+            assert_eq!((peer.id, &peer.name), (initiator.id, &initiator.name));
+        }
         let (a, b) = (secret(&initiator_final), secret(&responder_final));
         initiator_log.push(initiator_final);
         assert!(initiator.pairing.lock().unwrap().is_none());

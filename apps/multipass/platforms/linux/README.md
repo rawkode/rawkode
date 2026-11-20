@@ -5,7 +5,7 @@ Native GTK4 widgets through Python/PyGObject. The Rust engine owns devices, netw
 On Debian/Ubuntu install the native runtime and Rust engine build dependencies:
 
 ```sh
-sudo apt install python3-gi gir1.2-gtk-4.0 libudev-dev pkg-config libdbus-1-dev
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-dbusmenu-glib-0.4 libudev-dev pkg-config libdbus-1-dev
 ```
 
 Use an unlocked Secret Service provider such as GNOME Keyring or KWallet for credentials. The engine does not fall back to plaintext secret storage. Bluetooth and HID device access must be available to the normal desktop user; do not launch the GUI as root. Local network discovery requires multicast DNS and the engine's peer connection to pass the host firewall.
@@ -28,7 +28,7 @@ The source installation builds the engine and installs under `~/.local`, includi
 /usr/bin/python3 multipass.py --engine ../../target/release/multipass-engine
 ```
 
-Choose this computer's mouse slot, pair with the other computer, then enable switching. **Keep the window open while switching. Closing it stops the engine and quits.** GTK4 has no built-in cross-desktop system tray API, so this version has an explicit window lifetime rather than a hidden process. Minimize it to keep switching. Suspend-gap handling lives in the engine.
+Pair with the other computer, confirm this computer's mouse slot, then enable automatic switching. Closing the window keeps the engine running. Use the tray to reopen settings or pause or resume switching. If your desktop has no StatusNotifier tray host, reopen Multipass from the application launcher. Choose **Quit Multipass** in the tray or window to stop the engine. Suspend-gap handling lives in the engine.
 
 The pairing confirmation code is shown in a transient dialog and never written to settings or logs. Accepting or declining is sent through the private pipe; the pairing key itself never reaches the UI.
 

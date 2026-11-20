@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
+use multipass_network::PeerSummary;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
@@ -9,14 +10,25 @@ pub struct Settings {
     pub version: u8,
     pub node_id: Uuid,
     pub local_slot: u8,
+    #[serde(default = "legacy_slot_confirmed")]
+    pub slot_confirmed: bool,
+    #[serde(default)]
+    pub paired_peer: Option<PeerSummary>,
     pub enabled: bool,
 }
+// Existing installations already use their saved slot for switching.
+fn legacy_slot_confirmed() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             version: 1,
             node_id: Uuid::new_v4(),
             local_slot: 1,
+            slot_confirmed: false,
+            paired_peer: None,
             enabled: false,
         }
     }
@@ -112,6 +124,14 @@ pub fn delete_secret() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn existing_settings_keep_their_mouse_slot_without_requiring_setup() {
+        let old = serde_json::json!({"version": 1, "node_id": Uuid::new_v4(), "local_slot": 2, "enabled": true});
+        let settings: Settings = serde_json::from_value(old).unwrap();
+        assert!(settings.slot_confirmed && settings.enabled);
+        assert_eq!(settings.local_slot, 2);
+        assert!(settings.paired_peer.is_none());
+    }
+    #[test]
     fn settings_round_trip_and_corruption_is_not_a_default() {
         let directory = tempfile::tempdir().unwrap();
         let store = ConfigStore {
@@ -119,7 +139,9 @@ mod tests {
             _lock: None,
         };
         let mut settings = store.load().unwrap();
+        assert!(!settings.slot_confirmed);
         settings.local_slot = 2;
+        settings.slot_confirmed = true;
         store.save(&settings).unwrap();
         assert_eq!(store.load().unwrap().node_id, settings.node_id);
         assert_eq!(store.load().unwrap().local_slot, 2);

@@ -24,7 +24,7 @@ def main():
     applications = prefix / "share/applications"
     for directory in (target, binaries, applications):
         directory.mkdir(parents=True, exist_ok=True)
-    for name in ("multipass.py", "engine_client.py", "pairing_dialogs.py"):
+    for name in ("multipass.py", "engine_client.py", "pairing_dialogs.py", "tray.py"):
         shutil.copy2(source / name, target / name)
     shutil.copyfile(engine, target / "multipass-engine")
     (target / "multipass-engine").chmod(0o755)

@@ -45,11 +45,14 @@ internal sealed class EngineClient : IAsyncDisposable
         }
     }
 
-    public async Task<long> SendAsync(string command, string? field = null, object? value = null)
+    public Task<long> SendAsync(string command, string field, object? value) =>
+        SendAsync(command, (field, value));
+
+    public async Task<long> SendAsync(string command, params (string Field, object? Value)[] fields)
     {
         var id = Interlocked.Increment(ref nextId);
         var payload = new Dictionary<string, object?> { ["id"] = id, ["command"] = command };
-        if (field is not null) payload[field] = value;
+        foreach (var (field, value) in fields) payload.Add(field, value);
         var serialized = JsonSerializer.Serialize(payload);
         if (System.Text.Encoding.UTF8.GetByteCount(serialized) + 1 > 8192)
         {

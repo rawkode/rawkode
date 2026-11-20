@@ -9,6 +9,17 @@ internal static class Program
         if (args.Contains("--stdio"))
         {
             var scenario = Environment.GetEnvironmentVariable("MULTIPASS_TRANSPORT_TEST_SCENARIO");
+            if (scenario == "replace-pairing")
+            {
+                while (await Console.In.ReadLineAsync() is { } line)
+                {
+                    using var document = JsonDocument.Parse(line);
+                    if (document.RootElement.GetProperty("command").GetString() == "shutdown") return 0;
+                    Console.WriteLine(line);
+                    await Console.Out.FlushAsync();
+                }
+                return 0;
+            }
             Console.WriteLine(JsonSerializer.Serialize(new { type = "started", pid = Environment.ProcessId }));
             await Console.Out.FlushAsync();
             if (scenario == "malformed") { Console.WriteLine("not JSON"); await Console.Out.FlushAsync(); }
@@ -42,7 +53,23 @@ internal static class Program
             await client.SendAsync("status"); // Faulted clients discard follow-up commands.
             Console.WriteLine($"PASS {scenario}: transport failed closed and stopped owned engine");
         }
+        await VerifyReplacementFieldsAsync();
         Environment.SetEnvironmentVariable("MULTIPASS_TRANSPORT_TEST_SCENARIO", null);
         return 0;
+    }
+
+    private static async Task VerifyReplacementFieldsAsync()
+    {
+        Environment.SetEnvironmentVariable("MULTIPASS_TRANSPORT_TEST_SCENARIO", "replace-pairing");
+        await using var client = new EngineClient(Environment.ProcessPath);
+        var received = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Received += value => received.TrySetResult(value);
+        if (!client.Start()) throw new Exception("Fixture engine could not start");
+        var id = await client.SendAsync("pair", ("peer", "replacement-peer"), ("replace", true));
+        var command = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (command.GetProperty("id").GetInt64() != id || command.GetProperty("command").GetString() != "pair" ||
+            command.GetProperty("peer").GetString() != "replacement-peer" || !command.GetProperty("replace").GetBoolean())
+            throw new Exception("Replacement pairing did not send its peer and explicit consent");
+        Console.WriteLine("PASS replace-pairing: command carried the peer and explicit consent");
     }
 }

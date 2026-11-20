@@ -6,13 +6,14 @@ def spaced(code):
     return f"{code[:3]} {code[3:]}" if len(code) == 6 else code
 
 
-def show_pairing(parent, pairing, decide):
+def show_pairing(parent, pairing, decide, replacing=False):
     """Show the code for the pairing in progress. Returns the window; close it with
     ``settle()`` when the engine reports the pairing finished, so closing does not
     count as a decline."""
     name = pairing["peer_name"]
     incoming = pairing["incoming"]
     code = pairing.get("code")
+    confirmed = pairing.get("locally_confirmed", False)
     window = Gtk.Window(title="Pair with another computer", transient_for=parent, modal=True, destroy_with_parent=True)
     window.set_default_size(460, 220)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -29,7 +30,12 @@ def show_pairing(parent, pairing, decide):
         window.close()
         decide(accept)
 
-    if code is None:
+    if confirmed:
+        box.append(Gtk.Label(label=f"Confirmed here. Confirm on {name}.", xalign=0, wrap=True))
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda _: window.close())
+        buttons.append(close)
+    elif code is None:
         box.append(Gtk.Label(label=f"Connecting to “{name}”…", xalign=0, wrap=True))
         cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", lambda _: answer(False))
@@ -41,6 +47,9 @@ def show_pairing(parent, pairing, decide):
         digits.add_css_class("title-1")
         box.append(digits)
         box.append(Gtk.Label(label=f"Confirm only if {name} shows the same code. Both computers must confirm.", xalign=0, wrap=True))
+        if incoming and replacing:
+            box.append(Gtk.Label(label="Accepting replaces your current pairing and pauses automatic switching.",
+                                 xalign=0, wrap=True))
         decline = Gtk.Button(label="Decline" if incoming else "Cancel")
         accept = Gtk.Button(label="Accept" if incoming else "Confirm")
         accept.add_css_class("suggested-action")
@@ -48,12 +57,12 @@ def show_pairing(parent, pairing, decide):
         accept.connect("clicked", lambda _: answer(True))
         buttons.append(decline)
         buttons.append(accept)
-        window.set_default_widget(accept)
+        window.set_default_widget(decline if incoming and replacing else accept)
     box.append(buttons)
 
     def closed(*_):
         # Closing the prompt with the window button declines, unless the engine already finished.
-        if not state["settled"]:
+        if not state["settled"] and not confirmed:
             state["settled"] = True
             decide(False)
         return False

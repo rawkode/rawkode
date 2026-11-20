@@ -4,6 +4,7 @@ use crate::{
     ipc::{Command, Event, Request},
 };
 use anyhow::{bail, Context as _, Result};
+use multipass_network::PeerSummary;
 
 impl Engine {
     pub(crate) async fn command(&mut self, request: Request) -> Event {
@@ -30,12 +31,13 @@ impl Engine {
                 }
                 let mut settings = self.settings.clone();
                 settings.local_slot = slot;
+                settings.slot_confirmed = true;
                 self.config.save(&settings)?;
                 self.settings = settings;
                 self.state.local_slot = slot;
+                self.state.slot_confirmed = true;
                 self.reset();
-                self.state.last_event =
-                    "Slot changed; waiting for a fresh keyboard connection".into();
+                self.state.last_event = format!("Mouse slot {slot} confirmed for this computer.");
                 Ok(self.state.last_event.clone())
             }
             Command::SetEnabled { enabled } => {
@@ -52,6 +54,9 @@ impl Engine {
                 }
                 if self.secret.is_none() {
                     bail!("Pair your computers before enabling switching");
+                }
+                if !self.state.slot_confirmed {
+                    bail!("Confirm the mouse’s Bluetooth slot for this computer before enabling switching");
                 }
                 let mut settings = self.settings.clone();
                 settings.enabled = true;
@@ -73,9 +78,15 @@ impl Engine {
                 }
                 Ok("Automatic switching on; wait three seconds before testing".into())
             }
-            Command::Pair { peer } => {
+            Command::Pair { peer, replace } => {
+                if let Some(error) = &self.state.credential_error {
+                    bail!("{error}");
+                }
                 if self.state.pairing.is_some() {
                     bail!("Finish the pairing already in progress first");
+                }
+                if self.state.paired && !replace {
+                    bail!("Confirm that you want to replace the current pairing first");
                 }
                 let name = self
                     .state
@@ -91,6 +102,22 @@ impl Engine {
                 Ok(format!("Connecting to {name}"))
             }
             Command::ConfirmPairing { accept } => {
+                if accept {
+                    if let Some(error) = &self.state.credential_error {
+                        bail!("{error}");
+                    }
+                }
+                let pairing = self
+                    .state
+                    .pairing
+                    .as_mut()
+                    .context("No pairing is waiting for an answer")?;
+                if pairing.locally_confirmed {
+                    bail!("Already confirmed here. Waiting for {}.", pairing.peer_name);
+                }
+                if accept && pairing.code.is_none() {
+                    bail!("Wait for the code on both computers before confirming");
+                }
                 let answered = self
                     .network
                     .as_ref()
@@ -100,13 +127,14 @@ impl Engine {
                     bail!("No pairing is waiting for an answer");
                 }
                 Ok(if accept {
-                    "Waiting for the other computer to confirm".into()
+                    pairing.locally_confirmed = true;
+                    format!("Confirmed here. Waiting for {}.", pairing.peer_name)
                 } else {
                     "Pairing cancelled".into()
                 })
             }
             Command::Unpair => {
-                self.disable_switching()?;
+                self.prepare_credential_change()?;
                 config::delete_secret()?;
                 self.secret = None;
                 self.state.paired = false;
@@ -132,24 +160,40 @@ impl Engine {
     }
 
     /// Persist switching off before any credential change, so a partial failure cannot re-arm it.
-    fn disable_switching(&mut self) -> Result<()> {
+    fn prepare_credential_change(&mut self) -> Result<()> {
         let mut settings = self.settings.clone();
         settings.enabled = false;
+        settings.paired_peer = None;
         self.config.save(&settings)?;
         self.settings = settings;
         self.state.enabled = false;
+        self.state.paired_peer = None;
         self.reset();
         Ok(())
     }
 
-    pub(crate) fn install_secret(&mut self, secret: [u8; 32]) -> Result<()> {
-        self.disable_switching()?;
+    pub(crate) fn install_secret(
+        &mut self,
+        secret: [u8; 32],
+        peer: PeerSummary,
+    ) -> Result<Option<String>> {
+        self.prepare_credential_change()?;
         config::save_secret(&secret)?;
         self.secret = Some(secret);
         self.state.paired = true;
         if let Some(network) = &self.network {
             network.set_secret(Some(secret));
         }
-        Ok(())
+        let mut settings = self.settings.clone();
+        settings.paired_peer = Some(peer.clone());
+        if let Err(error) = self.config.save(&settings) {
+            return Ok(Some(format!(
+                "Paired with {}, but its name could not be saved: {error}.",
+                peer.name
+            )));
+        }
+        self.settings = settings;
+        self.state.paired_peer = Some(peer);
+        Ok(None)
     }
 }

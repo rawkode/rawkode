@@ -8,9 +8,9 @@ The shared Rust engine owns device detection, Bonjour discovery, in-band pairing
 | --- | --- | --- |
 | macOS 14+ | SwiftUI menu bar and setup window | Keychain |
 | Windows 10/11 | .NET 8 WinForms window and system tray | Windows Credential Manager |
-| Linux desktop | GTK4 through distro PyGObject | Secret Service (GNOME Keyring or compatible provider) |
+| Linux desktop | GTK4 through distro PyGObject, with a StatusNotifier tray | Secret Service (GNOME Keyring or compatible provider) |
 
-No webviews or browser runtime are used. The engine is a child of its frontend. Closing/quitting the frontend stops it; on Windows, closing the window hides it to the tray, and **Quit** stops it. On Linux keep the window open or minimized. Only one engine may run per user/configuration directory. Setting `MULTIPASS_CONFIG_DIR` runs a separate instance with its own settings and its own pairing key in the credential store, so test or side-by-side engines never prompt for the real installation's key.
+No webviews or browser runtime are used. The engine is a child of its frontend. Quitting the frontend stops it. On Linux and Windows, closing the window hides it to the tray, and **Quit** stops it. On Linux keep the window open or minimized. Only one engine may run per user/configuration directory. Setting `MULTIPASS_CONFIG_DIR` runs a separate instance with its own settings and its own pairing key in the credential store, so test or side-by-side engines never prompt for the real installation's key.
 
 ## Build and run
 
@@ -62,14 +62,14 @@ Installing the package does not enable automatic switching or create pairing cre
 ## Pair your computers
 
 1. Run the same version on both computers on the same local network; discovery and connections work over IPv4 or IPv6, including link-local IPv6 when a VPN or filter blocks IPv4 multicast. Allow local-network/firewall access for mDNS discovery and the engine's TCP listener if the OS asks. A VPN, client-isolated Wi-Fi, or firewall may block discovery or connections.
-2. Set **Mouse slot** to the mouse's existing Bluetooth slot on each computer—for example, desktop **1**, laptop **2**. Multipass does not create Bluetooth pairings.
-3. Each app lists the other computers running Multipass that it can see. Click **Pair…** next to the other computer on either one. Both screens show the same six-digit code; check they match, then **Accept** on the computer that was asked and **Confirm** on the one that asked. Either side can decline, and the prompt times out after two minutes.
+2. Pair with the other computer from **Nearby computers**. Both screens show the same six-digit code. Confirm the matching code on both computers.
+3. Confirm this computer’s **Mouse Bluetooth slot** on each computer. Connect the mouse to check or detect the slot. Use different slots for each computer.
 4. Enable automatic switching on both computers. Wait for discovery and three seconds of device-state settling.
 5. Switch a connected Bluetooth keyboard from the computer that has the mouse to the other computer. Confirm the mouse works on the destination.
 
 Discovery is only how the computers find each other; it proves nothing about who they are. Pairing runs an X25519 key agreement over the LAN connection, and the code you compare is a short authentication string derived from both sides' keys. The initiator commits to its key before the responder reveals its own, so an attacker in the middle cannot search for a key that makes both screens agree. The resulting 32-byte secret is stored in the platform credential store and authorizes every later mouse-switch request; it never crosses the network. Only one pairing prompt is shown at a time, and nothing is stored until both people confirm. **Forget pairing** removes the key.
 
-The Mac UI can open Input Monitoring settings and register itself as a login item. Windows offers a tray menu. Linux has an explicit close-to-quit window lifetime; no cross-desktop tray or autostart installation is included.
+The Mac UI can open Input Monitoring settings and register itself as a login item. Linux and Windows offer a tray menu. On Linux, close the window to keep switching in the background. Open it again from the tray or application launcher, or use **Quit Multipass** to stop the engine.
 
 The Rust protocol is **version 4**. Upgrade both computers together. Existing pairing keys and mouse slots are retained.
 

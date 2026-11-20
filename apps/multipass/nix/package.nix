@@ -11,6 +11,7 @@
   rcodesign,
   python3,
   gtk4,
+  libdbusmenu,
   wrapGAppsHook4,
   gobject-introspection,
   makeWrapper,
@@ -41,6 +42,7 @@ let
       ../platforms/linux/multipass.py
       ../platforms/linux/engine_client.py
       ../platforms/linux/pairing_dialogs.py
+      ../platforms/linux/tray.py
     ];
   };
   engine = rustPlatform.buildRustPackage {
@@ -106,7 +108,10 @@ let
     ];
     buildInputs =
       lib.optionals stdenv.hostPlatform.isDarwin [ apple-sdk_14 ]
-      ++ lib.optionals stdenv.hostPlatform.isLinux [ gtk4 ];
+      ++ lib.optionals stdenv.hostPlatform.isLinux [
+        gtk4
+        libdbusmenu
+      ];
     doInstallCheck = stdenv.hostPlatform.isLinux;
     installCheckPhase = ''
       runHook preInstallCheck
@@ -138,7 +143,7 @@ let
         ''
           runHook preInstall
           mkdir -p "$out/share/multipass" "$out/bin"
-          cp platforms/linux/{multipass.py,engine_client.py,pairing_dialogs.py} "$out/share/multipass/"
+          cp platforms/linux/{multipass.py,engine_client.py,pairing_dialogs.py,tray.py} "$out/share/multipass/"
           makeWrapper ${python}/bin/python3 "$out/bin/multipass" \
             --add-flags "$out/share/multipass/multipass.py" \
             --set-default MULTIPASS_LISTEN_PORT ${toString listenPort} \

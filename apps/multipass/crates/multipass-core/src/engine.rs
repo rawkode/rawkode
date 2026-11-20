@@ -1,10 +1,11 @@
 use crate::{
     config::{self, ConfigStore, Settings},
-    ipc::{Event, PairingStatus, Request, State},
+    ipc::{Event, Handoff, PairingStatus, Request, State},
     keyboards::{Address, Keyboards},
     policy::SETTLE,
 };
 use anyhow::Result;
+use multipass_hardware::{HardwareError, SwitchOutcome};
 use multipass_network::{keyboard_key, Lease, Network, NetworkEvent, PairingEvent};
 use std::{
     sync::{
@@ -50,24 +51,34 @@ impl Engine {
         let config = ConfigStore::system()?;
         let settings = config.load()?;
         config.save(&settings)?;
-        let (secret, warning) = match config::load_secret() {
-            Ok(secret) => (secret, String::new()),
-            Err(error) => (None, error.to_string()),
+        let (secret, credential_error) = match config::load_secret() {
+            Ok(secret) => (secret, None),
+            Err(error) => (
+                None,
+                Some(format!(
+                    "{error}. Check the credential store, then reopen Multipass."
+                )),
+            ),
         };
         let state = State {
             node_name: hostname::get()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| "This computer".into()),
             local_slot: settings.local_slot,
+            slot_confirmed: settings.slot_confirmed,
+            suggested_slot: None,
             enabled: false,
             paired: secret.is_some(),
+            paired_peer: secret.and(settings.paired_peer.clone()),
             keyboard_present: None,
             mouse_present: None,
             network_status: "Starting discovery".into(),
             peers: 0,
             nearby: Vec::new(),
             pairing: None,
-            last_event: warning,
+            last_event: credential_error.clone().unwrap_or_default(),
+            credential_error,
+            handoff: None,
         };
         let (done_tx, done_rx) = mpsc::unbounded_channel();
         let mut engine = Self {
@@ -88,7 +99,8 @@ impl Engine {
             done_tx,
             done_rx,
         };
-        engine.state.enabled = engine.settings.enabled && engine.secret.is_some();
+        engine.state.enabled =
+            engine.settings.enabled && engine.settings.slot_confirmed && engine.secret.is_some();
         // Discovery runs whenever the engine does, so unpaired computers can find each other.
         if let Err(error) = engine.start_network().await {
             engine.state.network_status = error.to_string();
@@ -99,12 +111,14 @@ impl Engine {
     pub async fn run(mut self, mut commands: mpsc::Receiver<Request>, mut emit: impl FnMut(Event)) {
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        self.check_mouse_access().await;
+        if self.state.enabled {
+            self.check_mouse_access().await;
+        }
         let mut last_state = None;
         loop {
             if last_state.as_ref() != Some(&self.state) {
                 emit(Event::State {
-                    state: self.state.clone(),
+                    state: Box::new(self.state.clone()),
                 });
                 last_state = Some(self.state.clone());
             }
@@ -113,7 +127,7 @@ impl Engine {
                     let Some(command) = command else { break };
                     let stop = matches!(command.command, crate::ipc::Command::Shutdown);
                     emit(self.command(command).await);
-                    emit(Event::State { state: self.state.clone() });
+                    emit(Event::State { state: Box::new(self.state.clone()) });
                     last_state = Some(self.state.clone());
                     if stop { break; }
                 }
@@ -131,7 +145,7 @@ impl Engine {
                 }
                 Some((generation, message)) = self.done_rx.recv() => {
                     self.switching = None;
-                    if generation == self.generation { self.state.last_event = message; }
+                    if generation == self.generation { self.record_handoff(message); }
                 }
             }
         }
@@ -144,20 +158,36 @@ impl Engine {
     /// keys Input Monitoring to the app's code signature, so a rebuilt ad-hoc
     /// signed app loses the grant while System Settings still shows it on.
     pub(crate) async fn check_mouse_access(&mut self) -> Option<String> {
-        if !self.state.enabled {
+        if !self.state.enabled && self.state.slot_confirmed {
             return None;
         }
         match tokio::task::spawn_blocking(multipass_hardware::probe).await {
-            Ok(Err(multipass_hardware::HardwareError::Access(detail))) => {
-                let message = format!(
-                    "The OS is blocking Multipass from talking to the mouse ({detail}). \
-                     On macOS open Input Monitoring settings, turn Multipass off and on again, then restart Multipass."
-                );
+            Ok(Ok(info)) if (1..=3).contains(&info.current_slot) => {
+                self.state.suggested_slot = Some(info.current_slot);
+                None
+            }
+            Ok(Err(HardwareError::Access(_))) => {
+                self.state.suggested_slot = None;
+                let message = mouse_access_guidance().to_owned();
                 self.state.last_event = message.clone();
                 Some(message)
             }
-            _ => None,
+            _ => {
+                self.state.suggested_slot = None;
+                None
+            }
         }
+    }
+
+    fn record_handoff(&mut self, message: String) {
+        self.state.last_event.clone_from(&message);
+        self.state.handoff = Some(Handoff {
+            message,
+            occurred_at: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        });
     }
 
     pub(crate) fn reset(&mut self) {
@@ -205,6 +235,7 @@ impl Engine {
                     peer_name,
                     code: None,
                     incoming: false,
+                    locally_confirmed: false,
                 });
             }
             PairingEvent::Code {
@@ -221,16 +252,17 @@ impl Engine {
                     peer_name,
                     code: Some(code),
                     incoming,
+                    locally_confirmed: false,
                 });
             }
-            PairingEvent::Completed { peer_name, secret } => {
+            PairingEvent::Completed { peer, secret } => {
                 self.state.pairing = None;
-                self.state.last_event = match self.install_secret(*secret) {
-                    Ok(()) => format!(
-                        "Paired with {peer_name}; turn on automatic switching on both computers"
-                    ),
+                let peer_name = peer.name.clone();
+                self.state.last_event = match self.install_secret(*secret, peer) {
+                    Ok(Some(warning)) => warning,
+                    Ok(None) => format!("Paired with {peer_name}."),
                     Err(error) => {
-                        format!("Paired with {peer_name}, but the key was not saved: {error}")
+                        format!("Could not save pairing with {peer_name}: {error}. Pair again on both computers.")
                     }
                 };
             }
@@ -268,6 +300,11 @@ impl Engine {
         .await;
         match snapshot {
             Ok(Ok((connected, mouse_present))) => {
+                if !mouse_present {
+                    self.state.suggested_slot = None;
+                } else if self.state.mouse_present != Some(true) && !self.state.slot_confirmed {
+                    self.check_mouse_access().await;
+                }
                 self.state.keyboard_present = Some(!connected.is_empty());
                 self.state.mouse_present = Some(mouse_present);
                 *self.last_good_observation.lock().unwrap() = SystemTime::now();
@@ -279,15 +316,15 @@ impl Engine {
                 }
                 let arrivals = self.keyboards.observe(connected, Instant::now());
                 if self.state.enabled && self.state.peers > 0 {
-                    if let Some(network) = &self.network {
-                        for (keyboard, current) in arrivals {
+                    for (keyboard, current) in arrivals {
+                        if let Some(network) = &self.network {
                             network
                                 .announce(self.settings.local_slot, keyboard, current)
                                 .await;
-                            self.state.last_event = format!(
-                                "Keyboard arrived; requesting mouse slot {}",
+                            self.record_handoff(format!(
+                                "Keyboard arrived here. Requesting the mouse on slot {}.",
                                 self.settings.local_slot
-                            );
+                            ));
                         }
                     }
                 }
@@ -296,6 +333,7 @@ impl Engine {
             failure => {
                 self.state.keyboard_present = None;
                 self.state.mouse_present = None;
+                self.state.suggested_slot = None;
                 self.reset();
                 self.state.last_event = match failure {
                     Ok(Err(error)) => format!("Device detection unavailable: {error}"),
@@ -309,9 +347,12 @@ impl Engine {
         if !self.state.enabled
             || self.suspended
             || self.switching.is_some()
-            || claim.slot == self.settings.local_slot
             || !claim.lease.is_valid()
         {
+            return;
+        }
+        if claim.slot == self.settings.local_slot {
+            self.record_handoff(format!("Both computers use mouse slot {} in Multipass. Check the mouse’s Bluetooth slot on each computer and update the one that differs.", claim.slot));
             return;
         }
         if self.pending_claims.len() >= 32 {
@@ -351,7 +392,10 @@ impl Engine {
                     self.keyboards.consume_departure(address);
                 }
                 self.pending_claims.clear();
-                self.state.last_event = "Multiple keyboard moves matched; mouse unchanged".into();
+                self.record_handoff(
+                    "Multiple keyboards moved. Switch one keyboard at a time to move the mouse."
+                        .into(),
+                );
             }
             _ => {}
         }
@@ -375,18 +419,7 @@ impl Engine {
                         .and_then(|last| SystemTime::now().duration_since(*last).ok())
                         .is_some_and(|age| age < Duration::from_secs(2))
             });
-            let message = match result {
-                Ok(multipass_hardware::SwitchOutcome::Acknowledged) => {
-                    format!("Mouse acknowledged slot {slot}; destination unconfirmed")
-                }
-                Ok(multipass_hardware::SwitchOutcome::Departed) => {
-                    format!("Mouse left this computer for slot {slot}")
-                }
-                Ok(multipass_hardware::SwitchOutcome::AlreadyOnTarget) => {
-                    format!("Mouse already uses slot {slot}")
-                }
-                Err(error) => format!("Mouse unchanged or switch unconfirmed: {error}"),
-            };
+            let message = handoff_outcome(slot, result);
             let _ = done.send((generation, message));
         });
     }
@@ -401,6 +434,41 @@ impl Engine {
         self.last_poll = SystemTime::now();
         self.reset();
         self.start_network().await
+    }
+}
+
+fn mouse_access_guidance() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Mouse access is blocked. Open Input Monitoring in System Settings, allow Multipass, then quit and reopen it."
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "Mouse access is blocked. Check the MX Master 4 hidraw permissions for your desktop session, then reconnect the mouse."
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "Mouse access is blocked. Reconnect the MX Master 4 in Bluetooth settings and close other apps using its controls."
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        "Mouse access is blocked. Check this computer’s HID device permissions."
+    }
+}
+
+fn handoff_outcome(slot: u8, result: Result<SwitchOutcome, HardwareError>) -> String {
+    match result {
+        Ok(SwitchOutcome::Acknowledged) =>
+            format!("Mouse acknowledged slot {slot}. Check the pointer on the other computer."),
+        Ok(SwitchOutcome::Departed) =>
+            format!("Mouse left this computer for slot {slot}. Check the pointer on the other computer."),
+        Ok(SwitchOutcome::AlreadyOnTarget) => format!("Mouse already uses slot {slot}."),
+        Err(HardwareError::Access(_)) => mouse_access_guidance().to_owned(),
+        Err(HardwareError::MouseUnavailable) =>
+            "Couldn’t reach the MX Master 4. Connect it to this computer, then switch the keyboard again.".into(),
+        Err(HardwareError::Uncertain(_)) =>
+            format!("Mouse switch to slot {slot} is unconfirmed. Check which computer has the pointer."),
+        Err(error) => format!("Mouse handoff stopped: {error}. Check the mouse and keyboard connections before trying again."),
     }
 }
 

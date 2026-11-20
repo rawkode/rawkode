@@ -58,3 +58,25 @@ fn shutdown_is_framed_and_stops_without_waiting_for_stdin_eof() {
         "Shutdown must be acknowledged, not merely exit after startup failure"
     );
 }
+
+#[test]
+fn confirming_the_default_slot_survives_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    for first_run in [true, false] {
+        let mut child = start(directory.path());
+        let mut stdin = child.stdin.take().unwrap();
+        if first_run {
+            writeln!(stdin, r#"{{"id":1,"command":"set_slot","slot":1}}"#).unwrap();
+        }
+        writeln!(stdin, r#"{{"id":2,"command":"shutdown"}}"#).unwrap();
+        wait_bounded(&mut child);
+        let states: Vec<serde_json::Value> = BufReader::new(child.stdout.take().unwrap())
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(&line.unwrap()).unwrap())
+            .filter_map(|mut event| event.get_mut("state").map(serde_json::Value::take))
+            .collect();
+        assert_eq!(states.first().unwrap()["slot_confirmed"], !first_run);
+        assert_eq!(states.last().unwrap()["slot_confirmed"], true);
+        assert_eq!(states.last().unwrap()["local_slot"], 1);
+    }
+}
