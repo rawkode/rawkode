@@ -7,10 +7,6 @@ mkApp {
 
   linux.home =
     { lib, ... }:
-    let
-      # Chrome Dev's Default profile is the rawkode.academy account.
-      chromeAcademy = "chrome-dev:Default";
-    in
     {
       imports = [ inputs.flipper.homeModules.default ];
 
@@ -26,7 +22,7 @@ mkApp {
               name = "Sigstore sign-in";
               domains = [ "oauth2.sigstore.dev" ];
               action = "open";
-              profile = chromeAcademy;
+              profile = "firefox-nightly:3pzugki6.default#container-1";
             }
           ];
         };
