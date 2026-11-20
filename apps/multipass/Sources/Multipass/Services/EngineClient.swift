@@ -30,6 +30,7 @@ struct EngineState: Decodable {
     let keyboardPresent: Bool?
     let mousePresent: Bool?
     let networkStatus: String
+    let peers: Int
     let nearby: [PeerSummary]
     let pairing: PairingStatus?
     let lastEvent: String
