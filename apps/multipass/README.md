@@ -71,14 +71,14 @@ Discovery is only how the computers find each other; it proves nothing about who
 
 The Mac UI can open Input Monitoring settings and register itself as a login item. Linux and Windows offer a tray menu. On Linux, close the window to keep switching in the background. Open it again from the tray or application launcher, or use **Quit Multipass** to stop the engine.
 
-The Rust protocol is **version 4**. Upgrade both computers together. Existing pairing keys and mouse slots are retained.
+The Rust protocol is **version 5**. Upgrade both computers together. Existing pairing keys and mouse slots are retained.
 
 ## Switching safeguards
 
 - Multipass uses Bluetooth device metadata to match the keyboard across computers. A keyboard must expose the same Bluetooth identity on both hosts to be matched. Keyboards that use a different address per slot cannot be matched. Missing keyboard metadata can pause handoff until the OS reports a complete device state. The mouse must be an MX Master 4 (`046D:B042`). Keyboard input reports are never captured.
 - A keyboard must leave the computer that has the mouse and settle on a paired computer before the mouse moves. Startup, settings changes, enabling switching, and resume establish a fresh baseline. Unknown device state or conflicting observations cancel pending handoffs.
 - The source requires a recent departure of the matching keyboard, the mouse still connected, and a different valid target slot. Before sending ChangeHost once, it verifies the keyboard is still absent and the claim is still authorized.
-- Each session uses a fresh random challenge and HMAC-SHA256 to authenticate the sender, receiver, slot, protocol version, and keyboard identifier. Claims expire after three seconds. Connection loss, keyboard departure from the destination, pause, or process shutdown revokes the claim. Frames, sessions, peer fan-out, and connection counts are bounded.
+- Each session uses a fresh random challenge and HMAC-SHA256 to authenticate the sender, receiver, slot, protocol version, and keyboard identifier. Claims expire after eight seconds. When a source matches a departure to an arrival, it sends an authenticated confirmation so both computers can display the keyboard move. Connection loss, keyboard departure from the destination, pause, or process shutdown revokes the claim. Frames, sessions, peer fan-out, and connection counts are bounded.
 - Observation and network propagation introduce a small unavoidable race; this is not an atomic transaction across hardware. Requests are never queued for offline peers, and uncertain switch writes are never retried.
 - HID++ feature indices are discovered dynamically. Source acknowledgement and source departure are reported separately; neither proves destination connectivity. HID response waits are bounded, but the underlying OS write cannot be forcibly interrupted.
 - Switch claims are authenticated; discovery metadata is untrusted. Neither is encrypted. Pairing secrets are derived on both computers and never sent over the network. Recent activity is held in memory; the app does not log keyboard input or credentials.

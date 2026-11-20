@@ -22,7 +22,7 @@ use subtle::ConstantTimeEq;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     task::{JoinHandle, JoinSet},
     time::{sleep, timeout},
 };
@@ -31,7 +31,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "_multipass._tcp.local.";
-const VERSION: u8 = 4;
+const VERSION: u8 = 5;
 const FRAME_MAX: usize = 4096;
 const SESSION_LIMIT: usize = 64;
 const FANOUT_LIMIT: usize = 32;
@@ -43,7 +43,7 @@ const DECISION_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long a verified switch claim stays valid on the receiver. The source may
 /// still see the keyboard for a moment after it moved, so this leaves time for
 /// its departure to register before the mouse follows.
-pub const CLAIM_WINDOW: Duration = Duration::from_secs(3);
+pub const CLAIM_WINDOW: Duration = Duration::from_secs(8);
 
 #[derive(Clone, Debug)]
 pub struct Lease {
@@ -120,6 +120,10 @@ pub enum NetworkEvent {
         key: [u8; 32],
         nonce: [u8; 32],
         lease: Lease,
+        matched: oneshot::Sender<()>,
+    },
+    KeyboardMovedHere {
+        source: Uuid,
     },
     Pairing(PairingEvent),
 }
@@ -561,6 +565,13 @@ fn mac(claim: &Claim, secret: &[u8; 32]) -> Hmac<Sha256> {
     mac.update(&claim.nonce);
     mac
 }
+fn move_receipt(claim: &Claim, secret: &[u8; 32]) -> Hmac<Sha256> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts 32 byte keys");
+    mac.update(b"multipass-keyboard-moved\0");
+    mac.update(&claim.signature);
+    mac
+}
+
 pub fn keyboard_key(address: [u8; 6], nonce: &[u8; 32], secret: &[u8; 32]) -> [u8; 32] {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts 32 byte keys");
     mac.update(b"multipass-keyboard-address");
@@ -677,7 +688,7 @@ async fn receive_claim(
         challenge,
         consumed: false,
     };
-    let claim = {
+    let (claim, receipt) = {
         let guard = context
             .secret
             .lock()
@@ -685,23 +696,40 @@ async fn receive_claim(
         let Some(secret) = guard.as_ref() else {
             bail!("Not paired");
         };
-        verifier.verify(&frame, secret)?
+        let claim = verifier.verify(&frame, secret)?;
+        let receipt = move_receipt(&claim, secret).finalize().into_bytes();
+        (claim, receipt)
     };
     let lease = Lease::new(context.stopped.clone());
     let _revoke = Revoke(lease.clone());
     if !lease.is_valid() {
         return Ok(());
     }
+    let (matched, confirmation) = oneshot::channel();
     context.emit(NetworkEvent::Claim {
         sender: claim.sender,
         slot: claim.slot,
         key: claim.key,
         nonce: claim.nonce,
         lease,
+        matched,
     });
     let mut extra = [0; 1];
     // EOF, any extra byte, errors and timeout all revoke via the RAII guard.
-    let _ = timeout(CLAIM_WINDOW, stream.read(&mut extra)).await;
+    let _ = timeout(CLAIM_WINDOW, async {
+        tokio::select! {
+            biased;
+            _ = stream.read(&mut extra) => return Ok::<_, std::io::Error>(()),
+            result = confirmation => {
+                if result.is_ok() {
+                    stream.write_all(&receipt).await?;
+                }
+            }
+        }
+        stream.read(&mut extra).await?;
+        Ok(())
+    })
+    .await;
     Ok(())
 }
 async fn send_claim(
@@ -722,7 +750,7 @@ async fn send_claim(
         {
             bail!("Invalid challenge or stale attachment");
         }
-        let claim = {
+        let (claim, receipt) = {
             let guard = context
                 .secret
                 .lock()
@@ -730,9 +758,23 @@ async fn send_claim(
             let Some(secret) = guard.as_ref() else {
                 bail!("Not paired");
             };
-            sign(context.id, slot, keyboard, &challenge, secret)
+            let claim = sign(context.id, slot, keyboard, &challenge, secret);
+            let receipt = move_receipt(&claim, secret);
+            (claim, receipt)
         };
         write_json(&mut stream, &claim).await?;
+        let mut signature = [0; 32];
+        match stream.read_exact(&mut signature).await {
+            Ok(_) => receipt
+                .verify_slice(&signature)
+                .map_err(|_| anyhow::anyhow!("Invalid keyboard move confirmation"))?,
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+        if current.load(Ordering::Acquire) {
+            context.emit(NetworkEvent::KeyboardMovedHere { source: peer.id });
+        }
+        // Keep the session open so receiving the confirmation does not revoke the switch lease.
         let mut extra = [0; 1];
         let _ = stream.read(&mut extra).await;
         Ok(())
@@ -1208,10 +1250,11 @@ mod tests {
         )
     }
     #[tokio::test]
-    async fn loopback_claim_revoked_when_keyboard_leaves() {
+    async fn loopback_confirms_move_and_revokes_claim_when_keyboard_leaves() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let (receiver, mut events) = context(Uuid::new_v4(), Some([42; 32]));
-        let (sender, _) = context(Uuid::new_v4(), Some([42; 32]));
+        let (sender, mut sender_events) = context(Uuid::new_v4(), Some([42; 32]));
+        let source = receiver.id;
         let peer = Peer {
             id: receiver.id,
             name: receiver.name.clone(),
@@ -1228,14 +1271,25 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let lease = match timeout(Duration::from_secs(2), events.recv())
+        let (lease, matched) = match timeout(Duration::from_secs(2), events.recv())
             .await
             .unwrap()
             .unwrap()
         {
-            NetworkEvent::Claim { slot: 2, lease, .. } => lease,
+            NetworkEvent::Claim {
+                slot: 2,
+                lease,
+                matched,
+                ..
+            } => (lease, matched),
             _ => panic!("Expected claim"),
         };
+        assert!(lease.is_valid());
+        matched.send(()).unwrap();
+        assert!(matches!(
+            timeout(Duration::from_secs(2), sender_events.recv()).await.unwrap(),
+            Some(NetworkEvent::KeyboardMovedHere { source: actual }) if actual == source
+        ));
         assert!(lease.is_valid());
         current.store(false, Ordering::Release);
         timeout(Duration::from_secs(1), sending)

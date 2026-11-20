@@ -14,12 +14,15 @@ use std::{
     },
     time::{Duration, Instant, SystemTime},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 /// Device presence is re-read this often; it bounds how quickly a keyboard arrival is noticed.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 struct ArrivalClaim {
+    sender: Uuid,
+    matched: oneshot::Sender<()>,
     slot: u8,
     key: [u8; 32],
     nonce: [u8; 32],
@@ -136,8 +139,12 @@ impl Engine {
                     match event {
                         Some(NetworkEvent::Status(message)) => self.state.network_status = message,
                         Some(NetworkEvent::Peers(nearby)) => { self.state.peers = nearby.len(); self.state.nearby = nearby; }
-                        Some(NetworkEvent::Claim { sender: _, slot, key, nonce, lease }) => {
-                            self.receive_claim(ArrivalClaim { slot, key, nonce, lease, ready: Instant::now() + SETTLE });
+                        Some(NetworkEvent::Claim { sender, slot, key, nonce, lease, matched }) => {
+                            self.receive_claim(ArrivalClaim { sender, slot, key, nonce, lease, matched, ready: Instant::now() + SETTLE });
+                        }
+                        Some(NetworkEvent::KeyboardMovedHere { source }) => {
+                            let source = self.peer_name(source);
+                            self.record_handoff(format!("Bluetooth keyboard moved from {source} to this computer."));
                         }
                         Some(NetworkEvent::Pairing(event)) => self.pairing_event(event),
                         None => { self.network_events = None; self.state.network_status = "Networking stopped".into(); }
@@ -326,7 +333,7 @@ impl Engine {
                     };
                     self.record_handoff(message);
                 }
-                if self.state.enabled && self.state.peers > 0 {
+                if self.state.enabled {
                     for (keyboard, current) in changes.arrivals {
                         if let Some(network) = &self.network {
                             network
@@ -378,7 +385,7 @@ impl Engine {
         let Some(secret) = self.secret.as_ref() else {
             return;
         };
-        if self.switching.is_some() || self.state.mouse_present != Some(true) {
+        if self.switching.is_some() {
             return;
         }
         let matches: Vec<_> = self
@@ -396,7 +403,20 @@ impl Engine {
             &[(index, address)] if self.pending_claims[index].ready <= Instant::now() => {
                 let claim = self.pending_claims.swap_remove(index);
                 self.keyboards.consume_departure(address);
-                self.start_switch(address, claim.slot, claim.lease);
+                let destination = self.peer_name(claim.sender);
+                let message = format!(
+                    "Bluetooth keyboard moved to {destination} (slot {}).",
+                    claim.slot
+                );
+                let _ = claim.matched.send(());
+                if self.state.mouse_present == Some(true) {
+                    self.record_handoff(message.clone());
+                    self.start_switch(address, claim.slot, claim.lease, message);
+                } else {
+                    self.record_handoff(format!(
+                        "{message} The MX Master 4 was not connected here."
+                    ));
+                }
             }
             [_, _, ..] => {
                 for (_, address) in matches {
@@ -412,7 +432,15 @@ impl Engine {
         }
     }
 
-    fn start_switch(&mut self, keyboard: Address, slot: u8, lease: Lease) {
+    fn peer_name(&self, id: Uuid) -> &str {
+        self.settings
+            .paired_peer
+            .as_ref()
+            .filter(|peer| peer.id == id)
+            .map_or("a paired computer", |peer| peer.name.as_str())
+    }
+
+    fn start_switch(&mut self, keyboard: Address, slot: u8, lease: Lease, message: String) {
         self.permission.store(false, Ordering::SeqCst);
         self.permission = Arc::new(AtomicBool::new(true));
         self.switching = Some(keyboard);
@@ -430,7 +458,7 @@ impl Engine {
                         .and_then(|last| SystemTime::now().duration_since(*last).ok())
                         .is_some_and(|age| age < Duration::from_secs(2))
             });
-            let message = handoff_outcome(slot, result);
+            let message = format!("{message} {}", handoff_outcome(slot, result));
             let _ = done.send((generation, message));
         });
     }

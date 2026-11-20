@@ -1,3 +1,5 @@
+use multipass_network::CLAIM_WINDOW;
+
 use crate::policy::{BASELINE, SETTLE};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -5,7 +7,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 pub(crate) type Address = [u8; 6];
@@ -62,7 +64,7 @@ impl Keyboards {
             false
         });
         self.departed.retain(|address, departed| {
-            !connected.contains(address) && now.duration_since(*departed) < Duration::from_secs(8)
+            !connected.contains(address) && now.duration_since(*departed) < CLAIM_WINDOW
         });
         for address in connected {
             self.present.entry(address).or_insert_with(|| Arrival {
@@ -154,7 +156,7 @@ mod tests {
             observed.recent_departures().collect::<Vec<_>>(),
             vec![[2; 6]]
         );
-        observed.observe(vec![], left + Duration::from_secs(8));
+        observed.observe(vec![], left + CLAIM_WINDOW);
         assert!(observed.recent_departures().next().is_none());
     }
 
