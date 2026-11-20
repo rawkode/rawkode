@@ -23,6 +23,24 @@ mkApp {
     let
       cfg = config.rawkOS.development.cuenv;
       cuenvPkgs = inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system};
+      # Compile GPUI's Metal shaders at runtime so Nix builds do not need Xcode.
+      # Upstream uses an explicit Cargo command, so cargoExtraArgs is insufficient.
+      runtimeShaders = old: {
+        buildPhase =
+          lib.replaceStrings [ "--bin cuetty" ] [ "--bin cuetty --features gpui/runtime_shaders" ]
+            old.buildPhase;
+      };
+      cuetty =
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          cuenvPkgs.cuetty.overrideAttrs (
+            old:
+            runtimeShaders old
+            // {
+              cargoArtifacts = old.cargoArtifacts.overrideAttrs runtimeShaders;
+            }
+          )
+        else
+          cuenvPkgs.cuetty;
     in
     {
       options.rawkOS.development.cuenv.cuetty.enable = lib.mkEnableOption "cuetty terminal" // {
@@ -32,7 +50,7 @@ mkApp {
       config = {
         nix.settings = cuenvCache;
 
-        home.packages = [ cuenvPkgs.cuenv ] ++ lib.optionals cfg.cuetty.enable [ cuenvPkgs.cuetty ];
+        home.packages = [ cuenvPkgs.cuenv ] ++ lib.optionals cfg.cuetty.enable [ cuetty ];
 
         xdg.configFile."cuetty/config.cue" = lib.mkIf cfg.cuetty.enable {
           source = ./cuetty.cue;
