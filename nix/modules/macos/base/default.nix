@@ -11,7 +11,7 @@
         inputs.self.darwinModules.power
       ];
 
-      homebrew.onActivation.cleanup = "zap";
+      homebrew.onActivation.cleanup = "none";
 
       programs.zsh.enable = true;
       environment.shells = [
