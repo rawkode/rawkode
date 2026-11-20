@@ -10,6 +10,12 @@ use std::{
 
 pub(crate) type Address = [u8; 6];
 
+#[derive(Default)]
+pub(crate) struct KeyboardChanges {
+    pub(crate) arrivals: Vec<(Address, Arc<AtomicBool>)>,
+    pub(crate) departures: usize,
+}
+
 struct Arrival {
     ready: Instant,
     current: Arc<AtomicBool>,
@@ -40,13 +46,10 @@ impl Keyboards {
         *self = Self::new(now);
     }
 
-    pub(crate) fn observe(
-        &mut self,
-        connected: Vec<Address>,
-        now: Instant,
-    ) -> Vec<(Address, Arc<AtomicBool>)> {
+    pub(crate) fn observe(&mut self, connected: Vec<Address>, now: Instant) -> KeyboardChanges {
         let connected: BTreeSet<_> = connected.into_iter().collect();
         let armed = self.observed && now >= self.ready;
+        let mut changes = KeyboardChanges::default();
         self.present.retain(|address, arrival| {
             if connected.contains(address) {
                 return true;
@@ -54,6 +57,7 @@ impl Keyboards {
             arrival.current.store(false, Ordering::Release);
             if armed && now >= arrival.ready {
                 self.departed.insert(*address, now);
+                changes.departures += 1;
             }
             false
         });
@@ -69,14 +73,13 @@ impl Keyboards {
         }
         self.observed = true;
 
-        let mut arrivals = Vec::new();
         for (address, arrival) in &mut self.present {
             if !arrival.announced && now >= arrival.ready {
                 arrival.announced = true;
-                arrivals.push((*address, arrival.current.clone()));
+                changes.arrivals.push((*address, arrival.current.clone()));
             }
         }
-        arrivals
+        changes
     }
 
     pub(crate) fn recent_departures(&self) -> impl Iterator<Item = Address> + '_ {
@@ -98,11 +101,14 @@ mod tests {
         let start = Instant::now();
         let keyboard = [1; 6];
         let mut observed = Keyboards::new(start);
-        assert!(observed.observe(vec![keyboard], start).is_empty());
+        assert!(observed.observe(vec![keyboard], start).arrivals.is_empty());
         let reset = start + BASELINE;
-        assert!(observed.observe(vec![keyboard], reset).is_empty());
+        assert!(observed.observe(vec![keyboard], reset).arrivals.is_empty());
         observed.reset(reset);
-        assert!(observed.observe(vec![], reset + BASELINE).is_empty());
+        assert!(observed
+            .observe(vec![], reset + BASELINE)
+            .arrivals
+            .is_empty());
         assert!(observed.recent_departures().next().is_none());
     }
 
@@ -114,7 +120,7 @@ mod tests {
         let mut observed = Keyboards::new(start);
         observed.observe(vec![keyboard, stationary], start);
         let departure = start + BASELINE;
-        observed.observe(vec![stationary], departure);
+        assert_eq!(observed.observe(vec![stationary], departure).departures, 1);
         assert_eq!(
             observed.recent_departures().collect::<Vec<_>>(),
             vec![keyboard]
@@ -123,10 +129,13 @@ mod tests {
         let reconnect = departure + SETTLE;
         assert!(observed
             .observe(vec![keyboard, stationary], reconnect)
+            .arrivals
             .is_empty());
         assert!(observed.recent_departures().next().is_none());
         let settled = reconnect + SETTLE;
-        let arrivals = observed.observe(vec![keyboard, stationary], settled);
+        let arrivals = observed
+            .observe(vec![keyboard, stationary], settled)
+            .arrivals;
         assert_eq!(arrivals.len(), 1);
         assert_eq!(arrivals[0].0, keyboard);
         observed.observe(vec![stationary], settled + SETTLE);
@@ -160,7 +169,9 @@ mod tests {
         destination.observe(vec![], start);
         let move_at = start + BASELINE;
         destination.observe(vec![moving, unrelated], move_at);
-        let arrivals = destination.observe(vec![moving, unrelated], move_at + SETTLE);
+        let arrivals = destination
+            .observe(vec![moving, unrelated], move_at + SETTLE)
+            .arrivals;
         assert_eq!(arrivals.len(), 2);
         assert!(source.recent_departures().next().is_none());
         source.observe(vec![], move_at + SETTLE);

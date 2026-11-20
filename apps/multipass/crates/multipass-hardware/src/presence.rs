@@ -290,7 +290,7 @@ mod macos {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_keyboard_paths() -> Result<Vec<std::path::PathBuf>, HardwareError> {
+fn linux_keyboard_identifiers() -> Result<Vec<String>, HardwareError> {
     use std::{fs, io};
 
     let scan = || -> io::Result<Vec<_>> {
@@ -316,7 +316,7 @@ fn linux_keyboard_paths() -> Result<Vec<std::path::PathBuf>, HardwareError> {
                     io::Error::new(io::ErrorKind::InvalidData, "Invalid input capabilities")
                 })?;
             if low_word & letter_row == letter_row {
-                keyboards.push(path);
+                keyboards.push(fs::read_to_string(path.join("uniq"))?);
             }
         }
         Ok(keyboards)
@@ -334,15 +334,9 @@ fn linux_keyboard_paths() -> Result<Vec<std::path::PathBuf>, HardwareError> {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn connected_keyboard_addresses() -> Result<Vec<[u8; 6]>, HardwareError> {
-    use std::fs;
-
-    linux_keyboard_paths()?
+    linux_keyboard_identifiers()?
         .into_iter()
-        .map(|path| {
-            let identity = fs::read_to_string(path.join("uniq"))
-                .map_err(|error| HardwareError::Enumeration(error.to_string()))?;
-            bluetooth_address(&identity).ok_or_else(missing_keyboard_address)
-        })
+        .map(|identity| bluetooth_address(&identity).ok_or_else(missing_keyboard_address))
         .collect()
 }
 

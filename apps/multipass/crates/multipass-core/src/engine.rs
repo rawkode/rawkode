@@ -314,9 +314,20 @@ impl Engine {
                 {
                     self.permission.store(false, Ordering::SeqCst);
                 }
-                let arrivals = self.keyboards.observe(connected, Instant::now());
+                let changes = self.keyboards.observe(connected, Instant::now());
+                if changes.departures > 0 {
+                    let message = if changes.departures == 1 {
+                        "A Bluetooth keyboard disconnected from this computer.".to_owned()
+                    } else {
+                        format!(
+                            "{} Bluetooth keyboards disconnected from this computer.",
+                            changes.departures
+                        )
+                    };
+                    self.record_handoff(message);
+                }
                 if self.state.enabled && self.state.peers > 0 {
-                    for (keyboard, current) in arrivals {
+                    for (keyboard, current) in changes.arrivals {
                         if let Some(network) = &self.network {
                             network
                                 .announce(self.settings.local_slot, keyboard, current)
