@@ -295,7 +295,8 @@ internal sealed class MainWindow : Form
                             : paired ? "Paired computer unknown" : "Not paired — choose a nearby computer.";
                         if (pairedPeerId is not null && !nearby.Any(peer => peer.Id == pairedPeerId))
                             pairing.Text += $"\nOpen Multipass on {currentPeerName} and connect both computers to the same local network.";
-                        network.Text = $"{state.GetProperty("node_name").GetString()} · {state.GetProperty("network_status").GetString()}";
+                        var build = state.TryGetProperty("build", out var buildElement) ? buildElement.GetString() : null;
+                        network.Text = $"{state.GetProperty("node_name").GetString()} · {state.GetProperty("network_status").GetString()} · build {build ?? "unknown"}";
                         RenderPeers();
                         var pairingElement = state.GetProperty("pairing");
                         RenderPairing(pairingElement.ValueKind == JsonValueKind.Null ? null : pairingElement);

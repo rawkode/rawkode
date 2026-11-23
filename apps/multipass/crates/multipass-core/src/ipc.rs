@@ -55,6 +55,8 @@ pub struct Handoff {
 
 #[derive(Clone, Serialize, PartialEq)]
 pub struct State {
+    /// Source revision of this engine build, shown so both computers can be compared.
+    pub build: String,
     pub node_name: String,
     pub local_slot: u8,
     pub slot_confirmed: bool,

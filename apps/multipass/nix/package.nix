@@ -17,6 +17,7 @@
   makeWrapper,
   makeDesktopItem,
   writeShellScript,
+  revision ? "unknown",
 }:
 let
   listenPort = 25180;
@@ -57,6 +58,8 @@ let
       ];
     };
     cargoLock.lockFile = ../Cargo.lock;
+    # The sandbox has no Git checkout, so build.rs takes the revision from here.
+    env.MULTIPASS_BUILD_REVISION = revision;
     nativeBuildInputs = lib.optionals stdenv.hostPlatform.isLinux [ pkg-config ];
     buildInputs =
       lib.optionals stdenv.hostPlatform.isLinux [

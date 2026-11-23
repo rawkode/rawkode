@@ -19,7 +19,11 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          packages = pkgs.callPackage ./nix/package.nix { };
+          packages = pkgs.callPackage ./nix/package.nix {
+            # A `path:` input (as rawkOS uses) has no Git revision; its content hash still identifies the build.
+            revision =
+              self.shortRev or self.dirtyShortRev or "path-${builtins.substring 7 12 (self.narHash or "")}";
+          };
         in
         {
           default = packages.multipass;

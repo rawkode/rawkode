@@ -276,7 +276,7 @@ class MultipassWindow(Gtk.ApplicationWindow):
                         self.slot.set_selected(selected_slot - 1)
                     self.enabled.set_active(state["enabled"])
                     self.devices.set_text(f"Keyboard: {self.device(state['keyboard_present'])}    Mouse: {self.device(state['mouse_present'])}")
-                    self.network.set_text(f"{state['node_name']} · {state['network_status']}")
+                    self.network.set_text(f"{state['node_name']} · {state['network_status']} · build {state.get('build', 'unknown')}")
                     if self.paired_peer:
                         pairing_label = f"Paired with {self.paired_peer['name']}"
                     else:

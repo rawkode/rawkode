@@ -1,7 +1,7 @@
 use crate::{
     config::{self, ConfigStore, Settings},
     ipc::{Event, Handoff, PairingStatus, Request, State},
-    keyboards::{Address, Keyboards},
+    keyboards::{display_address, display_addresses, Address, Keyboards},
     policy::SETTLE,
 };
 use anyhow::Result;
@@ -64,6 +64,7 @@ impl Engine {
             ),
         };
         let state = State {
+            build: env!("MULTIPASS_BUILD_REVISION").to_owned(),
             node_name: hostname::get()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| "This computer".into()),
@@ -322,13 +323,14 @@ impl Engine {
                     self.permission.store(false, Ordering::SeqCst);
                 }
                 let changes = self.keyboards.observe(connected, Instant::now());
-                if changes.departures > 0 {
-                    let message = if changes.departures == 1 {
-                        "A Bluetooth keyboard disconnected from this computer.".to_owned()
+                if !changes.departures.is_empty() {
+                    let addresses = display_addresses(changes.departures.iter().copied());
+                    let message = if changes.departures.len() == 1 {
+                        format!("Bluetooth keyboard {addresses} disconnected from this computer.")
                     } else {
                         format!(
-                            "{} Bluetooth keyboards disconnected from this computer.",
-                            changes.departures
+                            "{} Bluetooth keyboards disconnected from this computer: {addresses}.",
+                            changes.departures.len()
                         )
                     };
                     self.record_handoff(message);
@@ -340,7 +342,8 @@ impl Engine {
                                 .announce(self.settings.local_slot, keyboard, current)
                                 .await;
                             self.record_handoff(format!(
-                                "Keyboard arrived here. Requesting the mouse on slot {}.",
+                                "Keyboard {} arrived here. Requesting the mouse on slot {}.",
+                                display_address(keyboard),
                                 self.settings.local_slot
                             ));
                         }
@@ -404,8 +407,11 @@ impl Engine {
         if let Some((sender, slot)) = expired {
             if self.state.mouse_present == Some(true) && self.switching.is_none() {
                 let peer = self.peer_name(sender);
+                // The request carries only a keyed hash of the remote address, so list
+                // what left here; a mismatch usually means a missing keyboard link.
+                let departed = display_addresses(self.keyboards.recent_departures());
                 self.record_handoff(format!(
-                    "Mouse request from {peer} (slot {slot}) ended without a matching Bluetooth keyboard departure."
+                    "Mouse request from {peer} (slot {slot}) ended without a matching Bluetooth keyboard departure. Recent departures here: {departed}."
                 ));
             }
         }
@@ -432,13 +438,13 @@ impl Engine {
                 self.finish_match(index, address);
             }
             [_, _, ..] => {
+                let moved = display_addresses(matches.iter().map(|&(_, address)| address));
                 for (_, address) in matches {
                     self.keyboards.consume_departure(address);
                 }
                 self.pending_claims.clear();
                 self.record_handoff(
-                    "Multiple keyboards moved. Switch one keyboard at a time to move the mouse."
-                        .into(),
+                    format!("Multiple keyboards moved ({moved}). Switch one keyboard at a time to move the mouse."),
                 );
             }
             _ => {}
@@ -465,7 +471,8 @@ impl Engine {
         self.keyboards.consume_departure(address);
         let destination = self.peer_name(claim.sender);
         let message = format!(
-            "Bluetooth keyboard moved to {destination} (slot {}).",
+            "Bluetooth keyboard {} moved to {destination} (slot {}).",
+            display_address(address),
             claim.slot
         );
         let _ = claim.matched.send(());

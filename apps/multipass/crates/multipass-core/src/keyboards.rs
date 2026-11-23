@@ -12,10 +12,28 @@ use std::{
 
 pub(crate) type Address = [u8; 6];
 
+/// Formats a Bluetooth address as the OS reports it, e.g. `CA:FE:39:E6:C0:A0`.
+pub(crate) fn display_address(address: Address) -> String {
+    address
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+pub(crate) fn display_addresses(addresses: impl IntoIterator<Item = Address>) -> String {
+    let formatted: Vec<_> = addresses.into_iter().map(display_address).collect();
+    if formatted.is_empty() {
+        "none".to_owned()
+    } else {
+        formatted.join(", ")
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct KeyboardChanges {
     pub(crate) arrivals: Vec<(Address, Arc<AtomicBool>)>,
-    pub(crate) departures: usize,
+    pub(crate) departures: Vec<Address>,
 }
 
 struct Arrival {
@@ -64,7 +82,7 @@ impl Keyboards {
             arrival.current.store(false, Ordering::Release);
             if armed && now >= arrival.ready {
                 self.departed.insert(*address, now);
-                changes.departures += 1;
+                changes.departures.push(*address);
             }
             false
         });
@@ -127,7 +145,13 @@ mod tests {
         let mut observed = Keyboards::new(start);
         observed.observe(vec![keyboard, stationary], start);
         let departure = start + BASELINE;
-        assert_eq!(observed.observe(vec![stationary], departure).departures, 1);
+        assert_eq!(
+            observed
+                .observe(vec![stationary], departure)
+                .departures
+                .len(),
+            1
+        );
         assert_eq!(
             observed.recent_departures().collect::<Vec<_>>(),
             vec![keyboard]
@@ -168,7 +192,7 @@ mod tests {
             vec![stationary],
             settled + std::time::Duration::from_millis(200),
         );
-        assert_eq!(recovered.departures, 1);
+        assert_eq!(recovered.departures.len(), 1);
         assert_eq!(observed.recent_departures().next(), Some(moving));
     }
 

@@ -19,6 +19,7 @@ struct HandoffActivity: Decodable, Equatable {
 }
 
 struct EngineState: Decodable {
+    let build: String?
     let nodeName: String
     let localSlot: Int
     let slotConfirmed: Bool

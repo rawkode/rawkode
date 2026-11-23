@@ -117,7 +117,13 @@ private struct MouseSlotView: View {
         GroupBox("This Mac") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text(store.computerName).fontWeight(.medium)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(store.computerName).fontWeight(.medium)
+                        Text("Build \(store.build)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                     Spacer()
                     Picker("Mouse slot", selection: Binding(get: { slot }, set: { chosenSlot = $0 })) {
                         ForEach(1...3, id: \.self) { Text("\($0)").tag($0) }

@@ -28,6 +28,7 @@ final class MultipassStore: ObservableObject {
     @Published private(set) var slotConfirmed = false
     @Published private(set) var suggestedSlot: Int?
     @Published private(set) var computerName = "This Mac"
+    @Published private(set) var build = "unknown"
     @Published private(set) var inputMonitoring: InputMonitoringStatus = .notDetermined
     /// Set by the main window so an incoming pairing request can bring it forward.
     var presentWindow: (() -> Void)?
@@ -129,6 +130,7 @@ final class MultipassStore: ObservableObject {
         suggestedSlot = state.suggestedSlot
         handoff = state.handoff
         computerName = state.nodeName
+        build = state.build ?? "unknown"
         latestActivity = state.lastEvent == handoff?.message || state.lastEvent == credentialError
             ? "" : state.lastEvent
         if !latestActivity.isEmpty, events.first != latestActivity {
