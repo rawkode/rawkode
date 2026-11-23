@@ -56,11 +56,35 @@ impl Settings {
     ) -> bool {
         let matches = |address| multipass_network::keyboard_key(address, nonce, secret) == *key;
         matches(local)
+            || slot_siblings(local).any(matches)
             || self
                 .keyboard_links
                 .iter()
                 .any(|group| group.contains(&local) && group.iter().copied().any(matches))
     }
+}
+
+/// Multi-host keyboards commonly present one Bluetooth address per host slot, differing
+/// only in the final byte (for example `…:A0` on slot 1 and `…:A1` on slot 2). Requests
+/// carry a keyed hash rather than the address, so the receiver tries each nearby final
+/// byte. Departures are still required here, so a sibling can only match a keyboard that
+/// actually left this computer; keyboards with unrelated per-slot addresses need a link.
+const SLOT_ADDRESS_SPREAD: u8 = 2;
+
+fn slot_siblings(address: [u8; 6]) -> impl Iterator<Item = [u8; 6]> {
+    (1..=SLOT_ADDRESS_SPREAD).flat_map(move |offset| {
+        [
+            address[5].checked_sub(offset),
+            address[5].checked_add(offset),
+        ]
+        .into_iter()
+        .flatten()
+        .map(move |last| {
+            let mut sibling = address;
+            sibling[5] = last;
+            sibling
+        })
+    })
 }
 
 // Existing installations already use their saved slot for switching.
@@ -175,8 +199,8 @@ mod tests {
     fn linked_addresses_match_in_both_directions_only_for_the_configured_keyboard() {
         let mut settings = Settings::default();
         let first = [1, 2, 3, 4, 5, 6];
-        let second = [1, 2, 3, 4, 5, 7];
-        let unrelated = [1, 2, 3, 4, 5, 8];
+        let second = [9, 8, 7, 6, 5, 4];
+        let unrelated = [1, 2, 3, 4, 6, 6];
         let nonce = [3; 32];
         let secret = [4; 32];
         let first_key = multipass_network::keyboard_key(first, &nonce, &secret);
@@ -184,13 +208,37 @@ mod tests {
         assert!(settings.keyboard_matches(first, &nonce, &secret, &first_key));
         assert!(!settings.keyboard_matches(first, &nonce, &secret, &second_key));
 
-        let addresses = ["01:02:03:04:05:06".into(), "01-02-03-04-05-07".into()];
+        let addresses = ["01:02:03:04:05:06".into(), "09-08-07-06-05-04".into()];
         settings.link_keyboard(&addresses).unwrap();
         settings.link_keyboard(&addresses).unwrap();
         assert_eq!(settings.keyboard_links.len(), 1);
         assert!(settings.keyboard_matches(first, &nonce, &secret, &second_key));
         assert!(settings.keyboard_matches(second, &nonce, &secret, &first_key));
         assert!(!settings.keyboard_matches(unrelated, &nonce, &secret, &first_key));
+    }
+
+    #[test]
+    fn per_slot_addresses_differing_in_the_final_byte_match_without_a_link() {
+        let settings = Settings::default();
+        let nonce = [3; 32];
+        let secret = [4; 32];
+        let key = |address| multipass_network::keyboard_key(address, &nonce, &secret);
+        let slot_one = [0xCA, 0xFE, 0x39, 0xE6, 0xC0, 0xA0];
+        for remote in [
+            [0xCA, 0xFE, 0x39, 0xE6, 0xC0, 0xA1],
+            [0xCA, 0xFE, 0x39, 0xE6, 0xC0, 0xA2],
+        ] {
+            assert!(settings.keyboard_matches(slot_one, &nonce, &secret, &key(remote)));
+            assert!(settings.keyboard_matches(remote, &nonce, &secret, &key(slot_one)));
+        }
+        for unrelated in [
+            [0xCA, 0xFE, 0x39, 0xE6, 0xC0, 0xA3],
+            [0xCA, 0xFE, 0x39, 0xE6, 0xC1, 0xA0],
+        ] {
+            assert!(!settings.keyboard_matches(slot_one, &nonce, &secret, &key(unrelated)));
+        }
+        let edge = [0, 0, 0, 0, 0, 0xFF];
+        assert!(settings.keyboard_matches(edge, &nonce, &secret, &key([0, 0, 0, 0, 0, 0xFE])));
     }
 
     #[test]

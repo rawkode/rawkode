@@ -8,6 +8,7 @@ use anyhow::Result;
 use multipass_hardware::{HardwareError, SwitchOutcome};
 use multipass_network::{keyboard_key, Lease, Network, NetworkEvent, PairingEvent};
 use std::{
+    collections::BTreeSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -28,6 +29,8 @@ struct ArrivalClaim {
     nonce: [u8; 32],
     lease: Lease,
     ready: Instant,
+    /// Departures observed here while the request was pending, reported if it expires.
+    departures_seen: BTreeSet<Address>,
 }
 
 pub struct Engine {
@@ -42,6 +45,7 @@ pub struct Engine {
     last_good_observation: Arc<Mutex<SystemTime>>,
     suspended: bool,
     switching: Option<Address>,
+    connected_keyboards: Vec<Address>,
     pending_claims: Vec<ArrivalClaim>,
     generation: u64,
     last_poll: SystemTime,
@@ -97,6 +101,7 @@ impl Engine {
             last_good_observation: Arc::new(Mutex::new(SystemTime::UNIX_EPOCH)),
             suspended: false,
             switching: None,
+            connected_keyboards: Vec::new(),
             pending_claims: Vec::new(),
             generation: 0,
             last_poll: SystemTime::now(),
@@ -141,7 +146,7 @@ impl Engine {
                         Some(NetworkEvent::Status(message)) => self.state.network_status = message,
                         Some(NetworkEvent::Peers(nearby)) => { self.state.peers = nearby.len(); self.state.nearby = nearby; }
                         Some(NetworkEvent::Claim { sender, slot, key, nonce, lease, matched }) => {
-                            self.receive_claim(ArrivalClaim { sender, slot, key, nonce, lease, matched, ready: Instant::now() + SETTLE });
+                            self.receive_claim(ArrivalClaim { sender, slot, key, nonce, lease, matched, ready: Instant::now() + SETTLE, departures_seen: BTreeSet::new() });
                         }
                         Some(NetworkEvent::KeyboardMovedHere { source }) => {
                             let source = self.peer_name(source);
@@ -322,6 +327,7 @@ impl Engine {
                 {
                     self.permission.store(false, Ordering::SeqCst);
                 }
+                self.connected_keyboards.clone_from(&connected);
                 let changes = self.keyboards.observe(connected, Instant::now());
                 if !changes.departures.is_empty() {
                     let addresses = display_addresses(changes.departures.iter().copied());
@@ -398,20 +404,27 @@ impl Engine {
     }
 
     fn match_departure(&mut self) {
+        for claim in &mut self.pending_claims {
+            claim
+                .departures_seen
+                .extend(self.keyboards.recent_departures());
+        }
         let expired = self
             .pending_claims
             .iter()
             .rfind(|claim| !claim.lease.is_valid())
-            .map(|claim| (claim.sender, claim.slot));
+            .map(|claim| (claim.sender, claim.slot, claim.departures_seen.clone()));
         self.pending_claims.retain(|claim| claim.lease.is_valid());
-        if let Some((sender, slot)) = expired {
+        if let Some((sender, slot, departures_seen)) = expired {
             if self.state.mouse_present == Some(true) && self.switching.is_none() {
                 let peer = self.peer_name(sender);
-                // The request carries only a keyed hash of the remote address, so list
-                // what left here; a mismatch usually means a missing keyboard link.
-                let departed = display_addresses(self.keyboards.recent_departures());
+                // The request carries only a keyed hash of the remote address, so list what
+                // left here while it was pending, and what is still connected. A keyboard
+                // still listed as connected means this computer had not yet seen it leave.
+                let departed = display_addresses(departures_seen);
+                let connected = display_addresses(self.connected_keyboards.iter().copied());
                 self.record_handoff(format!(
-                    "Mouse request from {peer} (slot {slot}) ended without a matching Bluetooth keyboard departure. Recent departures here: {departed}."
+                    "Mouse request from {peer} (slot {slot}) ended without a matching Bluetooth keyboard departure. Departures seen here while waiting: {departed}. Keyboards still connected here: {connected}."
                 ));
             }
         }
