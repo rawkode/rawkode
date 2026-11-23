@@ -37,6 +37,16 @@ mkApp {
             runtimeShaders old
             // {
               cargoArtifacts = old.cargoArtifacts.overrideAttrs runtimeShaders;
+              postInstall = (old.postInstall or "") + ''
+                app="$out/Applications/Cuetty.app"
+                mkdir -p "$app/Contents/MacOS"
+                cp "$out/bin/cuetty" "$app/Contents/MacOS/cuetty"
+                substitute ${./cuetty-info.plist} "$app/Contents/Info.plist" \
+                  --replace-fail '@version@' '${old.version}'
+              '';
+              postFixup = (old.postFixup or "") + ''
+                /usr/bin/codesign --force --sign - "$out/Applications/Cuetty.app"
+              '';
             }
           )
         else
