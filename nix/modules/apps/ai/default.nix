@@ -15,7 +15,9 @@ mkApp {
     }:
     let
       cfg = config.rawkOS.apps.ai;
-      agentPackages = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
+      system = pkgs.stdenv.hostPlatform.system;
+      agentPackages = inputs.llm-agents.packages.${system};
+      localPackages = inputs.self.packages.${system};
     in
     {
       config = lib.mkMerge [
@@ -25,7 +27,8 @@ mkApp {
             agentPackages.antigravity-cli
             agentPackages.claude-code
             agentPackages.codex
-          ];
+          ]
+          ++ lib.optional (localPackages ? computer-use-linux) localPackages.computer-use-linux;
         })
         (lib.mkIf cfg.bb.enable {
           home.packages = [ agentPackages.bb-app ];
