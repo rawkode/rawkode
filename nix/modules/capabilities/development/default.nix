@@ -10,6 +10,7 @@ mkCapability {
     visual-studio-code.home
 
     bun.home
+    cloudflare.home
     comma.home
     cuenv.home
     cue.home
