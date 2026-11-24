@@ -44,6 +44,9 @@ mkApp {
             capsule_padding = 8;
             radius = 16;
             background_opacity = 0.96;
+            # Stays on the Top layer, and moves to Overlay while a panel
+            # attached to the bar is open so the panel is never covered.
+            layer = "auto";
 
             start = [
               "workspaces"
@@ -90,9 +93,10 @@ mkApp {
             };
             # Left click keeps the default calendar panel.
             clock.actions.right = "panel-toggle control-center";
-            # Icon only; the SSID and volume level show in the control center.
-            network.show_label = false;
-            volume.show_label = false;
+            # Glyph only; hovering reveals the SSID, volume level or charge.
+            network.peek = true;
+            volume.peek = true;
+            battery.peek = true;
           };
 
           # The control center opens under the clock at the bar's right end.
@@ -126,6 +130,23 @@ mkApp {
               action = "screen_off";
             };
           };
+
+          shell.window_switcher = {
+            style = "grid";
+            mru = true;
+          };
+
+          lockscreen = {
+            # Notifications stay quiet while locked; the previous state returns
+            # on unlock.
+            dnd = true;
+            tint_color = "surface";
+          };
+
+          notification.newest_on_edge = true;
+
+          # Follows the location schedule for day and night brightness.
+          brightness.enable_scheduled_brightness = true;
 
           control_center.width = 1080;
           dock.item_spacing = 8;
