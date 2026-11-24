@@ -330,6 +330,10 @@ mkApp {
             "Mod+Return" = once "spawn cuetty";
             "Mod+Backslash" = once "spawn 1password --quick-access";
             "Mod+Q" = once "window-close";
+            # The overlay stays open while Super is held; a quick tap switches to
+            # the previous window.
+            "Mod+Tab" = once "spawn noctalia msg window-switcher hold";
+            "Mod+Shift+Tab" = once "spawn noctalia msg window-switcher hold reverse";
             "Alt+F4" = once "window-close";
             "Mod+Alt+L" = once "spawn ${lib.getExe' pkgs.systemd "loginctl"} lock-session";
             "Mod+Escape" = "session-quit";
