@@ -1,13 +1,13 @@
-_:
+{ inputs, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix;
 in
 mkApp {
   name = "desktop-defaults";
 
-  # Services GNOME used to enable implicitly: trash, MTP and network mounts in
-  # the file manager, plus removable-drive mounting.
+  # Desktop services for accessibility, network mounts, trash and removable drives.
   linux.system = _: {
+    services.gnome.at-spi2-core.enable = true;
     services.gvfs.enable = true;
     services.udisks2.enable = true;
   };
@@ -57,6 +57,7 @@ mkApp {
           enable-animations = true;
           font-hinting = lib.gvariant.mkString "slight";
           font-antialiasing = lib.gvariant.mkString "rgba";
+          toolkit-accessibility = true;
         };
 
         "org/gnome/desktop/privacy" = {
@@ -71,11 +72,11 @@ mkApp {
         "org/gtk/settings/file-chooser" = file-chooser;
       };
 
-      home.packages = with pkgs; [
-        cosmic-files
-        decibels
-        loupe
-        papers
+      home.packages = [
+        inputs.luciole.packages.${pkgs.stdenv.hostPlatform.system}.default
+        pkgs.decibels
+        pkgs.loupe
+        pkgs.papers
       ];
 
       # Explicit defaults so the session doesn't fall back to whichever app sorts first.
@@ -86,7 +87,7 @@ mkApp {
           let
             forTypes = app: types: lib.genAttrs types (_: [ app ]);
           in
-          forTypes "com.system76.CosmicFiles.desktop" [ "inode/directory" ]
+          forTypes "dev.noctalia.luciole.desktop" [ "inode/directory" ]
           // forTypes "org.gnome.Papers.desktop" [ "application/pdf" ]
           // forTypes "org.gnome.Loupe.desktop" [
             "image/avif"

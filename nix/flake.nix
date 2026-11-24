@@ -83,6 +83,7 @@
     };
     # The cachix branches track the newest commit with prebuilt binaries. These
     # inputs keep their own nixpkgs so store paths match the upstream caches.
+    luciole.url = "github:noctalia-dev/luciole/cachix";
     noctalia.url = "github:noctalia-dev/noctalia/cachix";
     noctalia-greeter.url = "github:noctalia-dev/noctalia-greeter";
     umbriel.url = "github:noctalia-dev/umbriel/cachix";
