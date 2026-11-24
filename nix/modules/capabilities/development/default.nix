@@ -21,6 +21,7 @@ mkCapability {
     devenv.home
     direnv.home
     go.home
+    infisical.home
     just.home
     nh.home
     nix-dev.home
