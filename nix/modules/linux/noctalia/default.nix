@@ -64,6 +64,8 @@ mkApp {
               # Shows only where UPower reports a battery, so desktops are unaffected.
               "battery"
               "notifications"
+              # The next meeting today; a single glyph once nothing is left.
+              "antarctical"
               "clock"
             ];
           };
@@ -74,12 +76,28 @@ mkApp {
             # Needs KDE Connect itself, which desktop-common installs.
             "icefish/phone-connect"
             "noctalia/umbriel-companion"
+            # Not fetched: the Antarctical module links it into the local plugin directory.
+            "korora-tech/antarctical"
           ];
+
+          # Antarctical owns the Google sign-in and mirrors its calendars into this
+          # directory, which fills the control center's Calendar tab.
+          calendar = {
+            enabled = true;
+            account.antarctical = {
+              type = "vdir";
+              name = "Antarctical";
+              path = "~/.local/share/antarctical/calendars";
+            };
+            # Antarctical sends the reminders.
+            reminders.enabled = false;
+          };
 
           widget = {
             # A named instance, because a raw plugin widget id in a bar list
             # cannot carry settings.
             phone.type = "icefish/phone-connect:bar";
+            antarctical.type = "korora-tech/antarctical:bar";
             active_window = {
               display = "icon_only";
               icon_size = 24;
