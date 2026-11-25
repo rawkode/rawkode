@@ -21,11 +21,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1795553934,
-        "narHash": "sha256-kZPZkeGtM4cn59fl1Snx2zsnhITY9jpThZoG+0rjhaI=",
+        "lastModified": 1795624153,
+        "narHash": "sha256-nCm0GPFf7Mjry/S7mx/J3IbZQoECnebJboHYHJ6s1sk=",
         "owner": "korora-tech",
         "repo": "antarctical",
-        "rev": "d6feccfb082aa51900c6f0a57974487bb3d38b4f",
+        "rev": "4d5486940a19cc7b66ed8ec27b7ff429d4710208",
         "type": "github"
       },
       "original": {
@@ -369,11 +369,11 @@
         "nixpkgs": "nixpkgs_5"
       },
       "locked": {
-        "lastModified": 1795543103,
-        "narHash": "sha256-DTGqF1SJohZxSu0TlGV43AnAXgFPD53MjWGkhuUWzrE=",
+        "lastModified": 1795614190,
+        "narHash": "sha256-pP2wwbl0iSeg71Z4MfJ+jTaTM9MGXphf7gJlnE7K5+o=",
         "owner": "korora-tech",
         "repo": "eloquawk",
-        "rev": "b2b75bed81d59534c35cfa14c485193aa0cdd226",
+        "rev": "5ac4e6c433958356e53d64288004acc654ea1f4c",
         "type": "github"
       },
       "original": {

@@ -26,6 +26,9 @@
         after = [ "graphical-session.target" ];
         partOf = [ "graphical-session.target" ];
         wantedBy = [ "graphical-session.target" ];
+        # SSO login hands the sign-in URL to xdg-open, which is not on the
+        # minimal PATH NixOS gives units.
+        path = [ pkgs.xdg-utils ];
         serviceConfig = {
           ExecStart = "${config.services.netbird.clients.default.wrapper}/bin/netbird-ui";
           Restart = "on-failure";
