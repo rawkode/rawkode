@@ -10,7 +10,7 @@ padding: {
 	bottom: 16
 	left:   16
 }
-transparency: 8
+transparency: 32
 keybindings: {
 	palette: "ctrl-k"
 }
