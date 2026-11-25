@@ -131,7 +131,7 @@ mkApp {
         '';
       };
       captureRegion = once (
-        "spawn noctalia msg screenshot-region --no-annotate --no-copy-to-clipboard --no-save-to-file"
+        "spawn noctalia msg screenshot-region --no-annotate --copy-to-clipboard --save-to-file"
         + " --pipe-to-command --format png --pipe-command '${lib.getExe pkgs.satty} --filename - --copy-command ${lib.getExe' pkgs.wl-clipboard "wl-copy"}'"
       );
       workspaceBinds = lib.listToAttrs (
@@ -413,8 +413,9 @@ mkApp {
             "Mod+Shift+S" = once "screencast-set-output";
             "Mod+Ctrl+S" = once "screencast-clear";
             "Mod+Shift+P" = once "dpms-off";
-            # Open Satty after region capture. The second binding also works
-            # on keyboards that lack a dedicated Print key.
+            # Region capture is copied and saved immediately, then opened in
+            # Satty for optional annotation. The second binding also works on
+            # keyboards that lack a dedicated Print key.
             "Print" = captureRegion;
             "Mod+Ctrl+P" = captureRegion;
             "Mod+Print" = once "spawn noctalia msg screenshot-fullscreen";
