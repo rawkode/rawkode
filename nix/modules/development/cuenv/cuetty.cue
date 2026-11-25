@@ -2,7 +2,8 @@ package cuetty
 
 titlebar: false
 font: {
-	size: 16
+	family: "Monaspace Argon"
+	size:   16
 }
 padding: {
 	top:    16
