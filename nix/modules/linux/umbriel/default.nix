@@ -308,6 +308,19 @@ mkApp {
               match.title = "[Gg]mail";
               block_capture = true;
             }
+            {
+              # Claude's Quick Entry popup is a transparent window much larger
+              # than the prompt bar it draws, so compositor decorations would
+              # outline and fill that empty area. It shares its app id and
+              # title with the main window; only the popup opens floating.
+              match = {
+                app_id = "^com.anthropic.Claude$";
+                is_floating = true;
+              };
+              blur = false;
+              border_width = 0;
+              shadow = false;
+            }
           ];
 
           layer_rule = [
