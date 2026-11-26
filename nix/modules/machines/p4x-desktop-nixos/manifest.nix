@@ -63,6 +63,7 @@
             # has to be pinned.
             "HDMI-A-2" = {
               mode = "1920x1080@60";
+              min_workspaces = 4;
               position = [
                 1920
                 0

@@ -53,6 +53,7 @@ mkApp {
       display = {
         vrr = "always";
         hdr = "off";
+        min_workspaces = 4;
       };
       # Umbriel has no mirrored-output mode, so mirroring is a fullscreen
       # wl-mirror window on the first HDMI output, showing either the focused
@@ -279,8 +280,36 @@ mkApp {
               };
             }
             {
-              match.app_id = "^firefox(-nightly)?$";
+              match.app_id = [
+                "^google-chrome-unstable$"
+                "^com\\.google\\.Chrome\\.unstable$"
+                "^firefox(-nightly)?$"
+              ];
               default_workspace = 1;
+            }
+            {
+              match.app_id = [
+                "^cuetty$"
+                "^code$"
+              ];
+              default_workspace = 2;
+            }
+            {
+              match.app_id = [
+                "^com\\.anthropic\\.Claude$"
+                "^chatgpt$"
+                "^antigravity$"
+              ];
+              default_workspace = 3;
+            }
+            {
+              match.app_id = [
+                "^com\\.slack\\.Slack$"
+                "^[Ss]lack$"
+                "^korora\\.tech\\.Eloquawk$"
+                "^korora\\.tech\\.Antarctical$"
+              ];
+              default_workspace = 4;
             }
             {
               match.title = "^(Picture-in-Picture|Picture in picture)$";
@@ -291,14 +320,6 @@ mkApp {
                 y = 16;
                 anchor = "bottom_right";
               };
-            }
-            {
-              match.app_id = "^com.slack.Slack$";
-              default_workspace = 3;
-            }
-            {
-              match.app_id = "^code$";
-              default_workspace = 2;
             }
             {
               match.app_id = "^1Password$";
