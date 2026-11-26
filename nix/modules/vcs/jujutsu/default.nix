@@ -17,9 +17,6 @@ mkApp {
       programs.jujutsu = {
         enable = true;
         settings = {
-          revsets = {
-            git-sign-on-push = "~signed() & mine()";
-          };
           signing = {
             backend = "gpgsm";
             behavior = "drop";

@@ -33,12 +33,11 @@ mkApp {
         programs.git = {
           signing = {
             format = "x509";
-            signByDefault = true;
+            signByDefault = false;
             signer = lib.getExe pkgs.gitsign;
           };
 
           settings = {
-            commit.gpgsign = true;
             gitsign = {
               autoclose = true;
               inherit connectorID;
