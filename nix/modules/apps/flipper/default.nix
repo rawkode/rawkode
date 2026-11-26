@@ -6,17 +6,17 @@ mkApp {
   name = "flipper";
 
   linux.home =
-    { lib, ... }:
+    { config, lib, ... }:
     {
       imports = [ inputs.flipper.homeModules.default ];
 
       programs.flipper = {
         enable = true;
         defaultBrowser = true;
-        nativeMessaging.firefox = true;
+        nativeMessaging.firefox = config.programs.firefox.enable;
         settings = {
           routing.mode = "picker";
-          rules = [
+          rules = lib.optionals config.programs.firefox.enable [
             {
               # gitsign's OIDC sign-in must use the rawkode.academy identity.
               name = "Sigstore sign-in";

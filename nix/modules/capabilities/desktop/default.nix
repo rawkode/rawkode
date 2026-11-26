@@ -45,7 +45,6 @@ mkCapability {
           appBundles.antarctical.home
           appBundles.chinstrap.home
           appBundles.eloquawk.home
-          appBundles.firefox-nightly.home
           appBundles.flipper.home
           appBundles.github-copilot-app.home
           appBundles.google-chrome-dev.home
@@ -69,7 +68,6 @@ mkCapability {
     inputs.self.nixosModules.desktop-common
     inputs.self.nixosModules.greetd
     inputs.self.nixosModules.flatpak
-    inputs.self.nixosModules.firefox-nightly
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.desktop-defaults
     inputs.self.nixosModules.location
@@ -80,7 +78,6 @@ mkCapability {
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rquickshare
     inputs.self.nixosModules.umbriel
-    inputs.self.nixosModules.vivaldi-snapshot
     inputs.self.nixosModules.wayland
     (_: {
       services.printing.enable = true;
@@ -88,11 +85,9 @@ mkCapability {
   ];
 
   darwin = with inputs.self; [
-    appBundles.firefox-nightly.darwin
     appBundles.google-chrome-dev.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
-    appBundles.vivaldi-snapshot.darwin
     appBundles.zed.darwin
 
     darwinModules.apps
