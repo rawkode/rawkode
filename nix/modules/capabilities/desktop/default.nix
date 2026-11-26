@@ -80,6 +80,7 @@ mkCapability {
     inputs.self.nixosModules.portals
     inputs.self.nixosModules.rquickshare
     inputs.self.nixosModules.umbriel
+    inputs.self.nixosModules.vivaldi-snapshot
     inputs.self.nixosModules.wayland
     (_: {
       services.printing.enable = true;
@@ -91,6 +92,7 @@ mkCapability {
     appBundles.google-chrome-dev.darwin
     appBundles.handy.darwin
     appBundles.onepassword.darwin
+    appBundles.vivaldi-snapshot.darwin
     appBundles.zed.darwin
 
     darwinModules.apps
