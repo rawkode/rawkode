@@ -17,7 +17,6 @@
   makeWrapper,
   makeDesktopItem,
   writeShellScript,
-  revision ? "unknown",
 }:
 let
   listenPort = 25180;
@@ -46,20 +45,21 @@ let
       ../platforms/linux/tray.py
     ];
   };
+  engineSource = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.unions [
+      ../Cargo.toml
+      ../Cargo.lock
+      ../crates
+    ];
+  };
   engine = rustPlatform.buildRustPackage {
     pname = "multipass-engine";
     version = "0.2.0";
-    src = lib.fileset.toSource {
-      root = ../.;
-      fileset = lib.fileset.unions [
-        ../Cargo.toml
-        ../Cargo.lock
-        ../crates
-      ];
-    };
+    src = engineSource;
     cargoLock.lockFile = ../Cargo.lock;
-    # The sandbox has no Git checkout, so build.rs takes the revision from here.
-    env.MULTIPASS_BUILD_REVISION = revision;
+    # Use the filtered source hash so its build ID tracks the engine sources.
+    env.MULTIPASS_BUILD_REVISION = "source-${builtins.substring 0 12 (baseNameOf engineSource)}";
     nativeBuildInputs = lib.optionals stdenv.hostPlatform.isLinux [ pkg-config ];
     buildInputs =
       lib.optionals stdenv.hostPlatform.isLinux [
